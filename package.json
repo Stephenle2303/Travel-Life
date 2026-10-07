@@ -1,0 +1,20 @@
+{
+  "name": "travel-life-foundation",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Project workflow and evaluation infrastructure; no application runtime",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "check": "npm run framework:check && npm run test && npm run evals:smoke",
+    "framework:check": "node scripts/framework-check.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "evals:smoke": "node evals/smoke.mjs",
+    "evals:run": "node evals/run.mjs"
+  },
+  "devDependencies": {
+    "ajv": "8.20.0"
+  }
+}

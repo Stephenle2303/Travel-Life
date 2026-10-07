@@ -1,0 +1,458 @@
+{
+  "lock_version": 1,
+  "installed_on": "2026-10-06",
+  "scope": "project",
+  "hash_normalization": "Known text file CRLF normalized to LF; sorted relative path and content SHA-256 inventory",
+  "sources": {
+    "bmad": {
+      "repository": "https://github.com/bmad-code-org/BMAD-METHOD",
+      "version": "6.12.1",
+      "commit": "790dae9c8e2a1d73575cb2d40b14dd4963391f29",
+      "method": "official bmad-method@6.12.1 installer; core+bmm; codex; no-shims"
+    },
+    "ecc": {
+      "repository": "https://github.com/affaan-m/ECC",
+      "version": "2.2.3",
+      "commit": "c05b2d6614f62f6db0047669aa4eefb223d478f9",
+      "method": "Codex skill-installer; selected project-local skills"
+    },
+    "evals": {
+      "repository": "https://github.com/ai-evals-course/evals-skills",
+      "version": null,
+      "commit": "80d5f7b0127c7572ed9e9339937adbfd7240ffeb",
+      "method": "Codex skill-installer; all nine project-local skills"
+    }
+  },
+  "skills": [
+    {
+      "name": "bmad-advanced-elicitation",
+      "source": "bmad",
+      "source_path": "src/core-skills/bmad-advanced-elicitation",
+      "integrity": {
+        "files": 5,
+        "sha256": "58448779e0f1c335a9b19dd1efbb346015ee2d173f3a022113306009332b7149"
+      }
+    },
+    {
+      "name": "bmad-agent-analyst",
+      "source": "bmad",
+      "source_path": "src/bmm-skills/agents/bmad-agent-analyst",
+      "integrity": {
+        "files": 2,
+        "sha256": "4ecdd00f74ad270010c467e3f45aa57b02d04d3630076ddd00d09fab869b134a"
+      }
+    },
+    {
+      "name": "bmad-agent-architect",
+      "source": "bmad",
+      "source_path": "src/bmm-skills/agents/bmad-agent-architect",
+      "integrity": {
+        "files": 2,
+        "sha256": "e2f6abd6dd7d05e095e9977d747f5c39148ff058be342e1f325f9eb2939ef553"
+      }
+    },
+    {
+      "name": "bmad-agent-dev",
+      "source": "bmad",
+      "source_path": "src/bmm-skills/agents/bmad-agent-dev",
+      "integrity": {
+        "files": 2,
+        "sha256": "fbab64c06e04483b14fccfa9316822111fb9981fb98af980a2741fa0effdb384"
+      }
+    },
+    {
+      "name": "bmad-agent-pm",
+      "source": "bmad",
+      "source_path": "src/bmm-skills/agents/bmad-agent-pm",
+      "integrity": {
+        "files": 2,
+        "sha256": "14901d1ae6a175689147cc0b59f28e1bfdbedf747dfd6ab3a22d2bf23a5e4114"
+      }
+    },
+    {
+      "name": "bmad-agent-ux-designer",
+      "source": "bmad",
+      "source_path": "src/bmm-skills/agents/bmad-agent-ux-designer",
+      "integrity": {
+        "files": 2,
+        "sha256": "c18a10e11f33cdc9fc59fa9d9619531210b828f63571704dfa6d054622185ec5"
+      }
+    },
+    {
+      "name": "bmad-architecture",
+      "source": "bmad",
+      "source_path": "src/bmm-skills/plan/bmad-architecture",
+      "integrity": {
+        "files": 7,
+        "sha256": "535a62dcfeebf9393ac23b3f8979ceb95dec0a18e0da48dda1e55c71d7f9d6a2"
+      }
+    },
+    {
+      "name": "bmad-brainstorming",
+      "source": "bmad",
+      "source_path": "src/core-skills/bmad-brainstorming",
+      "integrity": {
+        "files": 15,
+        "sha256": "bbb3575dab868690c69c70b4f7fd01b28f81a72cb3de25457383feab2a939c59"
+      }
+    },
+    {
+      "name": "bmad-build",
+      "source": "bmad",
+      "source_path": "src/bmm-skills/ship/bmad-build",
+      "integrity": {
+        "files": 16,
+        "sha256": "45688a76511b2ea28b5b13489f0b62e7ac3e72ec6b8990a891f4b2324f1f876c"
+      }
+    },
+    {
+      "name": "bmad-build-auto",
+      "source": "bmad",
+      "source_path": "src/bmm-skills/ship/bmad-build-auto",
+      "integrity": {
+        "files": 13,
+        "sha256": "924931fb0e7101d2f6b6b3a7a11b61c70c6e611b79f0be0c6c383c582fc9c392"
+      }
+    },
+    {
+      "name": "bmad-code-review",
+      "source": "bmad",
+      "source_path": "src/bmm-skills/ship/bmad-code-review",
+      "integrity": {
+        "files": 10,
+        "sha256": "65a1231580e65c4c5f9101f8ad783380a5694430be22e20d810699fa20f35231"
+      }
+    },
+    {
+      "name": "bmad-correct-course",
+      "source": "bmad",
+      "source_path": "src/bmm-skills/ship/bmad-correct-course",
+      "integrity": {
+        "files": 3,
+        "sha256": "fc0028aba8ec5d73b908f87e85d758f1e96ced17a8bdacc008ce75441cd7924c"
+      }
+    },
+    {
+      "name": "bmad-create-epics-and-stories",
+      "source": "bmad",
+      "source_path": "src/bmm-skills/plan/bmad-create-epics-and-stories",
+      "integrity": {
+        "files": 7,
+        "sha256": "c2d663fced7369ee79e41ba27b4b6af9d1a2bd74e956388b8564fca5e9dc631b"
+      }
+    },
+    {
+      "name": "bmad-customize",
+      "source": "bmad",
+      "source_path": "src/core-skills/bmad-customize",
+      "integrity": {
+        "files": 3,
+        "sha256": "4db386f886c1b7a4dd2e76950fc988b096fa60e65ef617f29961a96415a9aac0"
+      }
+    },
+    {
+      "name": "bmad-deep-recon",
+      "source": "bmad",
+      "source_path": "src/core-skills/bmad-deep-recon",
+      "integrity": {
+        "files": 20,
+        "sha256": "e8d1ee1521b24e8d29c8a8836530750e784214b848b18115cfcbda266002236a"
+      }
+    },
+    {
+      "name": "bmad-forge-idea",
+      "source": "bmad",
+      "source_path": "src/core-skills/bmad-forge-idea",
+      "integrity": {
+        "files": 4,
+        "sha256": "8e0ae73626f1241848cc41fa5e52ca9df8a46c9ba7586449bfecb6d301ffd49b"
+      }
+    },
+    {
+      "name": "bmad-help",
+      "source": "bmad",
+      "source_path": "src/core-skills/bmad-help",
+      "integrity": {
+        "files": 1,
+        "sha256": "f937ddd6ca7c93de2aa81a5a9e6ad9d31d7d78d9a8610927f55ce497aa28042e"
+      }
+    },
+    {
+      "name": "bmad-party-mode",
+      "source": "bmad",
+      "source_path": "src/core-skills/bmad-party-mode",
+      "integrity": {
+        "files": 9,
+        "sha256": "3b9a5efaaf3834f46506ee60128f29fd2e949e1d779baf2084743a8c059af55e"
+      }
+    },
+    {
+      "name": "bmad-prd",
+      "source": "bmad",
+      "source_path": "src/bmm-skills/plan/bmad-prd",
+      "integrity": {
+        "files": 8,
+        "sha256": "e2fbe92a3de8106c386adf3b78f1b5710c076e1d90e8c213e1603916d2769c11"
+      }
+    },
+    {
+      "name": "bmad-prfaq",
+      "source": "bmad",
+      "source_path": "src/bmm-skills/plan/bmad-prfaq",
+      "integrity": {
+        "files": 10,
+        "sha256": "564c348005cc4c874a6dc73349f4835a35dbfccb5a48999535c9255206a13097"
+      }
+    },
+    {
+      "name": "bmad-product-brief",
+      "source": "bmad",
+      "source_path": "src/bmm-skills/plan/bmad-product-brief",
+      "integrity": {
+        "files": 3,
+        "sha256": "c617321ced67dc4afde2770125537eccc70a30710fa5787563d482c4d300c8c9"
+      }
+    },
+    {
+      "name": "bmad-project-context",
+      "source": "bmad",
+      "source_path": "src/bmm-skills/plan/bmad-project-context",
+      "integrity": {
+        "files": 4,
+        "sha256": "5a3983ca3202f306696c07895bdfa598c466b6d7f4a0b17316f77c6fcf088fb9"
+      }
+    },
+    {
+      "name": "bmad-qa-generate-e2e-tests",
+      "source": "bmad",
+      "source_path": "src/bmm-skills/ship/bmad-qa-generate-e2e-tests",
+      "integrity": {
+        "files": 3,
+        "sha256": "a0e7dc966f5993b0fcd3a4bb98aeed1011fdabaa12f6b065881e1310f1efcb60"
+      }
+    },
+    {
+      "name": "bmad-retrospective",
+      "source": "bmad",
+      "source_path": "src/bmm-skills/ship/bmad-retrospective",
+      "integrity": {
+        "files": 12,
+        "sha256": "484fc9cd25ea92a3a45d426011de3a52cf1317e39f061dd08a3794be6d973941"
+      }
+    },
+    {
+      "name": "bmad-review",
+      "source": "bmad",
+      "source_path": "src/core-skills/bmad-review",
+      "integrity": {
+        "files": 11,
+        "sha256": "ab788f1d3f1ae0d5d0266b53096b875e8fa566fc26c66821daefb778659c2cca"
+      }
+    },
+    {
+      "name": "bmad-spec",
+      "source": "bmad",
+      "source_path": "src/bmm-skills/plan/bmad-spec",
+      "integrity": {
+        "files": 5,
+        "sha256": "c8a2a0d63d3a95b9939e8c29a1045a650a48eb56e12935519dd32727d0a5544e"
+      }
+    },
+    {
+      "name": "bmad-sprint-planning",
+      "source": "bmad",
+      "source_path": "src/bmm-skills/plan/bmad-sprint-planning",
+      "integrity": {
+        "files": 10,
+        "sha256": "a1bab65c251ac62fa7f347260dffeca492b52a1ff6d6e14b163ef85b1af15397"
+      }
+    },
+    {
+      "name": "bmad-ux",
+      "source": "bmad",
+      "source_path": "src/bmm-skills/plan/bmad-ux",
+      "integrity": {
+        "files": 17,
+        "sha256": "cfd159469c4cf48118f1ab386ca5cef1413f83a0f39a5c9706b9ec30e11d6f7b"
+      }
+    },
+    {
+      "name": "bmad-walkthrough",
+      "source": "bmad",
+      "source_path": "src/bmm-skills/ship/bmad-walkthrough",
+      "integrity": {
+        "files": 8,
+        "sha256": "bdfac4cbe6c52ae34fc994ba4b3506e6f1535c8e77170b8c6f40dfe492900d9c"
+      }
+    },
+    {
+      "name": "build-review-interface",
+      "source": "evals",
+      "source_path": "skills/build-review-interface",
+      "integrity": {
+        "files": 2,
+        "sha256": "5e8e410856b2400e56da7e225e6e3cd9a43a4128b4e037b6b3650c8e14d25b91"
+      }
+    },
+    {
+      "name": "coding-standards",
+      "source": "ecc",
+      "source_path": "skills/coding-standards",
+      "integrity": {
+        "files": 1,
+        "sha256": "67a2be62ce71ddcda0803c60d21c54375990e98fcb343691e154785be8244701"
+      }
+    },
+    {
+      "name": "error-discovery",
+      "source": "evals",
+      "source_path": "skills/error-discovery",
+      "integrity": {
+        "files": 3,
+        "sha256": "ab4ea5ab4baedd2defde2888e659d27869d43f76e219a3bc9f4cca5236fcf9ad"
+      }
+    },
+    {
+      "name": "eval-audit",
+      "source": "evals",
+      "source_path": "skills/eval-audit",
+      "integrity": {
+        "files": 2,
+        "sha256": "a79e4a37a58e1e62258493a14990b61ed49ec6832adfa5259039d5ae4ce0ffb6"
+      }
+    },
+    {
+      "name": "evals-start",
+      "source": "evals",
+      "source_path": "skills/evals-start",
+      "integrity": {
+        "files": 2,
+        "sha256": "c59692182bd2074fc106a84cd69fdc440ed1ff79896b3da2ac3da075ee1f129e"
+      }
+    },
+    {
+      "name": "evaluate-rag",
+      "source": "evals",
+      "source_path": "skills/evaluate-rag",
+      "integrity": {
+        "files": 2,
+        "sha256": "e52b1a53f6cb022ee1b3fa06433d9d81c5b4dc4fe0ef4d297a8bf6704e5cc2ad"
+      }
+    },
+    {
+      "name": "generate-synthetic-data",
+      "source": "evals",
+      "source_path": "skills/generate-synthetic-data",
+      "integrity": {
+        "files": 2,
+        "sha256": "9d327a7b63ac4ea201d4b716dbdb871d63de6991591109e21944c038777131cd"
+      }
+    },
+    {
+      "name": "search-first",
+      "source": "ecc",
+      "source_path": "skills/search-first",
+      "integrity": {
+        "files": 1,
+        "sha256": "1ad6d748d8f1fdf5289a8d7d59fc39576130da9bcfe497e54b9df8bd8845c0c6"
+      }
+    },
+    {
+      "name": "security-review",
+      "source": "ecc",
+      "source_path": "skills/security-review",
+      "integrity": {
+        "files": 2,
+        "sha256": "d531921ad8b3431e43f74c507bc1a55b7d6ed674014753ecd2d67015d5d59cc1"
+      }
+    },
+    {
+      "name": "strategic-compact",
+      "source": "ecc",
+      "source_path": "skills/strategic-compact",
+      "integrity": {
+        "files": 1,
+        "sha256": "30dfe06130478d7a984c1ca6628faa6e4cd3707d29c14122f24df70c9183b5c8"
+      }
+    },
+    {
+      "name": "tdd-workflow",
+      "source": "ecc",
+      "source_path": "skills/tdd-workflow",
+      "integrity": {
+        "files": 1,
+        "sha256": "52c9213bff7c3669d55c6c9f31c89b5c85dc73ea2fb888f7540d7595d2c9e7e3"
+      }
+    },
+    {
+      "name": "validate-evaluator",
+      "source": "evals",
+      "source_path": "skills/validate-evaluator",
+      "integrity": {
+        "files": 2,
+        "sha256": "ce2e2fa48f1e66ee2c7b80022dbb1a04aabf6146717421b974629766cc118c2f"
+      }
+    },
+    {
+      "name": "verification-loop",
+      "source": "ecc",
+      "source_path": "skills/verification-loop",
+      "integrity": {
+        "files": 1,
+        "sha256": "7f482ed6a3235e6175f84b48afdebc6150d7435dd9e87fd622fbc0eca3d00cfe"
+      }
+    },
+    {
+      "name": "write-code-eval",
+      "source": "evals",
+      "source_path": "skills/write-code-eval",
+      "integrity": {
+        "files": 2,
+        "sha256": "add19d93a361cfa420cad7fb101faf4f7da5af1b0abb21647245549c3f20ccdc"
+      }
+    },
+    {
+      "name": "write-judge-prompt",
+      "source": "evals",
+      "source_path": "skills/write-judge-prompt",
+      "integrity": {
+        "files": 2,
+        "sha256": "cec8b62cefcf4c1757080b2266960c71f344051e2d14bbf764842a230e495ce0"
+      }
+    }
+  ],
+  "runtime": [
+    {
+      "path": "_bmad/scripts",
+      "source": "bmad",
+      "integrity": {
+        "files": 5,
+        "sha256": "de0bd87c733011321e0b0cd1ed96ed4b737ae7f3760048c266dff1dc2da40ff1"
+      }
+    },
+    {
+      "path": "_bmad/core",
+      "source": "bmad",
+      "integrity": {
+        "files": 3,
+        "sha256": "6512701b7f0143127c7bf2762e337b8668053bb77835a2589daf3fb0baca3d32"
+      }
+    },
+    {
+      "path": "_bmad/bmm",
+      "source": "bmad",
+      "integrity": {
+        "files": 3,
+        "sha256": "d47dacdfac9593df3a3b2b197175d4da2d3d40098234519af2cc7e2eecfcd962"
+      }
+    },
+    {
+      "path": "_bmad/_config",
+      "source": "bmad",
+      "integrity": {
+        "files": 4,
+        "sha256": "52c0d4e9144db622efb1ef2a7fccb48b577ccf6d0cc3706f74eecf91871eb2ce"
+      }
+    }
+  ]
+}

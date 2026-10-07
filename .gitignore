@@ -1,0 +1,22 @@
+# Local tools, caches and dependencies
+.tools/
+node_modules/
+.venv/
+__pycache__/
+*.pyc
+coverage/
+
+# Credentials and personal framework answers
+.env
+.env.*
+!.env.example
+*.user.toml
+
+# Private media, traces, human labels and generated reports
+data/private/
+evals/data/private/
+evals/runs/
+evals/reviews/private/
+*.log
+.DS_Store
+Thumbs.db

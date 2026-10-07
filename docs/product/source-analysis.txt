@@ -1,0 +1,1829 @@
+# TRAVEL LIFE — MASTER PRODUCT CONTEXT
+
+## 1. Product Thesis
+
+### Vision
+
+Build the **digital home for a person's entire travel life**.
+
+Travel Life automatically reconstructs where someone has travelled from data they already possess, builds a persistent **Personal Travel Graph**, and eventually uses that history to understand the traveller and help them make better future travel decisions.
+
+### Consumer promise
+
+> **See your entire travel life.**
+
+### Core experience
+
+> Connect your photos once → Travel Life reconstructs your journeys → explore your lifetime map/timeline → revisit memories → share your Travel Life → it continues growing automatically as you travel.
+
+### Long-term category thesis
+
+**Personal Travel Intelligence**
+
+Internally this describes the strategic direction.
+
+It should not necessarily be the initial consumer-facing positioning.
+
+---
+
+# 2. What We Are NOT Building
+
+Travel Life is not primarily:
+
+- photo storage
+- photo cleaner
+- photo organizer
+- photo editor
+- travel journal
+- trip tracker
+- trip planner
+- booking marketplace
+- generic travel social network
+- AI chatbot
+
+Google Photos/Apple Photos already have powerful photo organization, memories, AI search, highlights and reels.
+
+Therefore:
+
+> **Photo intelligence is infrastructure/input, not the moat.**
+
+Our core object is the **journey/travel life**, not the photo.
+
+---
+
+# 3. Core Strategic Insight
+
+People accumulate enormous amounts of digital evidence about their lives without accumulating a structured representation of those lives.
+
+Travel evidence is fragmented across:
+
+- phone photos
+- Google Photos
+- videos
+- location metadata
+- calendars
+- flights
+- hotels
+- emails
+- maps
+- social media
+- computers/external drives
+- memory
+
+Travel Life turns fragmented evidence into:
+
+**Raw Data → Presence → Trips → Destinations → Personal Travel Graph → Travel Identity → Personal Travel Intelligence**
+
+---
+
+# 4. Core Data Asset — Personal Travel Graph
+
+The long-term asset is not the AI model.
+
+It is a continuously improving representation of the user's travel history.
+
+```text
+PERSON
+ │
+ ├── Years
+ │    └── Travel Episodes
+ │          ├── Countries
+ │          ├── Cities
+ │          ├── Destinations
+ │          ├── Dates
+ │          ├── Routes
+ │          ├── Travel Days
+ │          └── Memories
+ │
+ ├── Patterns
+ ├── Repeat Destinations
+ ├── Seasons
+ ├── Travel Frequency
+ ├── Preferences
+ └── Behaviour
+```
+
+Over time this can answer:
+
+**Record**
+- Where have I been?
+- When?
+- How often?
+- For how long?
+
+**Identity**
+- What kind of traveller am I?
+- Where do I repeatedly return?
+- How has my travel life changed?
+
+**Intelligence**
+- Where should I go next?
+- What is relevant to me now?
+- Which destinations fit my actual behaviour?
+
+---
+
+# 5. Three Products Hidden Inside One Vision
+
+## A. Travel Life Reconstruction
+
+**Question:** Where have I been?
+
+Connect historical data and automatically reconstruct travel history.
+
+Primary purpose:
+
+**WOW + activation**
+
+---
+
+## B. Travel Identity
+
+**Question:** What does my travel life look like?
+
+Transform history into:
+
+- lifetime map
+- timeline
+- statistics
+- patterns
+- memories
+- Travel Passport/profile
+- annual summaries
+- replay
+
+Primary purposes:
+
+**Emotional value + identity + sharing**
+
+---
+
+## C. Personal Travel Intelligence
+
+**Question:** What should I experience next?
+
+Combine personal history with external travel information.
+
+Primary purposes:
+
+**Retention + future utility + monetization**
+
+These should be developed sequentially rather than simultaneously.
+
+---
+
+# 6. Initial Target User
+
+Early ICP hypothesis:
+
+Frequent leisure travellers who:
+
+- have travelled multiple times
+- have years of travel photos
+- use smartphones/cloud photo storage
+- enjoy revisiting travel
+- care about travel identity
+- may share travel experiences
+- expect to continue travelling
+
+Likely early segments:
+
+- Millennials / Gen Z travellers
+- international travellers
+- backpackers
+- travel enthusiasts
+- digital nomads
+- creators
+
+Open question:
+
+Which segment experiences the strongest Travel Life moment?
+
+Do not over-segment until tested.
+
+---
+
+# 7. Core JTBD
+
+## Functional
+
+> Show me everywhere I've travelled.
+
+> Reconstruct my history without making me manually organize it.
+
+> Let me explore my journeys geographically and chronologically.
+
+> Let me rediscover the memories behind each trip.
+
+## Emotional
+
+> Show me what my travel life actually looks like.
+
+> Help me appreciate everything I've experienced.
+
+## Identity
+
+> Help me understand myself as a traveller.
+
+## Social
+
+> Give me something beautiful about MY life that I want to share.
+
+## Future
+
+> Understand my history well enough to help me decide where to go next.
+
+---
+
+# 8. The Travel Life Moment
+
+The most important early product hypothesis is not AI sophistication.
+
+It is:
+
+> **Seeing a reconstructed lifetime travel history creates a strong emotional reaction.**
+
+Ideal onboarding:
+
+```text
+Connect
+   ↓
+Analyze
+   ↓
+Reconstruct
+   ↓
+REVEAL
+   ↓
+YOUR TRAVEL LIFE
+
+18 countries
+43 destinations
+27 trips
+186 travel days
+
+🌍 Interactive lifetime map
+```
+
+Desired reaction:
+
+> **“Wow. I didn't realize this was my travel life.”**
+
+This moment must be validated before building the larger vision.
+
+---
+
+# 9. Data Sources
+
+## Initial
+
+### Device Photo Library
+
+Native iOS/Android photo-library access.
+
+Potential data:
+
+- media ID
+- photo/video
+- timestamp
+- GPS
+- metadata
+- thumbnails/reference
+
+### Google Photos
+
+Connect where current APIs/permissions allow useful historical access.
+
+Need technical validation before assuming full historical access.
+
+---
+
+## Future Sources
+
+Potentially:
+
+- Apple/iCloud ecosystem
+- desktop folders
+- external drives
+- Google Drive
+- OneDrive
+- Dropbox
+- Lightroom
+- NAS/Synology
+- calendar
+- flight confirmations
+- hotel bookings
+- email
+- itinerary apps
+- location history
+- maps
+
+The architecture should support new sources without changing the underlying Travel Graph.
+
+---
+
+# 10. Canonical Travel Memory Model
+
+Do not model the backend around Google Photos/iPhone.
+
+Normalize everything.
+
+```text
+TravelMemory
+├── media_id
+├── source
+├── media_type
+├── timestamp
+├── latitude
+├── longitude
+├── inferred_location
+├── presence_confidence
+├── destination
+├── travel_episode_id
+└── confidence
+```
+
+Travel Episode:
+
+```text
+TravelEpisode
+├── episode_id
+├── start_date
+├── end_date
+├── destinations
+├── countries
+├── route
+├── memories
+├── travel_days
+├── status
+└── confidence
+```
+
+Hierarchy:
+
+**Lifetime → Year → Travel Episode → Destination → Day → Memory**
+
+---
+
+# 11. Travel Presence Inference
+
+A major insight from analysis:
+
+> A photo being in someone's library does NOT prove the person visited that location.
+
+Examples:
+
+- friend sends Japan photos
+- downloaded Instagram image
+- WhatsApp image
+- screenshot
+- edited/exported media
+- migrated library
+- incorrect metadata
+
+Therefore the intelligence pipeline should be:
+
+```text
+Media
+ ↓
+Presence Evidence
+ ↓
+Location Confidence
+ ↓
+Travel Episode Clustering
+ ↓
+Destination Resolution
+ ↓
+Personal Travel Graph
+```
+
+Before asking:
+
+> “Was this one trip?”
+
+we should ask:
+
+> **“Do we have sufficient evidence that this user was actually there?”**
+
+Potential evidence:
+
+- original photo metadata
+- timestamps
+- GPS
+- sequential geographic movement
+- photo density
+- multiple-day continuity
+- device-origin signals
+- future location/calendar/booking evidence
+
+This should become an important technical capability and possible moat.
+
+---
+
+# 12. Travel Episode Detection
+
+Do not require users to manually create trips.
+
+State concept:
+
+```text
+NORMAL LIFE
+   ↓
+POTENTIAL TRAVEL EPISODE
+   ↓
+ACTIVE TRAVEL EPISODE
+   ↓
+COMPLETED
+   ↓
+NEW TRAVEL CHAPTER
+```
+
+Potential signals:
+
+- new country
+- new city
+- distance from usual locations
+- multi-day continuity
+- overnight pattern
+- photo/video density
+- geographic movement
+- multiple destinations
+- return to stable routine
+
+Use confidence rather than hard rules.
+
+Illustrative only:
+
+```text
+New country           +40
+New city              +20
+Distance              +20
+Multiple days         +30
+Overnight activity    +30
+Photo density         +20
+Route continuity      +20
+```
+
+Production weights/model must come from testing.
+
+---
+
+# 13. Human-in-the-Loop
+
+AI should automate the common case and ask users about exceptions.
+
+Example:
+
+> 🇯🇵 We think this was a Japan trip  
+> Oct 1–12  
+> Tokyo · Kyoto · Osaka  
+> 846 memories
+
+Actions:
+
+**Add | Edit | Not a Trip**
+
+Principle:
+
+> **AI does the work. Humans correct exceptions.**
+
+Corrections should eventually improve future inference.
+
+---
+
+# 14. Continuous Travel Life
+
+Product philosophy:
+
+> **The app follows the user's life instead of requiring the user to maintain the app.**
+
+Ideal future flow:
+
+```text
+Normal Life
+ ↓
+User travels normally
+ ↓
+Takes photos normally
+ ↓
+New evidence appears
+ ↓
+Travel detected
+ ↓
+Trip reconstructed
+ ↓
+Travel Life updated
+ ↓
+User notified
+ ↓
+Explore/share
+```
+
+Before trip:
+
+**Nothing required.**
+
+During trip:
+
+**Nothing required.**
+
+After trip:
+
+**AI detects/reconstructs it.**
+
+When confidence is low:
+
+**Ask user.**
+
+---
+
+# 15. Incremental Sync
+
+Never repeatedly process the entire library.
+
+Example:
+
+```text
+Initial:
+40,000 photos
+ ↓
+Travel Graph
+
+Next trip:
++327 photos
+ ↓
+Analyze only new/changed evidence
+ ↓
+New Travel Episode
+ ↓
+Update Graph
+```
+
+Important for:
+
+- cost
+- latency
+- battery
+- scalability
+- privacy
+
+---
+
+# 16. Core Experience
+
+## Lifetime Map
+
+Primary visual interface.
+
+Users can:
+
+- zoom/pan
+- explore countries
+- explore cities
+- open trips
+- inspect routes
+- jump into memories
+
+Example:
+
+**Japan**
+
+→ Tokyo  
+→ Kyoto  
+→ Osaka
+
+---
+
+## Timeline
+
+Chronological travel history:
+
+```text
+2019
+Japan
+Korea
+
+2022
+Thailand
+
+2024
+Japan
+
+2026
+Korea
+```
+
+Map and timeline should be connected.
+
+---
+
+## Travel Episode
+
+Example:
+
+**Japan — April 2024**
+
+14 days  
+5 destinations  
+847 photos  
+32 videos
+
+Potential sections:
+
+- map
+- timeline
+- photos/videos
+- destinations
+- story
+- replay
+
+---
+
+# 17. Photo Storage Philosophy
+
+Travel Life should NOT become another photo-storage service.
+
+Prefer:
+
+> **Original media stays where it already exists.**
+
+Store:
+
+- metadata
+- source references
+- Travel Graph relationships
+- thumbnails/cache where necessary
+- temporary optimized media where needed
+
+Potential trust message:
+
+> **Your photos stay yours. We organize your travel life around them.**
+
+Need platform-specific technical validation.
+
+---
+
+# 18. Travel Identity
+
+Basic identity should be factual first.
+
+Examples:
+
+- countries
+- cities
+- destinations
+- trips
+- travel days
+- continents
+- first international trip
+- longest trip
+- most travelled year
+- most visited country
+- repeat destinations
+- travel seasons
+
+Avoid premature gamification.
+
+Do NOT imply:
+
+> More countries = better traveller.
+
+Later behaviour-derived Travel DNA could include:
+
+- City Explorer
+- Slow Traveller
+- Repeat Traveller
+- Food Traveller
+- Nature Explorer
+
+But only if evidence supports it.
+
+---
+
+# 19. Cinematic Replay
+
+Potential signature experience:
+
+**Replay My Travel Life**
+
+```text
+World Map
+ ↓
+Japan
+ ↓
+Photos/videos
+ ↓
+World Map
+ ↓
+Korea
+ ↓
+Photos/videos
+ ↓
+World Map
+ ↓
+Thailand
+```
+
+Possible replay modes:
+
+- lifetime
+- year
+- country
+- individual trip
+
+This has strong emotional/share potential but is **not required to validate the core hypothesis**.
+
+Build after basic Travel Life moment is proven.
+
+---
+
+# 20. Annual Travel Life / Wrapped
+
+Potential recurring ritual:
+
+# Your 2027 Travel Year
+
+4 countries  
+11 cities  
+36 travel days  
+2 new countries  
+1,846 memories  
+18,300 km travelled
+
+Then:
+
+**Replay My 2027**
+
+Potential benefits:
+
+- annual retention
+- emotional value
+- social sharing
+- viral acquisition
+- reactivation
+
+This may become an important organic growth event.
+
+---
+
+# 21. Sharing & Viral Loop
+
+The user should not primarily share our app.
+
+They share **themselves**.
+
+Example:
+
+```text
+DUC'S TRAVEL LIFE
+
+17 Countries
+42 Cities
+168 Travel Days
+
+🌍 [Map]
+```
+
+Psychological loop:
+
+```text
+User sees own Travel Life
+ ↓
+Identity/pride/nostalgia
+ ↓
+Shares
+ ↓
+Friend sees it
+ ↓
+"What would mine look like?"
+ ↓
+CREATE MINE
+ ↓
+Connect
+ ↓
+New Travel Life
+```
+
+Key viral metric:
+
+> **Shared Travel Life → Create Mine conversion**
+
+Not merely number of shares.
+
+---
+
+# 22. Shareable Web Experience
+
+Core product:
+
+**Mobile app**
+
+Web initially exists primarily for:
+
+- shared Travel Life
+- interactive map/profile
+- social preview
+- replay later
+- “Create Yours” CTA
+- app acquisition
+
+Do not initially build a complete desktop web product.
+
+---
+
+# 23. Privacy & Trust
+
+This is both a product requirement AND GTM problem.
+
+We potentially ask users for access to:
+
+- years of photos
+- locations
+- family memories
+- relationships
+- homes
+- documents
+- private moments
+
+Actual onboarding funnel:
+
+```text
+PROMISE
+ ↓
+TRUST
+ ↓
+PERMISSION
+ ↓
+PROCESSING
+ ↓
+MAGIC
+```
+
+If Trust → Permission fails, the product fails.
+
+Principles:
+
+1. Explain value before permission.
+2. Request only necessary access.
+3. Allow source-level control.
+4. Allow disconnect.
+5. Allow deletion.
+6. Clearly explain processing.
+7. Minimize original-media retention.
+8. Prefer local/on-device processing where feasible.
+9. Do not sell personal travel-history data.
+10. Make privacy architecture part of positioning.
+
+---
+
+# 24. Retention Problem
+
+Automatic Travel Episode Detection reduces maintenance friction.
+
+It does **not necessarily create frequent engagement**.
+
+If someone travels 3 times/year, automatic trip updates may only produce three major reactivation moments.
+
+Therefore current Travel Life may be:
+
+> WOW → Explore → Share → Leave → Return after trip
+
+That can still be useful, but long-term retention remains an open problem.
+
+Potential solutions:
+
+- annual Travel Wrapped
+- memories
+- historical insights
+- Travel DNA
+- meaningful new patterns
+- Personal Travel Intelligence
+- relevant Travel Pulse information
+- destination discovery
+- future-trip recommendations
+
+These should be tested rather than automatically built.
+
+---
+
+# 25. Travel Pulse + Travel Life
+
+Potential long-term strategic combination.
+
+## Travel Pulse
+
+Understands:
+
+> **What is happening in the travel world right now?**
+
+Sources could eventually include:
+
+- travel communities
+- social discussion
+- forums
+- Reddit
+- travel publications
+- creators
+- search behaviour
+- destination trends
+- events
+
+## Travel Life
+
+Understands:
+
+> **What has happened in MY travel life?**
+
+Combined:
+
+```text
+GLOBAL TRAVEL INTELLIGENCE
+           +
+PERSONAL TRAVEL GRAPH
+           ↓
+PERSONAL TRAVEL INTELLIGENCE
+```
+
+Example:
+
+Instead of:
+
+> Seoul autumn is trending.
+
+Personalized:
+
+> You've visited Seoul twice but only during spring. Autumn Seoul currently has several experiences strongly matching your travel patterns.
+
+Or:
+
+> You repeatedly enjoy Japanese food destinations and smaller cities. Kanazawa may fit your travel history better than another Osaka trip.
+
+This could create much stronger recurring value.
+
+Do NOT build Travel Pulse simultaneously with initial Travel Life validation.
+
+---
+
+# 26. Monetization Hypotheses
+
+Business model remains unvalidated.
+
+## Freemium
+
+Free:
+
+- Travel Life reconstruction
+- map
+- basic timeline
+- basic stats
+- sharing
+
+Potential premium:
+
+- advanced insights
+- cinematic replay
+- Travel DNA
+- AI travel-history search
+- richer stories
+- advanced customization
+- premium annual summaries
+
+Risk:
+
+Low-frequency usage may make subscription difficult.
+
+---
+
+## Future Travel Commerce
+
+Once Travel Life understands future intent:
+
+- hotels
+- flights
+- experiences
+- eSIM
+- insurance
+- tours
+- activities
+
+could generate affiliate/transaction revenue.
+
+Long-term hypothesis:
+
+> **Travel history acquires the user. Travel intelligence eventually monetizes the user.**
+
+Do not compromise viral acquisition by aggressively monetizing the initial map.
+
+---
+
+# 27. Key Hypotheses
+
+## H1 — Permission
+
+Users will grant sufficient photo access in exchange for seeing their Travel Life.
+
+**Risk: HIGH**
+
+---
+
+## H2 — Reconstruction
+
+Available data can reconstruct travel history accurately enough to feel trustworthy.
+
+**Risk: MEDIUM–HIGH**
+
+---
+
+## H3 — Presence
+
+We can distinguish actual user travel from downloaded/shared/incorrect media.
+
+**Risk: HIGH**
+
+---
+
+## H4 — Emotional Value
+
+Seeing lifetime travel history creates a meaningful WOW moment.
+
+**Risk: HIGH / existential**
+
+---
+
+## H5 — Exploration
+
+After reveal, users want to explore trips/destinations/memories.
+
+**Risk: MEDIUM**
+
+---
+
+## H6 — Identity
+
+Users consider Travel Life part of their personal identity.
+
+**Risk: MEDIUM–HIGH**
+
+---
+
+## H7 — Sharing
+
+Identity value is strong enough that users voluntarily share it.
+
+**Risk: HIGH**
+
+---
+
+## H8 — Viral Curiosity
+
+Other people seeing a Travel Life think:
+
+> “I want to see mine.”
+
+**Risk: HIGH**
+
+---
+
+## H9 — Automation
+
+Users want Travel Life automatically maintained.
+
+**Risk: MEDIUM**
+
+---
+
+## H10 — Retention
+
+Users find enough value to return between trips.
+
+**Risk: HIGH**
+
+---
+
+## H11 — Intelligence
+
+Historical travel behaviour can meaningfully improve future travel recommendations.
+
+**Risk: MEDIUM–HIGH**
+
+---
+
+## H12 — Monetization
+
+Personal Travel Intelligence can eventually influence transactions enough to support a business.
+
+**Risk: HIGH / later**
+
+---
+
+# 28. Competitive Reality
+
+Relevant categories already include:
+
+### Photo platforms
+
+- Google Photos
+- Apple Photos
+
+Strong at:
+
+- memories
+- photo AI
+- location
+- albums
+- highlights
+
+### Travel tracking/journaling
+
+- Polarsteps
+- FindPenguins
+- Journi
+
+Strong at:
+
+- trip tracking
+- travel journals
+- current/future trip documentation
+
+### Photo → Travel History
+
+Products discovered include:
+
+- TripMemo
+- Viamem
+- Pastport
+- Pino
+- PixelTravel
+- FotoVia
+
+Several already offer combinations of:
+
+- photo scanning
+- trip detection
+- maps
+- routes
+- travel statistics
+- memories
+
+Therefore:
+
+> **Photo → Map is validated but not differentiated.**
+
+Potential differentiation must develop around:
+
+**Lifetime Travel Graph + Travel Identity + effortless continuous maintenance + Personal Travel Intelligence**
+
+Competitive landscape must be researched again before launch because this market is moving quickly.
+
+---
+
+# 29. Key Product Risks
+
+### Platform risk
+
+Photo APIs/permissions may prevent reliable access.
+
+### Data-quality risk
+
+Historical libraries are messy.
+
+### Trust risk
+
+Users refuse broad access.
+
+### Accuracy risk
+
+Incorrect travel history damages trust quickly.
+
+### Novelty risk
+
+Users love first reveal but never return.
+
+### Competition risk
+
+Google/Apple could replicate visible features.
+
+### Cost risk
+
+Multimodal processing at scale could become expensive.
+
+### Viral risk
+
+Users may consider travel history too private to share.
+
+### Monetization risk
+
+Emotional product ≠ willingness to subscribe.
+
+---
+
+# 30. Product Principles
+
+1. **Zero maintenance**
+   - user should not manually journal trips.
+
+2. **AI first, correction second**
+   - automate, then ask about uncertainty.
+
+3. **Travel Graph > photos**
+   - photos are evidence.
+
+4. **Identity before gamification**
+   - show meaningful facts, not meaningless levels.
+
+5. **Privacy is product**
+   - architecture should reinforce trust.
+
+6. **Incremental intelligence**
+   - start simple; improve with evidence.
+
+7. **Don't build future vision before validating current behaviour.**
+
+8. **The shared artifact should be about the user, not Travel Life.**
+
+9. **Build around emotional moments, not feature count.**
+
+10. **Each phase must earn the right to build the next.**
+
+---
+
+# 31. Incremental Product Roadmap
+
+# PHASE 0 — Feasibility + Desirability
+
+### Goal
+
+Answer:
+
+> **Is there enough here to justify building the product?**
+
+Do NOT build the full app.
+
+### Prototype capability
+
+Take real travel photo libraries and produce:
+
+- inferred trips
+- destinations
+- dates
+- lifetime map
+- basic statistics
+- trip drill-down
+
+Can initially use controlled/manual processing behind the scenes.
+
+### Test with
+
+~10–20 meaningful travellers.
+
+### Validate
+
+#### Technical
+
+Can we infer:
+
+- presence?
+- destinations?
+- trips?
+- dates?
+- routes?
+
+#### Emotional
+
+Does the reveal create:
+
+> “Wow.”
+
+#### Behavioural
+
+Do users:
+
+- explore?
+- correct?
+- revisit?
+- ask to share?
+- actually share?
+
+#### Trust
+
+Would they grant real photo access?
+
+### Gate to Phase 1
+
+Proceed only if:
+
+- reconstruction feels credible;
+- users demonstrate meaningful emotional value;
+- permission resistance appears solvable;
+- enough users want to explore/share.
+
+---
+
+# PHASE 1 — Minimum Lovable Travel Life
+
+### Goal
+
+Prove the core product loop:
+
+> **Connect → Reconstruct → Reveal → Explore → Share**
+
+### Build
+
+#### Mobile
+
+- onboarding
+- permission explanation
+- one reliable photo source first
+- automated processing
+- Travel Life reveal
+- lifetime map
+- basic timeline
+- basic trip clustering
+- trip detail
+- photo browsing
+- factual statistics
+- manual correction
+
+#### Sharing
+
+- static Travel Life card
+- share link
+- lightweight public web page
+- Create Mine CTA
+
+### Explicitly DON'T build yet
+
+- cinematic replay
+- Travel DNA
+- desktop connector
+- community
+- recommendations
+- Travel Pulse
+- booking
+- complex AI stories
+
+### Core metrics
+
+- permission acceptance
+- processing completion
+- reconstruction accuracy
+- map interaction
+- trip exploration
+- correction rate
+- share rate
+- shared page → Create Mine
+- Create Mine → connection
+
+### Gate to Phase 2
+
+Evidence that users:
+
+**care + explore + share.**
+
+---
+
+# PHASE 2 — Living Travel Life
+
+### Goal
+
+Move from one-time reconstruction to:
+
+> **A Travel Life that maintains itself.**
+
+### Build
+
+- incremental sync
+- Travel Presence Inference improvements
+- Travel Episode Detection Engine
+- new-trip detection
+- confidence model
+- automatic update
+- human confirmation
+- trip editing
+- notification
+
+Experience:
+
+> “We found a new trip.”
+
+Then:
+
+> “A new chapter has been added to your Travel Life.”
+
+### Metrics
+
+- episode detection precision
+- false positives
+- correction rate
+- automatic-add acceptance
+- notification engagement
+- post-trip return rate
+
+### Gate to Phase 3
+
+Users trust automated maintenance and return after new trips.
+
+---
+
+# PHASE 3 — Travel Identity
+
+### Goal
+
+Transform history from a database into:
+
+> **Something that represents me.**
+
+### Build
+
+- richer statistics
+- patterns
+- repeat destinations
+- travel seasons
+- milestones
+- Travel Passport/profile
+- annual Travel Wrapped
+- richer share formats
+- country/year views
+
+Potential Travel DNA experiments.
+
+Avoid arbitrary traveller ranking.
+
+### Metrics
+
+- identity-page engagement
+- annual Wrapped engagement
+- sharing
+- organic acquisition
+- profile revisits
+- Travel DNA resonance
+
+### Gate to Phase 4
+
+Travel identity materially increases:
+
+**engagement + sharing + organic acquisition.**
+
+---
+
+# PHASE 4 — Memory & Cinematic Layer
+
+### Goal
+
+Increase emotional value.
+
+### Build
+
+- cinematic Travel Life Replay
+- trip replay
+- country replay
+- yearly replay
+- automatic highlight selection
+- richer memory storytelling
+- customizable replay
+
+Potential:
+
+> Replay My Travel Life
+
+> Replay Japan
+
+> Replay 2027
+
+### Metrics
+
+- replay starts
+- completion
+- replay shares
+- repeat replay
+- share → acquisition
+
+Only invest heavily if replay drives measurable engagement or distribution.
+
+---
+
+# PHASE 5 — Personal Travel Intelligence
+
+### Goal
+
+Solve the retention problem.
+
+Move from:
+
+> **Where have I been?**
+
+to:
+
+> **What's relevant to me next?**
+
+### Build gradually
+
+- travel-history search
+- preference inference
+- destination affinity
+- recommendation experiments
+- unexplored destination suggestions
+- seasonal recommendations
+- personalized travel insights
+
+Example:
+
+> You've visited Japan three times but never during autumn.
+
+or:
+
+> These destinations resemble the travel patterns you repeatedly enjoy.
+
+### Metrics
+
+- recommendation CTR
+- saves
+- destination exploration
+- recommendation → planning
+- return frequency
+- recommendation usefulness feedback
+
+### Gate
+
+Recommendations must influence meaningful travel intent.
+
+---
+
+# PHASE 6 — Travel Pulse Integration
+
+### Goal
+
+Combine:
+
+**Personal Travel Graph + live external travel intelligence**
+
+### Capabilities
+
+Understand:
+
+- what travellers are discussing
+- emerging destinations
+- events
+- seasonal opportunities
+- changing sentiment
+- unusual experiences
+- crowding/value trends
+
+Then personalize against Travel Life.
+
+```text
+WORLD SIGNALS
+     +
+MY TRAVEL GRAPH
+     ↓
+WHAT MATTERS TO ME
+```
+
+This could become the real Personal Travel Intelligence engine.
+
+---
+
+# PHASE 7 — Travel Action / Monetization
+
+### Goal
+
+Turn intelligence into action.
+
+Potential journey:
+
+```text
+Understand Me
+ ↓
+Recommend
+ ↓
+Inspire
+ ↓
+Plan
+ ↓
+Book
+ ↓
+Travel
+ ↓
+Automatically Record
+ ↓
+Understand Me Better
+```
+
+Potential monetization:
+
+- hotel affiliate
+- flights
+- activities
+- tours
+- eSIM
+- insurance
+- premium intelligence
+- premium identity/memory features
+
+Do not become a generic OTA unless evidence strongly supports it.
+
+---
+
+# PHASE 8 — Network Layer
+
+Only if strong product-market fit exists.
+
+Potential:
+
+- friends
+- comparison
+- collaborative trips
+- community discovery
+- creator Travel Lives
+- shared maps
+- recommendations from similar travellers
+
+Network effects could eventually come from:
+
+> **People with similar Travel Graphs helping each other discover what comes next.**
+
+Community should emerge from proven user behaviour, not be forced into MVP.
+
+---
+
+# 32. Roadmap Summary
+
+```text
+PHASE 0
+PROVE THE MOMENT
+Can we reconstruct something people care about?
+        ↓
+
+PHASE 1
+MINIMUM LOVABLE TRAVEL LIFE
+Connect → Reveal → Explore → Share
+        ↓
+
+PHASE 2
+LIVING TRAVEL LIFE
+Automatically detect/update new travel
+        ↓
+
+PHASE 3
+TRAVEL IDENTITY
+"This represents me."
+        ↓
+
+PHASE 4
+MEMORY / CINEMATIC
+Make the history emotionally powerful
+        ↓
+
+PHASE 5
+PERSONAL INTELLIGENCE
+"What should I do next?"
+        ↓
+
+PHASE 6
+TRAVEL PULSE
+My history × what's happening now
+        ↓
+
+PHASE 7
+ACTION / COMMERCE
+Recommend → Plan → Book → Travel
+        ↓
+
+PHASE 8
+NETWORK
+Connect travellers through their Travel Graph
+```
+
+---
+
+# 33. Open Questions
+
+## Product
+
+- Is the lifetime map actually the strongest WOW surface?
+- How much history must exist for Travel Life to feel meaningful?
+- Does timeline matter independently of map?
+- Do users care about routes?
+- Do users want all memories or curated memories?
+- Should private trips be excluded automatically?
+- How much editing/control is required?
+
+## Data / AI
+
+- How accurately can we infer physical presence?
+- How do we distinguish downloaded/shared photos?
+- How should home/usual locations be inferred safely?
+- What constitutes one trip versus several trips?
+- How do we handle domestic day trips?
+- How do we handle business travel?
+- How do we handle cruises/road trips?
+- How do we handle missing GPS?
+- How much can run on-device?
+- What is processing cost/user?
+
+## Platform
+
+- What historical access is currently possible through Google Photos?
+- What can iOS/Android provide?
+- Can incremental synchronization run reliably?
+- What happens when users revoke permissions?
+- What happens when original media disappears?
+- What Apple/iCloud integration is possible?
+- Which source should launch first?
+
+## Trust
+
+- What permission explanation maximizes trust?
+- Is broad library access acceptable?
+- Does on-device processing materially improve conversion?
+- What information should never leave device?
+- What privacy controls do users expect?
+
+## GTM
+
+- Which traveller segment feels the strongest emotional response?
+- Is sharing natural or something we're forcing?
+- Which share format converts best?
+- Which platforms drive the strongest viral loop?
+- Is Travel Wrapped a stronger acquisition mechanism than lifetime profile?
+- What should the initial launch geography be?
+
+## Retention
+
+- Is post-trip updating sufficient?
+- What brings users back between trips?
+- Do memories work?
+- Do insights work?
+- Does Travel Pulse solve frequency?
+- At what point do recommendations become valuable?
+
+## Monetization
+
+- Will users pay for memory/identity?
+- Subscription or one-time premium?
+- Can travel recommendations generate meaningful affiliate revenue?
+- Does monetization damage trust?
+- At what point does travel intent become observable enough for commerce?
+
+## Strategic
+
+- Can Google/Apple replicate the experience easily?
+- Which part becomes defensible?
+- Is Personal Travel Graph sufficiently valuable to create switching cost?
+- Can Travel Life become the user's canonical travel record?
+- Is this ultimately a consumer app, travel intelligence platform, or both?
+
+---
+
+# 34. Current North Star
+
+Do not prematurely optimize for:
+
+- downloads
+- photos processed
+- map views
+- AI outputs
+- registrations
+
+For Phase 0–1, the most important behavioural sequence is:
+
+> **Successful Reconstruction → Meaningful Exploration → Sharing**
+
+Candidate early North Star:
+
+## Meaningful Travel Life Reconstructions
+
+A Travel Life successfully reconstructed and meaningfully explored by its owner.
+
+Later North Star may evolve toward:
+
+## Personal Travel Actions Enabled
+
+when the product starts influencing future travel.
+
+---
+
+# 35. Current Priority
+
+The biggest mistake now would be building the entire vision.
+
+The immediate objective is:
+
+# PROVE THE TRAVEL LIFE MOMENT
+
+Can we take a messy historical photo library and show someone something about their own life that they:
+
+1. believe is accurate,
+2. emotionally care about,
+3. want to explore,
+4. want maintained,
+5. and potentially want others to see?
+
+If yes:
+
+**build deeper.**
+
+If no:
+
+**learn why before adding more features.**
+
+Every subsequent phase must earn the right to exist through evidence from the previous one.

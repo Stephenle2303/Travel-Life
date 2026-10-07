@@ -1,0 +1,205 @@
+[
+  {
+    "lens": "adversarial",
+    "location": "MVP spec / three-calendar-day grouping",
+    "trigger_condition": "Frequent photos, including local activity, connect months of observations.",
+    "guard_snippet": "Recommended: Specify episode-boundary evidence and whether local observations participate; adjacent gaps alone cannot define a trip.",
+    "potential_consequence": "Transitive grouping merges separate trips into one months-long journey."
+  },
+  {
+    "lens": "adversarial",
+    "location": "MVP spec / larger gaps create separate candidates",
+    "trigger_condition": "Tokyo on day 1 and Kyoto on day 6 belong to one continuous holiday.",
+    "guard_snippet": "Recommended: Retain observed segments with an unresolved relationship; use bounded merge rules or owner merge. Uncertainty alone must not merge.",
+    "potential_consequence": "Sparse photography fragments trips; unlimited gap tolerance creates the opposite error."
+  },
+  {
+    "lens": "adversarial",
+    "location": "MVP spec / timestamps and place-days",
+    "trigger_condition": "Midnight, changing or missing offsets, or date-only timestamps make gaps ambiguous.",
+    "guard_snippet": "Recommended: Define the calendar and comparison semantics; preserve uncertain intervals and avoid invented ordering.",
+    "potential_consequence": "Assignments vary with device timezone or implementation choices."
+  },
+  {
+    "lens": "adversarial",
+    "location": "MVP spec / place clustering; Place/visit draft",
+    "trigger_condition": "The same hotel is visited in January and June or twice within one journey.",
+    "guard_snippet": "Recommended: Separate geographic place identity from chronological visit identity; specify episode boundaries.",
+    "potential_consequence": "Separate visits collapse and chronological sequences are lost."
+  },
+  {
+    "lens": "adversarial",
+    "location": "MVP spec / five-kilometre neighborhood and bounded diameter",
+    "trigger_condition": "A-B and B-C are near, A-C exceeds the bound, and B arrives later.",
+    "guard_snippet": "Recommended: Specify diameter, distance calculation, tie-break and deterministic ordering; compare full and incremental results.",
+    "potential_consequence": "Import order changes places and journeys."
+  },
+  {
+    "lens": "adversarial",
+    "location": "MVP spec / optional usual area",
+    "trigger_condition": "The owner moves, has two homes, or imports history predating the current home.",
+    "guard_snippet": "Recommended: Give confirmed usual areas effective periods, permitting multiple areas and unknown applicability.",
+    "potential_consequence": "Current home misclassifies past residence or holidays."
+  },
+  {
+    "lens": "adversarial",
+    "location": "MVP spec / previous recommendation: return-home precedence",
+    "trigger_condition": "A single home-located image is imported, incorrectly tagged or uncertain in time.",
+    "guard_snippet": "Recommended: Separate an owner-confirmed return from home-proximate metadata; only the explicit owner boundary is binding.",
+    "potential_consequence": "A false home signal splits a genuine trip."
+  },
+  {
+    "lens": "adversarial",
+    "location": "MVP spec / data contract; previous membership categories",
+    "trigger_condition": "A companion's photo is a legitimate memory, or a downloaded image depicts an unvisited place.",
+    "guard_snippet": "Recommended: Separate trip association, contribution to location evidence and owner confirmation; no probability implied by category names.",
+    "potential_consequence": "Trip relevance is confused with proof of presence, or legitimate memories are excluded."
+  },
+  {
+    "lens": "adversarial",
+    "location": "MVP spec / missing GPS; previous temporal-bracketing recommendation",
+    "trigger_condition": "An unlocated photo lies between different trips or has only an ambiguous day timestamp.",
+    "guard_snippet": "Recommended: Require comparable time, bounded context, one compatible candidate and no conflicting boundary; otherwise retain candidates or leave unassigned.",
+    "potential_consequence": "Unrelated photos are attached or a location is fabricated."
+  },
+  {
+    "lens": "adversarial",
+    "location": "MVP spec / AI minimized summaries",
+    "trigger_condition": "Cases with different confirmed boundaries have identical coarse places, offsets and counts.",
+    "guard_snippet": "Recommended: Derive constraints locally; send only eligible alternatives and permitted structural constraints, then enforce them locally.",
+    "potential_consequence": "AI cannot recover omitted context and guesses between cases requiring different outcomes."
+  },
+  {
+    "lens": "adversarial",
+    "location": "MVP spec / AI evidence-reference validation",
+    "trigger_condition": "Real evidence IDs are combined into an unsupported journey or narrative.",
+    "guard_snippet": "Recommended: Validate claimed relationships and allowed reason codes, not only existence of IDs; keep narrative reviewable.",
+    "potential_consequence": "Structurally valid output makes an unsupported grouping or claim."
+  },
+  {
+    "lens": "adversarial",
+    "location": "MVP spec / correction overlay; background maintenance",
+    "trigger_condition": "A corrected target splits, merges or changes identity after new evidence.",
+    "guard_snippet": "Recommended: Define correction scope over evidence membership and boundaries, identity lineage and conflict handling.",
+    "potential_consequence": "Corrections disappear or attach to the wrong successor."
+  },
+  {
+    "lens": "adversarial",
+    "location": "MVP spec / confirmed journey; background maintenance",
+    "trigger_condition": "New evidence adds a destination, photo or date extension to a confirmed journey.",
+    "guard_snippet": "Recommended: Confirmation covers reviewed facts and membership versions; additions remain inferred or pending.",
+    "potential_consequence": "Unreviewed additions inherit confirmation and affect future sharing previews."
+  },
+  {
+    "lens": "adversarial",
+    "location": "MVP spec / affected background neighborhoods",
+    "trigger_condition": "A bridging photo triggers further transitive candidate merges.",
+    "guard_snippet": "Recommended: Define dependency expansion and convergence; checkpoint bounded work and keep partial reconciliation visibly pending.",
+    "potential_consequence": "Incremental and full results differ, or background work becomes unbounded."
+  },
+  {
+    "lens": "adversarial",
+    "location": "MVP spec / eval roadmap; M2.4",
+    "trigger_condition": "Both opposite split/merge outputs satisfy support and schema checks.",
+    "guard_snippet": "Recommended: Add expected membership, acceptable ambiguity and prohibited assertions for core cases, including reordered and incremental imports.",
+    "potential_consequence": "Tests pass without specifying the engine's defining behavior."
+  },
+  {
+    "lens": "edge-case-hunter",
+    "location": "_bmad-output/planning-artifacts/mvp-spec.md:92-98",
+    "trigger_condition": "Timestamp precision or missing timezone makes the three-calendar-day comparison ambiguous.",
+    "guard_snippet": "Recommended: Compare explicit time intervals; indeterminate ordering or gap retains an uncertain boundary.",
+    "potential_consequence": "Identical evidence receives different assignments depending on timezone assumptions."
+  },
+  {
+    "lens": "edge-case-hunter",
+    "location": "_bmad-output/planning-artifacts/mvp-spec.md:94-98",
+    "trigger_condition": "Photos revisit the same geographical place before and after another destination.",
+    "guard_snippet": "Recommended: Separate reusable place identity from chronological visits; preserve A-B-A episodes.",
+    "potential_consequence": "Repeated visits collapse, losing sequence or assigning photos to the wrong episode."
+  },
+  {
+    "lens": "edge-case-hunter",
+    "location": "_bmad-output/planning-artifacts/mvp-spec.md:94-96",
+    "trigger_condition": "One photo fits multiple nearby clusters whose union exceeds the diameter bound.",
+    "guard_snippet": "Recommended: Specify diameter, metric and stable tie-break; verify input-order invariance.",
+    "potential_consequence": "Import order or background additions change place membership and trip boundaries."
+  },
+  {
+    "lens": "edge-case-hunter",
+    "location": "_bmad-output/planning-artifacts/mvp-spec.md:97-103",
+    "trigger_condition": "Frequent photos bridge trips through local activity or an intervening return home.",
+    "guard_snippet": "Recommended: Evaluate episode-boundary evidence before linking; unresolved boundaries remain reviewable.",
+    "potential_consequence": "A short-gap chain merges unrelated trips into one long journey."
+  },
+  {
+    "lens": "edge-case-hunter",
+    "location": "_bmad-output/planning-artifacts/mvp-spec.md:97-105",
+    "trigger_condition": "Gap-uncertainty refinement encounters successive sparse trips without reliable return-home evidence.",
+    "guard_snippet": "Recommended: Keep bounded candidate episodes and possible-merge relations; uncertainty never authorizes merging alone.",
+    "potential_consequence": "Open-ended continuity merges months of unrelated travel."
+  },
+  {
+    "lens": "edge-case-hunter",
+    "location": "_bmad-output/planning-artifacts/mvp-spec.md:99-105",
+    "trigger_condition": "A traveller changes residence, maintains two usual areas or revisits a former home.",
+    "guard_snippet": "Recommended: Usual-area assertions carry effective dates, multiple areas and unknown periods.",
+    "potential_consequence": "Today's home classification rewrites historical travel and residence."
+  },
+  {
+    "lens": "edge-case-hunter",
+    "location": "_bmad-output/planning-artifacts/mvp-spec.md:99-105",
+    "trigger_condition": "A near-home airport, transfer or downloaded home photo appears between trip destinations.",
+    "guard_snippet": "Recommended: Distinguish home-proximate evidence from an owner-confirmed episode end.",
+    "potential_consequence": "Incidental near-home evidence splits a continuing journey."
+  },
+  {
+    "lens": "edge-case-hunter",
+    "location": "_bmad-output/planning-artifacts/mvp-spec.md:104-107",
+    "trigger_condition": "A GPS-less photo fits two journeys or lies between geotagged photos separated by weeks.",
+    "guard_snippet": "Recommended: Require comparable capture times, bounded context and one compatible candidate; otherwise leave unassigned.",
+    "potential_consequence": "Temporal bracketing attaches unrelated images or arbitrarily chooses a journey."
+  },
+  {
+    "lens": "edge-case-hunter",
+    "location": "_bmad-output/planning-artifacts/mvp-spec.md:67-76",
+    "trigger_condition": "A photo belongs to a journey without a defensible destination assignment.",
+    "guard_snippet": "Recommended: Represent journey membership separately from visit support, with uncertainty and owner assignment.",
+    "potential_consequence": "The model fabricates a place or cannot retain a relevant trip photo."
+  },
+  {
+    "lens": "edge-case-hunter",
+    "location": "_bmad-output/planning-artifacts/mvp-spec.md:104-105",
+    "trigger_condition": "Shared or downloaded photos contain valid trip-compatible timestamps and GPS.",
+    "guard_snippet": "Recommended: Separate contextual relevance from presence support; preserve association source uncertainty.",
+    "potential_consequence": "Relevant memories incorrectly contribute destinations or owner-presence claims."
+  },
+  {
+    "lens": "edge-case-hunter",
+    "location": "_bmad-output/planning-artifacts/mvp-spec.md:73-76,128-130",
+    "trigger_condition": "Late evidence extends or bridges confirmed and unconfirmed journeys.",
+    "guard_snippet": "Recommended: Confirmation covers reviewed facts and membership versions; additions remain inferred.",
+    "potential_consequence": "New evidence inherits confirmation and appears reviewed in future sharing previews."
+  },
+  {
+    "lens": "edge-case-hunter",
+    "location": "_bmad-output/planning-artifacts/mvp-spec.md:75-76,128-130",
+    "trigger_condition": "Reconstruction splits or merges the target of an earlier correction.",
+    "guard_snippet": "Recommended: Persist correction scope and lineage; resolve ambiguous remapping before structural changes commit.",
+    "potential_consequence": "Corrections orphan, disappear or attach to the wrong successor."
+  },
+  {
+    "lens": "edge-case-hunter",
+    "location": "_bmad-output/planning-artifacts/mvp-spec.md:128-135,158-161",
+    "trigger_condition": "An AI response completes after evidence changes or the owner edits the journey.",
+    "guard_snippet": "Recommended: Bind proposals to evidence, correction and consent revisions; discard or revalidate stale results.",
+    "potential_consequence": "Stale proposals restore obsolete evidence or undo newer grouping."
+  },
+  {
+    "lens": "edge-case-hunter",
+    "location": "_bmad-output/planning-artifacts/mvp-spec.md:150-160",
+    "trigger_condition": "Opaque IDs and day offsets conceal geographic relationships needed for grouping.",
+    "guard_snippet": "Recommended: Derive permitted coarse relationship flags locally or withhold grouping when context is absent.",
+    "potential_consequence": "AI groups without discriminating evidence; schema checks cannot detect arbitrary reasoning."
+  }
+]

@@ -1,0 +1,255 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Travel Life evaluation envelope (not a production API)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "case_id",
+    "dataset_version",
+    "split",
+    "data_origin",
+    "run",
+    "input",
+    "output"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "case_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "dataset_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "split": {
+      "enum": [
+        "development",
+        "validation",
+        "holdout",
+        "smoke"
+      ]
+    },
+    "data_origin": {
+      "enum": [
+        "synthetic-plumbing",
+        "synthetic-reviewed",
+        "consented-real"
+      ]
+    },
+    "consent_record_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "pipeline_version",
+        "provider",
+        "model",
+        "prompt_version",
+        "repetition",
+        "latency_ms",
+        "cost_usd"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pipeline_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "provider": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "prompt_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "repetition": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "latency_ms": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "cost_usd": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence"
+      ],
+      "properties": {
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "kind",
+              "payload"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "kind": {
+                "enum": [
+                  "media_metadata",
+                  "user_assertion",
+                  "calendar",
+                  "booking",
+                  "location",
+                  "other"
+                ]
+              },
+              "payload": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "claims"
+      ],
+      "properties": {
+        "claims": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "kind",
+              "status",
+              "evidence_ids",
+              "value"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "kind": {
+                "enum": [
+                  "presence",
+                  "destination",
+                  "trip",
+                  "date",
+                  "route",
+                  "statistic",
+                  "other"
+                ]
+              },
+              "status": {
+                "enum": [
+                  "supported",
+                  "uncertain",
+                  "abstained"
+                ]
+              },
+              "evidence_ids": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "value": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "confidence": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "data_origin": {
+            "const": "consented-real"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "consent_record_id"
+        ],
+        "properties": {
+          "consent_record_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "data_origin": {
+            "const": "synthetic-plumbing"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "split": {
+            "const": "smoke"
+          }
+        }
+      }
+    }
+  ]
+}
