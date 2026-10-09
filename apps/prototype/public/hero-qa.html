@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Travel Life — video frame inspection</title>
+<style>
+body{margin:0;padding:24px;background:#102c26;color:#f3eedd;font:15px system-ui}h1{font-size:24px}label{display:block;margin:12px 0}input{width:70%;padding:10px}button,select{padding:10px;margin:4px;border:1px solid #b4c6b5;background:#21483b;color:#f3eedd;border-radius:6px}button{cursor:pointer}video{display:block;max-width:100%;height:340px;margin:16px 0}canvas{display:block;max-width:100%;height:auto;border:1px solid #b4c6b5}p{color:#b4c6b5}#status{color:#d8ef69}
+</style>
+<h1>Travel Life · frame-by-frame inspection</h1>
+<p>Local synthetic promotional montage. 24 fps. Each sheet displays 60 consecutive decoded frames; six sheets cover the full 15-second loop.</p>
+<label>Video URL <input id="source" type="url" aria-label="Video URL"></label>
+<button id="load">Load video</button>
+<video id="video" muted playsinline controls preload="auto"></video>
+<label>Frame <input id="frame" type="number" min="0" max="359" value="0" aria-label="Frame"></label>
+<button id="previous">Previous frame</button><button id="next">Next frame</button>
+<label>Contact sheet <select id="sheet" aria-label="Contact sheet"><option value="0">Frames 0–59</option><option value="60">Frames 60–119</option><option value="120">Frames 120–179</option><option value="180">Frames 180–239</option><option value="240">Frames 240–299</option><option value="300">Frames 300–359</option></select></label>
+<button id="render">Inspect 60 frames</button>
+<p id="status" role="status">Ready to load local video.</p>
+<canvas id="sheetCanvas" width="1200" height="900"></canvas>
+<script>
+const video=document.querySelector('#video');
+const frame=document.querySelector('#frame');
+const status=document.querySelector('#status');
+const source=document.querySelector('#source');
+const canvas=document.querySelector('#sheetCanvas');
+const context=canvas.getContext('2d');
+const render=document.querySelector('#render');
+const previous=document.querySelector('#previous');
+const next=document.querySelector('#next');
+let ready=false, busy=false, generation=0;
+source.value=new URLSearchParams(location.search).get('src')||'';
+function controls(disabled){render.disabled=disabled;previous.disabled=disabled;next.disabled=disabled;frame.disabled=disabled;document.querySelector('#sheet').disabled=disabled;}
+function seek(index, token){return new Promise((resolve,reject)=>{if(!ready||video.readyState<2)return reject(new Error('Video is not ready.'));if(token!==generation)return reject(new Error('Inspection was cancelled.'));const time=(index+.1)/24;if(Math.abs(video.currentTime-time)<.0001){resolve();return}let timer;const clean=()=>{clearTimeout(timer);video.removeEventListener('seeked',done);video.removeEventListener('error',failed);};const done=()=>{clean();token===generation?resolve():reject(new Error('Inspection was cancelled.'));};const failed=()=>{clean();reject(new Error('Video seek failed.'));};video.addEventListener('seeked',done,{once:true});video.addEventListener('error',failed,{once:true});timer=setTimeout(()=>{clean();reject(new Error('Video seek timed out.'));},5000);video.currentTime=time;});}
+document.querySelector('#load').onclick=()=>{generation++;ready=false;busy=false;controls(true);video.pause();video.src=source.value;video.load();status.textContent='Loading…';};
+video.onloadeddata=()=>{ready=true;controls(false);status.textContent=`Loaded ${video.videoWidth}×${video.videoHeight} · ${video.duration.toFixed(2)} seconds · muted ${video.muted}`;};
+video.onerror=()=>{ready=false;busy=false;controls(true);status.textContent='Video failed to load.';};
+frame.onchange=async()=>{if(busy||!ready)return;const token=generation;try{video.pause();await seek(Math.max(0,Math.min(359,Number(frame.value))),token);status.textContent=`Frame ${frame.value} · ${video.currentTime.toFixed(3)} seconds`;}catch(error){status.textContent=error.message;}};
+previous.onclick=()=>{frame.value=Math.max(0,Number(frame.value)-1);frame.onchange();};
+next.onclick=()=>{frame.value=Math.min(359,Number(frame.value)+1);frame.onchange();};
+render.onclick=async()=>{
+if(busy||!ready)return;busy=true;controls(true);const token=generation;video.pause();const start=Number(document.querySelector('#sheet').value);context.fillStyle='#102c26';context.fillRect(0,0,1200,900);
+try{for(let i=0;i<60;i++){await seek(start+i,token);const x=(i%10)*120,y=Math.floor(i/10)*150;const ratio=video.videoWidth/video.videoHeight;let w=120,h=w/ratio;if(h>126){h=126;w=h*ratio;}context.drawImage(video,x+(120-w)/2,y,w,h);context.fillStyle='#f3eedd';context.font='12px system-ui';context.fillText(String(start+i),x+4,y+142);status.textContent=`Inspecting frame ${start+i}/359`;}
+status.textContent=`Complete: 60 frames ${start}–${start+59} rendered from the browser decoder.`;}catch(error){status.textContent=error.message;}finally{if(token===generation){busy=false;controls(false);}}
+};
+controls(true);
+</script>
+</html>

@@ -1,0 +1,23 @@
+{
+  "expo": {
+    "name": "Travel Life Prototype",
+    "slug": "travel-life-prototype",
+    "version": "1.0.0",
+    "orientation": "default",
+    "scheme": "travel-life-prototype",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#102C26",
+    "androidStatusBar": { "backgroundColor": "#102C26", "barStyle": "light-content" },
+    "ios": {},
+    "android": {},
+    "web": { "output": "static" },
+    "plugins": [
+      "expo-router",
+      "expo-splash-screen"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}

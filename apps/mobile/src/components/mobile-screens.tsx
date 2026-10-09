@@ -1,0 +1,111 @@
+import { useRouter } from 'expo-router';
+
+import { appRoutes, openRoute } from '@/navigation/app-contract';
+import { ActionButton, Body, Eyebrow, InsetPanel, Screen, Title } from '@/components/ui';
+import { usePhotoAccess } from '@/photo-access/provider';
+
+export function TrustScreen() {
+  const router = useRouter();
+  return (
+    <Screen>
+      <Eyebrow>Private from the first step</Eyebrow>
+      <Title>Your travel life, held with care.</Title>
+      <InsetPanel>
+        <Body>Travel Life will help you shape a private, on-device-first history from the evidence you choose to connect.</Body>
+        <Body>There is no account to create here, and nothing is being scanned on this screen.</Body>
+      </InsetPanel>
+      <ActionButton accessibilityLabel="Continue to import" onPress={() => openRoute(router, appRoutes.import)}>Continue</ActionButton>
+      <ActionButton accessibilityLabel="View empty Atlas" onPress={() => openRoute(router, appRoutes.atlas)} variant="secondary">View Atlas</ActionButton>
+    </Screen>
+  );
+}
+
+export function ImportScreen() {
+  const router = useRouter();
+  const { snapshot, controller, importCoverage } = usePhotoAccess();
+  const hasLibraryScope = snapshot.scope === 'full' || snapshot.scope === 'limited';
+  const canResume = importCoverage.status === 'paused' || importCoverage.status === 'blocked';
+  return (
+    <Screen>
+      <Eyebrow>Private photo access</Eyebrow>
+      <Title>Choose what this device can share.</Title>
+      <InsetPanel>
+        <Body>Allow access to the photos and videos visible to this device. A count begins only after you choose. Your original media stays in its source; this step does not create a travel history or send media to cloud AI.</Body>
+        <Body>Device-visible items may omit cloud-only media or parts of your history. Photo location alone never proves you were there.</Body>
+      </InsetPanel>
+      {snapshot.scope === 'unasked' && snapshot.canAskAgain && <ActionButton accessibilityLabel="Allow full photo library" onPress={() => void controller.requestBroad()}>
+        Allow full photo library
+      </ActionButton>}
+      {snapshot.scope !== 'unavailable' && <ActionButton accessibilityLabel="Select photos and videos" onPress={() => void controller.selectPhotos()} variant="secondary">
+        Select photos and videos
+      </ActionButton>}
+      <InsetPanel>
+        <Body>{snapshot.scope === 'unasked' && !snapshot.canAskAgain ? 'Photo access cannot be requested here. Check device Settings or select photos and videos explicitly.' : scopeDescription(snapshot.scope)}</Body>
+        {snapshot.countStatus === 'counting' && <Body>Counting device-visible photos and videos: {snapshot.count} so far. This is incomplete.</Body>}
+        {snapshot.countStatus === 'complete' && <Body>{snapshot.count} device-visible photos and videos observed in a finished scan of the current {snapshot.scope} access scope. The library can change, so this is not lifetime coverage.</Body>}
+        {snapshot.countStatus === 'incomplete' && <Body>Incomplete count: {snapshot.count} device-visible items observed before the scan stopped.</Body>}
+        {snapshot.selectedCount !== null && <Body>{snapshot.selectedCount} items returned by your selection. This is only the selected set, not a library count; no evidence has been imported yet.</Body>}
+        {snapshot.selectedMissingIds > 0 && <Body>{snapshot.selectedMissingIds} selected items have no stable library ID. Their later import may be limited.</Body>}
+        {snapshot.message && <Body>{snapshot.message}</Body>}
+      </InsetPanel>
+      {hasLibraryScope && <InsetPanel>
+        <Body>Current accessible scope: {importCoverage.accessible === null ? 'not counted for this import' : importCoverage.accessible}. Scanned: {importCoverage.scanned}. Geotagged metadata available: {importCoverage.geotagged}. Unavailable: {importCoverage.unavailable}.</Body>
+        <Body>{importCoverage.status === 'complete' ? 'Metadata import completed for the current accessible scope. This is not lifetime coverage.' : importCoverage.status === 'running' ? 'Importing normalized metadata locally. You can pause safely after a committed page.' : importCoverage.status === 'paused' ? 'Import is paused. Resume only reads the current accessible scope.' : importCoverage.status === 'blocked' ? 'Import stopped because access changed. Recheck access before resuming.' : 'Start imports metadata only into this device-local index.'}</Body>
+        {importCoverage.message && <Body>{importCoverage.message}</Body>}
+      </InsetPanel>}
+      {hasLibraryScope && importCoverage.status !== 'running' && <ActionButton accessibilityLabel={canResume ? 'Resume metadata import' : 'Start metadata import'} onPress={() => void controller.startImport()}>
+        {canResume ? 'Resume metadata import' : 'Start metadata import'}
+      </ActionButton>}
+      {hasLibraryScope && importCoverage.status === 'running' && <ActionButton accessibilityLabel="Cancel metadata import" onPress={() => controller.cancelImport()} variant="secondary">Cancel metadata import</ActionButton>}
+      {snapshot.selectedCount !== null && <ActionButton accessibilityLabel="Import selected metadata" onPress={() => void controller.importSelected()} variant="secondary">Import selected metadata</ActionButton>}
+      {hasLibraryScope && snapshot.countStatus !== 'counting' && <ActionButton accessibilityLabel="Recheck accessible photos" onPress={() => void controller.countAccessible()} variant="secondary">Recheck accessible photos</ActionButton>}
+      {snapshot.scope === 'limited' && snapshot.countStatus !== 'counting' && <ActionButton accessibilityLabel="Manage limited selection" onPress={() => void controller.manageLimited()} variant="secondary">Manage limited selection</ActionButton>}
+      <ActionButton accessibilityLabel="View empty Atlas" onPress={() => openRoute(router, appRoutes.atlas)}>View Atlas</ActionButton>
+      <ActionButton accessibilityLabel="Return to Trust" onPress={() => openRoute(router, appRoutes.trust, 'replace')} variant="secondary">Back</ActionButton>
+    </Screen>
+  );
+}
+
+export function EmptyAtlasScreen() {
+  const router = useRouter();
+  const { snapshot, importCoverage } = usePhotoAccess();
+  return (
+    <Screen>
+      <Eyebrow>Private Atlas</Eyebrow>
+      <Title>No private record yet.</Title>
+      <InsetPanel>
+        <Body>After you choose to import, your available record can begin to take shape here. Until then, Atlas has no journeys to show.</Body>
+        <Body>Nothing on this screen is a travel claim, map, or inferred history.</Body>
+        {snapshot.countStatus !== 'none' && <Body>The last device-visible photo count is {snapshot.countStatus === 'complete' ? 'from a finished scoped scan, though the library can change' : 'incomplete'}. Counting does not create journeys.</Body>}
+        {importCoverage.status === 'complete' && <Body>{importCoverage.scanned} metadata records are private and local to this device. Atlas still makes no journey or travel conclusion.</Body>}
+        {snapshot.selectedCount !== null && importCoverage.status !== 'complete' && <Body>You selected {snapshot.selectedCount} items for this session; they have not been imported into a private record.</Body>}
+        {(snapshot.scope === 'limited' || snapshot.scope === 'denied' || snapshot.scope === 'revoked') && <Body>{scopeDescription(snapshot.scope)}</Body>}
+      </InsetPanel>
+      <ActionButton accessibilityLabel="Import photos" onPress={() => openRoute(router, appRoutes.import)}>Import photos</ActionButton>
+      <ActionButton accessibilityLabel="Return to Trust" onPress={() => openRoute(router, appRoutes.trust, 'replace')} variant="secondary">Back</ActionButton>
+    </Screen>
+  );
+}
+
+function scopeDescription(scope: ReturnType<typeof usePhotoAccess>['snapshot']['scope']) {
+  switch (scope) {
+    case 'full': return 'Full device-library access granted. This still does not prove complete lifetime coverage.';
+    case 'limited': return 'Limited photo-library access granted. Only the selected portion can be counted.';
+    case 'denied': return 'Photo-library access was denied. Use Select photos and videos, or change access in device Settings.';
+    case 'revoked': return 'Photo-library access was revoked. The earlier library count was cleared. Use device Settings or select items explicitly.';
+    case 'unavailable': return 'Native photo-library access is unavailable here. Use a development build on iOS or Android.';
+    default: return 'No photo-library permission has been requested yet.';
+  }
+}
+
+export function NotFoundScreen() {
+  const router = useRouter();
+  return (
+    <Screen>
+      <Eyebrow>Travel Life</Eyebrow>
+      <Title>Route not found.</Title>
+      <InsetPanel><Body>This path is unavailable, but your private app remains ready to use.</Body></InsetPanel>
+      <ActionButton accessibilityLabel="Return home" onPress={() => openRoute(router, appRoutes.trust, 'dismissTo')}>Return home</ActionButton>
+    </Screen>
+  );
+}

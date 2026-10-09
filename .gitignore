@@ -17,6 +17,13 @@ data/private/
 evals/data/private/
 evals/runs/
 evals/reviews/private/
+.codex-remote-attachments/
 *.log
 .DS_Store
 Thumbs.db
+# Local media encoder dependencies and intermediate QA files
+.prototype-tools/
+apps/prototype/.media-work/
+
+# Generated Android install packages
+*.apk
