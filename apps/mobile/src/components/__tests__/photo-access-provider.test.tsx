@@ -24,6 +24,11 @@ const emptyRepository: ImportRepository = {
   getCheckpoint: async () => null,
   loadCoverage: async () => null,
   commitPage: async () => {},
+  getPrivateRecordLifecycle: async () => ({ state: 'connected' }),
+  connectPrivateRecord: async () => {},
+  disconnectPrivateRecord: async () => {},
+  deleteLocalHistory: async () => {},
+  saveCorrectionOverlay: async () => {},
 };
 
 describe('photo access provider and Import screen', () => {

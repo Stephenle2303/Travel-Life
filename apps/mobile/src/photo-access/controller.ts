@@ -26,9 +26,9 @@ export class PhotoAccessController {
     private readonly adapter: PhotoAccessAdapter,
     private readonly notify: (snapshot: PhotoAccessSnapshot) => void,
     notifyImport: (coverage: ImportCoverage) => void = () => {},
-    repository: ImportRepository = createNativeImportRepository(),
+    private readonly repository: ImportRepository = createNativeImportRepository(),
   ) {
-    this.importer = new ImportCoordinator(adapter, repository, notifyImport);
+    this.importer = new ImportCoordinator(adapter, this.repository, notifyImport);
   }
 
   get snapshot() { return this.current; }
@@ -58,6 +58,19 @@ export class PhotoAccessController {
     return scope;
   }
 
+  private async canReadPhotoSource() {
+    try {
+      const lifecycle = await this.repository.getPrivateRecordLifecycle();
+      if (lifecycle.state === 'connected') return true;
+      this.set({ message: lifecycle.state === 'disconnected'
+        ? 'Photo-source reads are disconnected. Reconnect your private record before scanning.'
+        : 'No private record is available. Reconnect your private record before scanning.' });
+    } catch {
+      this.set({ message: 'Private record status could not be read. Retry when ready.' });
+    }
+    return false;
+  }
+
   async refresh(recountCompleted = false) {
     const token = ++this.serial;
     const wasComplete = this.current.countStatus === 'complete';
@@ -81,16 +94,21 @@ export class PhotoAccessController {
     }
   }
 
-  interrupt() {
+  private interruptCounting() {
     ++this.serial;
     if (this.current.countStatus === 'counting') {
       this.set({ countStatus: 'incomplete', message: 'Counting was interrupted. Retry when ready.' });
     }
+  }
+
+  interrupt() {
+    this.interruptCounting();
     void this.importer.cancel();
   }
 
   async requestBroad() {
     if (this.busy) return;
+    if (!await this.canReadPhotoSource()) return;
     this.busy = true;
     const token = ++this.serial;
     try {
@@ -113,6 +131,7 @@ export class PhotoAccessController {
 
   async countAccessible() {
     if (this.current.countStatus === 'counting') return;
+    if (!await this.canReadPhotoSource()) return;
     const token = ++this.serial;
     let count = 0;
     let permission: PermissionSnapshot | null;
@@ -153,6 +172,7 @@ export class PhotoAccessController {
 
   async manageLimited() {
     if (this.busy || this.current.scope !== 'limited' || this.current.countStatus === 'counting') return;
+    if (!await this.canReadPhotoSource()) return;
     this.busy = true;
     try {
       const permission = await this.adapter.inspect();
@@ -174,6 +194,7 @@ export class PhotoAccessController {
 
   async selectPhotos() {
     if (this.busy) return;
+    if (!await this.canReadPhotoSource()) return;
     this.busy = true;
     try {
       const result = await this.adapter.select();
@@ -211,6 +232,18 @@ export class PhotoAccessController {
     } finally {
       this.busy = false;
     }
+  }
+
+  async stopImport() {
+    this.interruptCounting();
+    await this.importer.cancel();
+  }
+
+  clearDeletedRecord() {
+    this.interruptCounting();
+    this.selectedIds = [];
+    this.set({ count: 0, countStatus: 'none', selectedCount: null, selectedMissingIds: 0, message: null });
+    this.importer.clear();
   }
 
   cancelImport() { void this.importer.cancel(); }

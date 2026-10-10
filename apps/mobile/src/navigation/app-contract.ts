@@ -1,9 +1,11 @@
 import type { Href } from 'expo-router';
 
 export const appRoutes = {
-  trust: '/',
+  welcome: '/',
+  trust: '/trust',
   import: '/import',
   atlas: '/history',
+  settings: '/settings',
 } as const;
 
 export type AppRoute = (typeof appRoutes)[keyof typeof appRoutes];

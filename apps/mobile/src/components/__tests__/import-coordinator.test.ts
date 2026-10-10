@@ -16,6 +16,7 @@ class MemoryRepository implements ImportRepository {
   readonly checkpoints = new Map<string, ImportCheckpoint>();
   readonly sources = new Map<string, SourceCandidate>();
   readonly correctionMarkers = new Map<string, string>();
+  state: 'connected' | 'disconnected' | 'deleted' = 'connected';
 
   async getCheckpoint(scope: ImportCheckpoint['scope']) { return this.checkpoints.get(scope) ?? null; }
   async loadCoverage(scope: ImportCheckpoint['scope']) { return this.getCheckpoint(scope); }
@@ -23,6 +24,11 @@ class MemoryRepository implements ImportRepository {
     for (const candidate of candidates) this.sources.set(candidate.assetId, candidate);
     this.checkpoints.set(checkpoint.scope, { ...checkpoint });
   }
+  async getPrivateRecordLifecycle() { return { state: this.state } as const; }
+  async connectPrivateRecord() { this.state = 'connected'; }
+  async disconnectPrivateRecord() { this.state = 'disconnected'; }
+  async deleteLocalHistory() { this.state = 'deleted'; this.checkpoints.clear(); this.sources.clear(); }
+  async saveCorrectionOverlay() {}
 }
 
 function harness(initial: PermissionSnapshot | null = { scope: 'full', canAskAgain: false }) {
@@ -49,6 +55,54 @@ describe('resumable local metadata import', () => {
 
     expect(h.coordinator.coverage).toMatchObject({ status: 'complete', accessible: 0, scanned: 0, geotagged: 0, unavailable: 0 });
     expect(h.repository.sources.size).toBe(0);
+  });
+
+  it('does not read source metadata while the private record is disconnected', async () => {
+    const h = harness();
+    h.repository.state = 'disconnected';
+
+    await h.coordinator.start('full', 0);
+
+    expect(h.adapter.readMetadataPage).not.toHaveBeenCalled();
+    expect(h.coordinator.coverage).toMatchObject({ status: 'blocked', message: 'Photo-source reads are disconnected. Reconnect your private record before importing.' });
+  });
+
+  it('does not restore paused maintenance while the private record is disconnected', async () => {
+    const h = harness();
+    h.repository.state = 'disconnected';
+    h.repository.loadCoverage = async () => { throw new Error('should not load'); };
+
+    await h.coordinator.restore('full');
+
+    expect(h.coordinator.coverage).toMatchObject({ status: 'blocked' });
+  });
+
+  it('does not resume a start that was cancelled while its lifecycle check was pending', async () => {
+    const h = harness();
+    let resolveLifecycle!: (value: { state: 'connected' }) => void;
+    h.repository.getPrivateRecordLifecycle = () => new Promise((resolve) => { resolveLifecycle = resolve; });
+
+    const start = h.coordinator.start('full', 0);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await h.coordinator.cancel();
+    resolveLifecycle({ state: 'connected' });
+    await start;
+
+    expect(h.adapter.readMetadataPage).not.toHaveBeenCalled();
+  });
+
+  it('does not resume selected metadata after a pending lifecycle check is cancelled', async () => {
+    const h = harness({ scope: 'denied', canAskAgain: false });
+    let resolveLifecycle!: (value: { state: 'connected' }) => void;
+    h.repository.getPrivateRecordLifecycle = () => new Promise((resolve) => { resolveLifecycle = resolve; });
+
+    const selected = h.coordinator.importSelected(['asset'], 0);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await h.coordinator.cancel();
+    resolveLifecycle({ state: 'connected' });
+    await selected;
+
+    expect(h.adapter.readSelectedMetadata).not.toHaveBeenCalled();
   });
 
   it('finishes a sparse permitted scope without media fields or a travel claim', async () => {
@@ -93,14 +147,24 @@ describe('resumable local metadata import', () => {
     let finishPage!: (value: SourceCandidate[]) => void;
     h.adapter.readMetadataPage.mockImplementationOnce(() => new Promise((resolve) => { finishPage = resolve; }));
     const run = h.coordinator.start('full', null);
-    await Promise.resolve();
-    await Promise.resolve();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
     await h.coordinator.cancel();
     finishPage([image('late')]);
     await run;
 
     expect(h.repository.sources.size).toBe(0);
     expect(h.coordinator.coverage).toMatchObject({ status: 'paused', scanned: 0 });
+  });
+
+  it('clears retained coverage after a confirmed local deletion', async () => {
+    const h = harness();
+    h.adapter.readMetadataPage.mockResolvedValue([image('local')]);
+    await h.coordinator.start('full', 1);
+    expect(h.coordinator.coverage.status).toBe('complete');
+
+    h.coordinator.clear();
+
+    expect(h.coordinator.coverage).toMatchObject({ scope: null, status: 'idle', scanned: 0 });
   });
 
   it('restores a process-interrupted checkpoint as paused and safely restarts from zero', async () => {
@@ -174,7 +238,7 @@ describe('resumable local metadata import', () => {
     let finishLookup!: (value: SourceCandidate[]) => void;
     h.adapter.readSelectedMetadata.mockImplementationOnce(() => new Promise((resolve) => { finishLookup = resolve; }));
     const first = h.coordinator.importSelected(['late'], 0);
-    await Promise.resolve();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
     await h.coordinator.cancel();
     finishLookup([image('late')]);
     await first;

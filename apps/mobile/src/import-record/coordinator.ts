@@ -56,6 +56,7 @@ export class ImportCoordinator {
 
   async restore(scope: Extract<ImportScope, 'full' | 'limited'>) {
     if (this.isRunning) return;
+    if (!await this.canReadCurrentSource(scope, null)) return;
     const checkpoint = await this.repository.loadCoverage(scope);
     if (!checkpoint) return;
     // A process cannot continue work that was running before it ended. Persist a
@@ -72,6 +73,11 @@ export class ImportCoordinator {
       this.activeCheckpoint = null;
       this.set(idleCoverage);
     }
+  }
+
+  clear() {
+    this.activeCheckpoint = null;
+    this.set(idleCoverage);
   }
 
   async cancel() {
@@ -97,6 +103,8 @@ export class ImportCoordinator {
 
   async start(scope: Extract<ImportScope, 'full' | 'limited'>, accessible: number | null) {
     if (this.isRunning) return;
+    const token = ++this.serial;
+    if (!await this.canReadCurrentSource(scope, accessible) || token !== this.serial) return;
     if (this.pausePending) {
       try {
         await this.pausePending;
@@ -104,7 +112,6 @@ export class ImportCoordinator {
         // cancel() already exposes the failed pause write as recoverable UI state.
       }
     }
-    const token = ++this.serial;
     let saved: ImportCheckpoint | null;
     try {
       saved = await this.repository.getCheckpoint(scope);
@@ -128,6 +135,8 @@ export class ImportCoordinator {
 
   async importSelected(assetIds: string[], missingIds: number) {
     if (this.isRunning) return;
+    const token = ++this.serial;
+    if (!await this.canReadCurrentSource('selected', assetIds.length + missingIds) || token !== this.serial) return;
     if (this.pausePending) {
       try {
         await this.pausePending;
@@ -135,7 +144,6 @@ export class ImportCoordinator {
         // cancel() already exposes the failed pause write as recoverable UI state.
       }
     }
-    const token = ++this.serial;
     let saved: ImportCheckpoint | null;
     try {
       saved = await this.repository.getCheckpoint('selected');
@@ -173,6 +181,26 @@ export class ImportCoordinator {
     }
     this.activeCheckpoint = updated;
     if (token === this.serial) this.set(checkpointToCoverage(updated, assetIds.length + missingIds));
+  }
+
+  private async canReadCurrentSource(scope: ImportScope, accessible: number | null) {
+    try {
+      const lifecycle = await this.repository.getPrivateRecordLifecycle();
+      if (lifecycle.state === 'connected') return true;
+      this.activeCheckpoint = null;
+      this.set({
+        ...idleCoverage,
+        scope,
+        accessible,
+        status: 'blocked',
+        message: lifecycle.state === 'disconnected'
+          ? 'Photo-source reads are disconnected. Reconnect your private record before importing.'
+          : 'No private record is available. Reconnect your private record before importing.',
+      });
+    } catch {
+      this.set({ ...idleCoverage, scope, accessible, status: 'paused', message: 'Private record status could not be read. Retry when ready.' });
+    }
+    return false;
   }
 
   private advance(checkpoint: ImportCheckpoint, candidates: SourceCandidate[], extraUnavailable = 0): ImportCheckpoint {

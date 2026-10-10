@@ -1,4 +1,5 @@
 import type { LibraryScope } from '@/photo-access/types';
+import type { HistoryRecordRepository } from '@/history-record';
 
 export type SourceAvailability = 'available' | 'unavailable' | 'unknown';
 
@@ -36,8 +37,16 @@ export type ImportCoverage = {
   message: string | null;
 };
 
-export interface ImportRepository {
+export interface ImportRepository extends HistoryRecordRepository {
   getCheckpoint(scope: ImportScope): Promise<ImportCheckpoint | null>;
   commitPage(checkpoint: ImportCheckpoint, candidates: SourceCandidate[]): Promise<void>;
   loadCoverage(scope: ImportScope): Promise<ImportCheckpoint | null>;
+}
+
+/** Returned when a lifecycle transition has made an import write unsafe. */
+export class ImportLifecycleBlockedError extends Error {
+  constructor() {
+    super('The private record is not connected for import.');
+    this.name = 'ImportLifecycleBlockedError';
+  }
 }

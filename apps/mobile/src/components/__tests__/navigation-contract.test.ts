@@ -11,11 +11,13 @@ describe('navigation contract', () => {
       dismissTo: (route: Href) => { visited.push(`dismissTo:${String(route)}`); },
     };
 
+    openRoute(router, appRoutes.welcome);
     openRoute(router, appRoutes.trust);
     openRoute(router, appRoutes.import);
     openRoute(router, appRoutes.atlas, 'replace');
+    openRoute(router, appRoutes.settings);
     openRoute(router, appRoutes.trust, 'dismissTo');
 
-    expect(visited).toEqual(['push:/', 'push:/import', 'replace:/history', 'dismissTo:/']);
+    expect(visited).toEqual(['push:/', 'push:/trust', 'push:/import', 'replace:/history', 'push:/settings', 'dismissTo:/trust']);
   });
 });

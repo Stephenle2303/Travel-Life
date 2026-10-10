@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useRouter } from 'expo-router';
 
 import { appRoutes, openRoute } from '@/navigation/app-contract';
@@ -82,7 +83,37 @@ export function EmptyAtlasScreen() {
         {(snapshot.scope === 'limited' || snapshot.scope === 'denied' || snapshot.scope === 'revoked') && <Body>{scopeDescription(snapshot.scope)}</Body>}
       </InsetPanel>
       <ActionButton accessibilityLabel="Import photos" onPress={() => openRoute(router, appRoutes.import)}>Import photos</ActionButton>
+      <ActionButton accessibilityLabel="Open private record settings" onPress={() => openRoute(router, appRoutes.settings)} variant="secondary">Private record settings</ActionButton>
       <ActionButton accessibilityLabel="Return to Trust" onPress={() => openRoute(router, appRoutes.trust, 'replace')} variant="secondary">Back</ActionButton>
+    </Screen>
+  );
+}
+
+export function PrivacySettingsScreen() {
+  const router = useRouter();
+  const { privateRecord, privateRecordController } = usePhotoAccess();
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  return (
+    <Screen>
+      <Eyebrow>Private record</Eyebrow>
+      <Title>Private record controls</Title>
+      <InsetPanel>
+        <Body>Normal device backups may restore this private record under the protections of your device and backup account. This app does not claim SQLite encryption.</Body>
+        <Body>{privateRecord.state === 'connected' ? 'Photo-source reads are available when you choose to import.' : privateRecord.state === 'disconnected' ? 'Photo-source reads and maintenance are stopped. Your private local record remains on this device.' : 'No local private record is available. Original photos remain in their source.'}</Body>
+        {privateRecord.message && <Body>{privateRecord.message}</Body>}
+      </InsetPanel>
+      {privateRecord.state === 'connected' && <ActionButton accessibilityLabel="Disconnect photo source" onPress={() => void privateRecordController.disconnect()} variant="secondary">Disconnect photo source</ActionButton>}
+      {privateRecord.state === 'disconnected' && <ActionButton accessibilityLabel="Reconnect private record" onPress={() => void privateRecordController.reconnect()} variant="secondary">Reconnect private record</ActionButton>}
+      {privateRecord.state === 'deleted' && <ActionButton accessibilityLabel="Start a new private record" onPress={() => void privateRecordController.reconnect()}>Start a new private record</ActionButton>}
+      {!confirmingDelete && privateRecord.state !== 'deleted' && <ActionButton accessibilityLabel="Delete local history" onPress={() => setConfirmingDelete(true)} variant="secondary">Delete local history</ActionButton>}
+      {confirmingDelete && <InsetPanel>
+        <Title>Delete private history from this device?</Title>
+        <Body>This removes the local record, source references, checkpoints, correction overlays, and covered caches. It does not delete original photos or remote copies.</Body>
+        <ActionButton accessibilityLabel="Confirm delete local history" onPress={() => { setConfirmingDelete(false); void privateRecordController.delete(); }}>Delete local history</ActionButton>
+        <ActionButton accessibilityLabel="Cancel delete local history" onPress={() => setConfirmingDelete(false)} variant="secondary">Cancel</ActionButton>
+      </InsetPanel>}
+      <ActionButton accessibilityLabel="Return to Atlas" onPress={() => openRoute(router, appRoutes.atlas, 'replace')} variant="secondary">Back</ActionButton>
     </Screen>
   );
 }
