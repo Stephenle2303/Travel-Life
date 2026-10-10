@@ -69,7 +69,7 @@ export function ImportScreen() {
 
 export function EmptyAtlasScreen() {
   const router = useRouter();
-  const { snapshot, importCoverage } = usePhotoAccess();
+  const { snapshot, importCoverage, privateRecord, reconstruction, reconstructionController } = usePhotoAccess();
   return (
     <Screen>
       <Eyebrow>Private Atlas</Eyebrow>
@@ -79,10 +79,14 @@ export function EmptyAtlasScreen() {
         <Body>Nothing on this screen is a travel claim, map, or inferred history.</Body>
         {snapshot.countStatus !== 'none' && <Body>The last device-visible photo count is {snapshot.countStatus === 'complete' ? 'from a finished scoped scan, though the library can change' : 'incomplete'}. Counting does not create journeys.</Body>}
         {importCoverage.status === 'complete' && <Body>{importCoverage.scanned} metadata records are private and local to this device. Atlas still makes no journey or travel conclusion.</Body>}
+        {reconstruction.status === 'running' && <Body>Preparing an inferred local draft from the current private record.</Body>}
+        {reconstruction.status === 'complete' && <Body>{reconstruction.graph?.journeys.length ?? 0} inferred journey drafts and {reconstruction.graph?.places.length ?? 0} local places are ready for review. Photo metadata is evidence, not proof of presence.</Body>}
+        {reconstruction.message && reconstruction.status !== 'complete' && <Body>{reconstruction.message}</Body>}
         {snapshot.selectedCount !== null && importCoverage.status !== 'complete' && <Body>You selected {snapshot.selectedCount} items for this session; they have not been imported into a private record.</Body>}
         {(snapshot.scope === 'limited' || snapshot.scope === 'denied' || snapshot.scope === 'revoked') && <Body>{scopeDescription(snapshot.scope)}</Body>}
       </InsetPanel>
       <ActionButton accessibilityLabel="Import photos" onPress={() => openRoute(router, appRoutes.import)}>Import photos</ActionButton>
+      {privateRecord.state === 'connected' && <ActionButton accessibilityLabel="Rebuild local draft" onPress={() => void reconstructionController.rebuild()} variant="secondary">Rebuild local draft</ActionButton>}
       <ActionButton accessibilityLabel="Open private record settings" onPress={() => openRoute(router, appRoutes.settings)} variant="secondary">Private record settings</ActionButton>
       <ActionButton accessibilityLabel="Return to Trust" onPress={() => openRoute(router, appRoutes.trust, 'replace')} variant="secondary">Back</ActionButton>
     </Screen>

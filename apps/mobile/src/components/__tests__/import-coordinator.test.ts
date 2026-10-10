@@ -6,6 +6,8 @@ const image = (assetId: string, overrides: Partial<SourceCandidate> = {}): Sourc
   assetId,
   mediaType: 'image',
   capturedAtMillis: null,
+  capturedDay: null,
+  hasPreciseOffset: false,
   modifiedAtMillis: null,
   locationAvailable: null,
   availability: 'available',

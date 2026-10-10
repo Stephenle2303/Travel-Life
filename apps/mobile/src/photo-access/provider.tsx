@@ -7,6 +7,7 @@ import { nativePhotoAccess } from './native-adapter';
 import type { PhotoAccessAdapter, PhotoAccessSnapshot } from './types';
 import { createNativeImportRepository, type ImportCoverage, type ImportRepository, type MaintenanceRepository } from '@/import-record';
 import { MaintenanceController, createExpoScheduler, type MaintenanceView } from '@/maintenance';
+import { createNativeReconstructionRepository, ReconstructionController, type ReconstructionView } from '@/reconstruction';
 
 function maintenanceRepository(repository: ImportRepository): MaintenanceRepository {
   if ('loadMaintenance' in repository) return repository as MaintenanceRepository;
@@ -34,6 +35,8 @@ type PhotoAccessContextValue = {
   privateRecordController: HistoryRecordController;
   maintenance: MaintenanceView;
   maintenanceController: MaintenanceController;
+  reconstruction: ReconstructionView;
+  reconstructionController: ReconstructionController;
 };
 
 const PhotoAccessContext = createContext<PhotoAccessContextValue | null>(null);
@@ -43,16 +46,19 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
   const [importCoverage, setImportCoverage] = useState<ImportCoverage>({ scope: null, accessible: null, scanned: 0, geotagged: 0, unavailable: 0, status: 'idle', message: null });
   const [privateRecord, setPrivateRecord] = useState<LifecycleSnapshot>({ state: 'deleted', message: null });
   const [maintenance, setMaintenance] = useState<MaintenanceView>({ enabled: false, status: 'disabled', lastCheckedAtMillis: null, lastUpdatedAtMillis: null, message: null, checkpoint: null });
+  const [reconstruction, setReconstruction] = useState<ReconstructionView>({ status: 'idle', graph: null, message: null });
   const [sharedRepository] = useState(() => repository ?? createNativeImportRepository());
   const [durableMaintenanceRepository] = useState(() => maintenanceRepository(sharedRepository));
   const [maintenanceController] = useState(() => new MaintenanceController(durableMaintenanceRepository, adapter, createExpoScheduler(), setMaintenance));
+  const [reconstructionController] = useState(() => new ReconstructionController(createNativeReconstructionRepository(), setReconstruction));
   const [controller] = useState(() => new PhotoAccessController(adapter, setSnapshot, setImportCoverage, sharedRepository, async () => {
     // Import completion makes the owner control available; it never enables it.
     await maintenanceController.refresh();
+    await reconstructionController.rebuild();
   }));
   const [privateRecordController] = useState(() => new HistoryRecordController(
     sharedRepository,
-    async () => { await controller.stopImport(); await maintenanceController.stopForLifecycle(); },
+    async () => { await controller.stopImport(); await maintenanceController.stopForLifecycle(); reconstructionController.clear(); },
     setPrivateRecord,
     () => controller.clearDeletedRecord(),
   ));
@@ -81,7 +87,7 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     }
   }, [maintenance.enabled, maintenanceController, snapshot.scope]);
 
-  return <PhotoAccessContext.Provider value={{ snapshot, controller, importCoverage, privateRecord, privateRecordController, maintenance, maintenanceController }}>{children}</PhotoAccessContext.Provider>;
+  return <PhotoAccessContext.Provider value={{ snapshot, controller, importCoverage, privateRecord, privateRecordController, maintenance, maintenanceController, reconstruction, reconstructionController }}>{children}</PhotoAccessContext.Provider>;
 }
 
 export function usePhotoAccess() {

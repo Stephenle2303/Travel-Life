@@ -47,9 +47,19 @@ async function candidateFromMetadata(metadata: { id: string; mediaType: string; 
   const library = mediaLibrary();
   const asset = new library.Asset(metadata.id);
   let locationAvailable: boolean | null = null;
+  let latitude: number | null = null;
+  let longitude: number | null = null;
+  let reportedAccuracyMeters: number | null = null;
   let availability: SourceCandidate['availability'] = 'unknown';
   try {
-    locationAvailable = (await asset.getLocation()) !== null;
+    const location = await asset.getLocation();
+    locationAvailable = location !== null;
+    if (location && typeof location === 'object') {
+      const candidate = location as { latitude?: unknown; longitude?: unknown; accuracy?: unknown };
+      latitude = typeof candidate.latitude === 'number' && Number.isFinite(candidate.latitude) ? candidate.latitude : null;
+      longitude = typeof candidate.longitude === 'number' && Number.isFinite(candidate.longitude) ? candidate.longitude : null;
+      reportedAccuracyMeters = typeof candidate.accuracy === 'number' && Number.isFinite(candidate.accuracy) ? candidate.accuracy : null;
+    }
   } catch {
     // Missing platform metadata permission is distinct from a missing location.
   }
@@ -62,8 +72,13 @@ async function candidateFromMetadata(metadata: { id: string; mediaType: string; 
     assetId: metadata.id,
     mediaType: metadata.mediaType === 'video' ? 'video' : 'image',
     capturedAtMillis: metadata.creationTime,
+    capturedDay: metadata.creationTime === null ? null : (() => { const date = new Date(metadata.creationTime); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; })(),
+    hasPreciseOffset: false,
     modifiedAtMillis: metadata.modificationTime,
     locationAvailable,
+    latitude,
+    longitude,
+    reportedAccuracyMeters,
     availability,
   };
 }

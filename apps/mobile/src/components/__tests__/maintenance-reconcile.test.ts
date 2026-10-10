@@ -2,7 +2,7 @@ import { reconcilePermittedLibrary } from '@/maintenance';
 import type { MaintenanceCheckpoint, MaintenanceRepository, MaintenanceSnapshot, SourceCandidate } from '@/import-record/types';
 import type { PhotoAccessAdapter } from '@/photo-access/types';
 
-const candidate = (assetId: string, modifiedAtMillis: number | null = 1): SourceCandidate => ({ assetId, mediaType: 'image', capturedAtMillis: 1, modifiedAtMillis, locationAvailable: null, availability: 'available' });
+const candidate = (assetId: string, modifiedAtMillis: number | null = 1): SourceCandidate => ({ assetId, mediaType: 'image', capturedAtMillis: 1, capturedDay: '1970-01-01', hasPreciseOffset: false, modifiedAtMillis, locationAvailable: null, availability: 'available' });
 
 function repository(): MaintenanceRepository & { pages: SourceCandidate[][]; completed: MaintenanceCheckpoint[]; paused: number } {
   const state: MaintenanceSnapshot = { enabled: true, status: 'pending', lastCheckedAtMillis: null, lastUpdatedAtMillis: null, message: null };

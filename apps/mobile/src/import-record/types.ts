@@ -5,14 +5,20 @@ export type SourceAvailability = 'available' | 'unavailable' | 'unknown';
 
 /**
  * Deliberately normalized metadata. It never carries a filename, URI, EXIF
- * blob, coordinate, or the media itself.
+ * blob or media itself. Coordinates are permitted only in this device-local
+ * boundary and must never be logged, synced, or exposed by UI state.
  */
 export type SourceCandidate = {
   assetId: string;
   mediaType: 'image' | 'video';
   capturedAtMillis: number | null;
+  capturedDay: string | null;
+  hasPreciseOffset: boolean;
   modifiedAtMillis: number | null;
   locationAvailable: boolean | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  reportedAccuracyMeters?: number | null;
   availability: SourceAvailability;
 };
 

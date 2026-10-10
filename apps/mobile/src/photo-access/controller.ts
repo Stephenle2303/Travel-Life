@@ -231,6 +231,7 @@ export class PhotoAccessController {
     this.busy = true;
     try {
       await this.importer.importSelected(this.selectedIds, this.current.selectedMissingIds);
+      if (this.importer.coverage.status === 'complete') await this.onCompletedLibraryImport();
     } finally {
       this.busy = false;
     }

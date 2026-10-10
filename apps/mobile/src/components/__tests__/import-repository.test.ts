@@ -10,7 +10,7 @@ jest.mock('expo-sqlite', () => ({ openDatabaseAsync: (...args: unknown[]) => moc
 
 const candidate: SourceCandidate = {
   assetId: 'opaque-id', mediaType: 'image', capturedAtMillis: null, modifiedAtMillis: null,
-  locationAvailable: null, availability: 'unknown',
+  locationAvailable: null, availability: 'unknown', capturedDay: null, hasPreciseOffset: false,
 };
 
 function readyDatabase() {
@@ -35,7 +35,7 @@ describe('native import SQLite repository', () => {
     expect(mockOpenDatabaseAsync).toHaveBeenCalledWith('travel-life-import-v1.db');
     expect(mockExecAsync).toHaveBeenCalledWith('BEGIN IMMEDIATE TRANSACTION');
     expect(mockExecAsync).toHaveBeenCalledWith(expect.stringContaining('CREATE TABLE IF NOT EXISTS import_source_index'));
-    expect(mockRunAsync).toHaveBeenCalledWith('INSERT INTO import_schema_version (version) VALUES (?)', 5);
+    expect(mockRunAsync).toHaveBeenCalledWith('INSERT INTO import_schema_version (version) VALUES (?)', 8);
     expect(mockExecAsync).toHaveBeenLastCalledWith('COMMIT');
   });
 
@@ -48,8 +48,8 @@ describe('native import SQLite repository', () => {
     await expect(repository.getCheckpoint('limited')).resolves.toEqual({ scope: 'limited', nextOffset: 4, scanned: 4, geotagged: 1, unavailable: 2, status: 'paused' });
     await repository.commitPage({ scope: 'limited', nextOffset: 1, scanned: 1, geotagged: 0, unavailable: 0, status: 'complete' }, [candidate]);
 
-    expect(mockRunAsync).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO import_source_index'), 'opaque-id', 'image', null, null, null, 'unknown');
-    expect(mockRunAsync).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO canonical_evidence'), 'opaque-id', 'opaque-id', 'image', null, null, null, 'unknown');
+    expect(mockRunAsync).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO import_source_index'), 'opaque-id', 'image', null, null, 0, null, null, 'unknown', null, null, null);
+    expect(mockRunAsync).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO canonical_evidence'), 'opaque-id', 'opaque-id', 'image', null, null, 0, null, null, 'unknown', null, null, null);
     expect(mockRunAsync).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO import_checkpoint'), 'limited', 1, 1, 0, 0, 'complete');
     expect(mockExecAsync.mock.calls.flat().join('\n')).not.toContain('DELETE FROM correction_overlays');
   });
@@ -64,7 +64,7 @@ describe('native import SQLite repository', () => {
     expect(mockExecAsync.mock.calls.flat().join('\n')).toContain('CREATE TABLE IF NOT EXISTS inferred_history');
     expect(mockExecAsync.mock.calls.flat().join('\n')).toContain('INSERT OR IGNORE INTO canonical_evidence');
     expect(mockExecAsync.mock.calls.flat().join('\n')).toContain('VALUES (1, 2)');
-    expect(mockRunAsync).toHaveBeenCalledWith('UPDATE import_schema_version SET version = ?', 5);
+    expect(mockRunAsync).toHaveBeenCalledWith('UPDATE import_schema_version SET version = ?', 8);
   });
 
   it('keeps a disconnected record locally and clears every covered table only on deletion', async () => {

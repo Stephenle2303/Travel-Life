@@ -43,8 +43,8 @@ describe('Expo SDK 57 native adapter', () => {
     expect(mockQuery.offset).toHaveBeenCalledWith(100);
     expect(mockQuery.exeForMetadata).toHaveBeenCalledTimes(1);
     expect(await nativePhotoAccess.readMetadataPage(0, 100)).toEqual([
-      { assetId: 'synthetic-1', mediaType: 'image', capturedAtMillis: null, modifiedAtMillis: null, locationAvailable: false, availability: 'available' },
-      { assetId: 'synthetic-2', mediaType: 'video', capturedAtMillis: 2, modifiedAtMillis: 3, locationAvailable: false, availability: 'available' },
+      { assetId: 'synthetic-1', mediaType: 'image', capturedAtMillis: null, capturedDay: null, hasPreciseOffset: false, modifiedAtMillis: null, locationAvailable: false, latitude: null, longitude: null, reportedAccuracyMeters: null, availability: 'available' },
+      { assetId: 'synthetic-2', mediaType: 'video', capturedAtMillis: 2, capturedDay: '1970-01-01', hasPreciseOffset: false, modifiedAtMillis: 3, locationAvailable: false, latitude: null, longitude: null, reportedAccuracyMeters: null, availability: 'available' },
     ]);
   });
 
@@ -77,7 +77,7 @@ describe('Expo SDK 57 native adapter', () => {
     });
 
     await expect(nativePhotoAccess.readSelectedMetadata(['stable', 'gone'])).resolves.toEqual([
-      { assetId: 'stable', mediaType: 'image', capturedAtMillis: null, modifiedAtMillis: null, locationAvailable: false, availability: 'available' },
+      { assetId: 'stable', mediaType: 'image', capturedAtMillis: null, capturedDay: null, hasPreciseOffset: false, modifiedAtMillis: null, locationAvailable: false, latitude: null, longitude: null, reportedAccuracyMeters: null, availability: 'available' },
     ]);
   });
 

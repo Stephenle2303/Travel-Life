@@ -20,7 +20,7 @@ type CheckpointRow = {
   status: ImportCheckpoint['status'];
 };
 
-const CURRENT_SCHEMA_VERSION = 5;
+const CURRENT_SCHEMA_VERSION = 8;
 
 const migrationV1 = `
   CREATE TABLE IF NOT EXISTS import_checkpoint (
@@ -144,6 +144,71 @@ const migrationV5 = `
   UPDATE private_history_record SET schema_version = 5 WHERE record_id = 1;
 `;
 
+// Exact coordinates are stored only in the private on-device record. They are
+// intentionally absent from coverage, UI state, logs, caches, and sync APIs.
+const migrationV6 = `
+  ALTER TABLE import_source_index ADD COLUMN latitude REAL NULL;
+  ALTER TABLE import_source_index ADD COLUMN longitude REAL NULL;
+  ALTER TABLE import_source_index ADD COLUMN reported_accuracy_meters REAL NULL;
+  ALTER TABLE canonical_evidence ADD COLUMN latitude REAL NULL;
+  ALTER TABLE canonical_evidence ADD COLUMN longitude REAL NULL;
+  ALTER TABLE canonical_evidence ADD COLUMN reported_accuracy_meters REAL NULL;
+  UPDATE private_history_record SET schema_version = 6 WHERE record_id = 1;
+`;
+
+const migrationV7 = `
+  CREATE TABLE IF NOT EXISTS reconstruction_run (
+    run_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    rule_version TEXT NOT NULL,
+    evidence_revision INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('complete', 'pending', 'restricted')),
+    completed_at_millis INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS reconstruction_place (
+    place_id TEXT PRIMARY KEY NOT NULL,
+    run_id INTEGER NOT NULL,
+    representative_evidence_id TEXT NOT NULL,
+    uncertainty_json TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS reconstruction_visit (
+    visit_id TEXT PRIMARY KEY NOT NULL,
+    run_id INTEGER NOT NULL,
+    place_id TEXT NOT NULL,
+    ordering TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS reconstruction_journey (
+    journey_id TEXT PRIMARY KEY NOT NULL,
+    run_id INTEGER NOT NULL,
+    journey_state TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS reconstruction_link (
+    run_id INTEGER NOT NULL,
+    link_kind TEXT NOT NULL,
+    parent_id TEXT NOT NULL,
+    child_id TEXT NOT NULL,
+    PRIMARY KEY (run_id, link_kind, parent_id, child_id)
+  );
+  CREATE TABLE IF NOT EXISTS reconstruction_disposition (
+    run_id INTEGER NOT NULL,
+    evidence_id TEXT NOT NULL,
+    disposition_state TEXT NOT NULL,
+    reasons_json TEXT NOT NULL,
+    PRIMARY KEY (run_id, evidence_id)
+  );
+  UPDATE private_history_record SET schema_version = 7 WHERE record_id = 1;
+`;
+
+// The device's recorded civil capture date is distinct from an instant.  Keep
+// both private so reconstruction can decline to invent a timezone offset.
+const migrationV8 = `
+  ALTER TABLE import_source_index ADD COLUMN captured_day TEXT NULL;
+  ALTER TABLE import_source_index ADD COLUMN has_precise_offset INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE canonical_evidence ADD COLUMN captured_day TEXT NULL;
+  ALTER TABLE canonical_evidence ADD COLUMN has_precise_offset INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE private_history_record ADD COLUMN canonical_evidence_revision INTEGER NOT NULL DEFAULT 0;
+  UPDATE private_history_record SET schema_version = 8 WHERE record_id = 1;
+`;
+
 const MAINTENANCE_LEASE_MILLIS = 5 * 60 * 1000;
 
 type SchemaRow = { version: number };
@@ -185,6 +250,9 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
           if (version < 3) await db.execAsync(migrationV3);
           if (version < 4) await db.execAsync(migrationV4);
           if (version < 5) await db.execAsync(migrationV5);
+          if (version < 6) await db.execAsync(migrationV6);
+          if (version < 7) await db.execAsync(migrationV7);
+          if (version < 8) await db.execAsync(migrationV8);
           if (version === 0) await db.runAsync('INSERT INTO import_schema_version (version) VALUES (?)', CURRENT_SCHEMA_VERSION);
           else if (version < CURRENT_SCHEMA_VERSION) await db.runAsync('UPDATE import_schema_version SET version = ?', CURRENT_SCHEMA_VERSION);
           await db.execAsync('COMMIT');
@@ -242,7 +310,7 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
       const db = await open();
       await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
       try {
-        await db.runAsync('INSERT OR IGNORE INTO private_history_record (record_id, schema_version) VALUES (?, ?)', 1, 3);
+        await db.runAsync('INSERT OR IGNORE INTO private_history_record (record_id, schema_version) VALUES (?, ?)', 1, CURRENT_SCHEMA_VERSION);
         await db.runAsync('INSERT INTO private_record_lifecycle (record_id, state) VALUES (?, ?) ON CONFLICT(record_id) DO UPDATE SET state = excluded.state', 1, 'connected');
         await db.execAsync('COMMIT');
       } catch (error) {
@@ -281,6 +349,12 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
           DELETE FROM maintenance_lease;
           DELETE FROM maintenance_run_sequence;
           DELETE FROM local_cache_registry;
+          DELETE FROM reconstruction_disposition;
+          DELETE FROM reconstruction_link;
+          DELETE FROM reconstruction_journey;
+          DELETE FROM reconstruction_visit;
+          DELETE FROM reconstruction_place;
+          DELETE FROM reconstruction_run;
           DELETE FROM private_record_lifecycle;
           DELETE FROM private_history_record;
         `);
@@ -341,43 +415,44 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
         for (const candidate of candidates) {
           await db.runAsync(
             `INSERT INTO import_source_index
-              (asset_id, media_type, captured_at_millis, modified_at_millis, location_available, availability)
-             VALUES (?, ?, ?, ?, ?, ?)
+              (asset_id, media_type, captured_at_millis, captured_day, has_precise_offset, modified_at_millis, location_available, availability, latitude, longitude, reported_accuracy_meters)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(asset_id) DO UPDATE SET
               media_type = excluded.media_type,
-              captured_at_millis = excluded.captured_at_millis,
+              captured_at_millis = excluded.captured_at_millis, captured_day = excluded.captured_day, has_precise_offset = excluded.has_precise_offset,
               modified_at_millis = excluded.modified_at_millis,
               location_available = excluded.location_available,
-             availability = excluded.availability`,
+              availability = excluded.availability, latitude = excluded.latitude, longitude = excluded.longitude, reported_accuracy_meters = excluded.reported_accuracy_meters`,
             candidate.assetId,
             candidate.mediaType,
-            candidate.capturedAtMillis,
+            candidate.capturedAtMillis, candidate.capturedDay, Number(candidate.hasPreciseOffset),
             candidate.modifiedAtMillis,
             candidate.locationAvailable === null ? null : Number(candidate.locationAvailable),
-            candidate.availability,
+            candidate.availability, candidate.latitude ?? null, candidate.longitude ?? null, candidate.reportedAccuracyMeters ?? null,
           );
           // A later foreground import is also proof this stable identity is
           // present. Do not overwrite a live maintenance run marker.
           await db.runAsync('INSERT OR IGNORE INTO maintenance_source_presence (asset_id, last_seen_run) VALUES (?, ?)', candidate.assetId, 0);
           await db.runAsync(
             `INSERT INTO canonical_evidence
-              (evidence_id, source_ref, media_type, captured_at_millis, modified_at_millis, location_available, availability)
-             VALUES (?, ?, ?, ?, ?, ?, ?)
+              (evidence_id, source_ref, media_type, captured_at_millis, captured_day, has_precise_offset, modified_at_millis, location_available, availability, latitude, longitude, reported_accuracy_meters)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(source_ref) DO UPDATE SET
               media_type = excluded.media_type,
-              captured_at_millis = excluded.captured_at_millis,
+              captured_at_millis = excluded.captured_at_millis, captured_day = excluded.captured_day, has_precise_offset = excluded.has_precise_offset,
               modified_at_millis = excluded.modified_at_millis,
               location_available = excluded.location_available,
-              availability = excluded.availability`,
+              availability = excluded.availability, latitude = excluded.latitude, longitude = excluded.longitude, reported_accuracy_meters = excluded.reported_accuracy_meters`,
             candidate.assetId,
             candidate.assetId,
             candidate.mediaType,
-            candidate.capturedAtMillis,
+            candidate.capturedAtMillis, candidate.capturedDay, Number(candidate.hasPreciseOffset),
             candidate.modifiedAtMillis,
             candidate.locationAvailable === null ? null : Number(candidate.locationAvailable),
-            candidate.availability,
+            candidate.availability, candidate.latitude ?? null, candidate.longitude ?? null, candidate.reportedAccuracyMeters ?? null,
           );
         }
+        if (candidates.length) await db.runAsync('UPDATE private_history_record SET canonical_evidence_revision = canonical_evidence_revision + 1 WHERE record_id = 1');
         await db.runAsync(
           `INSERT INTO import_checkpoint (scope, next_offset, scanned, geotagged, unavailable, status)
            VALUES (?, ?, ?, ?, ?, ?)
@@ -435,30 +510,31 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
           const kind = !prior ? 'added' : prior.availability !== 'available' && candidate.availability === 'available' ? 'available'
             : prior.modified_at_millis !== candidate.modifiedAtMillis || prior.availability !== candidate.availability ? 'changed' : null;
           await db.runAsync(
-            `INSERT INTO import_source_index (asset_id, media_type, captured_at_millis, modified_at_millis, location_available, availability)
-             VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(asset_id) DO UPDATE SET media_type=excluded.media_type,
-             captured_at_millis=excluded.captured_at_millis, modified_at_millis=excluded.modified_at_millis,
-             location_available=excluded.location_available, availability=excluded.availability
+            `INSERT INTO import_source_index (asset_id, media_type, captured_at_millis, captured_day, has_precise_offset, modified_at_millis, location_available, availability, latitude, longitude, reported_accuracy_meters)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(asset_id) DO UPDATE SET media_type=excluded.media_type,
+             captured_at_millis=excluded.captured_at_millis, captured_day=excluded.captured_day, has_precise_offset=excluded.has_precise_offset, modified_at_millis=excluded.modified_at_millis,
+             location_available=excluded.location_available, availability=excluded.availability, latitude=excluded.latitude, longitude=excluded.longitude, reported_accuracy_meters=excluded.reported_accuracy_meters
              WHERE modified_at_millis IS NOT excluded.modified_at_millis OR availability IS NOT excluded.availability OR
-             media_type IS NOT excluded.media_type OR captured_at_millis IS NOT excluded.captured_at_millis OR location_available IS NOT excluded.location_available`,
-            candidate.assetId, candidate.mediaType, candidate.capturedAtMillis, candidate.modifiedAtMillis,
-            candidate.locationAvailable === null ? null : Number(candidate.locationAvailable), candidate.availability,
+             media_type IS NOT excluded.media_type OR captured_at_millis IS NOT excluded.captured_at_millis OR captured_day IS NOT excluded.captured_day OR has_precise_offset IS NOT excluded.has_precise_offset OR location_available IS NOT excluded.location_available OR latitude IS NOT excluded.latitude OR longitude IS NOT excluded.longitude OR reported_accuracy_meters IS NOT excluded.reported_accuracy_meters`,
+            candidate.assetId, candidate.mediaType, candidate.capturedAtMillis, candidate.capturedDay, Number(candidate.hasPreciseOffset), candidate.modifiedAtMillis,
+            candidate.locationAvailable === null ? null : Number(candidate.locationAvailable), candidate.availability, candidate.latitude ?? null, candidate.longitude ?? null, candidate.reportedAccuracyMeters ?? null,
           );
           if (kind) await db.runAsync(
             `INSERT INTO canonical_evidence
-              (evidence_id, source_ref, media_type, captured_at_millis, modified_at_millis, location_available, availability)
-             VALUES (?, ?, ?, ?, ?, ?, ?)
+              (evidence_id, source_ref, media_type, captured_at_millis, captured_day, has_precise_offset, modified_at_millis, location_available, availability, latitude, longitude, reported_accuracy_meters)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(source_ref) DO UPDATE SET media_type=excluded.media_type,
-              captured_at_millis=excluded.captured_at_millis, modified_at_millis=excluded.modified_at_millis,
-              location_available=excluded.location_available, availability=excluded.availability
+              captured_at_millis=excluded.captured_at_millis, captured_day=excluded.captured_day, has_precise_offset=excluded.has_precise_offset, modified_at_millis=excluded.modified_at_millis,
+              location_available=excluded.location_available, availability=excluded.availability, latitude=excluded.latitude, longitude=excluded.longitude, reported_accuracy_meters=excluded.reported_accuracy_meters
               WHERE modified_at_millis IS NOT excluded.modified_at_millis OR availability IS NOT excluded.availability OR
-              media_type IS NOT excluded.media_type OR captured_at_millis IS NOT excluded.captured_at_millis OR location_available IS NOT excluded.location_available`,
-            candidate.assetId, candidate.assetId, candidate.mediaType, candidate.capturedAtMillis,
-            candidate.modifiedAtMillis, candidate.locationAvailable === null ? null : Number(candidate.locationAvailable), candidate.availability,
+              media_type IS NOT excluded.media_type OR captured_at_millis IS NOT excluded.captured_at_millis OR captured_day IS NOT excluded.captured_day OR has_precise_offset IS NOT excluded.has_precise_offset OR location_available IS NOT excluded.location_available OR latitude IS NOT excluded.latitude OR longitude IS NOT excluded.longitude OR reported_accuracy_meters IS NOT excluded.reported_accuracy_meters`,
+            candidate.assetId, candidate.assetId, candidate.mediaType, candidate.capturedAtMillis, candidate.capturedDay, Number(candidate.hasPreciseOffset),
+            candidate.modifiedAtMillis, candidate.locationAvailable === null ? null : Number(candidate.locationAvailable), candidate.availability, candidate.latitude ?? null, candidate.longitude ?? null, candidate.reportedAccuracyMeters ?? null,
           );
           await db.runAsync('INSERT INTO maintenance_source_presence (asset_id, last_seen_run, missing_full_scans) VALUES (?, ?, 0) ON CONFLICT(asset_id) DO UPDATE SET last_seen_run=excluded.last_seen_run, missing_full_scans=0', candidate.assetId, checkpoint.runToken);
           if (kind) await db.runAsync('INSERT OR IGNORE INTO maintenance_change_queue (asset_id, change_kind, source_revision) VALUES (?, ?, ?)', candidate.assetId, kind, candidate.modifiedAtMillis ?? -1);
         }
+        if (candidates.length) await db.runAsync('UPDATE private_history_record SET canonical_evidence_revision = canonical_evidence_revision + 1 WHERE record_id = 1');
         await db.runAsync(
           `INSERT INTO maintenance_checkpoint (record_id, scope, next_offset, run_token, status) VALUES (?, ?, ?, ?, ?)
            ON CONFLICT(record_id) DO UPDATE SET scope=excluded.scope, next_offset=excluded.next_offset, run_token=excluded.run_token, status=excluded.status`,
