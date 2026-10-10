@@ -43,6 +43,41 @@ export interface ImportRepository extends HistoryRecordRepository {
   loadCoverage(scope: ImportScope): Promise<ImportCheckpoint | null>;
 }
 
+/**
+ * Persistence boundary used by the headless M1.5 reconciler. Values are
+ * aggregate status and normalized source metadata only; no media is read.
+ */
+export type MaintenanceStatus = 'disabled' | 'pending' | 'running' | 'checked' | 'restricted' | 'paused' | 'error';
+
+export type MaintenanceSnapshot = {
+  enabled: boolean;
+  status: MaintenanceStatus;
+  lastCheckedAtMillis: number | null;
+  lastUpdatedAtMillis: number | null;
+  message: string | null;
+};
+
+export type MaintenanceCheckpoint = {
+  scope: Extract<ImportScope, 'full' | 'limited'>;
+  nextOffset: number;
+  runToken: number;
+  status: 'paused' | 'running' | 'complete';
+};
+
+export type MaintenanceChangeKind = 'added' | 'changed' | 'available' | 'deleted';
+
+export interface MaintenanceRepository extends ImportRepository {
+  loadMaintenance(): Promise<MaintenanceSnapshot>;
+  saveMaintenance(snapshot: MaintenanceSnapshot): Promise<void>;
+  getMaintenanceCheckpoint(): Promise<MaintenanceCheckpoint | null>;
+  reconcileMaintenancePage(checkpoint: MaintenanceCheckpoint, candidates: SourceCandidate[]): Promise<void>;
+  completeMaintenanceRun(checkpoint: MaintenanceCheckpoint, completedAtMillis: number): Promise<void>;
+  pauseMaintenance(checkpoint: MaintenanceCheckpoint, message: string): Promise<void>;
+  acquireMaintenanceLease(nowMillis: number): Promise<number | null>;
+  renewMaintenanceLease(runToken: number, nowMillis: number): Promise<boolean>;
+  releaseMaintenanceLease(runToken: number): Promise<void>;
+}
+
 /** Returned when a lifecycle transition has made an import write unsafe. */
 export class ImportLifecycleBlockedError extends Error {
   constructor() {

@@ -35,7 +35,7 @@ describe('native import SQLite repository', () => {
     expect(mockOpenDatabaseAsync).toHaveBeenCalledWith('travel-life-import-v1.db');
     expect(mockExecAsync).toHaveBeenCalledWith('BEGIN IMMEDIATE TRANSACTION');
     expect(mockExecAsync).toHaveBeenCalledWith(expect.stringContaining('CREATE TABLE IF NOT EXISTS import_source_index'));
-    expect(mockRunAsync).toHaveBeenCalledWith('INSERT INTO import_schema_version (version) VALUES (?)', 2);
+    expect(mockRunAsync).toHaveBeenCalledWith('INSERT INTO import_schema_version (version) VALUES (?)', 5);
     expect(mockExecAsync).toHaveBeenLastCalledWith('COMMIT');
   });
 
@@ -64,7 +64,7 @@ describe('native import SQLite repository', () => {
     expect(mockExecAsync.mock.calls.flat().join('\n')).toContain('CREATE TABLE IF NOT EXISTS inferred_history');
     expect(mockExecAsync.mock.calls.flat().join('\n')).toContain('INSERT OR IGNORE INTO canonical_evidence');
     expect(mockExecAsync.mock.calls.flat().join('\n')).toContain('VALUES (1, 2)');
-    expect(mockRunAsync).toHaveBeenCalledWith('UPDATE import_schema_version SET version = ?', 2);
+    expect(mockRunAsync).toHaveBeenCalledWith('UPDATE import_schema_version SET version = ?', 5);
   });
 
   it('keeps a disconnected record locally and clears every covered table only on deletion', async () => {

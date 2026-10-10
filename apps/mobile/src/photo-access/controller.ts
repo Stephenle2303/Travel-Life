@@ -27,6 +27,7 @@ export class PhotoAccessController {
     private readonly notify: (snapshot: PhotoAccessSnapshot) => void,
     notifyImport: (coverage: ImportCoverage) => void = () => {},
     private readonly repository: ImportRepository = createNativeImportRepository(),
+    private readonly onCompletedLibraryImport: () => Promise<void> = async () => {},
   ) {
     this.importer = new ImportCoordinator(adapter, this.repository, notifyImport);
   }
@@ -219,6 +220,7 @@ export class PhotoAccessController {
     this.busy = true;
     try {
       await this.importer.start(this.current.scope, this.current.countStatus === 'complete' ? this.current.count : null);
+      if (this.importer.coverage.status === 'complete') await this.onCompletedLibraryImport();
     } finally {
       this.busy = false;
     }

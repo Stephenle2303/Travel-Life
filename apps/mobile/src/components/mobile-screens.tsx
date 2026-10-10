@@ -91,7 +91,7 @@ export function EmptyAtlasScreen() {
 
 export function PrivacySettingsScreen() {
   const router = useRouter();
-  const { privateRecord, privateRecordController } = usePhotoAccess();
+  const { privateRecord, privateRecordController, maintenance, maintenanceController } = usePhotoAccess();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   return (
@@ -102,6 +102,17 @@ export function PrivacySettingsScreen() {
         <Body>Normal device backups may restore this private record under the protections of your device and backup account. This app does not claim SQLite encryption.</Body>
         <Body>{privateRecord.state === 'connected' ? 'Photo-source reads are available when you choose to import.' : privateRecord.state === 'disconnected' ? 'Photo-source reads and maintenance are stopped. Your private local record remains on this device.' : 'No local private record is available. Original photos remain in their source.'}</Body>
         {privateRecord.message && <Body>{privateRecord.message}</Body>}
+      </InsetPanel>
+            <InsetPanel>
+        <Title>Automatic maintenance</Title>
+        <Body>{maintenance.enabled ? 'On. Your device chooses when to check for permitted library changes; it does not promise an exact schedule.' : 'Off. Turn this on only after a completed import to let supported device scheduling check permitted metadata locally.'}</Body>
+        <Body>{maintenance.status === 'checked' ? 'Last check completed locally.' : maintenance.status === 'pending' ? 'Waiting for your device to run the task.' : maintenance.status === 'restricted' ? 'Maintenance is restricted until access, import, or scheduling is available.' : maintenance.status === 'paused' ? 'Maintenance paused safely and can resume later.' : maintenance.status === 'running' ? 'Checking currently permitted metadata.' : 'No automatic check has completed yet.'}</Body>
+        {maintenance.lastCheckedAtMillis !== null && <Body>Last successful check: {new Date(maintenance.lastCheckedAtMillis).toLocaleString()}.</Body>}
+        {maintenance.lastUpdatedAtMillis !== null && <Body>Last local metadata update: {new Date(maintenance.lastUpdatedAtMillis).toLocaleString()}.</Body>}
+        {maintenance.message && <Body>{maintenance.message}</Body>}
+        <ActionButton accessibilityLabel={maintenance.enabled ? 'Turn off automatic maintenance' : 'Turn on automatic maintenance'} onPress={() => void maintenanceController.setEnabled(!maintenance.enabled)} variant="secondary">
+          {maintenance.enabled ? 'Turn off automatic maintenance' : 'Turn on automatic maintenance'}
+        </ActionButton>
       </InsetPanel>
       {privateRecord.state === 'connected' && <ActionButton accessibilityLabel="Disconnect photo source" onPress={() => void privateRecordController.disconnect()} variant="secondary">Disconnect photo source</ActionButton>}
       {privateRecord.state === 'disconnected' && <ActionButton accessibilityLabel="Reconnect private record" onPress={() => void privateRecordController.reconnect()} variant="secondary">Reconnect private record</ActionButton>}

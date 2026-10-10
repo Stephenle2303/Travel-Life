@@ -3,6 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 
 import { palette, useReducedMotion } from '@/components/ui';
 import { PhotoAccessProvider } from '@/photo-access/provider';
+import '@/maintenance/task';
 
 export function getRootStackOptions(reducedMotion: boolean) {
   return {

@@ -33,3 +33,6 @@
 - source_spec: `C:/Users/vothi/Desktop/Travel Life/_bmad-output/implementation-artifacts/spec-m1-4-persist-privately-and-provide-disconnect-delete.md`
   summary: Complete the concurrent Welcome review with a scroll-boundary pause test, target runtime media smoke checks, measured visibility, and a Welcome home-route recovery check.
   evidence: These findings concern the separate uncommitted Welcome implementation, whose current unit tests mock both platform video adapters and do not exercise its scroll caller boundary.
+- source_spec: `C:/Users/vothi/Desktop/Travel Life/_bmad-output/implementation-artifacts/spec-m1-5-discover-library-changes-in-scheduled-background-work.md`
+  summary: Verify the M1.5 SQLite migration and scheduled task lifecycle in physical Android and iOS development builds.
+  evidence: Jest validates repository and TaskManager contracts with mocks, but does not prove Expo SQLite migration, OS registration/execution, task expiry, access revocation, or deletion cancellation on a device.

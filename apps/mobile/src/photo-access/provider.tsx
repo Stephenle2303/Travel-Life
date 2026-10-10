@@ -5,7 +5,26 @@ import { HistoryRecordController, type LifecycleSnapshot } from '@/history-recor
 import { PhotoAccessController, initialPhotoAccess } from './controller';
 import { nativePhotoAccess } from './native-adapter';
 import type { PhotoAccessAdapter, PhotoAccessSnapshot } from './types';
-import { createNativeImportRepository, type ImportCoverage, type ImportRepository } from '@/import-record';
+import { createNativeImportRepository, type ImportCoverage, type ImportRepository, type MaintenanceRepository } from '@/import-record';
+import { MaintenanceController, createExpoScheduler, type MaintenanceView } from '@/maintenance';
+
+function maintenanceRepository(repository: ImportRepository): MaintenanceRepository {
+  if ('loadMaintenance' in repository) return repository as MaintenanceRepository;
+  // Existing test/web repositories deliberately have no durable scheduler state.
+  // They surface maintenance as unavailable rather than inventing persistence.
+  return {
+    ...repository,
+    loadMaintenance: async () => ({ enabled: false, status: 'restricted', lastCheckedAtMillis: null, lastUpdatedAtMillis: null, message: 'Automatic maintenance is unavailable in this runtime.' }),
+    saveMaintenance: async () => {},
+    getMaintenanceCheckpoint: async () => null,
+    reconcileMaintenancePage: async () => {},
+    completeMaintenanceRun: async () => {},
+    pauseMaintenance: async () => {},
+    acquireMaintenanceLease: async () => null,
+    renewMaintenanceLease: async () => false,
+    releaseMaintenanceLease: async () => {},
+  };
+}
 
 type PhotoAccessContextValue = {
   snapshot: PhotoAccessSnapshot;
@@ -13,6 +32,8 @@ type PhotoAccessContextValue = {
   importCoverage: ImportCoverage;
   privateRecord: LifecycleSnapshot;
   privateRecordController: HistoryRecordController;
+  maintenance: MaintenanceView;
+  maintenanceController: MaintenanceController;
 };
 
 const PhotoAccessContext = createContext<PhotoAccessContextValue | null>(null);
@@ -21,11 +42,17 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
   const [snapshot, setSnapshot] = useState(initialPhotoAccess);
   const [importCoverage, setImportCoverage] = useState<ImportCoverage>({ scope: null, accessible: null, scanned: 0, geotagged: 0, unavailable: 0, status: 'idle', message: null });
   const [privateRecord, setPrivateRecord] = useState<LifecycleSnapshot>({ state: 'deleted', message: null });
+  const [maintenance, setMaintenance] = useState<MaintenanceView>({ enabled: false, status: 'disabled', lastCheckedAtMillis: null, lastUpdatedAtMillis: null, message: null, checkpoint: null });
   const [sharedRepository] = useState(() => repository ?? createNativeImportRepository());
-  const [controller] = useState(() => new PhotoAccessController(adapter, setSnapshot, setImportCoverage, sharedRepository));
+  const [durableMaintenanceRepository] = useState(() => maintenanceRepository(sharedRepository));
+  const [maintenanceController] = useState(() => new MaintenanceController(durableMaintenanceRepository, adapter, createExpoScheduler(), setMaintenance));
+  const [controller] = useState(() => new PhotoAccessController(adapter, setSnapshot, setImportCoverage, sharedRepository, async () => {
+    // Import completion makes the owner control available; it never enables it.
+    await maintenanceController.refresh();
+  }));
   const [privateRecordController] = useState(() => new HistoryRecordController(
     sharedRepository,
-    () => controller.stopImport(),
+    async () => { await controller.stopImport(); await maintenanceController.stopForLifecycle(); },
     setPrivateRecord,
     () => controller.clearDeletedRecord(),
   ));
@@ -33,10 +60,12 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
   useEffect(() => {
     void controller.refresh();
     void privateRecordController.refresh();
+    void maintenanceController.refresh();
     const subscription = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
         void controller.refresh(!controller.isBusy);
         void privateRecordController.refresh();
+        void maintenanceController.catchUp();
       }
       else controller.interrupt();
     });
@@ -44,9 +73,15 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
       controller.interrupt();
       subscription?.remove();
     };
-  }, [controller, privateRecordController]);
+  }, [controller, privateRecordController, maintenanceController]);
 
-  return <PhotoAccessContext.Provider value={{ snapshot, controller, importCoverage, privateRecord, privateRecordController }}>{children}</PhotoAccessContext.Provider>;
+  useEffect(() => {
+    if (maintenance.enabled && (snapshot.scope === 'revoked' || snapshot.scope === 'unavailable' || snapshot.scope === 'denied')) {
+      void maintenanceController.stopForLifecycle();
+    }
+  }, [maintenance.enabled, maintenanceController, snapshot.scope]);
+
+  return <PhotoAccessContext.Provider value={{ snapshot, controller, importCoverage, privateRecord, privateRecordController, maintenance, maintenanceController }}>{children}</PhotoAccessContext.Provider>;
 }
 
 export function usePhotoAccess() {
