@@ -33,6 +33,15 @@ three-day gap as a candidate link signal, not a complete trip boundary rule.
 Decision 0007 fixes `reconstruction-v1` distances, temporal windows, clustering
 ties and GPS-less association behavior. Use that version for M2.1 and its eval cases.
 
+Decision 0010 makes the agreed Living Atlas prototype direction the official
+design system for all Travel Life UI/UX. Read `docs/product/design-system.md`
+before building or changing a screen. Use its accepted visual and interaction
+patterns across mobile and browser surfaces; do not treat unimplemented proposals
+or synthetic prototype behavior as production requirements.
+Decision 0011 also makes every agreed prototype screen, including the video
+Welcome, an official product UI target. Match those screens' composition and
+flow while replacing simulated behavior and demo claims with real product states.
+
 ## Use the three layers together
 
 - BMAD owns product clarification, PRD, UX, architecture, epics, stories, and scope.

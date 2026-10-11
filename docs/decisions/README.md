@@ -20,3 +20,5 @@ The current product direction and provisional defaults are recorded below.
 - [0007 — Reconstruction v1 parameters](0007-reconstruction-v1-parameters.md): fixed place, visit, journey and GPS-less photo windows with deterministic ties.
 - [0008 — Minimum Lovable Product](0008-minimum-lovable-product.md): changes the first-release bar from viable to lovable.
 - [0009 — MLP lifetime reveal and replay](0009-mlp-lifetime-reveal-and-replay.md): defines the private map reveal, replay and selected lifetime sharing loop.
+- [0010 — Living Atlas design system](0010-living-atlas-design-system.md): makes the agreed prototype direction the official UI/UX reference for every Travel Life surface.
+- [0011 — Prototype screens as product UI](0011-prototype-screens-as-product-ui.md): adopts the agreed prototype screens, including the video welcome, as production UI targets.

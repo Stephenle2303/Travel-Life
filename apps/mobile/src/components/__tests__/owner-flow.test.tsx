@@ -5,13 +5,24 @@ import { useRouter, type Href } from 'expo-router';
 import NotFoundRoute from '@/app/+not-found';
 import EmptyAtlasRoute from '@/app/history';
 import ImportRoute from '@/app/import';
-import TrustRoute from '@/app/index';
-import { EmptyAtlasScreen, ImportScreen, NotFoundScreen, TrustScreen } from '@/components/mobile-screens';
+import WelcomeRoute from '@/app/index';
+import TrustRoute from '@/app/trust';
+import SettingsRoute from '@/app/settings';
+import { EmptyAtlasScreen, ImportScreen, NotFoundScreen, PrivacySettingsScreen, TrustScreen } from '@/components/mobile-screens';
+import { WelcomeScreen } from '@/components/welcome-screen';
 import { appRoutes, type AppRoute } from '@/navigation/app-contract';
 import { PhotoAccessProvider } from '@/photo-access/provider';
 import type { PhotoAccessAdapter } from '@/photo-access/types';
 
 jest.mock('expo-router', () => ({ useRouter: jest.fn() }));
+jest.mock('expo-video', () => ({
+  useVideoPlayer: (_source: unknown, setup: (player: Record<string, unknown>) => void) => {
+    const player = { play: jest.fn(), pause: jest.fn(), addListener: () => ({ remove: jest.fn() }) };
+    setup(player);
+    return player;
+  },
+  VideoView: () => null,
+}));
 
 const useRouterMock = useRouter as jest.MockedFunction<typeof useRouter>;
 const unavailableAdapter: PhotoAccessAdapter = {
@@ -25,9 +36,11 @@ const unavailableAdapter: PhotoAccessAdapter = {
 };
 
 function OwnerFlow() {
-  const [route, setRoute] = useState<AppRoute>(appRoutes.trust);
+  const [route, setRoute] = useState<AppRoute>(appRoutes.welcome);
   useRouterMock.mockReturnValue({ push: (next: Href) => setRoute(next as AppRoute) } as ReturnType<typeof useRouter>);
 
+  if (route === appRoutes.welcome) return <WelcomeScreen />;
+  if (route === appRoutes.trust) return <TrustScreen />;
   if (route === appRoutes.import) return <ImportScreen />;
   if (route === appRoutes.atlas) return <EmptyAtlasScreen />;
   return <TrustScreen />;
@@ -40,13 +53,17 @@ describe('private first-run navigation', () => {
     globalThis.fetch = originalFetch;
   });
 
-  it('takes an owner from Trust through Import to an honest empty Atlas without fetching', async () => {
+  it('takes an owner from Welcome through Trust and Import to an honest empty Atlas without fetching or prompting on Welcome', async () => {
     const fetchMock = jest.fn();
     globalThis.fetch = fetchMock as typeof fetch;
     const view = await render(<PhotoAccessProvider adapter={unavailableAdapter}><OwnerFlow /></PhotoAccessProvider>);
 
-    expect(view.getByText('Your travel life, held with care.')).toBeOnTheScreen();
+    expect(view.getByText(/Your travels/)).toBeOnTheScreen();
+    expect(view.getByText(/Illustrative footage/)).toBeOnTheScreen();
+    expect(view.getByRole('button', { name: 'Set up private reveal' })).toBeOnTheScreen();
     const user = userEvent.setup();
+    await user.press(view.getByRole('button', { name: 'Set up private reveal' }));
+    expect(view.getByText('Your travel life, held with care.')).toBeOnTheScreen();
     await user.press(view.getByRole('button', { name: 'Continue to import' }));
     expect(view.getByText('Choose what this device can share.')).toBeOnTheScreen();
     await user.press(view.getByRole('button', { name: 'View empty Atlas' }));
@@ -72,13 +89,15 @@ describe('private first-run navigation', () => {
     expect(view.getByText('Route not found.')).toBeOnTheScreen();
     const user = userEvent.setup();
     await user.press(view.getByRole('button', { name: 'Return home' }));
-    expect(dismissTo).toHaveBeenCalledWith(appRoutes.trust);
+    expect(dismissTo).toHaveBeenCalledWith(appRoutes.welcome);
   });
 
   it('keeps route modules attached to their screen components', () => {
+    expect(WelcomeRoute).toBe(WelcomeScreen);
     expect(TrustRoute).toBe(TrustScreen);
     expect(ImportRoute).toBe(ImportScreen);
     expect(EmptyAtlasRoute).toBe(EmptyAtlasScreen);
+    expect(SettingsRoute).toBe(PrivacySettingsScreen);
     expect(NotFoundRoute).toBe(NotFoundScreen);
   });
 });

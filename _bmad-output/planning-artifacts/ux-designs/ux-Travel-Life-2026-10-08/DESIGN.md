@@ -1,7 +1,7 @@
 ---
 name: Travel Life Living Atlas map and navigation
 description: Proposed vibrant geographic atlas and consistent prototype navigation
-status: proposed-not-approved
+status: historical-proposal
 updated: 2026-10-08
 scope: Isolated synthetic prototype; design documentation only
 sources:
@@ -56,6 +56,14 @@ components:
 ---
 
 ## Brand & Style
+
+**Current authority (2026-10-09):** The owner adopted the implemented Living
+Atlas prototype direction as the project-wide design system in
+[decision 0010](../../../../docs/decisions/0010-living-atlas-design-system.md).
+Use the [official design system](../../../../docs/product/design-system.md) for
+new work. This document remains the 2026-10-08 map/navigation proposal;
+particularly, its `map-*` colors were never implemented or accepted as tokens.
+
 
 Precise personal atlas, richly geographic rather than decorative. Retain the user's Living Atlas palette and the existing prototype's visual identity; the map becomes the main feature, not a diagram inside a card.
 

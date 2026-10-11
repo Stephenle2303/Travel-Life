@@ -24,6 +24,9 @@ prerequisites. Do not start interviews, recruitment or a competitor study by def
 1. Read project state, the working MLP spec and the selected defaults.
 2. Use a scoped delivery story; refine BMAD requirements/UX/architecture only where
    implementation needs a concrete decision. Document count is not a gate.
+   For any UI story, follow the official [Living Atlas design system](../product/design-system.md)
+   and its agreed prototype screen map (decision 0011). Record deliberate
+   extensions in the story and project decision log.
 3. Put bounded source/device feasibility checks inside import implementation.
 4. Put small reviewed regression/evidence checks inside engine implementation.
 5. Ship the verified core, then use consent-aware feedback and error discovery to

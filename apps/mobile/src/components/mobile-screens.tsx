@@ -107,7 +107,7 @@ export function PrivacySettingsScreen() {
         <Body>{privateRecord.state === 'connected' ? 'Photo-source reads are available when you choose to import.' : privateRecord.state === 'disconnected' ? 'Photo-source reads and maintenance are stopped. Your private local record remains on this device.' : 'No local private record is available. Original photos remain in their source.'}</Body>
         {privateRecord.message && <Body>{privateRecord.message}</Body>}
       </InsetPanel>
-            <InsetPanel>
+      <InsetPanel>
         <Title>Automatic maintenance</Title>
         <Body>{maintenance.enabled ? 'On. Your device chooses when to check for permitted library changes; it does not promise an exact schedule.' : 'Off. Turn this on only after a completed import to let supported device scheduling check permitted metadata locally.'}</Body>
         <Body>{maintenance.status === 'checked' ? 'Last check completed locally.' : maintenance.status === 'pending' ? 'Waiting for your device to run the task.' : maintenance.status === 'restricted' ? 'Maintenance is restricted until access, import, or scheduling is available.' : maintenance.status === 'paused' ? 'Maintenance paused safely and can resume later.' : maintenance.status === 'running' ? 'Checking currently permitted metadata.' : 'No automatic check has completed yet.'}</Body>
@@ -151,7 +151,7 @@ export function NotFoundScreen() {
       <Eyebrow>Travel Life</Eyebrow>
       <Title>Route not found.</Title>
       <InsetPanel><Body>This path is unavailable, but your private app remains ready to use.</Body></InsetPanel>
-      <ActionButton accessibilityLabel="Return home" onPress={() => openRoute(router, appRoutes.trust, 'dismissTo')}>Return home</ActionButton>
+      <ActionButton accessibilityLabel="Return home" onPress={() => openRoute(router, appRoutes.welcome, 'dismissTo')}>Return home</ActionButton>
     </Screen>
   );
 }

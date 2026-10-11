@@ -1,6 +1,6 @@
 ---
 name: Travel Life Living Atlas map and navigation
-status: proposed-not-approved
+status: historical-proposal
 updated: 2026-10-08
 scope: Isolated synthetic prototype; design documentation only
 sources:
@@ -10,6 +10,14 @@ sources:
 ---
 
 # Living Atlas — proposed map and navigation behavior
+
+**Current authority (2026-10-09):** The agreed, implemented prototype direction
+is now the project-wide [Living Atlas design system](../../../../docs/product/design-system.md)
+under [decision 0010](../../../../docs/decisions/0010-living-atlas-design-system.md).
+This file preserves the 2026-10-08 proposal; use the official system and accepted
+product decisions for new UI work. Some navigation ideas were later implemented
+in the synthetic prototype, while other proposal details remain unbuilt.
+
 
 Status: **proposed, not approved**. This is a scoped design delta for the isolated synthetic prototype, not a production UX rewrite or implementation authorization. Visual companion: [DESIGN.md](DESIGN.md).
 

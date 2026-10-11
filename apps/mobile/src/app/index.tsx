@@ -1,1 +1,1 @@
-export { TrustScreen as default } from '@/components/mobile-screens';
+export { WelcomeScreen as default } from '@/components/welcome-screen';

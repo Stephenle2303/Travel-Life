@@ -1,5 +1,16 @@
 # Travel Life mobile app
 
+The agreed prototype screens, including the video Welcome, are the official UI
+targets for this app. Follow the [Living Atlas design system](../../docs/product/design-system.md)
+and [decision 0011](../../docs/decisions/0011-prototype-screens-as-product-ui.md)
+as production screens are delivered. The app opens on the video Welcome, whose
+**Set up private reveal** action leads to Trust → Import → empty Atlas. The
+bundled portrait/wide montage and poster are silent illustrative media, not
+owner photos or a personal Replay. Welcome requests no photo permission, sends
+no data, pauses when inactive or scrolled out of view, and offers a labeled
+pause/play control. Reduced motion starts with a still poster; a failed video
+also leaves the poster and action available.
+
 This is the shared Expo / React Native / TypeScript application for iOS and Android. M1.3 adds an owner-initiated, device-local metadata import: it pages the current permitted photo/video scope, stores opaque source IDs with nullable capture and location-availability fields in SQLite, and checkpoints committed pages for resume. It never uploads, decodes, copies, or displays media, paths, filenames, IDs, coordinates, or a travel conclusion. The Atlas stays non-reconstructive.
 
 ## Windows setup
@@ -46,19 +57,25 @@ Physical iOS development builds require macOS with Xcode. On that machine, run:
 npm run ios:device
 ```
 
-This Windows workspace cannot prove iOS device behavior. An EAS build profile has not been configured for this repository. After a macOS build, perform the same manual Trust → Import → Atlas checks. Test iOS limited access and **Manage limited selection** as well as full access, denial, revocation, and picker cancellation/selection.
+This Windows workspace cannot prove iOS device behavior. An EAS build profile has not been configured for this repository. After a macOS build, perform the Welcome → Trust → Import → Atlas flow, including reduced motion, backgrounding, and video fallback. Test iOS limited access and **Manage limited selection** as well as full access, denial, revocation, and picker cancellation/selection.
 
 ## Private device sample procedure and status
 
 Use a consented small sample on each physical platform with a local photo, a local video, a geotagged item, an item with no GPS, and a cloud-only item if the owner has one. Observe the OS access prompt, whether each item contributes to the device-visible count, whether GPS is available to the media API after granting the configured Android media-location permission, and whether cloud-only media is represented without downloading it. Record only aggregate observations in the M1.2 delivery record; keep images, IDs, filenames, URIs, coordinates, and raw traces out of Git. Also inspect the generated iOS usage description and Android merged permission manifest in each development build.
 
-An owner-operated Android development build completed the M1.2 full/limited/selected permission and revocation checks on 2026-10-09; its scoped full-library count was 298 device-visible items. No M1.3 SQLite import was run on that device. Physical iOS behavior, GPS/cloud-only behavior, installed Android manifest inspection, and M1.3 start/cancel/resume/repeat-import checks remain pending. Expo config introspection showed the intended iOS photo-use text. A generated Android manifest included read photo/video, selected visual media, and media-location permissions, with camera, microphone, and write-storage marked for removal during manifest merge.
+An owner-operated Android development build completed the M1.2 full/limited/selected permission and revocation checks on 2026-10-09; its scoped full-library count was 298 device-visible items. Subsequent M1.3 import observations are recorded in `docs/project-state.md`. Physical iOS behavior, GPS/cloud-only behavior, and installed Android manifest inspection remain pending. Expo config introspection showed the intended iOS photo-use text. A generated Android manifest included read photo/video, selected visual media, and media-location permissions, with camera, microphone, and write-storage marked for removal during manifest merge.
 
 ## Local import boundary
 
 The local `expo-sqlite` index (`~57.0.4`) has only a resumable checkpoint and opaque source metadata index. Its records contain an opaque device-local asset ID, image/video type, nullable capture and modification timestamps, nullable location availability, and availability state. It stores no filename, URI, coordinates, EXIF, image/video bytes, journey, visit, or correction data. Stable IDs are upserted; correction markers are a separate table untouched by import rescans. M1.4 owns canonical evidence/history, correction lifecycle, disconnect, and deletion.
 
 Rebuild an Android development client after adding SQLite, then use a consented small sample to start, cancel, resume, and repeat an import. Record only aggregate accessible/scanned/geotagged/unavailable counts plus permission/GPS/cloud/resume observations. The same physical iOS check remains pending. Current-scope counts are never lifetime coverage.
+
+## Private record lifecycle
+
+M1.4 migrates the same `travel-life-import-v1.db` in place. It adds normalized canonical evidence, empty-ready inferred-history storage, revisioned local correction overlays, lifecycle state, and an explicit cache registry. It retains no original media, filename, URI, raw EXIF, precise coordinate, or source path. The M1.3 source index and opaque references remain so an owner can deliberately reconnect and repeat a deduplicated import.
+
+The owner selected normal OS/device backups for the local private record. A restore is therefore governed by the platform and backup-account protections; this project does not claim SQLite encryption. **Disconnect photo source** stops future reads and maintenance while retaining the private record, source references, and checkpoints. **Delete local history** requires confirmation and clears the covered local evidence, history, corrections, checkpoints, lifecycle state, and registered caches. It never deletes original media or claims to delete remote copies.
 
 ## Automatic maintenance
 

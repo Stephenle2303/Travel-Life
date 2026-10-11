@@ -2,6 +2,11 @@
 
 This standalone Expo Router app is a **synthetic, local-only owner-flow prototype**. It demonstrates Welcome → simulated photo-access choice → simulated import → private reveal → exploration/correction → replay preview → selected-highlight preview in one dark, responsive Living Atlas system. The welcome screen includes a bundled, silent 15-second animated-photo montage with a poster fallback; it is promotional demo media, not an owner replay or evidence.
 
+The owner adopted these agreed screens as the official product UI targets in
+[decision 0011](../../docs/decisions/0011-prototype-screens-as-product-ui.md).
+The [Living Atlas design system](../../docs/product/design-system.md) records the
+screen map and production behavior boundaries.
+
 The visual prototype uses only three generated fictional landscapes bundled under `assets/synthetic/`. Cards, journey detail, replay, and sharing previews never request a remote image. The reveal uses a dependency-free, bundled **fictional geographic atlas**, not a real map: its land labels and anchors are visibly synthetic, it has local pan/zoom/fit controls, and it never requests tiles or a map provider. The same year and selected-journey state drives Map and Timeline. A missing fictional coordinate is never invented onto the atlas; it stays in Timeline, which is also the explicit recovery path if the atlas cannot render. Atlas / Replay / Highlight plus Home and Back navigation preserve the in-memory session; leaving replay stops it. The app switches between stacked mobile and two-zone desktop layouts and honors the operating system's reduced-motion preference. Native haptics are intentionally not bundled; the tactile adapter is silent on unsupported platforms.
 
 It has no account, permission API, photo-library access, persistence, backend, AI call, map provider, public URL, lifetime-replay rendering, or export action. Every journey, place, date, source-coverage label, and memory is invented for the prototype. A correction only changes in-memory state for the active session.

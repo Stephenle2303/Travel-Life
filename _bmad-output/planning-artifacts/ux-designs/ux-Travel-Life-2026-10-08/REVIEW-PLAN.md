@@ -1,5 +1,10 @@
 # Living Atlas: interactive map and navigation
 
+**Historical proposal:** The owner made the implemented Living Atlas direction
+the official project-wide [design system](../../../../docs/product/design-system.md)
+on 2026-10-09. This review plan records the earlier scoped proposal; use the
+official system for new UI work.
+
 Date: 2026-10-08. Designer: Sally, BMAD UX Designer.
 Status: proposed, awaiting owner approval. **Design review and plan only.**
 

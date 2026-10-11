@@ -15,6 +15,7 @@
     "evals:run": "node evals/run.mjs"
   },
   "devDependencies": {
-    "ajv": "8.20.0"
+    "ajv": "8.20.0",
+    "supabase": "^2.120.0"
   }
 }

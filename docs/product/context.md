@@ -4,6 +4,12 @@ Current direction update (2026-10-07): the Minimum Lovable Product is a private
 lifetime map reveal, replay video and owner-selected share; see
 [decision 0009](../decisions/0009-mlp-lifetime-reveal-and-replay.md).
 
+UI/UX direction update (2026-10-09): the agreed prototype's Living Atlas language
+is the [official design system](design-system.md) for all Travel Life surfaces;
+see [decision 0010](../decisions/0010-living-atlas-design-system.md). The owner
+also adopted the agreed prototype screens, including video Welcome, as official
+product UI targets in [decision 0011](../decisions/0011-prototype-screens-as-product-ui.md).
+
 Status: discovery input, not an approved PRD. Source: `source-analysis.txt`, copied
 unchanged from the user's Travel Life App Analysis.txt on 2026-10-06.
 
