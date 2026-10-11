@@ -1,7 +1,8 @@
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import { Button, Text } from 'react-native';
 
 import { PrivacySettingsScreen } from '@/components/privacy-settings-screen';
-import { PhotoAccessProvider } from '@/photo-access/provider';
+import { PhotoAccessProvider, usePhotoAccess } from '@/photo-access/provider';
 import type { PhotoAccessAdapter } from '@/photo-access/types';
 import type { ImportRepository } from '@/import-record';
 
@@ -27,6 +28,16 @@ function lifecycleRepository(): ImportRepository {
     deleteLocalHistory: async () => { state = 'deleted'; },
     saveCorrectionOverlay: async () => {},
   };
+}
+
+function AiLifecycleHarness() {
+  const { aiReview, aiProposalController, privateRecordController } = usePhotoAccess();
+  return <>
+    <Button accessibilityLabel="set AI review" onPress={() => aiProposalController.showDisabledPreview()} title="set AI review" />
+    <Button accessibilityLabel="disconnect lifecycle" onPress={() => void privateRecordController.disconnect()} title="disconnect lifecycle" />
+    <Button accessibilityLabel="delete lifecycle" onPress={() => void privateRecordController.delete()} title="delete lifecycle" />
+    <Text>{aiReview.status}</Text>
+  </>;
 }
 
 describe('private record settings', () => {
@@ -64,5 +75,16 @@ describe('private record settings', () => {
     await fireEvent.press(view.getByRole('button', { name: 'Confirm delete local history' }));
     await waitFor(() => expect(view.getByText(/Local history was deleted from this device/)).toBeOnTheScreen());
     expect(view.getByRole('button', { name: 'Start a new private record' })).toBeOnTheScreen();
+  });
+
+  it('clears transient AI review state for disconnect and deletion', async () => {
+    const view = await render(<PhotoAccessProvider adapter={adapter} repository={lifecycleRepository()}><AiLifecycleHarness /></PhotoAccessProvider>);
+    await fireEvent.press(view.getByRole('button', { name: 'set AI review' }));
+    expect(view.getByText('skipped')).toBeOnTheScreen();
+    await fireEvent.press(view.getByRole('button', { name: 'disconnect lifecycle' }));
+    await waitFor(() => expect(view.getByText('idle')).toBeOnTheScreen());
+    await fireEvent.press(view.getByRole('button', { name: 'set AI review' }));
+    await fireEvent.press(view.getByRole('button', { name: 'delete lifecycle' }));
+    await waitFor(() => expect(view.getByText('idle')).toBeOnTheScreen());
   });
 });

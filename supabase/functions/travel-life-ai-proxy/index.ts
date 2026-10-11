@@ -19,12 +19,13 @@ const PROPOSAL_SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['alternativeId', 'selectedCandidateIds', 'confidence', 'rationaleCode'],
+        required: ['alternativeId', 'selectedCandidateIds', 'confidence', 'rationaleCode', 'labelCode'],
         properties: {
           alternativeId: { type: 'string' },
           selectedCandidateIds: { type: 'array', items: { type: 'string' } },
           confidence: { type: 'string', enum: ['low', 'medium'] },
           rationaleCode: { type: 'string', enum: ['ambiguous-grouping', 'insufficient-evidence', 'no-proposal'] },
+          labelCode: { type: 'string', enum: ['possible-grouping', 'needs-more-evidence', 'no-suggestion'] },
         },
       },
     },
@@ -33,7 +34,7 @@ const PROPOSAL_SCHEMA = {
 
 type Alternative = { id: string; kind: 'journey-group' | 'place-label'; candidateIds: string[]; relativeDayOffsets: number[]; evidenceCategories: Array<'geotagged' | 'gps-less' | 'manual'> };
 type ProxyRequest = { contractVersion: typeof CONTRACT_VERSION; consentRevision: number; ruleVersion: typeof RULE_VERSION; evidenceRevision: number; correctionRevision: number; alternatives: Alternative[] };
-type Proposal = { alternativeId: string; selectedCandidateIds: string[]; confidence: 'low' | 'medium'; rationaleCode: 'ambiguous-grouping' | 'insufficient-evidence' | 'no-proposal' };
+type Proposal = { alternativeId: string; selectedCandidateIds: string[]; confidence: 'low' | 'medium'; rationaleCode: 'ambiguous-grouping' | 'insufficient-evidence' | 'no-proposal'; labelCode: 'possible-grouping' | 'needs-more-evidence' | 'no-suggestion' };
 type ProposalEnvelope = { status: 'proposal'; contractVersion: typeof CONTRACT_VERSION; proposals: Proposal[]; usage: { inputTokens: number | null; outputTokens: number | null } };
 type SkippedEnvelope = { status: 'skipped'; reason: 'disabled' | 'unauthenticated' | 'invalid-request' | 'limited' | 'unavailable' | 'timeout' | 'refused' | 'invalid-response'; usage: { inputTokens: number | null; outputTokens: number | null } };
 
@@ -99,14 +100,14 @@ export function parseRequest(value: unknown): ProxyRequest | null {
 export function parseProposal(value: unknown, request: ProxyRequest): Proposal[] | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const envelope = value as Record<string, unknown>;
-  if (!exactKeys(envelope, ['proposals']) || !Array.isArray(envelope.proposals) || envelope.proposals.length > request.alternatives.length) return null;
+  if (!exactKeys(envelope, ['proposals']) || !Array.isArray(envelope.proposals) || envelope.proposals.length === 0 || envelope.proposals.length > request.alternatives.length) return null;
   const alternatives = new Map(request.alternatives.map((alternative) => [alternative.id, alternative]));
   const seen = new Set<string>();
   const proposals: Proposal[] = [];
   for (const value of envelope.proposals) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
     const proposal = value as Record<string, unknown>;
-    if (!exactKeys(proposal, ['alternativeId', 'selectedCandidateIds', 'confidence', 'rationaleCode']) || !opaqueId(proposal.alternativeId) || !Array.isArray(proposal.selectedCandidateIds) || proposal.selectedCandidateIds.length > MAX_CANDIDATES || (proposal.confidence !== 'low' && proposal.confidence !== 'medium') || (proposal.rationaleCode !== 'ambiguous-grouping' && proposal.rationaleCode !== 'insufficient-evidence' && proposal.rationaleCode !== 'no-proposal')) return null;
+    if (!exactKeys(proposal, ['alternativeId', 'selectedCandidateIds', 'confidence', 'rationaleCode', 'labelCode']) || !opaqueId(proposal.alternativeId) || !Array.isArray(proposal.selectedCandidateIds) || proposal.selectedCandidateIds.length > MAX_CANDIDATES || (proposal.confidence !== 'low' && proposal.confidence !== 'medium') || (proposal.rationaleCode !== 'ambiguous-grouping' && proposal.rationaleCode !== 'insufficient-evidence' && proposal.rationaleCode !== 'no-proposal') || (proposal.labelCode !== 'possible-grouping' && proposal.labelCode !== 'needs-more-evidence' && proposal.labelCode !== 'no-suggestion')) return null;
     const alternativeId = proposal.alternativeId as string;
     if (seen.has(alternativeId)) return null;
     const alternative = alternatives.get(alternativeId);
@@ -114,9 +115,11 @@ export function parseProposal(value: unknown, request: ProxyRequest): Proposal[]
     const selected = new Set<string>();
     for (const candidate of proposal.selectedCandidateIds) if (!opaqueId(candidate) || !alternative.candidateIds.includes(candidate) || selected.has(candidate)) return null; else selected.add(candidate);
     if ((proposal.rationaleCode === 'no-proposal' || proposal.rationaleCode === 'insufficient-evidence') && selected.size !== 0) return null;
-    if (proposal.rationaleCode === 'ambiguous-grouping' && selected.size === 0) return null;
+    if (proposal.rationaleCode === 'ambiguous-grouping' && (selected.size !== alternative.candidateIds.length || proposal.labelCode !== 'possible-grouping')) return null;
+    if (proposal.rationaleCode === 'insufficient-evidence' && proposal.labelCode !== 'needs-more-evidence') return null;
+    if (proposal.rationaleCode === 'no-proposal' && proposal.labelCode !== 'no-suggestion') return null;
     seen.add(alternativeId);
-    proposals.push({ alternativeId, selectedCandidateIds: [...selected], confidence: proposal.confidence as Proposal['confidence'], rationaleCode: proposal.rationaleCode as Proposal['rationaleCode'] });
+    proposals.push({ alternativeId, selectedCandidateIds: [...selected], confidence: proposal.confidence as Proposal['confidence'], rationaleCode: proposal.rationaleCode as Proposal['rationaleCode'], labelCode: proposal.labelCode as Proposal['labelCode'] });
   }
   return proposals;
 }

@@ -29,7 +29,7 @@ export type ReconstructionGraph = {
   places: Place[];
   visits: Visit[];
   journeys: JourneyDraft[];
-  possibleMerges: { fromJourneyId: string; toJourneyId: string; reason: 'adjacent-gap' | 'span-cap' }[];
+  possibleMerges: { fromJourneyId: string; toJourneyId: string; reason: 'adjacent-gap' | 'span-cap'; aiCandidates?: { localId: string; relativeDayOffset: number; evidenceCategory: 'geotagged' | 'gps-less' | 'manual' }[] }[];
   dispositions: EvidenceDisposition[];
   memberships: JourneyMembership[];
 };

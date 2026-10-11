@@ -8,6 +8,7 @@ import type { PhotoAccessAdapter, PhotoAccessSnapshot } from './types';
 import { createNativeImportRepository, type ImportCoverage, type ImportRepository, type MaintenanceRepository } from '@/import-record';
 import { MaintenanceController, createExpoScheduler, type MaintenanceView } from '@/maintenance';
 import { createNativeReconstructionRepository, ReconstructionController, type ReconstructionView } from '@/reconstruction';
+import { AiProposalController, type AiReviewView } from '@/ai';
 
 function maintenanceRepository(repository: ImportRepository): MaintenanceRepository {
   if ('loadMaintenance' in repository) return repository as MaintenanceRepository;
@@ -37,6 +38,8 @@ type PhotoAccessContextValue = {
   maintenanceController: MaintenanceController;
   reconstruction: ReconstructionView;
   reconstructionController: ReconstructionController;
+  aiReview: AiReviewView;
+  aiProposalController: AiProposalController;
 };
 
 const PhotoAccessContext = createContext<PhotoAccessContextValue | null>(null);
@@ -47,10 +50,14 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
   const [privateRecord, setPrivateRecord] = useState<LifecycleSnapshot>({ state: 'deleted', message: null });
   const [maintenance, setMaintenance] = useState<MaintenanceView>({ enabled: false, status: 'disabled', lastCheckedAtMillis: null, lastUpdatedAtMillis: null, message: null, checkpoint: null });
   const [reconstruction, setReconstruction] = useState<ReconstructionView>({ status: 'idle', graph: null, message: null });
+  const [aiReview, setAiReview] = useState<AiReviewView>({ status: 'idle', message: 'Optional AI suggestions are not requested.', proposals: [] });
   const [sharedRepository] = useState(() => repository ?? createNativeImportRepository());
   const [durableMaintenanceRepository] = useState(() => maintenanceRepository(sharedRepository));
   const [maintenanceController] = useState(() => new MaintenanceController(durableMaintenanceRepository, adapter, createExpoScheduler(), setMaintenance));
   const [reconstructionController] = useState(() => new ReconstructionController(createNativeReconstructionRepository(), setReconstruction));
+  // M2.3 intentionally ships with the server kill switch off. This local-safe
+  // transport still lets the owner see the skipped outcome without a network call.
+  const [aiProposalController] = useState(() => new AiProposalController({ request: async () => ({ status: 'skipped', reason: 'disabled', usage: { inputTokens: null, outputTokens: null } }) }, setAiReview));
   const [controller] = useState(() => new PhotoAccessController(adapter, setSnapshot, setImportCoverage, sharedRepository, async () => {
     // Import completion makes the owner control available; it never enables it.
     await maintenanceController.refresh();
@@ -58,7 +65,7 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
   }));
   const [privateRecordController] = useState(() => new HistoryRecordController(
     sharedRepository,
-    async () => { await controller.stopImport(); await maintenanceController.stopForLifecycle(); reconstructionController.clear(); },
+    async () => { await controller.stopImport(); await maintenanceController.stopForLifecycle(); reconstructionController.clear(); aiProposalController.clear(); },
     setPrivateRecord,
     () => controller.clearDeletedRecord(),
   ));
@@ -87,7 +94,7 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     }
   }, [maintenance.enabled, maintenanceController, snapshot.scope]);
 
-  return <PhotoAccessContext.Provider value={{ snapshot, controller, importCoverage, privateRecord, privateRecordController, maintenance, maintenanceController, reconstruction, reconstructionController }}>{children}</PhotoAccessContext.Provider>;
+  return <PhotoAccessContext.Provider value={{ snapshot, controller, importCoverage, privateRecord, privateRecordController, maintenance, maintenanceController, reconstruction, reconstructionController, aiReview, aiProposalController }}>{children}</PhotoAccessContext.Provider>;
 }
 
 export function usePhotoAccess() {

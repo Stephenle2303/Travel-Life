@@ -69,7 +69,7 @@ export function ImportScreen() {
 
 export function EmptyAtlasScreen() {
   const router = useRouter();
-  const { snapshot, importCoverage, privateRecord, reconstruction, reconstructionController } = usePhotoAccess();
+  const { snapshot, importCoverage, privateRecord, reconstruction, reconstructionController, aiReview, aiProposalController } = usePhotoAccess();
   return (
     <Screen>
       <Eyebrow>Private Atlas</Eyebrow>
@@ -82,11 +82,14 @@ export function EmptyAtlasScreen() {
         {reconstruction.status === 'running' && <Body>Preparing an inferred local draft from the current private record.</Body>}
         {reconstruction.status === 'complete' && <Body>{reconstruction.graph?.journeys.length ?? 0} inferred journey drafts and {reconstruction.graph?.places.length ?? 0} local places are ready for review. Photo metadata is evidence, not proof of presence.</Body>}
         {reconstruction.message && reconstruction.status !== 'complete' && <Body>{reconstruction.message}</Body>}
+        {aiReview.status !== 'idle' && <Body>{aiReview.message}</Body>}
+        {aiReview.proposals.map((proposal, index) => <Body key={`${proposal.label}-${index}`}>Inferred: {proposal.label}. It references {proposal.candidateIds.length} existing local draft item{proposal.candidateIds.length === 1 ? '' : 's'} and has not changed your history.</Body>)}
         {snapshot.selectedCount !== null && importCoverage.status !== 'complete' && <Body>You selected {snapshot.selectedCount} items for this session; they have not been imported into a private record.</Body>}
         {(snapshot.scope === 'limited' || snapshot.scope === 'denied' || snapshot.scope === 'revoked') && <Body>{scopeDescription(snapshot.scope)}</Body>}
       </InsetPanel>
       <ActionButton accessibilityLabel="Import photos" onPress={() => openRoute(router, appRoutes.import)}>Import photos</ActionButton>
       {privateRecord.state === 'connected' && <ActionButton accessibilityLabel="Rebuild local draft" onPress={() => void reconstructionController.rebuild()} variant="secondary">Rebuild local draft</ActionButton>}
+      {privateRecord.state === 'connected' && <ActionButton accessibilityLabel="Request optional AI suggestion" onPress={() => aiProposalController.showDisabledPreview()} variant="secondary">Request optional AI suggestion</ActionButton>}
       <ActionButton accessibilityLabel="Open private record settings" onPress={() => openRoute(router, appRoutes.settings)} variant="secondary">Private record settings</ActionButton>
       <ActionButton accessibilityLabel="Return to Trust" onPress={() => openRoute(router, appRoutes.trust, 'replace')} variant="secondary">Back</ActionButton>
     </Screen>

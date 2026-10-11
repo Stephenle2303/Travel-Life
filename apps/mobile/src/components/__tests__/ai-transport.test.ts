@@ -23,7 +23,7 @@ describe('optional AI transport boundary', () => {
   });
 
   it('rejects a proposal that references an unknown opaque candidate', async () => {
-    const transport = createAiTransport({ endpoint: 'https://proxy.example', publishableKey: 'sb_publishable_test', session, fetcher: async () => new Response(JSON.stringify({ status: 'proposal', contractVersion: 'travel-life-ai-v1', usage: { inputTokens: 10, outputTokens: 4 }, proposals: [{ alternativeId: 'a_0', selectedCandidateIds: ['c_unknown'], confidence: 'low', rationaleCode: 'ambiguous-grouping' }] })) });
+    const transport = createAiTransport({ endpoint: 'https://proxy.example', publishableKey: 'sb_publishable_test', session, fetcher: async () => new Response(JSON.stringify({ status: 'proposal', contractVersion: 'travel-life-ai-v1', usage: { inputTokens: 10, outputTokens: 4 }, proposals: [{ alternativeId: 'a_0', selectedCandidateIds: ['c_unknown'], confidence: 'low', rationaleCode: 'ambiguous-grouping', labelCode: 'possible-grouping' }] })) });
     await expect(transport.request(input)).resolves.toMatchObject({ status: 'skipped', reason: 'invalid-response' });
   });
 
@@ -41,15 +41,21 @@ describe('optional AI transport boundary', () => {
   });
 
   it('sends only the minimized request with the anonymous bearer and publishable key', async () => {
-    const fetcher = jest.fn(async () => new Response(JSON.stringify({ status: 'proposal', contractVersion: 'travel-life-ai-v1', usage: { inputTokens: 12, outputTokens: 4 }, proposals: [{ alternativeId: 'a_0', selectedCandidateIds: ['c_0'], confidence: 'low', rationaleCode: 'ambiguous-grouping' }] })));
+    const fetcher = jest.fn(async () => new Response(JSON.stringify({ status: 'proposal', contractVersion: 'travel-life-ai-v1', usage: { inputTokens: 12, outputTokens: 4 }, proposals: [{ alternativeId: 'a_0', selectedCandidateIds: ['c_0', 'c_1'], confidence: 'low', rationaleCode: 'ambiguous-grouping', labelCode: 'possible-grouping' }] })));
     const transport = createAiTransport({ endpoint: 'https://proxy.example', publishableKey: 'sb_publishable_test', session, fetcher });
-    await expect(transport.request(input)).resolves.toMatchObject({ status: 'proposal', proposals: [{ alternativeId: 'a_0', selectedCandidateIds: ['c_0'] }] });
+    await expect(transport.request(input)).resolves.toMatchObject({ status: 'proposal', proposals: [{ alternativeId: 'a_0', selectedCandidateIds: ['c_0', 'c_1'] }] });
     expect(fetcher).toHaveBeenCalledWith('https://proxy.example', expect.objectContaining({ method: 'POST', headers: expect.objectContaining({ authorization: 'Bearer anonymous-token', apikey: 'sb_publishable_test', 'content-type': 'application/json' }), body: JSON.stringify(minimized.request) }));
   });
 
   it('accepts only bounded proposals supplied by the current request', () => {
-    expect(validateAiProposals([{ alternativeId: 'a_0', selectedCandidateIds: ['c_0'], confidence: 'low', rationaleCode: 'ambiguous-grouping' }], minimized.request)).toBe(true);
-    expect(validateAiProposals([{ alternativeId: 'a_0', selectedCandidateIds: ['c_0'], confidence: 'medium', rationaleCode: 'no-proposal' }], minimized.request)).toBe(false);
+    expect(validateAiProposals([{ alternativeId: 'a_0', selectedCandidateIds: ['c_0', 'c_1'], confidence: 'low', rationaleCode: 'ambiguous-grouping', labelCode: 'possible-grouping' }], minimized.request)).toBe(true);
+    expect(validateAiProposals([{ alternativeId: 'a_0', selectedCandidateIds: ['c_0'], confidence: 'medium', rationaleCode: 'no-proposal', labelCode: 'no-suggestion' }], minimized.request)).toBe(false);
     expect(validateAiProposals([null as unknown as never], minimized.request)).toBe(false);
+    expect(validateAiProposals([], minimized.request)).toBe(false);
+    expect(validateAiProposals([{ alternativeId: 'a_0', selectedCandidateIds: ['c_0', 'c_1'], confidence: 'low', rationaleCode: 'ambiguous-grouping' } as never], minimized.request)).toBe(false);
+    expect(validateAiProposals([{ alternativeId: 'a_0', selectedCandidateIds: ['c_0', 'c_1'], confidence: 'low', rationaleCode: 'ambiguous-grouping', labelCode: 'unknown' } as never], minimized.request)).toBe(false);
+    expect(validateAiProposals([{ alternativeId: 'a_0', selectedCandidateIds: ['c_0', 'c_1'], confidence: 'low', rationaleCode: 'ambiguous-grouping', labelCode: 'no-suggestion' }], minimized.request)).toBe(false);
+    expect(validateAiProposals([{ alternativeId: 'a_0', selectedCandidateIds: ['c_0'], confidence: 'low', rationaleCode: 'ambiguous-grouping', labelCode: 'possible-grouping' }], minimized.request)).toBe(false);
+    expect(validateAiProposals([{ alternativeId: 'a_0', selectedCandidateIds: ['c_0', 'c_1'], confidence: 'low', rationaleCode: 'ambiguous-grouping', labelCode: 'possible-grouping', text: 'model-written' } as never], minimized.request)).toBe(false);
   });
 });

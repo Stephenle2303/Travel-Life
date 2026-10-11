@@ -13,6 +13,7 @@ import { WelcomeScreen } from '@/components/welcome-screen';
 import { appRoutes, type AppRoute } from '@/navigation/app-contract';
 import { PhotoAccessProvider } from '@/photo-access/provider';
 import type { PhotoAccessAdapter } from '@/photo-access/types';
+import type { ImportRepository } from '@/import-record';
 
 jest.mock('expo-router', () => ({ useRouter: jest.fn() }));
 jest.mock('expo-video', () => ({
@@ -34,6 +35,7 @@ const unavailableAdapter: PhotoAccessAdapter = {
   manageLimited: async () => {},
   select: async () => ({ canceled: true }),
 };
+const connectedRepository: ImportRepository = { getCheckpoint: async () => null, loadCoverage: async () => null, commitPage: async () => {}, getPrivateRecordLifecycle: async () => ({ state: 'connected' }), connectPrivateRecord: async () => {}, disconnectPrivateRecord: async () => {}, deleteLocalHistory: async () => {}, saveCorrectionOverlay: async () => {} };
 
 function OwnerFlow() {
   const [route, setRoute] = useState<AppRoute>(appRoutes.welcome);
@@ -79,6 +81,14 @@ describe('private first-run navigation', () => {
     expect(view.getByText('No private record yet.')).toBeOnTheScreen();
     expect(view.getByRole('button', { name: 'Import photos' })).toBeOnTheScreen();
     expect(view.queryByText(/sign in|create account|allow photos/i)).toBeNull();
+  });
+
+  it('renders the connected Atlas disabled-AI fallback without a network request', async () => {
+    useRouterMock.mockReturnValue({ push: jest.fn() } as unknown as ReturnType<typeof useRouter>);
+    const view = await render(<PhotoAccessProvider adapter={unavailableAdapter} repository={connectedRepository}><EmptyAtlasScreen /></PhotoAccessProvider>);
+    const user = userEvent.setup();
+    await user.press(view.getByRole('button', { name: 'Request optional AI suggestion' }));
+    expect(view.getByText('Optional AI is unavailable right now. Your local draft remains available.')).toBeOnTheScreen();
   });
 
   it('renders a recoverable screen for an unknown route', async () => {

@@ -13,8 +13,14 @@ Deno.test('rejects private or arbitrary request fields before a provider call', 
 Deno.test('proposal references remain bounded to supplied opaque candidates', () => {
   const parsed = parseRequest(request);
   if (!parsed) throw new Error('synthetic fixture was rejected');
-  if (parseProposal({ proposals: [{ alternativeId: 'a_0', selectedCandidateIds: ['c_not_supplied'], confidence: 'low', rationaleCode: 'ambiguous-grouping' }] }, parsed) !== null) throw new Error('unknown candidate was accepted');
-  if (parseProposal({ proposals: [{ alternativeId: 'a_0', selectedCandidateIds: ['c_0'], confidence: 'low', rationaleCode: 'ambiguous-grouping' }] }, parsed) === null) throw new Error('valid bounded proposal was rejected');
+  if (parseProposal({ proposals: [{ alternativeId: 'a_0', selectedCandidateIds: ['c_not_supplied'], confidence: 'low', rationaleCode: 'ambiguous-grouping', labelCode: 'possible-grouping' }] }, parsed) !== null) throw new Error('unknown candidate was accepted');
+  if (parseProposal({ proposals: [{ alternativeId: 'a_0', selectedCandidateIds: ['c_0', 'c_1'], confidence: 'low', rationaleCode: 'ambiguous-grouping', labelCode: 'possible-grouping' }] }, parsed) === null) throw new Error('valid bounded proposal was rejected');
+  if (parseProposal({ proposals: [] }, parsed) !== null) throw new Error('empty proposal envelope was accepted');
+  if (parseProposal({ proposals: [{ alternativeId: 'a_0', selectedCandidateIds: ['c_0'], confidence: 'low', rationaleCode: 'ambiguous-grouping', labelCode: 'possible-grouping' }] }, parsed) !== null) throw new Error('partial grouping was accepted');
+  if (parseProposal({ proposals: [{ alternativeId: 'a_0', selectedCandidateIds: ['c_0', 'c_1'], confidence: 'low', rationaleCode: 'ambiguous-grouping', labelCode: 'possible-grouping', text: 'model-written' }] }, parsed) !== null) throw new Error('extra proposal field was accepted');
+  if (parseProposal({ proposals: [{ alternativeId: 'a_0', selectedCandidateIds: ['c_0'], confidence: 'low', rationaleCode: 'ambiguous-grouping' }] }, parsed) !== null) throw new Error('missing label was accepted');
+  if (parseProposal({ proposals: [{ alternativeId: 'a_0', selectedCandidateIds: ['c_0'], confidence: 'low', rationaleCode: 'ambiguous-grouping', labelCode: 'unknown' }] }, parsed) !== null) throw new Error('unsupported label was accepted');
+  if (parseProposal({ proposals: [{ alternativeId: 'a_0', selectedCandidateIds: ['c_0'], confidence: 'low', rationaleCode: 'ambiguous-grouping', labelCode: 'no-suggestion' }] }, parsed) !== null) throw new Error('mismatched label was accepted');
 });
 
 Deno.test('extracts only an explicit Responses output_text item', () => {
@@ -59,7 +65,7 @@ Deno.test('uses store false only after anonymous validation and a successful res
     return new Response(JSON.stringify({
       status: 'completed',
       usage: { input_tokens: 12, output_tokens: 4 },
-      output: [{ content: [{ type: 'output_text', text: JSON.stringify({ proposals: [{ alternativeId: 'a_0', selectedCandidateIds: ['c_0'], confidence: 'low', rationaleCode: 'ambiguous-grouping' }] }) }] }],
+      output: [{ content: [{ type: 'output_text', text: JSON.stringify({ proposals: [{ alternativeId: 'a_0', selectedCandidateIds: ['c_0', 'c_1'], confidence: 'low', rationaleCode: 'ambiguous-grouping', labelCode: 'possible-grouping' }] }) }] }],
     }));
   };
   try {

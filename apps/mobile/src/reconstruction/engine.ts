@@ -27,6 +27,13 @@ function calendarGap(a: ReconstructionEvidence, b: ReconstructionEvidence) {
   return Math.abs(Date.parse(`${a.capturedDay}T00:00:00Z`) - Date.parse(`${b.capturedDay}T00:00:00Z`)) / 86_400_000;
 }
 
+function mergeAiCandidates(fromJourneyId: string, toJourneyId: string, prior: ReconstructionEvidence | undefined, next: ReconstructionEvidence | undefined) {
+  if (!prior?.capturedDay || !next?.capturedDay) return undefined;
+  const offset = (Date.parse(`${next.capturedDay}T00:00:00Z`) - Date.parse(`${prior.capturedDay}T00:00:00Z`)) / 86_400_000;
+  if (!Number.isInteger(offset) || !Number.isFinite(offset) || Math.abs(offset) > 3650) return undefined;
+  return [{ localId: fromJourneyId, relativeDayOffset: 0, evidenceCategory: 'geotagged' as const }, { localId: toJourneyId, relativeDayOffset: offset, evidenceCategory: 'geotagged' as const }];
+}
+
 /** Pure deterministic baseline. It intentionally produces uncertainty instead of travel claims. */
 export function reconstructV1(input: ReconstructionEvidence[]): ReconstructionGraph {
   const family = new Map<string, ReconstructionEvidence[]>();
@@ -98,7 +105,10 @@ export function reconstructV1(input: ReconstructionEvidence[]): ReconstructionGr
     if (prior && priorVisit && !boundary && !localContext && priorVisit.placeId !== visit.placeId && gap !== null && gap <= automaticLimit && journeySpan !== null && journeySpan <= 30) prior.visitIds.push(visit.id);
     else {
       const next = { id: `journey:${visit.id}`, visitIds: [visit.id], state: 'inferred' as const }; journeys.push(next);
-      if (prior && !boundary && gap !== null && gap <= mergeLimit) possibleMerges.push({ fromJourneyId: prior.id, toJourneyId: next.id, reason: journeySpan !== null && journeySpan > 30 ? 'span-cap' : 'adjacent-gap' });
+      if (prior && !boundary && gap !== null && gap <= mergeLimit) {
+        const aiCandidates = mergeAiCandidates(prior.id, next.id, priorEvidence, nextEvidence);
+        possibleMerges.push({ fromJourneyId: prior.id, toJourneyId: next.id, reason: journeySpan !== null && journeySpan > 30 ? 'span-cap' : 'adjacent-gap', ...(aiCandidates ? { aiCandidates } : {}) });
+      }
     }
   }
   const dispositions: EvidenceDisposition[] = input.map((e) => placeByEvidence.has(e.id) ? { evidenceId: e.id, state: 'supported', reasons: ['eligible-place-support'] } : { evidenceId: e.id, state: e.excluded ? 'unassigned' : 'unresolved', reasons: [e.excluded ? 'owner-excluded' : conflictedFamilies.has(e.duplicateFamilyId ?? e.id) ? 'duplicate-family-conflict' : e.availability === 'unavailable' ? 'source-unavailable' : 'insufficient-location-support'] });

@@ -77,4 +77,17 @@ describe('reconstruction-v1 deterministic baseline', () => {
     expect(graph.journeys).toHaveLength(2);
     expect(graph.possibleMerges).toEqual([]);
   });
+
+  it('attaches bounded structural metadata to a possible merge only when its civil days are known', () => {
+    const graph = reconstructV1([
+      e('first', 0, 0, { capturedAtMillis: Date.UTC(2026, 0, 1), capturedDay: '2026-01-01' }),
+      e('second', 2, 2, { capturedAtMillis: Date.UTC(2026, 0, 6), capturedDay: '2026-01-06' }),
+    ]);
+    expect(graph.possibleMerges).toEqual([expect.objectContaining({ aiCandidates: [expect.objectContaining({ relativeDayOffset: 0, evidenceCategory: 'geotagged' }), expect.objectContaining({ relativeDayOffset: 5, evidenceCategory: 'geotagged' })] })]);
+    const missingDay = reconstructV1([
+      e('third', 0, 0, { capturedAtMillis: Date.UTC(2026, 0, 1), capturedDay: null }),
+      e('fourth', 2, 2, { capturedAtMillis: Date.UTC(2026, 0, 6), capturedDay: '2026-01-06' }),
+    ]);
+    expect(missingDay.possibleMerges).toEqual([]);
+  });
 });
