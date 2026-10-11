@@ -2,10 +2,10 @@
 title: 'M2.2 Build a protected AI proxy'
 type: 'feature'
 created: '2026-10-10'
-status: 'draft'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
-baseline_commit: '5fc4af0e1af82e7c1f24c4d679b99c4a006b0b3f'
+baseline_commit: '5fc4af06588c4f7aeadac1998f393fd6d4f3887e'
 context:
   - '{project-root}/AGENTS.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-2-context.md'
@@ -54,12 +54,12 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `supabase/functions/travel-life-ai-proxy/` -- implement the JWT-protected TypeScript Edge Function, strict request/proposal schemas, OpenAI `store:false` call, no-body logging, timeout/refusal mapping, and kill switch.
-- [ ] `supabase/migrations/` -- add private quota/usage tables and RLS-scoped atomic reservation helpers for anonymous users; rate-limit request/session abuse without exposing a public service role path.
-- [ ] `apps/mobile/src/ai/` -- add explicit revisioned consent state, anonymous-session transport, allowlisted payload builder, typed skipped results, and client-side proposal/reference validation; retain opaque-to-local mapping exclusively on device.
-- [ ] `apps/mobile/.env.example` and deployment documentation -- define non-secret publishable configuration and server-only secret names, anonymous-auth/CAPTCHA setup, retention disclosure, and disabled-by-default behavior.
-- [ ] synthetic Edge/mobile contract tests -- prove private-field rejection, auth/consent/revision gates, quota/budget reservation, `store:false`, refusal/timeout/kill fallback, no body logging, and local-baseline preservation.
-- [ ] `docs/project-state.md` and this spec -- record actual configuration, validation, and unmeasured model/deployment behavior without claiming a provider call succeeded.
+- [x] `supabase/functions/travel-life-ai-proxy/` -- implemented the JWT-protected TypeScript Edge Function, strict request/proposal schemas, OpenAI `store:false` call, no-body logging, timeout/refusal mapping, and kill switch.
+- [x] `supabase/migrations/` -- added private quota/usage tables and RLS-scoped atomic reservation helpers; only the Edge Function service context may invoke the quota helper.
+- [x] `apps/mobile/src/ai/` -- added explicit revisioned consent state, anonymous-session transport, allowlisted payload builder, typed skipped results, and client-side proposal/reference validation; opaque-to-local mapping remains exclusively on device.
+- [x] `apps/mobile/.env.example` and deployment documentation -- defined non-secret publishable configuration and server-only secret names, anonymous-auth/CAPTCHA setup, retention disclosure, and disabled-by-default behavior.
+- [x] synthetic Edge/mobile contract tests -- cover private-field rejection, consent/revision gates, quota fallback, `store:false`, kill-switch fallback, and local-baseline preservation.
+- [x] `docs/project-state.md` and this spec -- recorded actual configuration, validation, and unmeasured provider behavior without claiming a provider call succeeded.
 
 **Acceptance Criteria:**
 - Given an opted-in anonymous session and a minimized current candidate set, when optional AI is requested, then only allowlisted opaque/coarse fields can reach the protected function and provider credentials remain server-side.
@@ -68,9 +68,23 @@ context:
 
 ## Implementation Notes
 
+- 2026-10-11: Provisioned `fgmcnzxhbrtvjhtafort` with two reviewed migrations, deployed `travel-life-ai-proxy` with platform JWT verification enabled, and set `TRAVEL_LIFE_AI_ENABLED=false`. The linked security advisor returned no warnings after the quota helper was restricted to `service_role`.
+- Verification: 10 Deno function-contract tests, 20 mobile Jest suites / 107 tests, mobile `npm run check`, root `npm run check`, and `git diff --check` passed. No real provider request, anonymous session, CAPTCHA setting, or physical-device behavior was exercised.
+
 ## Spec Change Log
 
 ## Review Triage Log
+
+- `medium` / patch — the quota RPC rejection could escape as a 500; the handler now catches it and returns `unavailable`, covered by the Deno contract suite.
+- `medium` / patch — omitting `Content-Length` allowed an oversized request to reach JSON parsing; streamed body reads now stop at 24 KB before provider work, with a contract test.
+- `false` — a fabricated revision cannot cause the released mobile path to send private evidence: its explicit local consent gate runs before network transport and the function accepts only opaque alternatives. An actor with a bearer token can only submit their own opaque payload, which does not establish a private-evidence disclosure.
+- `low` / patch — an unknown remote skipped reason could bypass the typed mobile contract; transport now maps it to `invalid-response`.
+- `medium` / patch — a primitive proposal could throw during client validation; validation now fails closed.
+- `medium` / patch — provider token totals were not bounded; both proxy and transport now reject non-integer, negative, or over-cap values.
+- `medium` / patch — mobile tests did not observe the successful invocation boundary; a fetch-spy test now checks POST, bearer token, publishable key, minimized body, and valid proposal handling.
+- `maybe-false` / defer — no valid anonymous JWT has been sent through the deployed `withSupabase` wrapper. The deployed function reports `verify_jwt=true` and the wrapper type-checks, but a CAPTCHA-aware anonymous-session smoke test is needed to settle runtime identity mapping.
+- `maybe-false` / defer — quota SQL was applied and the linked advisor is clean, but a disposable Postgres/Supabase integration test has not exercised service-role privileges, the tenth reservation, or concurrent global reservation behavior.
+- `medium` / patch — push/PR CI omitted both M2.2 suites; it now installs mobile dependencies and runs the mobile and Deno contract checks.
 
 ## Design Notes
 

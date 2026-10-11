@@ -15,3 +15,7 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm run check
+      - run: npm --prefix apps/mobile ci --ignore-scripts
+      - run: npm --prefix apps/mobile run check
+      - uses: denoland/setup-deno@v2
+      - run: deno test --node-modules-dir=auto --allow-env --allow-net supabase/functions/travel-life-ai-proxy/tests/contract.test.ts

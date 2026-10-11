@@ -1,0 +1,3 @@
+[functions.travel-life-ai-proxy]
+# The platform verifies the anonymous access token before invoking this function.
+verify_jwt = true
