@@ -168,4 +168,3 @@ describe('welcome travel hero', () => {
     expect(hero.getByLabelText('Pause travel montage')).toBeTruthy();
   });
 });
-

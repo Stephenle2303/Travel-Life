@@ -1,6 +1,6 @@
 # Decision 0010: Living Atlas is the official Travel Life design system
 
-Date: 2026-10-09 (Asia/Bangkok).  
+Date: 2026-10-09 (Asia/Bangkok).
 Status: accepted from the user's explicit direction.
 
 ## Context

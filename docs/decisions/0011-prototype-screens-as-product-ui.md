@@ -1,6 +1,6 @@
 # Decision 0011: Agreed prototype screens are the official product UI targets
 
-Date: 2026-10-09 (Asia/Bangkok).  
+Date: 2026-10-09 (Asia/Bangkok).
 Status: accepted from the user's explicit direction.
 
 ## Context
