@@ -22,9 +22,54 @@ function dayGap(a: ReconstructionEvidence, b: ReconstructionEvidence) {
   return Math.abs(Date.parse(`${a.capturedDay}T00:00:00Z`) - Date.parse(`${b.capturedDay}T00:00:00Z`)) / 86_400_000;
 }
 
+function civilDayMillis(value: string | null) {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const parsed = Date.parse(`${value}T00:00:00Z`);
+  return Number.isFinite(parsed) && new Date(parsed).toISOString().slice(0, 10) === value ? parsed : null;
+}
+
 function calendarGap(a: ReconstructionEvidence, b: ReconstructionEvidence) {
-  if (!a.capturedDay || !b.capturedDay) return null;
-  return Math.abs(Date.parse(`${a.capturedDay}T00:00:00Z`) - Date.parse(`${b.capturedDay}T00:00:00Z`)) / 86_400_000;
+  const first = civilDayMillis(a.capturedDay);
+  const second = civilDayMillis(b.capturedDay);
+  if (first === null || second === null) return null;
+  return Math.abs(first - second) / 86_400_000;
+}
+
+function visitEvidence(visit: Visit, input: ReconstructionEvidence[]) {
+  return visit.evidenceIds.map((id) => input.find((item) => item.id === id)).filter((item): item is ReconstructionEvidence => Boolean(item));
+}
+
+function compareVisitEvidence(a: ReconstructionEvidence, b: ReconstructionEvidence) {
+  const dayOrder = civilDayMillis(a.capturedDay)! - civilDayMillis(b.capturedDay)!;
+  if (dayOrder) return dayOrder;
+  if (a.hasPreciseOffset && b.hasPreciseOffset && a.capturedAtMillis !== null && b.capturedAtMillis !== null) return a.capturedAtMillis - b.capturedAtMillis;
+  return a.id.localeCompare(b.id);
+}
+
+function visitStartEvidence(visit: Visit, input: ReconstructionEvidence[]) {
+  return visitEvidence(visit, input).sort(compareVisitEvidence)[0];
+}
+
+function visitEndEvidence(visit: Visit, input: ReconstructionEvidence[]) {
+  return visitEvidence(visit, input).sort(compareVisitEvidence).at(-1);
+}
+
+function visitHasOwnerBoundary(visit: Visit, input: ReconstructionEvidence[]) {
+  return visitEvidence(visit, input).some((item) => item.ownerBoundaryAfter);
+}
+
+function visitHasUsualAreaContext(visit: Visit, input: ReconstructionEvidence[]) {
+  return visitEvidence(visit, input).some((item) => item.usualAreaContext);
+}
+
+function visitCanFollow(prior: Visit, next: Visit, input: ReconstructionEvidence[]) {
+  const priorEvidence = visitEndEvidence(prior, input);
+  const nextEvidence = visitStartEvidence(next, input);
+  if (!priorEvidence || !nextEvidence || visitHasOwnerBoundary(prior, input)) return false;
+  if (prior.placeId === next.placeId || visitHasUsualAreaContext(prior, input) || visitHasUsualAreaContext(next, input)) return false;
+  const gap = dayGap(priorEvidence, nextEvidence);
+  const limit = priorEvidence.hasPreciseOffset && nextEvidence.hasPreciseOffset ? 3 : 2;
+  return gap !== null && gap <= limit;
 }
 
 function mergeAiCandidates(fromJourneyId: string, toJourneyId: string, prior: ReconstructionEvidence | undefined, next: ReconstructionEvidence | undefined) {
@@ -57,7 +102,7 @@ export function reconstructV1(input: ReconstructionEvidence[]): ReconstructionGr
   });
   const placeByEvidence = new Map(places.flatMap((place) => place.memberIds.map((id) => [id, place.id] as const)));
   const visits: Visit[] = [];
-  const supported = input.filter((item) => placeByEvidence.has(item.id) && item.capturedDay);
+  const supported = input.filter((item) => placeByEvidence.has(item.id) && civilDayMillis(item.capturedDay) !== null);
   // Only actual instants with offsets establish an automatic sequence. Weak
   // timestamps remain their own uncertain visits instead of using an asset ID
   // as a false chronological fact.
@@ -75,33 +120,49 @@ export function reconstructV1(input: ReconstructionEvidence[]): ReconstructionGr
     current.push(item);
   }
   if (current.length) visits.push({ id: `visit:${current.map((e) => e.id).join('|')}`, placeId: placeByEvidence.get(current[0].id)!, evidenceIds: current.map((e) => e.id), order: 'ordered' });
-  // Civil-date-only evidence can form a bounded uncertain visit only when it
-  // shares both place and civil day. It never establishes an elapsed-time
-  // journey sequence.
-  const weakGroups = new Map<string, ReconstructionEvidence[]>();
+  // Civil-day evidence can form a bounded uncertain visit at the same place
+  // across adjacent recorded days. The deterministic grouping is not a claim
+  // about within-day ordering or an elapsed duration.
+  const weakByPlace = new Map<string, ReconstructionEvidence[]>();
   for (const item of supported.filter((candidate) => !candidate.hasPreciseOffset || candidate.capturedAtMillis === null)) {
-    const key = `${placeByEvidence.get(item.id)}:${item.capturedDay}`;
-    weakGroups.set(key, [...(weakGroups.get(key) ?? []), item]);
+    const placeId = placeByEvidence.get(item.id)!;
+    weakByPlace.set(placeId, [...(weakByPlace.get(placeId) ?? []), item]);
   }
-  for (const items of [...weakGroups.values()].sort((a, b) => a[0].id.localeCompare(b[0].id))) {
-    const evidenceIds = items.map((item) => item.id).sort();
-    visits.push({ id: `visit:${evidenceIds.join('|')}`, placeId: placeByEvidence.get(items[0].id)!, evidenceIds, order: 'uncertain' });
+  for (const [placeId, items] of [...weakByPlace.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    const sorted = [...items].sort((a, b) => civilDayMillis(a.capturedDay)! - civilDayMillis(b.capturedDay)! || a.id.localeCompare(b.id));
+    let uncertainVisit: ReconstructionEvidence[] = [];
+    for (const item of sorted) {
+      const prior = uncertainVisit.at(-1);
+      const gap = prior ? calendarGap(prior, item) : 0;
+      const span = uncertainVisit.length ? calendarGap(uncertainVisit[0], item) : 0;
+      if (prior && (visitHasOwnerBoundary({ id: '', placeId, evidenceIds: uncertainVisit.map((entry) => entry.id), order: 'uncertain' }, input) || item.ownerBoundaryAfter || gap === null || gap > 1 || span === null || span > 30)) {
+        const evidenceIds = uncertainVisit.map((entry) => entry.id).sort();
+        visits.push({ id: `visit:${evidenceIds.join('|')}`, placeId, evidenceIds, order: 'uncertain' });
+        uncertainVisit = [];
+      }
+      uncertainVisit.push(item);
+    }
+    if (uncertainVisit.length) {
+      const evidenceIds = uncertainVisit.map((entry) => entry.id).sort();
+      visits.push({ id: `visit:${evidenceIds.join('|')}`, placeId, evidenceIds, order: 'uncertain' });
+    }
   }
   const orderedVisits = visits.filter((visit) => visit.order === 'ordered').sort((a, b) => {
-    const firstA = input.find((e) => e.id === a.evidenceIds[0])!; const firstB = input.find((e) => e.id === b.evidenceIds[0])!;
+    const firstA = visitStartEvidence(a, input)!; const firstB = visitStartEvidence(b, input)!;
     return (firstA.capturedAtMillis ?? Number.MAX_SAFE_INTEGER) - (firstB.capturedAtMillis ?? Number.MAX_SAFE_INTEGER) || a.id.localeCompare(b.id);
   });
   const journeys: ReconstructionGraph['journeys'] = []; const possibleMerges: ReconstructionGraph['possibleMerges'] = [];
   for (const visit of orderedVisits) {
     const prior = journeys.at(-1); const priorVisit = prior && visits.find((candidate) => candidate.id === prior.visitIds.at(-1));
-    const priorEvidence = priorVisit && input.find((e) => e.id === priorVisit.evidenceIds.at(-1)); const nextEvidence = input.find((e) => e.id === visit.evidenceIds[0]);
+    const priorEvidence = priorVisit && visitEndEvidence(priorVisit, input); const nextEvidence = visitStartEvidence(visit, input);
     const gap = priorEvidence && nextEvidence ? dayGap(priorEvidence, nextEvidence) : null;
-    const journeyStart = prior && input.find((e) => e.id === visits.find((candidate) => candidate.id === prior.visitIds[0])?.evidenceIds[0]);
+    const journeyStartVisit = prior && visits.find((candidate) => candidate.id === prior.visitIds[0]);
+    const journeyStart = journeyStartVisit && visitStartEvidence(journeyStartVisit, input);
     const journeySpan = journeyStart && nextEvidence ? calendarGap(journeyStart, nextEvidence) : null;
     const automaticLimit = priorEvidence?.hasPreciseOffset && nextEvidence?.hasPreciseOffset ? 3 : 2;
     const mergeLimit = priorEvidence?.hasPreciseOffset && nextEvidence?.hasPreciseOffset ? 10 : 10;
-    const boundary = priorEvidence?.ownerBoundaryAfter === true;
-    const localContext = visit.evidenceIds.some((id) => input.find((item) => item.id === id)?.usualAreaContext) || priorVisit?.evidenceIds.some((id) => input.find((item) => item.id === id)?.usualAreaContext);
+    const boundary = priorVisit ? visitHasOwnerBoundary(priorVisit, input) : false;
+    const localContext = visitHasUsualAreaContext(visit, input) || (priorVisit ? visitHasUsualAreaContext(priorVisit, input) : false);
     if (prior && priorVisit && !boundary && !localContext && priorVisit.placeId !== visit.placeId && gap !== null && gap <= automaticLimit && journeySpan !== null && journeySpan <= 30) prior.visitIds.push(visit.id);
     else {
       const next = { id: `journey:${visit.id}`, visitIds: [visit.id], state: 'inferred' as const }; journeys.push(next);
@@ -111,20 +172,58 @@ export function reconstructV1(input: ReconstructionEvidence[]): ReconstructionGr
       }
     }
   }
-  const dispositions: EvidenceDisposition[] = input.map((e) => placeByEvidence.has(e.id) ? { evidenceId: e.id, state: 'supported', reasons: ['eligible-place-support'] } : { evidenceId: e.id, state: e.excluded ? 'unassigned' : 'unresolved', reasons: [e.excluded ? 'owner-excluded' : conflictedFamilies.has(e.duplicateFamilyId ?? e.id) ? 'duplicate-family-conflict' : e.availability === 'unavailable' ? 'source-unavailable' : 'insufficient-location-support'] });
+  // Civil-day evidence only has a conservative order between different days.
+  // It may use the two-day v1 link window, while same-day alternatives remain
+  // separate because their within-day order is unknown.
+  const weakVisits = visits.filter((visit) => visit.order === 'uncertain').sort((a, b) => {
+    const firstA = visitStartEvidence(a, input)!; const firstB = visitStartEvidence(b, input)!;
+    return compareVisitEvidence(firstA, firstB) || a.id.localeCompare(b.id);
+  });
+  for (const visit of weakVisits) {
+    const prior = journeys.at(-1);
+    const priorVisit = prior && visits.find((candidate) => candidate.id === prior.visitIds.at(-1));
+    const priorEvidence = priorVisit && visitEndEvidence(priorVisit, input);
+    const nextEvidence = visitStartEvidence(visit, input);
+    const sameCivilDay = priorEvidence?.capturedDay === nextEvidence?.capturedDay;
+    const journeyStartVisit = prior && visits.find((candidate) => candidate.id === prior.visitIds[0]);
+    const journeyStart = journeyStartVisit && visitStartEvidence(journeyStartVisit, input);
+    const journeySpan = journeyStart && nextEvidence ? calendarGap(journeyStart, nextEvidence) : null;
+    if (prior && priorVisit?.order === 'uncertain' && !sameCivilDay && visitCanFollow(priorVisit, visit, input) && journeySpan !== null && journeySpan <= 30) {
+      prior.visitIds.push(visit.id);
+    } else {
+      const next = { id: `journey:${visit.id}`, visitIds: [visit.id], state: 'inferred' as const }; journeys.push(next);
+      const gap = priorEvidence && nextEvidence ? dayGap(priorEvidence, nextEvidence) : null;
+      if (prior && priorVisit?.order === 'uncertain' && !sameCivilDay && !visitHasOwnerBoundary(priorVisit, input) && !visitHasUsualAreaContext(priorVisit, input) && !visitHasUsualAreaContext(visit, input) && gap !== null && gap <= 10) {
+        const aiCandidates = mergeAiCandidates(prior.id, next.id, priorEvidence, nextEvidence);
+        possibleMerges.push({ fromJourneyId: prior.id, toJourneyId: next.id, reason: journeySpan !== null && journeySpan > 30 ? 'span-cap' : 'adjacent-gap', ...(aiCandidates ? { aiCandidates } : {}) });
+      }
+    }
+  }
+  const dispositions: EvidenceDisposition[] = input.map((e) => placeByEvidence.has(e.id) && civilDayMillis(e.capturedDay) !== null
+    ? { evidenceId: e.id, state: 'supported', reasons: ['eligible-place-support'] }
+    : { evidenceId: e.id, state: e.excluded ? 'unassigned' : 'unresolved', reasons: [e.excluded ? 'owner-excluded' : conflictedFamilies.has(e.duplicateFamilyId ?? e.id) ? 'duplicate-family-conflict' : e.availability === 'unavailable' ? 'source-unavailable' : !e.capturedDay ? 'missing-capture-date' : civilDayMillis(e.capturedDay) === null ? 'invalid-capture-day' : 'insufficient-location-support'] });
   const memberships: JourneyMembership[] = [];
   for (const journey of journeys) for (const visitId of journey.visitIds) for (const evidenceId of visits.find((visit) => visit.id === visitId)?.evidenceIds ?? []) memberships.push({ evidenceId, journeyId: journey.id, state: 'inferred', reason: 'visit-support' });
-  for (const item of input.filter((candidate) => !placeByEvidence.has(candidate.id) && candidate.availability === 'available' && !candidate.excluded && candidate.hasPreciseOffset && candidate.capturedAtMillis !== null)) {
+  for (const item of input.filter((candidate) => !placeByEvidence.has(candidate.id) && candidate.availability === 'available' && !candidate.excluded && !conflictedFamilies.has(candidate.duplicateFamilyId ?? candidate.id))) {
     const compatible = journeys.flatMap((journey) => {
       const supports = journey.visitIds.flatMap((visitId) => visits.find((visit) => visit.id === visitId)?.evidenceIds ?? []).map((id) => input.find((evidence) => evidence.id === id)!).filter(Boolean);
       const before = supports.filter((support) => support.hasPreciseOffset && support.capturedAtMillis! < item.capturedAtMillis!).at(-1);
       const after = supports.find((support) => support.hasPreciseOffset && support.capturedAtMillis! > item.capturedAtMillis!);
       return [{ journey, supports, before, after }];
     });
-    const bracket = compatible.filter(({ before, after }) => item.hasPreciseOffset && before && after && item.capturedAtMillis! - before.capturedAtMillis! <= 86_400_000 && after.capturedAtMillis! - item.capturedAtMillis! <= 86_400_000);
+    const bracket = compatible.filter(({ before, after }) => item.hasPreciseOffset && item.capturedAtMillis !== null && before && after && item.capturedAtMillis - before.capturedAtMillis! <= 86_400_000 && after.capturedAtMillis! - item.capturedAtMillis <= 86_400_000);
     if (bracket.length === 1) memberships.push({ evidenceId: item.id, journeyId: bracket[0].journey.id, state: 'inferred', reason: 'ordered-24-hour-bracket' });
     else if (bracket.length === 0) {
-      const suggested = compatible.filter(({ supports }) => supports.some((support) => support.hasPreciseOffset && support.capturedAtMillis !== null && Math.abs(support.capturedAtMillis - item.capturedAtMillis!) <= 3 * 86_400_000));
+      const suggested = compatible.filter(({ supports }) => {
+        if (!item.capturedDay) return false;
+        const itemDay = civilDayMillis(item.capturedDay);
+        const datedSupports = supports.filter((support) => civilDayMillis(support.capturedDay) !== null);
+        if (itemDay === null || !datedSupports.length) return false;
+        const supportDays = datedSupports.map((support) => civilDayMillis(support.capturedDay)!);
+        const spanContains = itemDay >= Math.min(...supportDays) - 86_400_000 && itemDay <= Math.max(...supportDays) + 86_400_000;
+        const nearestIsClose = datedSupports.some((support) => Math.abs(civilDayMillis(support.capturedDay)! - itemDay) <= 3 * 86_400_000);
+        return spanContains && nearestIsClose;
+      });
       if (suggested.length === 1) memberships.push({ evidenceId: item.id, journeyId: suggested[0].journey.id, state: 'suggested', reason: 'unique-three-day-suggestion' });
     }
   }

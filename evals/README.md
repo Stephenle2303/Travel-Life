@@ -5,6 +5,21 @@ The current executable runner checks a trace envelope and evidence references.
 It does not invoke a model, reconstruct trips, grade factual accuracy, or decide
 release readiness. Every report explicitly marks product quality as not measured.
 
+## M2.4 engine regression evidence
+
+The local `reconstruction-v1` suite contains 35 synthetic deterministic cases for
+the approved spatial, visit, journey, possible-merge, GPS-less, duplicate,
+uncertain-evidence, owner-boundary, usual-area, and input-order rules. On
+2026-10-11, the focused suite passed 35/35 cases; the unrestricted mobile check
+passed 21 suites / 144 tests, TypeScript, lint, and Expo Doctor 21/21; the
+foundation check passed 20 tests and evaluation smoke. These are code-contract checks only:
+`product_quality: not_measured`.
+
+The optional AI sample was not run. The production kill switch remains disabled,
+so no session, network request, provider result, cost, latency, or model-quality
+claim was produced. M2.6 still owns actual incremental/background reconciliation;
+the M2.4 final-input permutations exercise the pure local rebuild only.
+
 ## Run the current checks
 
 ```powershell

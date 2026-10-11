@@ -340,3 +340,22 @@ M2.3 adds a transient local review controller that derives only bounded `possibl
 The proxy and mobile validators now require a fixed `labelCode` paired with each structural result (`possible-grouping`, `needs-more-evidence`, or `no-suggestion`); the app supplies the approved local wording and accepts no model-written label text. The production kill switch remains `TRAVEL_LIFE_AI_ENABLED=false`, so the review control shows the disabled/skipped fallback without creating a session or network call. Enabling remains deferred until CAPTCHA/rate protection, publishable configuration, and owner-operated anonymous-session validation are complete.
 
 Observed on 2026-10-11: mobile `npm run check` passed 118 Jest tests, TypeScript, Expo lint, and Expo Doctor; root `npm run check` passed framework integrity, 20 foundation tests, and the evaluation-infrastructure smoke check; `npx --yes deno test --node-modules-dir=auto --allow-env --allow-net supabase/functions/travel-life-ai-proxy/tests/contract.test.ts` passed 10 synthetic protected-proxy contract tests; `git diff --check` passed. Focused reconstruction and AI-controller suites passed 15 synthetic tests, and the review-fix mobile suites passed 21. No real provider call, device flow, anonymous session, or reconstruction-quality result is claimed.
+
+## M2.4 small engine regression suite (2026-10-11)
+
+`reconstruction-v1` now has 35 synthetic developer-reviewed regression cases for
+the 5 km place boundary, 48-hour/one-day visits, 72-hour/two-day journeys,
+30-day caps, 240-hour/ten-day possible merges, date-line and input-order
+determinism, GPS-less membership/suggestions, duplicate and missing-date handling,
+owner boundaries, usual-area context, A → B → A, and repeated final rebuilds.
+The cases explicitly keep trip-memory membership separate from place and visit
+support; they retain unresolved alternatives rather than choosing one silently.
+
+Observed on 2026-10-11: the focused engine suite passed 35/35 synthetic cases; the
+unrestricted mobile check passed 21 suites / 144 tests, TypeScript, Expo lint, and
+Expo Doctor 21/21. Root `npm run check` passed framework integrity, 20 foundation
+tests, and evaluation smoke. `product_quality` remains `not_measured`. The optional AI sample is untested
+because `TRAVEL_LIFE_AI_ENABLED=false`; no session, network request, provider
+output, latency, cost, or quality claim occurred. M2.6 still owns device-backed
+incremental/background reconciliation, so these final-input permutations do not
+establish scheduler or physical SQLite behavior.
