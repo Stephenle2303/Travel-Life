@@ -8,12 +8,11 @@ import ImportRoute from '@/app/import';
 import WelcomeRoute from '@/app/index';
 import TrustRoute from '@/app/trust';
 import SettingsRoute from '@/app/settings';
-import { EmptyAtlasScreen, ImportScreen, NotFoundScreen, PrivacySettingsScreen, TrustScreen } from '@/components/mobile-screens';
+import { EmptyAtlasScreen, ImportScreen, NotFoundScreen, PrivacySettingsScreen, ReplayAvailabilityScreen, TrustScreen } from '@/components/mobile-screens';
 import { WelcomeScreen } from '@/components/welcome-screen';
 import { appRoutes, type AppRoute } from '@/navigation/app-contract';
 import { PhotoAccessProvider } from '@/photo-access/provider';
 import type { PhotoAccessAdapter } from '@/photo-access/types';
-import type { ImportRepository } from '@/import-record';
 
 jest.mock('expo-router', () => ({ useRouter: jest.fn() }));
 jest.mock('expo-video', () => ({
@@ -35,7 +34,6 @@ const unavailableAdapter: PhotoAccessAdapter = {
   manageLimited: async () => {},
   select: async () => ({ canceled: true }),
 };
-const connectedRepository: ImportRepository = { getCheckpoint: async () => null, loadCoverage: async () => null, commitPage: async () => {}, getPrivateRecordLifecycle: async () => ({ state: 'connected' }), connectPrivateRecord: async () => {}, disconnectPrivateRecord: async () => {}, deleteLocalHistory: async () => {}, saveCorrectionOverlay: async () => {} };
 
 function OwnerFlow() {
   const [route, setRoute] = useState<AppRoute>(appRoutes.welcome);
@@ -70,7 +68,7 @@ describe('private first-run navigation', () => {
     expect(view.getByText('Choose what this device can share.')).toBeOnTheScreen();
     await user.press(view.getByRole('button', { name: 'View empty Atlas' }));
     expect(view.getByText('No private record yet.')).toBeOnTheScreen();
-    expect(view.getByText('Nothing on this screen is a travel claim, map, or inferred history.')).toBeOnTheScreen();
+    expect(view.queryByText('Nothing on this screen is a travel claim, map, or inferred history.')).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -79,16 +77,15 @@ describe('private first-run navigation', () => {
     const view = await render(<PhotoAccessProvider adapter={unavailableAdapter}><EmptyAtlasRoute /></PhotoAccessProvider>);
 
     expect(view.getByText('No private record yet.')).toBeOnTheScreen();
-    expect(view.getByRole('button', { name: 'Import photos' })).toBeOnTheScreen();
+    expect(view.getByRole('button', { name: 'Import or reconnect photos' })).toBeOnTheScreen();
     expect(view.queryByText(/sign in|create account|allow photos/i)).toBeNull();
   });
 
-  it('renders the connected Atlas disabled-AI fallback without a network request', async () => {
-    useRouterMock.mockReturnValue({ push: jest.fn() } as unknown as ReturnType<typeof useRouter>);
-    const view = await render(<PhotoAccessProvider adapter={unavailableAdapter} repository={connectedRepository}><EmptyAtlasScreen /></PhotoAccessProvider>);
-    const user = userEvent.setup();
-    await user.press(view.getByRole('button', { name: 'Request optional AI suggestion' }));
-    expect(view.getByText('Optional AI is unavailable right now. Your local draft remains available.')).toBeOnTheScreen();
+  it('keeps a direct Replay route unavailable until the private reveal is eligible', async () => {
+    useRouterMock.mockReturnValue({ push: jest.fn(), replace: jest.fn() } as unknown as ReturnType<typeof useRouter>);
+    const view = await render(<PhotoAccessProvider adapter={unavailableAdapter}><ReplayAvailabilityScreen /></PhotoAccessProvider>);
+    expect(view.getByText('Replay is unavailable.')).toBeOnTheScreen();
+    expect(view.getByText(/Replay is unavailable until local access is restored/)).toBeOnTheScreen();
   });
 
   it('renders a recoverable screen for an unknown route', async () => {

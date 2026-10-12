@@ -42,6 +42,7 @@
     "plugins": [
       "expo-router",
       "expo-background-task",
+      "react-native-maps",
       [
         "expo-media-library",
         {

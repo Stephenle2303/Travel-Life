@@ -38,6 +38,23 @@ describe('durable local reconciliation repository', () => {
     expect(mockExecAsync).toHaveBeenCalledWith('COMMIT');
   });
 
+  it('reads only coarsened map anchors and journey states from the committed graph', async () => {
+    mockGetAllAsync.mockResolvedValueOnce([{ journey_state: 'inferred', latitude: 13.75632, longitude: 100.501765 }, { journey_state: 'possible-merge', latitude: null, longitude: null }]);
+
+    const display = await createNativeReconstructionRepository().loadDurableReveal();
+
+    expect(display).toEqual({ journeys: [
+      { state: 'inferred', anchor: { latitude: 13.8, longitude: 100.5 } },
+      { state: 'possible-merge', anchor: null },
+    ] });
+    const read = mockGetAllAsync.mock.calls[0][0] as string;
+    expect(read).toContain('WITH journey_anchor AS');
+    expect(read).toContain('MIN(visit.visit_id) AS visit_id');
+    expect(read).toContain('WHERE journey.run_id = (SELECT MAX(run_id) FROM reconstruction_run WHERE status = \'complete\')');
+    expect(read).not.toContain('source_ref');
+    expect(read).not.toContain('captured_day');
+  });
+
   it('refuses an overlapping reconciliation lease without snapshotting or acknowledging queue rows', async () => {
     mockGetFirstAsync.mockImplementation(async (sql: string) => {
       if (sql.includes('private_record_lifecycle')) return { state: 'connected' };

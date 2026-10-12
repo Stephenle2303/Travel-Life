@@ -2,7 +2,7 @@ import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { AppState, type AppStateStatus } from 'react-native';
 
 import { EmptyAtlasScreen, ImportScreen } from '@/components/mobile-screens';
-import { PhotoAccessProvider } from '@/photo-access/provider';
+import { isCurrentDurableRevealRead, PhotoAccessProvider } from '@/photo-access/provider';
 import type { PermissionSnapshot, PhotoAccessAdapter } from '@/photo-access/types';
 import type { ImportRepository } from '@/import-record';
 
@@ -32,6 +32,10 @@ const emptyRepository: ImportRepository = {
 };
 
 describe('photo access provider and Import screen', () => {
+  it('rejects a durable reveal read that completed after a lifecycle invalidation', () => {
+    expect(isCurrentDurableRevealRead(4, 4)).toBe(true);
+    expect(isCurrentDurableRevealRead(4, 5)).toBe(false);
+  });
   it('rechecks and updates a finished limited count on foreground return', async () => {
     let activeListener: ((state: AppStateStatus) => void) | undefined;
     const subscription = { remove: jest.fn() };
@@ -79,12 +83,12 @@ describe('photo access provider and Import screen', () => {
     expect(view.getByText(/not lifetime coverage/)).toBeOnTheScreen();
   });
 
-  it('keeps explicit local import and rebuild recovery controls available after a recoverable failure', async () => {
+  it('keeps explicit local import and Atlas recovery controls available after a recoverable failure', async () => {
     const repository: ImportRepository = { ...emptyRepository, loadCoverage: async () => ({ scope: 'full', nextOffset: 0, scanned: 1, geotagged: 1, unavailable: 0, status: 'paused' }) };
     const importView = await render(<PhotoAccessProvider adapter={adapterFor({ scope: 'full', canAskAgain: false })} repository={repository}><ImportScreen /></PhotoAccessProvider>);
     await waitFor(() => expect(importView.getByRole('button', { name: 'Resume metadata import' })).toBeOnTheScreen());
     await importView.unmount();
     const atlasView = await render(<PhotoAccessProvider adapter={adapterFor({ scope: 'full', canAskAgain: false })} repository={emptyRepository}><EmptyAtlasScreen /></PhotoAccessProvider>);
-    await waitFor(() => expect(atlasView.getByRole('button', { name: 'Rebuild local draft' })).toBeOnTheScreen());
+    await waitFor(() => expect(atlasView.getByRole('button', { name: 'Import or reconnect photos' })).toBeOnTheScreen());
   });
 });

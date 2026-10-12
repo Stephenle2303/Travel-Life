@@ -9,6 +9,18 @@ import { createNativeImportRepository, type ImportCoverage, type ImportRepositor
 import { MaintenanceController, createExpoScheduler, type MaintenanceView } from '@/maintenance';
 import { createNativeReconstructionRepository, ReconstructionController, type ReconstructionView } from '@/reconstruction';
 import { AiProposalController, type AiReviewView } from '@/ai';
+import type { DurableRevealRecord } from '@/reveal/types';
+
+export function isCurrentDurableRevealRead(readGeneration: number, currentGeneration: number) {
+  return readGeneration === currentGeneration;
+}
+
+class DurableRevealGate {
+  private generation = 0;
+  next() { this.generation += 1; return this.generation; }
+  invalidate() { this.generation += 1; }
+  isCurrent(readGeneration: number) { return isCurrentDurableRevealRead(readGeneration, this.generation); }
+}
 
 function maintenanceRepository(repository: ImportRepository): MaintenanceRepository {
   if ('loadMaintenance' in repository) return repository as MaintenanceRepository;
@@ -50,6 +62,7 @@ type PhotoAccessContextValue = {
   reconciliation: ReconciliationSnapshot;
   catchUpHistory(): Promise<void>;
   reconstruction: ReconstructionView;
+  durableReveal: DurableRevealRecord | null;
   reconstructionController: ReconstructionController;
   aiReview: AiReviewView;
   aiProposalController: AiProposalController;
@@ -64,10 +77,21 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
   const [maintenance, setMaintenance] = useState<MaintenanceView>({ enabled: false, status: 'disabled', lastCheckedAtMillis: null, lastUpdatedAtMillis: null, message: null, checkpoint: null });
   const [reconciliation, setReconciliation] = useState<ReconciliationSnapshot>({ status: 'idle', pendingCount: 0, lastCheckedAtMillis: null, lastUpdatedAtMillis: null, newJourneyCount: 0, updatedJourneyCount: 0, message: null });
   const [reconstruction, setReconstruction] = useState<ReconstructionView>({ status: 'idle', graph: null, message: null });
+  const [durableReveal, setDurableReveal] = useState<DurableRevealRecord | null>(null);
+  const [durableRevealGate] = useState(() => new DurableRevealGate());
   const [aiReview, setAiReview] = useState<AiReviewView>({ status: 'idle', message: 'Optional AI suggestions are not requested.', proposals: [] });
   const [sharedRepository] = useState(() => repository ?? (adapter === nativePhotoAccess ? createNativeImportRepository() : unavailableRepository()));
   const [durableMaintenanceRepository] = useState(() => maintenanceRepository(sharedRepository));
-  const [reconstructionController] = useState(() => new ReconstructionController(createNativeReconstructionRepository(), setReconstruction));
+  const [nativeReconstructionRepository] = useState(() => createNativeReconstructionRepository());
+  const [reconstructionController] = useState(() => new ReconstructionController(nativeReconstructionRepository, (view) => {
+    setReconstruction(view);
+    if (view.status === 'complete') {
+      const generation = durableRevealGate.next();
+      void nativeReconstructionRepository.loadDurableReveal().then((record) => {
+        if (durableRevealGate.isCurrent(generation)) setDurableReveal(record);
+      }).catch(() => {});
+    }
+  }));
   const currentSourcePermitted = async () => {
     const access = await adapter.inspect();
     return access?.scope === 'full' || access?.scope === 'limited';
@@ -86,7 +110,7 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
   }));
   const [privateRecordController] = useState(() => new HistoryRecordController(
     sharedRepository,
-    async () => { await controller.stopImport(); await maintenanceController.stopForLifecycle(); reconstructionController.clear(); aiProposalController.clear(); },
+    async () => { durableRevealGate.invalidate(); await controller.stopImport(); await maintenanceController.stopForLifecycle(); reconstructionController.clear(); setDurableReveal(null); aiProposalController.clear(); },
     setPrivateRecord,
     () => controller.clearDeletedRecord(),
   ));
@@ -117,6 +141,14 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
   }, [maintenance.enabled, maintenanceController, snapshot.scope]);
 
   useEffect(() => {
+    if (privateRecord.state !== 'connected' || adapter !== nativePhotoAccess) return;
+    const generation = durableRevealGate.next();
+    void nativeReconstructionRepository.loadDurableReveal().then((record) => {
+      if (durableRevealGate.isCurrent(generation)) setDurableReveal(record);
+    }).catch(() => {});
+  }, [adapter, durableRevealGate, nativeReconstructionRepository, privateRecord.state]);
+
+  useEffect(() => {
     if (privateRecord.state === 'connected') reconstructionController.resume();
     else reconstructionController.clear();
   }, [privateRecord, reconstructionController]);
@@ -125,7 +157,7 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     await reconstructionController.reconcile(currentSourcePermitted);
     if (durableMaintenanceRepository.loadReconciliation) setReconciliation(await durableMaintenanceRepository.loadReconciliation());
   };
-  return <PhotoAccessContext.Provider value={{ snapshot, controller, importCoverage, privateRecord, privateRecordController, maintenance, maintenanceController, reconciliation, catchUpHistory, reconstruction, reconstructionController, aiReview, aiProposalController }}>{children}</PhotoAccessContext.Provider>;
+  return <PhotoAccessContext.Provider value={{ snapshot, controller, importCoverage, privateRecord, privateRecordController, maintenance, maintenanceController, reconciliation, catchUpHistory, reconstruction, durableReveal, reconstructionController, aiReview, aiProposalController }}>{children}</PhotoAccessContext.Provider>;
 }
 
 export function usePhotoAccess() {

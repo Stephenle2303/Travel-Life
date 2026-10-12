@@ -1,6 +1,7 @@
 import type { ReconstructionEvidence, ReconstructionGraph } from './types';
 import { RECONSTRUCTION_RULE_VERSION } from './types';
 import { reconstructV1 } from './engine';
+import type { DurableRevealRecord, RevealMapAnchor } from '@/reveal/types';
 
 type Database = {
   execAsync(source: string): Promise<void>;
@@ -11,6 +12,13 @@ type Database = {
 
 type EvidenceRow = { evidence_id: string; captured_at_millis: number | null; captured_day: string | null; has_precise_offset: number; availability: ReconstructionEvidence['availability']; latitude: number | null; longitude: number | null; reported_accuracy_meters: number | null };
 const RECONCILIATION_LEASE_MILLIS = 5 * 60 * 1000;
+
+function coarseMapAnchor(latitude: number | null, longitude: number | null): RevealMapAnchor | null {
+  if (latitude === null || longitude === null || !Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  // About eleven kilometres at the equator: useful for an Atlas overview but
+  // deliberately not a precise personal location.
+  return { latitude: Math.round(latitude * 10) / 10, longitude: Math.round(longitude * 10) / 10 };
+}
 
 /** A graph rebuild is one local transaction, so readers see the prior complete run or the next one. */
 export function createNativeReconstructionRepository() {
@@ -56,6 +64,31 @@ export function createNativeReconstructionRepository() {
   }
 
   return {
+    /** Reads only coarse map anchors and journey state from the committed run.
+     * Source/evidence IDs, dates, and raw coordinates stay inside this query. */
+    async loadDurableReveal(): Promise<DurableRevealRecord> {
+      const db = await open();
+      const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
+      if (lifecycle?.state !== 'connected') throw new Error('Private record is not connected.');
+      const rows = await db.getAllAsync<{ journey_state: 'inferred' | 'possible-merge'; latitude: number | null; longitude: number | null }>(`
+        WITH journey_anchor AS (
+          SELECT journey_link.parent_id AS journey_id, MIN(visit.visit_id) AS visit_id
+          FROM reconstruction_link journey_link
+          JOIN reconstruction_visit visit ON visit.run_id = journey_link.run_id AND visit.visit_id = journey_link.child_id
+          WHERE journey_link.link_kind = 'journey-visit'
+          GROUP BY journey_link.parent_id
+        )
+        SELECT journey.journey_state, evidence.latitude, evidence.longitude
+        FROM reconstruction_journey journey
+        LEFT JOIN journey_anchor anchor ON anchor.journey_id = journey.journey_id
+        LEFT JOIN reconstruction_visit visit ON visit.run_id = journey.run_id AND visit.visit_id = anchor.visit_id
+        LEFT JOIN reconstruction_place place ON place.run_id = journey.run_id AND place.place_id = visit.place_id
+        LEFT JOIN canonical_evidence evidence ON evidence.evidence_id = place.representative_evidence_id
+        WHERE journey.run_id = (SELECT MAX(run_id) FROM reconstruction_run WHERE status = 'complete')
+        ORDER BY journey.journey_id
+      `);
+      return { journeys: rows.map((row) => ({ state: row.journey_state, anchor: coarseMapAnchor(row.latitude, row.longitude) })) };
+    },
     async rebuild(nowMillis = Date.now(), consumeQueuedChanges = false, canUseSource: () => Promise<boolean> = async () => true): Promise<ReconstructionGraph> {
       const db = await open();
       await db.execAsync('BEGIN IMMEDIATE TRANSACTION');

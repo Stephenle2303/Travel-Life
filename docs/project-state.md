@@ -409,3 +409,28 @@ SQLite migration, iOS/Android interruption, background scheduling, source change
 and reconstruction accuracy remain unverified. History-target corrections without
 a safe lineage mapper remain pending for owner review; they are never discarded or
 applied to a partial rebuilt graph.
+
+## M3.1 private Atlas reveal (2026-10-12)
+
+`/history` now projects the committed local reconstruction graph into a bounded
+owner-facing reveal model before it reaches UI. The Living Atlas screen leads with
+a native `react-native-maps` canvas when local inferred journeys are available,
+states its normal viewport/tile-request boundary, and always retains a readable
+local list. Sparse, pending reconciliation, restricted access, recoverable failure,
+and no-journey states present truthful recovery actions. The Replay handoff is
+typed and appears only for eligible revealed journeys; it is an availability screen,
+not a renderer, export, publish, or share action. Reveal telemetry is opt-in,
+allowlisted to coarse state/count events, and safely ignored when consent or a
+sink is unavailable.
+
+The native reconstruction repository now has a committed-run read boundary for
+Atlas restoration after restart. Its only map output is journey state plus a
+coarsened anchor rounded to one decimal degree; source/evidence identifiers,
+capture data, and precise coordinates remain inside the SQLite query and never
+reach reveal props or telemetry.
+
+Focused mobile tests passed 6 suites / 58 tests, with TypeScript and Expo lint.
+These are synthetic checks. Native iOS/Android map rendering, Apple/Google map
+provider requests, native configuration, accessibility, device lifecycle states,
+and telemetry delivery are not yet verified. No product-quality or engagement
+claim is made from this work.

@@ -15,9 +15,10 @@ describe('navigation contract', () => {
     openRoute(router, appRoutes.trust);
     openRoute(router, appRoutes.import);
     openRoute(router, appRoutes.atlas, 'replace');
+    openRoute(router, appRoutes.replay);
     openRoute(router, appRoutes.settings);
     openRoute(router, appRoutes.trust, 'dismissTo');
 
-    expect(visited).toEqual(['push:/', 'push:/trust', 'push:/import', 'replace:/history', 'push:/settings', 'dismissTo:/trust']);
+    expect(visited).toEqual(['push:/', 'push:/trust', 'push:/import', 'replace:/history', 'push:/replay', 'push:/settings', 'dismissTo:/trust']);
   });
 });

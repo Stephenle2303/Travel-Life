@@ -3,7 +3,9 @@ import { useRouter } from 'expo-router';
 
 import { appRoutes, openRoute } from '@/navigation/app-contract';
 import { ActionButton, Body, Eyebrow, InsetPanel, Screen, Title } from '@/components/ui';
+import { AtlasReveal } from '@/components/atlas-reveal';
 import { usePhotoAccess } from '@/photo-access/provider';
+import { projectReveal } from '@/reveal/projection';
 
 export function TrustScreen() {
   const router = useRouter();
@@ -69,37 +71,52 @@ export function ImportScreen() {
 
 export function EmptyAtlasScreen() {
   const router = useRouter();
-  const { snapshot, importCoverage, privateRecord, maintenanceController, reconciliation, catchUpHistory, reconstruction, reconstructionController, aiReview, aiProposalController } = usePhotoAccess();
+  const { snapshot, importCoverage, reconciliation, catchUpHistory, reconstruction, reconstructionController, durableReveal } = usePhotoAccess();
+  const reveal = projectReveal({
+    graph: reconstruction.graph,
+    durableRecord: durableReveal,
+    reconstructionStatus: reconstruction.status,
+    reconciliationStatus: reconciliation.status,
+    pendingCount: reconciliation.pendingCount,
+    sourceScope: snapshot.scope,
+    importedCount: importCoverage.scanned,
+  });
   return (
     <Screen>
       <Eyebrow>Private Atlas</Eyebrow>
-      <Title>No private record yet.</Title>
-      <InsetPanel>
-        <Body>After you choose to import, your available record can begin to take shape here. Until then, Atlas has no journeys to show.</Body>
-        <Body>Nothing on this screen is a travel claim, map, or inferred history.</Body>
-        {snapshot.countStatus !== 'none' && <Body>The last device-visible photo count is {snapshot.countStatus === 'complete' ? 'from a finished scoped scan, though the library can change' : 'incomplete'}. Counting does not create journeys.</Body>}
-        {importCoverage.status === 'complete' && <Body>{importCoverage.scanned} metadata records are private and local to this device. Atlas still makes no journey or travel conclusion.</Body>}
-        {reconstruction.status === 'running' && <Body>Preparing an inferred local draft from the current private record.</Body>}
-        {reconstruction.status === 'complete' && <Body>{reconstruction.graph?.journeys.length ?? 0} inferred journey drafts and {reconstruction.graph?.places.length ?? 0} local places are ready for review. Photo metadata is evidence, not proof of presence.</Body>}
-        {reconstruction.message && reconstruction.status !== 'complete' && <Body>{reconstruction.message}</Body>}
-        {reconciliation.pendingCount > 0 && <Body>{reconciliation.pendingCount} local change or unresolved correction target{reconciliation.pendingCount === 1 ? '' : 's'} needs review. Your last completed draft remains available.</Body>}
-        {reconciliation.status === 'restricted' && <Body>Journey updates are waiting for connected, permitted local access.</Body>}
-        {aiReview.status !== 'idle' && <Body>{aiReview.message}</Body>}
-        {aiReview.proposals.map((proposal, index) => <Body key={`${proposal.label}-${index}`}>Inferred: {proposal.label}. It references {proposal.candidateIds.length} existing local draft item{proposal.candidateIds.length === 1 ? '' : 's'} and has not changed your history.</Body>)}
-        {snapshot.selectedCount !== null && importCoverage.status !== 'complete' && <Body>You selected {snapshot.selectedCount} items for this session; they have not been imported into a private record.</Body>}
-        {(snapshot.scope === 'limited' || snapshot.scope === 'denied' || snapshot.scope === 'revoked') && <Body>{scopeDescription(snapshot.scope)}</Body>}
-      </InsetPanel>
-      <ActionButton accessibilityLabel="Import photos" onPress={() => openRoute(router, appRoutes.import)}>Import photos</ActionButton>
-      {privateRecord.state === 'connected' && <ActionButton accessibilityLabel="Rebuild local draft" onPress={() => void reconstructionController.rebuild()} variant="secondary">Rebuild local draft</ActionButton>}
-      {privateRecord.state === 'connected' && reconciliation.pendingCount > 0 && <ActionButton accessibilityLabel="Catch up local journey history" onPress={() => void catchUpHistory()} variant="secondary">Catch up local journey history</ActionButton>}
-      {privateRecord.state === 'connected' && <ActionButton accessibilityLabel="Rescan permitted library locally" onPress={() => void maintenanceController.rescan()} variant="secondary">Rescan permitted library locally</ActionButton>}
-      {reconstruction.status === 'error' && <Body>Retry a local rebuild when ready. It keeps your last completed local draft and corrections.</Body>}
-      {privateRecord.state === 'connected' && <ActionButton accessibilityLabel="Request optional AI suggestion" onPress={() => aiProposalController.showDisabledPreview()} variant="secondary">Request optional AI suggestion</ActionButton>}
-      {aiReview.status === 'requesting' && <ActionButton accessibilityLabel="Cancel optional AI suggestion" onPress={() => aiProposalController.cancel()} variant="secondary">Cancel optional AI suggestion</ActionButton>}
+      <AtlasReveal
+        model={reveal}
+        onImport={() => openRoute(router, appRoutes.import)}
+        onRetry={() => void reconstructionController.rebuild()}
+        onCatchUp={() => void catchUpHistory()}
+        onManualEntry={() => openRoute(router, appRoutes.settings)}
+        onReplay={() => openRoute(router, appRoutes.replay)}
+      />
       <ActionButton accessibilityLabel="Open private record settings" onPress={() => openRoute(router, appRoutes.settings)} variant="secondary">Private record settings</ActionButton>
       <ActionButton accessibilityLabel="Return to Trust" onPress={() => openRoute(router, appRoutes.trust, 'replace')} variant="secondary">Back</ActionButton>
     </Screen>
   );
+}
+
+export function ReplayAvailabilityScreen() {
+  const router = useRouter();
+  const { snapshot, importCoverage, reconciliation, reconstruction, durableReveal } = usePhotoAccess();
+  const reveal = projectReveal({ graph: reconstruction.graph, durableRecord: durableReveal, reconstructionStatus: reconstruction.status, reconciliationStatus: reconciliation.status, pendingCount: reconciliation.pendingCount, sourceScope: snapshot.scope, importedCount: importCoverage.scanned });
+  if (!reveal.replay.eligible) return <Screen>
+    <Eyebrow>Private Replay</Eyebrow>
+    <Title>Replay is unavailable.</Title>
+    <InsetPanel><Body>{reveal.replay.reason}</Body><Body>Your private Atlas remains available while you recover or add supported local evidence.</Body></InsetPanel>
+    <ActionButton accessibilityLabel="Return to private Atlas" onPress={() => openRoute(router, appRoutes.atlas, 'replace')}>Return to Atlas</ActionButton>
+  </Screen>;
+  return <Screen>
+    <Eyebrow>Private Replay</Eyebrow>
+    <Title>Replay is preparing.</Title>
+    <InsetPanel>
+      <Body>Replay can use observed destinations from your private revealed record. It does not draw a travelled route or export anything from this screen.</Body>
+      <Body>The renderer and export controls arrive in the Replay story. Nothing is published or shared here.</Body>
+    </InsetPanel>
+    <ActionButton accessibilityLabel="Return to private Atlas" onPress={() => openRoute(router, appRoutes.atlas, 'replace')}>Return to Atlas</ActionButton>
+  </Screen>;
 }
 
 export function PrivacySettingsScreen() {

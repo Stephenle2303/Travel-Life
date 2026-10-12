@@ -5,6 +5,7 @@ export const appRoutes = {
   trust: '/trust',
   import: '/import',
   atlas: '/history',
+  replay: '/replay',
   settings: '/settings',
 } as const;
 
