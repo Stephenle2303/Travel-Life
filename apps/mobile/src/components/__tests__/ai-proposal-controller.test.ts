@@ -70,4 +70,17 @@ describe('AI proposal review controller', () => {
     await expect(controller.request(graph, revisions)).resolves.toBeUndefined();
     expect(controller.view.status).toBe('skipped');
   });
+  it('cancels an in-flight optional request without allowing its late proposal to replace the local state', async () => {
+    let resolve!: (result: any) => void;
+    let receivedSignal: AbortSignal | undefined;
+    const controller = new AiProposalController({ request: ({ signal }) => { receivedSignal = signal; return new Promise<any>((done) => { resolve = done; }); } }, jest.fn());
+    const pending = controller.request(graph, revisions);
+    expect(controller.view.status).toBe('requesting');
+    controller.cancel();
+    expect(receivedSignal?.aborted).toBe(true);
+    resolve({ status: 'proposal', proposals: [{ alternativeId: 'a_0', selectedCandidateIds: ['c_0', 'c_1'], confidence: 'low', rationaleCode: 'ambiguous-grouping', labelCode: 'possible-grouping' }], usage: { inputTokens: 1, outputTokens: 1 } });
+    await pending;
+    expect(controller.view).toMatchObject({ status: 'cancelled', proposals: [] });
+    expect(graph.journeys).toHaveLength(2);
+  });
 });

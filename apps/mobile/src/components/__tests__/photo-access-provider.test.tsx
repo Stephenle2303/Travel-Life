@@ -1,7 +1,7 @@
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { AppState, type AppStateStatus } from 'react-native';
 
-import { ImportScreen } from '@/components/mobile-screens';
+import { EmptyAtlasScreen, ImportScreen } from '@/components/mobile-screens';
 import { PhotoAccessProvider } from '@/photo-access/provider';
 import type { PermissionSnapshot, PhotoAccessAdapter } from '@/photo-access/types';
 import type { ImportRepository } from '@/import-record';
@@ -77,5 +77,14 @@ describe('photo access provider and Import screen', () => {
 
     await waitFor(() => expect(view.getByText(/Metadata import completed for the current accessible scope/)).toBeOnTheScreen());
     expect(view.getByText(/not lifetime coverage/)).toBeOnTheScreen();
+  });
+
+  it('keeps explicit local import and rebuild recovery controls available after a recoverable failure', async () => {
+    const repository: ImportRepository = { ...emptyRepository, loadCoverage: async () => ({ scope: 'full', nextOffset: 0, scanned: 1, geotagged: 1, unavailable: 0, status: 'paused' }) };
+    const importView = await render(<PhotoAccessProvider adapter={adapterFor({ scope: 'full', canAskAgain: false })} repository={repository}><ImportScreen /></PhotoAccessProvider>);
+    await waitFor(() => expect(importView.getByRole('button', { name: 'Resume metadata import' })).toBeOnTheScreen());
+    await importView.unmount();
+    const atlasView = await render(<PhotoAccessProvider adapter={adapterFor({ scope: 'full', canAskAgain: false })} repository={emptyRepository}><EmptyAtlasScreen /></PhotoAccessProvider>);
+    await waitFor(() => expect(atlasView.getByRole('button', { name: 'Rebuild local draft' })).toBeOnTheScreen());
   });
 });

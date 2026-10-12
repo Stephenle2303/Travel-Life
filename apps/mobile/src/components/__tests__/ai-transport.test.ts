@@ -40,11 +40,29 @@ describe('optional AI transport boundary', () => {
     await expect(unsafeUsage.request(input)).resolves.toMatchObject({ status: 'skipped', reason: 'invalid-response' });
   });
 
+  it('passes through the proxy typed cancelled state for the owner controller', async () => {
+    const transport = createAiTransport({ endpoint: 'https://proxy.example', publishableKey: 'sb_publishable_test', session, fetcher: async () => new Response(JSON.stringify({ status: 'skipped', reason: 'cancelled', usage: { inputTokens: null, outputTokens: null } })) });
+    await expect(transport.request(input)).resolves.toMatchObject({ status: 'skipped', reason: 'cancelled' });
+  });
+
   it('sends only the minimized request with the anonymous bearer and publishable key', async () => {
     const fetcher = jest.fn(async () => new Response(JSON.stringify({ status: 'proposal', contractVersion: 'travel-life-ai-v1', usage: { inputTokens: 12, outputTokens: 4 }, proposals: [{ alternativeId: 'a_0', selectedCandidateIds: ['c_0', 'c_1'], confidence: 'low', rationaleCode: 'ambiguous-grouping', labelCode: 'possible-grouping' }] })));
     const transport = createAiTransport({ endpoint: 'https://proxy.example', publishableKey: 'sb_publishable_test', session, fetcher });
     await expect(transport.request(input)).resolves.toMatchObject({ status: 'proposal', proposals: [{ alternativeId: 'a_0', selectedCandidateIds: ['c_0', 'c_1'] }] });
     expect(fetcher).toHaveBeenCalledWith('https://proxy.example', expect.objectContaining({ method: 'POST', headers: expect.objectContaining({ authorization: 'Bearer anonymous-token', apikey: 'sb_publishable_test', 'content-type': 'application/json' }), body: JSON.stringify(minimized.request) }));
+  });
+
+  it('aborts an owner-cancelled request and returns a local-safe cancelled state', async () => {
+    const abort = new AbortController();
+    const fetcher = jest.fn((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      if (init?.signal?.aborted) reject(new DOMException('cancelled', 'AbortError'));
+      else init?.signal?.addEventListener('abort', () => reject(new DOMException('cancelled', 'AbortError')));
+    }));
+    const transport = createAiTransport({ endpoint: 'https://proxy.example', publishableKey: 'sb_publishable_test', session, fetcher: fetcher as typeof fetch });
+    const pending = transport.request({ ...input, signal: abort.signal });
+    abort.abort();
+    await expect(pending).resolves.toMatchObject({ status: 'skipped', reason: 'cancelled', usage: { inputTokens: null, outputTokens: null } });
+    expect(fetcher).toHaveBeenCalledWith('https://proxy.example', expect.objectContaining({ signal: abort.signal }));
   });
 
   it('accepts only bounded proposals supplied by the current request', () => {

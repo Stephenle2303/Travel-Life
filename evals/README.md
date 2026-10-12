@@ -20,6 +20,17 @@ so no session, network request, provider result, cost, latency, or model-quality
 claim was produced. M2.6 still owns actual incremental/background reconciliation;
 the M2.4 final-input permutations exercise the pure local rebuild only.
 
+## M2.5 operational measurement contract
+
+The protected proxy contract tests use synthetic responses only. They verify that an
+attempt settles after a successful reservation with bounded nullable token totals, null
+cost while no invoice/pricing measurement exists, elapsed milliseconds, and frozen
+contract/rule/model/prompt versions. They also verify typed cancellation, timeout,
+failure, and invalid-result paths without request bodies, response bodies, evidence
+references, provider errors, or session material entering the ledger. These tests prove
+representation and fail-closed behavior only. Live provider cost, latency, import timing,
+anonymous sessions, and product quality remain `not_measured` while the kill switch is off.
+
 ## Run the current checks
 
 ```powershell

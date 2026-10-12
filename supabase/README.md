@@ -20,3 +20,18 @@ the product must disclose that limitation. It returns a typed skipped state for 
 unauthenticated, limited, unavailable, timed-out, refused, and invalid-result paths, so
 the local reconstruction remains available. M2.2 returns proposals only; M2.3 owns any
 owner review or application.
+
+## M2.5 private operational attempt ledger
+
+`private.ai_operational_attempts` is an RLS-protected, service-role-only operational
+ledger. After the quota reservation succeeds, the Edge Function opens a sanitized attempt
+and settles it with only outcome, nullable bounded input/output totals, null cost while
+no pricing or invoice measurement exists, elapsed milliseconds, and frozen
+contract/rule/model/prompt versions. It has no subject, request, response, provider error,
+header, token, evidence, or opaque-reference columns, and is not available through the
+Data API. Reservations are never refunded. A null token or cost measurement means unknown,
+not zero; the reservation is a spend guardrail, not a provider invoice.
+
+The kill switch remains `TRAVEL_LIFE_AI_ENABLED=false`. Enabling requires dashboard
+CAPTCHA/rate protection and a separately authorized anonymous-session smoke test; this
+repository change neither creates a session nor calls a provider.

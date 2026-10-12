@@ -89,7 +89,9 @@ export function EmptyAtlasScreen() {
       </InsetPanel>
       <ActionButton accessibilityLabel="Import photos" onPress={() => openRoute(router, appRoutes.import)}>Import photos</ActionButton>
       {privateRecord.state === 'connected' && <ActionButton accessibilityLabel="Rebuild local draft" onPress={() => void reconstructionController.rebuild()} variant="secondary">Rebuild local draft</ActionButton>}
+      {reconstruction.status === 'error' && <Body>Retry a local rebuild when ready. It keeps your last completed local draft and corrections.</Body>}
       {privateRecord.state === 'connected' && <ActionButton accessibilityLabel="Request optional AI suggestion" onPress={() => aiProposalController.showDisabledPreview()} variant="secondary">Request optional AI suggestion</ActionButton>}
+      {aiReview.status === 'requesting' && <ActionButton accessibilityLabel="Cancel optional AI suggestion" onPress={() => aiProposalController.cancel()} variant="secondary">Cancel optional AI suggestion</ActionButton>}
       <ActionButton accessibilityLabel="Open private record settings" onPress={() => openRoute(router, appRoutes.settings)} variant="secondary">Private record settings</ActionButton>
       <ActionButton accessibilityLabel="Return to Trust" onPress={() => openRoute(router, appRoutes.trust, 'replace')} variant="secondary">Back</ActionButton>
     </Screen>

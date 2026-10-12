@@ -3,6 +3,7 @@ import { withSupabase } from 'npm:@supabase/server@1';
 const MODEL = 'gpt-5.4-mini-2026-03-17';
 const CONTRACT_VERSION = 'travel-life-ai-v1';
 const RULE_VERSION = 'reconstruction-v1';
+const PROMPT_VERSION = 'travel-life-ai-prompt-v1';
 const MAX_INPUT_TOKENS = 2000;
 const MAX_OUTPUT_TOKENS = 800;
 const MAX_ALTERNATIVES = 12;
@@ -36,7 +37,7 @@ type Alternative = { id: string; kind: 'journey-group' | 'place-label'; candidat
 type ProxyRequest = { contractVersion: typeof CONTRACT_VERSION; consentRevision: number; ruleVersion: typeof RULE_VERSION; evidenceRevision: number; correctionRevision: number; alternatives: Alternative[] };
 type Proposal = { alternativeId: string; selectedCandidateIds: string[]; confidence: 'low' | 'medium'; rationaleCode: 'ambiguous-grouping' | 'insufficient-evidence' | 'no-proposal'; labelCode: 'possible-grouping' | 'needs-more-evidence' | 'no-suggestion' };
 type ProposalEnvelope = { status: 'proposal'; contractVersion: typeof CONTRACT_VERSION; proposals: Proposal[]; usage: { inputTokens: number | null; outputTokens: number | null } };
-type SkippedEnvelope = { status: 'skipped'; reason: 'disabled' | 'unauthenticated' | 'invalid-request' | 'limited' | 'unavailable' | 'timeout' | 'refused' | 'invalid-response'; usage: { inputTokens: number | null; outputTokens: number | null } };
+type SkippedEnvelope = { status: 'skipped'; reason: 'disabled' | 'unauthenticated' | 'invalid-request' | 'limited' | 'unavailable' | 'timeout' | 'cancelled' | 'refused' | 'invalid-response'; usage: { inputTokens: number | null; outputTokens: number | null } };
 
 const headers = { 'content-type': 'application/json', 'cache-control': 'no-store' };
 const skipped = (reason: SkippedEnvelope['reason'], usage: SkippedEnvelope['usage'] = { inputTokens: null, outputTokens: null }) => ({ status: 'skipped', reason, usage } satisfies SkippedEnvelope);
@@ -147,6 +148,8 @@ type FunctionContext = {
   supabaseAdmin?: { rpc: (...args: any[]) => any };
 };
 
+type AttemptOutcome = 'proposal' | 'unavailable' | 'timeout' | 'cancelled' | 'refused' | 'invalid-response';
+
 export async function handleProxyRequest(request: Request, context?: FunctionContext) {
   if (request.method !== 'POST') return json(skipped('invalid-request'), 405);
   if (request.headers.get('content-length') && Number(request.headers.get('content-length')) > MAX_REQUEST_BYTES) return json(skipped('invalid-request'), 413);
@@ -165,8 +168,44 @@ export async function handleProxyRequest(request: Request, context?: FunctionCon
   } catch { return json(skipped('unavailable')); }
   const { data: reservation, error: quotaError } = reservationResult as { data: { reserved: boolean; reason: string | null } | null; error: unknown };
   if (quotaError || !reservation?.reserved) return json(skipped('limited'));
+  let opened;
+  try {
+    opened = await context.supabaseAdmin.rpc('open_travel_life_ai_attempt', {
+      attempt_contract_version: CONTRACT_VERSION,
+      attempt_rule_version: RULE_VERSION,
+      attempt_model_version: MODEL,
+      attempt_prompt_version: PROMPT_VERSION,
+    }).single();
+  } catch { return json(skipped('unavailable')); }
+  const attemptId = (opened as { data: number | null; error: unknown }).data;
+  if ((opened as { error: unknown }).error || !Number.isInteger(attemptId)) return json(skipped('unavailable'));
+
+  const startedAt = Date.now();
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20_000);
+  let ownerCancelled = request.signal.aborted;
+  let timedOut = false;
+  const abortForOwner = () => { ownerCancelled = true; controller.abort(); };
+  request.signal.addEventListener('abort', abortForOwner, { once: true });
+  if (ownerCancelled) controller.abort();
+  const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, 20_000);
+  const settle = async (outcome: AttemptOutcome, usage: { inputTokens: number | null; outputTokens: number | null }) => {
+    const args = {
+      attempt_id: attemptId, attempt_outcome: outcome,
+      attempt_input_tokens: usage.inputTokens, attempt_output_tokens: usage.outputTokens,
+      // A reservation limits spend before a call; without an invoice/pricing
+      // measurement, cost is unknown and must never be synthesized from it.
+      attempt_calculated_usd: null,
+      attempt_elapsed_millis: Math.max(0, Date.now() - startedAt),
+    };
+    for (let retry = 0; retry < 2; retry += 1) {
+      try {
+        const result = await context.supabaseAdmin!.rpc('settle_travel_life_ai_attempt', args);
+        if (result && !(result as { error?: unknown }).error) return true;
+      } catch { /* Retry once, then fail closed without logging operational data. */ }
+    }
+    return false;
+  };
+  const settled = async (outcome: AttemptOutcome, usage: { inputTokens: number | null; outputTokens: number | null }, response: Response) => await settle(outcome, usage) ? response : json(skipped('unavailable'));
   try {
     const response = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST', signal: controller.signal,
@@ -182,21 +221,28 @@ export async function handleProxyRequest(request: Request, context?: FunctionCon
         text: { format: { type: 'json_schema', name: 'travel_life_proposal', strict: true, schema: PROPOSAL_SCHEMA } },
       }),
     });
+    if (ownerCancelled || timedOut) {
+      const outcome = ownerCancelled ? 'cancelled' : 'timeout';
+      return await settled(outcome, { inputTokens: null, outputTokens: null }, json(skipped(outcome)));
+    }
     const payload = await response.json().catch(() => null) as { status?: string; usage?: { input_tokens?: number; output_tokens?: number }; error?: unknown } | null;
-    if (!boundedUsage(payload?.usage?.input_tokens, MAX_INPUT_TOKENS) || !boundedUsage(payload?.usage?.output_tokens, MAX_OUTPUT_TOKENS)) return json(skipped('invalid-response'));
+    if (!boundedUsage(payload?.usage?.input_tokens, MAX_INPUT_TOKENS) || !boundedUsage(payload?.usage?.output_tokens, MAX_OUTPUT_TOKENS)) return await settled('invalid-response', { inputTokens: null, outputTokens: null }, json(skipped('invalid-response')));
     const usage = { inputTokens: payload?.usage?.input_tokens ?? null, outputTokens: payload?.usage?.output_tokens ?? null };
-    if (!response.ok) return json(skipped(response.status === 408 || response.status === 504 ? 'timeout' : 'unavailable', usage));
-    if (payload?.status === 'incomplete') return json(skipped('refused', usage));
+    if (ownerCancelled || timedOut) { const outcome = ownerCancelled ? 'cancelled' : 'timeout'; return await settled(outcome, usage, json(skipped(outcome, usage))); }
+    if (!response.ok) { const outcome = response.status === 408 || response.status === 504 ? 'timeout' : 'unavailable'; return await settled(outcome, usage, json(skipped(outcome, usage))); }
+    if (payload?.status === 'incomplete') return await settled('refused', usage, json(skipped('refused', usage)));
     const text = outputText(payload);
-    if (!text) return json(skipped('refused', usage));
+    if (!text) return await settled('refused', usage, json(skipped('refused', usage)));
     let output: unknown;
-    try { output = JSON.parse(text); } catch { return json(skipped('invalid-response', usage)); }
+    try { output = JSON.parse(text); } catch { return await settled('invalid-response', usage, json(skipped('invalid-response', usage))); }
     const proposals = parseProposal(output, parsed);
-    if (!proposals) return json(skipped('invalid-response', usage));
-    return json({ status: 'proposal', contractVersion: CONTRACT_VERSION, proposals, usage });
+    if (!proposals) return await settled('invalid-response', usage, json(skipped('invalid-response', usage)));
+    if (ownerCancelled || timedOut) { const outcome = ownerCancelled ? 'cancelled' : 'timeout'; return await settled(outcome, usage, json(skipped(outcome, usage))); }
+    return await settled('proposal', usage, json({ status: 'proposal', contractVersion: CONTRACT_VERSION, proposals, usage }));
   } catch (error) {
-    return json(skipped(error instanceof DOMException && error.name === 'AbortError' ? 'timeout' : 'unavailable'));
-  } finally { clearTimeout(timeout); }
+    const outcome = ownerCancelled ? 'cancelled' : timedOut || error instanceof DOMException && error.name === 'AbortError' ? 'timeout' : 'unavailable';
+    return await settled(outcome, { inputTokens: null, outputTokens: null }, json(skipped(outcome)));
+  } finally { clearTimeout(timeout); request.signal.removeEventListener('abort', abortForOwner); }
 }
 
 export default {

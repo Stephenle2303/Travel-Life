@@ -1,6 +1,6 @@
 # Project state
 
-Updated: 2026-10-10 (Asia/Bangkok).
+Updated: 2026-10-11 (Asia/Bangkok).
 
 ## Current stage and user direction
 
@@ -359,3 +359,23 @@ because `TRAVEL_LIFE_AI_ENABLED=false`; no session, network request, provider
 output, latency, cost, or quality claim occurred. M2.6 still owns device-backed
 incremental/background reconciliation, so these final-input permutations do not
 establish scheduler or physical SQLite behavior.
+
+## M2.5 bounded processing and recovery (2026-10-11)
+
+The disabled optional-AI proxy now opens and settles a private, RLS-protected,
+service-role-only operational attempt after its atomic quota reservation. The ledger
+contains only a typed outcome, bounded nullable token totals, null cost while no provider
+invoice or pricing measurement exists, elapsed milliseconds, and frozen contract/rule/model/prompt
+versions. It holds no subject, request or response data, opaque references, evidence,
+provider errors, headers, or session material; reservations remain conservative and are
+never refunded. Owner cancellation aborts the mobile fetch where supported, clears the
+pending preview, rejects late proposals, and keeps the latest local graph usable. The
+existing durable import resume and atomic local rebuild controls are surfaced as explicit
+local recovery actions.
+
+Verification is synthetic only: proxy contract checks exercise reservation-before-provider,
+sanitized settlement, nullable unknowns, typed cancellation and failure; mobile tests cover
+cancellation, stale/lifecycle safety, prior-graph retention, and recovery controls. The
+server kill switch remains false. No anonymous session, provider call, provider cost or
+latency, import timing, physical-device behavior, or reconstruction-quality measurement is
+claimed; all remain unknown until a separately authorized smoke test or device evaluation.
