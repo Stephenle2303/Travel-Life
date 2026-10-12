@@ -76,11 +76,13 @@ export function ActionButton({
   children,
   onPress,
   accessibilityLabel,
+  accessibilityState,
   variant = 'primary',
   disabled = false,
 }: PropsWithChildren<{
   onPress: () => void;
   accessibilityLabel?: string;
+  accessibilityState?: { selected?: boolean };
   variant?: 'primary' | 'secondary';
   disabled?: boolean;
 }>) {
@@ -91,7 +93,7 @@ export function ActionButton({
     <Pressable
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="button"
-      accessibilityState={{ disabled }}
+      accessibilityState={{ disabled, ...accessibilityState }}
       disabled={disabled}
       onBlur={() => setFocused(false)}
       onFocus={() => setFocused(true)}

@@ -38,21 +38,25 @@ describe('durable local reconciliation repository', () => {
     expect(mockExecAsync).toHaveBeenCalledWith('COMMIT');
   });
 
-  it('reads only coarsened map anchors and journey states from the committed graph', async () => {
-    mockGetAllAsync.mockResolvedValueOnce([{ journey_state: 'inferred', latitude: 13.75632, longitude: 100.501765 }, { journey_state: 'possible-merge', latitude: null, longitude: null }]);
+  it('reads only redacted chronology, coarsened anchors, and journey states from the committed graph', async () => {
+    mockGetAllAsync.mockResolvedValueOnce([{ journey_id: 'private:alpha', journey_state: 'inferred', latitude: 13.75632, longitude: 100.501765, display_ordinal: 1, year: 2024, first_year: 2024, last_year: 2025, ordering: 'chronological' }, { journey_id: 'private:beta', journey_state: 'possible-merge', latitude: null, longitude: null, display_ordinal: 2, year: null, first_year: null, last_year: null, ordering: 'uncertain' }]);
 
     const display = await createNativeReconstructionRepository().loadDurableReveal();
 
-    expect(display).toEqual({ journeys: [
-      { state: 'inferred', anchor: { latitude: 13.8, longitude: 100.5 } },
-      { state: 'possible-merge', anchor: null },
-    ] });
+    expect(display.journeys).toMatchObject([
+      { state: 'inferred', anchor: { latitude: 13.8, longitude: 100.5 }, years: [2024], periodLabel: '2024–2025', ordering: 'chronological' },
+      { state: 'possible-merge', anchor: null, years: [], periodLabel: 'Date unknown', ordering: 'uncertain' },
+    ]);
+    expect(display.journeys.map((journey) => journey.displayId)).toEqual(expect.arrayContaining([expect.stringMatching(/^atlas-/)]));
+    expect(JSON.stringify(display)).not.toContain('private:');
     const read = mockGetAllAsync.mock.calls[0][0] as string;
     expect(read).toContain('WITH journey_anchor AS');
     expect(read).toContain('MIN(visit.visit_id) AS visit_id');
     expect(read).toContain('WHERE journey.run_id = (SELECT MAX(run_id) FROM reconstruction_run WHERE status = \'complete\')');
     expect(read).not.toContain('source_ref');
-    expect(read).not.toContain('captured_day');
+    expect(read).toContain('journey_years');
+    expect(read).toContain('first_year_count');
+    expect(read).not.toContain('source_ref');
   });
 
   it('refuses an overlapping reconciliation lease without snapshotting or acknowledging queue rows', async () => {

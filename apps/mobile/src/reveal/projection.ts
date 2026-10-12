@@ -1,4 +1,4 @@
-import type { RevealInput, RevealModel } from './types';
+import type { AtlasExploration, RevealInput, RevealJourney, RevealModel } from './types';
 
 const forbiddenKeys = /(?:source|filename|media|latitude|longitude|coordinate|capturedAt|capturedDay|duration|route|country|date)/i;
 
@@ -17,9 +17,12 @@ export function projectReveal(input: RevealInput): RevealModel {
   const graph = input.graph;
   const sourceJourneys = input.durableRecord?.journeys ?? graph?.journeys.map((journey) => ({ state: journey.state, anchor: null })) ?? [];
   const journeys = sourceJourneys.map((journey, index) => ({
-    id: `journey-${index + 1}`,
+    id: 'displayId' in journey ? journey.displayId : `journey-${index + 1}`,
     label: `Available journey ${index + 1}`,
     status: journey.state === 'inferred' ? 'Inferred' as const : 'Needs review' as const,
+    years: 'years' in journey ? journey.years : [],
+    periodLabel: 'periodLabel' in journey ? journey.periodLabel : 'Date unknown',
+    ordering: 'ordering' in journey && journey.ordering === 'uncertain' ? 'Order uncertain' as const : 'Chronological' as const,
     hasMapSupport: coarsenAnchor(journey.anchor) !== null,
     mapAnchor: coarsenAnchor(journey.anchor),
   }));
@@ -42,6 +45,18 @@ export function projectReveal(input: RevealInput): RevealModel {
     return { state: 'sparse', coverage, journeys, replay: { eligible: false, reason: 'Replay needs at least one supported revealed journey.' }, message: 'There is not enough supported local evidence to reveal a journey yet.' };
   }
   return { state: 'ready', coverage, journeys, replay: { eligible: true, reason: 'Replay can use only the observed destinations in this private reveal.' }, message: 'Available reconstructed journeys are shown as inferred local records. Photo location does not verify your presence.' };
+}
+
+/** Derives the one safe Atlas state shared by Map and Timeline. */
+export function deriveAtlasExploration(journeys: RevealJourney[], exploration: AtlasExploration) {
+  const years = [...new Set(journeys.flatMap((journey) => journey.years))].sort((a, b) => b - a);
+  const visibleJourneys = exploration.year === null
+    ? journeys
+    : journeys.filter((journey) => journey.years.includes(exploration.year!));
+  const selectedJourneyId = visibleJourneys.some((journey) => journey.id === exploration.selectedJourneyId)
+    ? exploration.selectedJourneyId
+    : null;
+  return { years, visibleJourneys, selectedJourneyId };
 }
 
 export function assertRevealPayload(value: unknown): void {

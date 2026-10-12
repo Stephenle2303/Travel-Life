@@ -434,3 +434,27 @@ These are synthetic checks. Native iOS/Android map rendering, Apple/Google map
 provider requests, native configuration, accessibility, device lifecycle states,
 and telemetry delivery are not yet verified. No product-quality or engagement
 claim is made from this work.
+
+## M3.2 connected Atlas map and Timeline (2026-10-12)
+
+The private Atlas now derives one redacted local exploration state for Map and
+Timeline. The durable read boundary produces only local display ordinals,
+coarse observed years, a `Date unknown` label when no year is usable, ordering
+uncertainty, and already-coarsened map anchors. Raw journey IDs, evidence,
+timestamps, civil days, source references, and precise coordinates remain in
+SQLite. A selected year retains every journey with an observed visit in that
+year; an excluded selection is cleared. Unknown-coordinate journeys remain in
+the chronological Timeline and are never plotted.
+
+Map and Timeline controls, year controls, marker/card selection, selected
+accessibility state, empty-year recovery, and a scrollable Timeline fallback
+all consume that same projection. The map fits only filtered coarse anchors;
+unavailable map service and dense views leave Timeline available. No detail,
+route, export, publishing, AI, or source-data change was added.
+
+Observed on 2026-10-12: focused Atlas/repository/provider/owner-flow tests
+passed 4 suites / 26 tests; the mobile check passed 23 suites / 170 tests,
+TypeScript, Expo lint, and Expo Doctor. This does not validate physical
+iOS/Android map rendering, provider tile behavior, real dense-map usability,
+target-device screen readers, lifecycle interruption, or reconstruction
+accuracy.

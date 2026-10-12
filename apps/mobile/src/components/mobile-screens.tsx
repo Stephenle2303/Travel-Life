@@ -85,6 +85,7 @@ export function EmptyAtlasScreen() {
     <Screen>
       <Eyebrow>Private Atlas</Eyebrow>
       <AtlasReveal
+        key={`${reveal.state}:${reveal.journeys.map((journey) => journey.id).join(':')}`}
         model={reveal}
         onImport={() => openRoute(router, appRoutes.import)}
         onRetry={() => void reconstructionController.rebuild()}

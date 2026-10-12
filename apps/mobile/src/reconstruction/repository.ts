@@ -20,6 +20,18 @@ function coarseMapAnchor(latitude: number | null, longitude: number | null): Rev
   return { latitude: Math.round(latitude * 10) / 10, longitude: Math.round(longitude * 10) / 10 };
 }
 
+/** Keeps an internal reconstruction ID out of the UI while retaining a stable local key. */
+function opaqueJourneyDisplayId(journeyId: string) {
+  let first = 2166136261;
+  let second = 5381;
+  for (let index = 0; index < journeyId.length; index += 1) {
+    const code = journeyId.charCodeAt(index);
+    first = Math.imul(first ^ code, 16777619);
+    second = Math.imul(second, 33) ^ code;
+  }
+  return `atlas-${(first >>> 0).toString(36)}-${(second >>> 0).toString(36)}`;
+}
+
 /** A graph rebuild is one local transaction, so readers see the prior complete run or the next one. */
 export function createNativeReconstructionRepository() {
   let database: Promise<Database> | null = null;
@@ -70,24 +82,58 @@ export function createNativeReconstructionRepository() {
       const db = await open();
       const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
       if (lifecycle?.state !== 'connected') throw new Error('Private record is not connected.');
-      const rows = await db.getAllAsync<{ journey_state: 'inferred' | 'possible-merge'; latitude: number | null; longitude: number | null }>(`
+      const rows = await db.getAllAsync<{ journey_id: string; journey_state: 'inferred' | 'possible-merge'; latitude: number | null; longitude: number | null; display_ordinal: number; year: number | null; ordering: 'chronological' | 'uncertain'; first_year: number | null; last_year: number | null }>(`
         WITH journey_anchor AS (
           SELECT journey_link.parent_id AS journey_id, MIN(visit.visit_id) AS visit_id
           FROM reconstruction_link journey_link
           JOIN reconstruction_visit visit ON visit.run_id = journey_link.run_id AND visit.visit_id = journey_link.child_id
           WHERE journey_link.link_kind = 'journey-visit'
           GROUP BY journey_link.parent_id
+        ), journey_metadata AS (
+          SELECT journey.journey_id, journey.run_id, journey.journey_state, evidence.latitude, evidence.longitude,
+            MIN(CASE WHEN canonical.captured_day GLOB '????-??-??' THEN CAST(SUBSTR(canonical.captured_day, 1, 4) AS INTEGER) END) AS first_year,
+            MAX(CASE WHEN canonical.captured_day GLOB '????-??-??' THEN CAST(SUBSTR(canonical.captured_day, 1, 4) AS INTEGER) END) AS last_year,
+            CASE WHEN SUM(CASE WHEN journey_visit_row.ordering = 'uncertain' THEN 1 ELSE 0 END) > 0 THEN 'uncertain' ELSE 'chronological' END AS ordering
+          FROM reconstruction_journey journey
+          LEFT JOIN journey_anchor anchor ON anchor.journey_id = journey.journey_id
+          LEFT JOIN reconstruction_visit visit ON visit.run_id = journey.run_id AND visit.visit_id = anchor.visit_id
+          LEFT JOIN reconstruction_place place ON place.run_id = journey.run_id AND place.place_id = visit.place_id
+          LEFT JOIN canonical_evidence evidence ON evidence.evidence_id = place.representative_evidence_id
+          LEFT JOIN reconstruction_link journey_visit ON journey_visit.run_id = journey.run_id AND journey_visit.link_kind = 'journey-visit' AND journey_visit.parent_id = journey.journey_id
+          LEFT JOIN reconstruction_visit journey_visit_row ON journey_visit_row.run_id = journey_visit.run_id AND journey_visit_row.visit_id = journey_visit.child_id
+          LEFT JOIN reconstruction_link visit_support ON visit_support.run_id = journey.run_id AND visit_support.link_kind = 'visit-support' AND visit_support.parent_id = journey_visit.child_id
+          LEFT JOIN canonical_evidence canonical ON canonical.evidence_id = visit_support.child_id
+          WHERE journey.run_id = (SELECT MAX(run_id) FROM reconstruction_run WHERE status = 'complete')
+          GROUP BY journey.journey_id
+        ), numbered_journeys AS (
+          SELECT *,
+            ROW_NUMBER() OVER (ORDER BY first_year IS NULL, first_year, journey_id) AS display_ordinal,
+            COUNT(*) OVER (PARTITION BY first_year) AS first_year_count
+          FROM journey_metadata
+        ), journey_years AS (
+          SELECT DISTINCT journey_visit.parent_id AS journey_id, CAST(SUBSTR(canonical.captured_day, 1, 4) AS INTEGER) AS year
+          FROM numbered_journeys
+          JOIN reconstruction_link journey_visit ON journey_visit.run_id = numbered_journeys.run_id AND journey_visit.parent_id = numbered_journeys.journey_id
+          JOIN reconstruction_link visit_support ON visit_support.run_id = journey_visit.run_id AND visit_support.link_kind = 'visit-support' AND visit_support.parent_id = journey_visit.child_id
+          JOIN canonical_evidence canonical ON canonical.evidence_id = visit_support.child_id
+          WHERE journey_visit.link_kind = 'journey-visit' AND canonical.captured_day GLOB '????-??-??'
         )
-        SELECT journey.journey_state, evidence.latitude, evidence.longitude
-        FROM reconstruction_journey journey
-        LEFT JOIN journey_anchor anchor ON anchor.journey_id = journey.journey_id
-        LEFT JOIN reconstruction_visit visit ON visit.run_id = journey.run_id AND visit.visit_id = anchor.visit_id
-        LEFT JOIN reconstruction_place place ON place.run_id = journey.run_id AND place.place_id = visit.place_id
-        LEFT JOIN canonical_evidence evidence ON evidence.evidence_id = place.representative_evidence_id
-        WHERE journey.run_id = (SELECT MAX(run_id) FROM reconstruction_run WHERE status = 'complete')
-        ORDER BY journey.journey_id
+        SELECT numbered_journeys.journey_id, numbered_journeys.journey_state, numbered_journeys.latitude, numbered_journeys.longitude,
+          numbered_journeys.display_ordinal, journey_years.year,
+          CASE WHEN numbered_journeys.first_year IS NULL OR numbered_journeys.first_year_count > 1 THEN 'uncertain' ELSE numbered_journeys.ordering END AS ordering,
+          numbered_journeys.first_year, numbered_journeys.last_year
+        FROM numbered_journeys LEFT JOIN journey_years ON journey_years.journey_id = numbered_journeys.journey_id
+        ORDER BY numbered_journeys.display_ordinal, journey_years.year
       `);
-      return { journeys: rows.map((row) => ({ state: row.journey_state, anchor: coarseMapAnchor(row.latitude, row.longitude) })) };
+      const journeys = new Map<string, DurableRevealRecord['journeys'][number]>();
+      for (const row of rows) {
+        const displayId = opaqueJourneyDisplayId(row.journey_id);
+        const existing = journeys.get(displayId);
+        if (existing) { if (row.year !== null) existing.years.push(row.year); continue; }
+        const periodLabel = row.first_year === null ? 'Date unknown' : row.first_year === row.last_year ? String(row.first_year) : `${row.first_year}–${row.last_year}`;
+        journeys.set(displayId, { displayId, state: row.journey_state, anchor: coarseMapAnchor(row.latitude, row.longitude), years: row.year === null ? [] : [row.year], periodLabel, ordering: row.ordering });
+      }
+      return { journeys: [...journeys.values()] };
     },
     async rebuild(nowMillis = Date.now(), consumeQueuedChanges = false, canUseSource: () => Promise<boolean> = async () => true): Promise<ReconstructionGraph> {
       const db = await open();
