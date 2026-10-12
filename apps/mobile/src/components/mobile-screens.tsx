@@ -69,7 +69,7 @@ export function ImportScreen() {
 
 export function EmptyAtlasScreen() {
   const router = useRouter();
-  const { snapshot, importCoverage, privateRecord, reconstruction, reconstructionController, aiReview, aiProposalController } = usePhotoAccess();
+  const { snapshot, importCoverage, privateRecord, maintenanceController, reconciliation, catchUpHistory, reconstruction, reconstructionController, aiReview, aiProposalController } = usePhotoAccess();
   return (
     <Screen>
       <Eyebrow>Private Atlas</Eyebrow>
@@ -82,6 +82,8 @@ export function EmptyAtlasScreen() {
         {reconstruction.status === 'running' && <Body>Preparing an inferred local draft from the current private record.</Body>}
         {reconstruction.status === 'complete' && <Body>{reconstruction.graph?.journeys.length ?? 0} inferred journey drafts and {reconstruction.graph?.places.length ?? 0} local places are ready for review. Photo metadata is evidence, not proof of presence.</Body>}
         {reconstruction.message && reconstruction.status !== 'complete' && <Body>{reconstruction.message}</Body>}
+        {reconciliation.pendingCount > 0 && <Body>{reconciliation.pendingCount} local change or unresolved correction target{reconciliation.pendingCount === 1 ? '' : 's'} needs review. Your last completed draft remains available.</Body>}
+        {reconciliation.status === 'restricted' && <Body>Journey updates are waiting for connected, permitted local access.</Body>}
         {aiReview.status !== 'idle' && <Body>{aiReview.message}</Body>}
         {aiReview.proposals.map((proposal, index) => <Body key={`${proposal.label}-${index}`}>Inferred: {proposal.label}. It references {proposal.candidateIds.length} existing local draft item{proposal.candidateIds.length === 1 ? '' : 's'} and has not changed your history.</Body>)}
         {snapshot.selectedCount !== null && importCoverage.status !== 'complete' && <Body>You selected {snapshot.selectedCount} items for this session; they have not been imported into a private record.</Body>}
@@ -89,6 +91,8 @@ export function EmptyAtlasScreen() {
       </InsetPanel>
       <ActionButton accessibilityLabel="Import photos" onPress={() => openRoute(router, appRoutes.import)}>Import photos</ActionButton>
       {privateRecord.state === 'connected' && <ActionButton accessibilityLabel="Rebuild local draft" onPress={() => void reconstructionController.rebuild()} variant="secondary">Rebuild local draft</ActionButton>}
+      {privateRecord.state === 'connected' && reconciliation.pendingCount > 0 && <ActionButton accessibilityLabel="Catch up local journey history" onPress={() => void catchUpHistory()} variant="secondary">Catch up local journey history</ActionButton>}
+      {privateRecord.state === 'connected' && <ActionButton accessibilityLabel="Rescan permitted library locally" onPress={() => void maintenanceController.rescan()} variant="secondary">Rescan permitted library locally</ActionButton>}
       {reconstruction.status === 'error' && <Body>Retry a local rebuild when ready. It keeps your last completed local draft and corrections.</Body>}
       {privateRecord.state === 'connected' && <ActionButton accessibilityLabel="Request optional AI suggestion" onPress={() => aiProposalController.showDisabledPreview()} variant="secondary">Request optional AI suggestion</ActionButton>}
       {aiReview.status === 'requesting' && <ActionButton accessibilityLabel="Cancel optional AI suggestion" onPress={() => aiProposalController.cancel()} variant="secondary">Cancel optional AI suggestion</ActionButton>}
@@ -100,7 +104,7 @@ export function EmptyAtlasScreen() {
 
 export function PrivacySettingsScreen() {
   const router = useRouter();
-  const { privateRecord, privateRecordController, maintenance, maintenanceController } = usePhotoAccess();
+  const { privateRecord, privateRecordController, maintenance, maintenanceController, reconciliation } = usePhotoAccess();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   return (
@@ -119,6 +123,9 @@ export function PrivacySettingsScreen() {
         {maintenance.lastCheckedAtMillis !== null && <Body>Last successful check: {new Date(maintenance.lastCheckedAtMillis).toLocaleString()}.</Body>}
         {maintenance.lastUpdatedAtMillis !== null && <Body>Last local metadata update: {new Date(maintenance.lastUpdatedAtMillis).toLocaleString()}.</Body>}
         {maintenance.message && <Body>{maintenance.message}</Body>}
+        <Body>{reconciliation.pendingCount > 0 ? `${reconciliation.pendingCount} local change${reconciliation.pendingCount === 1 ? '' : 's'} await journey reconciliation.` : reconciliation.status === 'complete' ? 'Journey history is caught up locally. Changes remain private and unpublished.' : 'No completed journey reconciliation is recorded yet.'}</Body>
+        {reconciliation.lastUpdatedAtMillis !== null && <Body>Journey history last updated locally: {new Date(reconciliation.lastUpdatedAtMillis).toLocaleString()}.</Body>}
+        {reconciliation.message && <Body>{reconciliation.message}</Body>}
         <ActionButton accessibilityLabel={maintenance.enabled ? 'Turn off automatic maintenance' : 'Turn on automatic maintenance'} onPress={() => void maintenanceController.setEnabled(!maintenance.enabled)} variant="secondary">
           {maintenance.enabled ? 'Turn off automatic maintenance' : 'Turn on automatic maintenance'}
         </ActionButton>

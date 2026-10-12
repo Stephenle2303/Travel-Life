@@ -8,7 +8,7 @@ const initial: MaintenanceView = { enabled: false, status: 'disabled', lastCheck
 export class MaintenanceController {
   private current = initial;
   private transition: Promise<void> = Promise.resolve();
-  constructor(private readonly repository: MaintenanceRepository, private readonly photoAccess: PhotoAccessAdapter, private readonly scheduler: SchedulerAdapter, private readonly notify: (view: MaintenanceView) => void, private readonly now = () => Date.now()) {}
+  constructor(private readonly repository: MaintenanceRepository, private readonly photoAccess: PhotoAccessAdapter, private readonly scheduler: SchedulerAdapter, private readonly notify: (view: MaintenanceView) => void, private readonly now = () => Date.now(), private readonly reconcileHistory: () => Promise<void> = async () => {}) {}
   get snapshot() { return this.current; }
   private set(next: MaintenanceView) { this.current = next; this.notify(next); }
   private enqueue(work: () => Promise<void>) {
@@ -62,6 +62,16 @@ export class MaintenanceController {
     if (!this.current.enabled) return;
     this.set({ ...this.current, status: 'running', message: 'Checking currently permitted library changes locally.' });
     const result = await reconcilePermittedLibrary({ repository: this.repository, photoAccess: this.photoAccess, now: this.now });
+    if (result === 'complete') await this.reconcileHistory();
+    await this.refreshNow();
+    if (result === 'restricted') this.set({ ...this.current, status: 'restricted', message: 'Photo access is limited or unavailable. No absent items were treated as deleted.' });
+  }
+  /** Owner-invoked scan: it never changes the scheduling preference. */
+  rescan() { return this.enqueue(() => this.rescanNow()); }
+  private async rescanNow() {
+    this.set({ ...this.current, status: 'running', message: 'Checking currently permitted library changes locally.' });
+    const result = await reconcilePermittedLibrary({ repository: this.repository, photoAccess: this.photoAccess, now: this.now, allowDisabled: true });
+    if (result === 'complete') await this.reconcileHistory();
     await this.refreshNow();
     if (result === 'restricted') this.set({ ...this.current, status: 'restricted', message: 'Photo access is limited or unavailable. No absent items were treated as deleted.' });
   }

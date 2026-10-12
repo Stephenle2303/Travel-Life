@@ -6,6 +6,7 @@ export type ReconcileDependencies = {
   photoAccess: Pick<PhotoAccessAdapter, 'inspect' | 'readMetadataPage'>;
   now: () => number;
   isExpired?: () => boolean;
+  allowDisabled?: boolean;
 };
 
 export type SchedulerAdapter = {

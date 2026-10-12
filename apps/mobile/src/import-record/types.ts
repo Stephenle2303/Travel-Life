@@ -72,6 +72,20 @@ export type MaintenanceCheckpoint = {
 
 export type MaintenanceChangeKind = 'added' | 'changed' | 'available' | 'deleted';
 
+/** Aggregate-only state for the local M2.6 consumer. Queue identifiers remain
+ * inside SQLite and are never exposed to React state or logs. */
+export type ReconciliationStatus = 'idle' | 'pending' | 'running' | 'complete' | 'restricted' | 'error';
+
+export type ReconciliationSnapshot = {
+  status: ReconciliationStatus;
+  pendingCount: number;
+  lastCheckedAtMillis: number | null;
+  lastUpdatedAtMillis: number | null;
+  newJourneyCount: number;
+  updatedJourneyCount: number;
+  message: string | null;
+};
+
 export interface MaintenanceRepository extends ImportRepository {
   loadMaintenance(): Promise<MaintenanceSnapshot>;
   saveMaintenance(snapshot: MaintenanceSnapshot): Promise<void>;
@@ -79,9 +93,10 @@ export interface MaintenanceRepository extends ImportRepository {
   reconcileMaintenancePage(checkpoint: MaintenanceCheckpoint, candidates: SourceCandidate[]): Promise<void>;
   completeMaintenanceRun(checkpoint: MaintenanceCheckpoint, completedAtMillis: number): Promise<void>;
   pauseMaintenance(checkpoint: MaintenanceCheckpoint, message: string): Promise<void>;
-  acquireMaintenanceLease(nowMillis: number): Promise<number | null>;
+  acquireMaintenanceLease(nowMillis: number, allowDisabled?: boolean): Promise<number | null>;
   renewMaintenanceLease(runToken: number, nowMillis: number): Promise<boolean>;
   releaseMaintenanceLease(runToken: number): Promise<void>;
+  loadReconciliation?(): Promise<ReconciliationSnapshot>;
 }
 
 /** Returned when a lifecycle transition has made an import write unsafe. */

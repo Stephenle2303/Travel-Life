@@ -2,7 +2,7 @@ import type { CorrectionOverlay, PrivateRecordLifecycle } from '@/history-record
 
 import {
   ImportLifecycleBlockedError, type ImportCheckpoint, type ImportRepository, type ImportScope,
-  type MaintenanceCheckpoint, type MaintenanceRepository, type MaintenanceSnapshot, type SourceCandidate,
+  type MaintenanceCheckpoint, type MaintenanceRepository, type MaintenanceSnapshot, type ReconciliationSnapshot, type SourceCandidate,
 } from './types';
 
 type SqliteDatabase = {
@@ -20,7 +20,7 @@ type CheckpointRow = {
   status: ImportCheckpoint['status'];
 };
 
-const CURRENT_SCHEMA_VERSION = 8;
+const CURRENT_SCHEMA_VERSION = 11;
 
 const migrationV1 = `
   CREATE TABLE IF NOT EXISTS import_checkpoint (
@@ -209,6 +209,55 @@ const migrationV8 = `
   UPDATE private_history_record SET schema_version = 8 WHERE record_id = 1;
 `;
 
+// The queue itself contains opaque source references and is consumed only in
+// the same private SQLite transaction that publishes a complete graph.
+const migrationV9 = `
+  CREATE TABLE IF NOT EXISTS reconciliation_state (
+    record_id INTEGER PRIMARY KEY CHECK (record_id = 1),
+    status TEXT NOT NULL, last_checked_at_millis INTEGER NULL,
+    last_updated_at_millis INTEGER NULL, new_journey_count INTEGER NOT NULL DEFAULT 0,
+    updated_journey_count INTEGER NOT NULL DEFAULT 0, message TEXT NULL
+  );
+  INSERT OR IGNORE INTO reconciliation_state
+    (record_id, status, last_checked_at_millis, last_updated_at_millis, new_journey_count, updated_journey_count, message)
+    VALUES (1, 'idle', NULL, NULL, 0, 0, NULL);
+  UPDATE private_history_record SET schema_version = 9 WHERE record_id = 1;
+`;
+
+// A snapshot has immutable opaque queue keys. It lets a later producer write
+// a newer revision without a successful reconciliation acknowledging it.
+const migrationV10 = `
+  CREATE TABLE IF NOT EXISTS reconciliation_checkpoint (
+    record_id INTEGER PRIMARY KEY CHECK (record_id = 1),
+    snapshot_revision INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL,
+    started_at_millis INTEGER NULL, message TEXT NULL
+  );
+  CREATE TABLE IF NOT EXISTS reconciliation_queue_snapshot (
+    snapshot_revision INTEGER NOT NULL, asset_id TEXT NOT NULL,
+    change_kind TEXT NOT NULL, source_revision INTEGER NOT NULL,
+    PRIMARY KEY (snapshot_revision, asset_id, change_kind, source_revision)
+  );
+  CREATE TABLE IF NOT EXISTS reconciliation_unresolved_remap (
+    overlay_id TEXT PRIMARY KEY NOT NULL, target_id TEXT NOT NULL,
+    identity_lineage_id TEXT NULL, reason TEXT NOT NULL
+  );
+  INSERT OR IGNORE INTO reconciliation_checkpoint (record_id, snapshot_revision, status, started_at_millis, message)
+    VALUES (1, 0, 'idle', NULL, NULL);
+  UPDATE private_history_record SET schema_version = 10 WHERE record_id = 1;
+`;
+
+const migrationV11 = `
+  CREATE TABLE IF NOT EXISTS reconciliation_lease (
+    record_id INTEGER PRIMARY KEY CHECK (record_id = 1), owner_token INTEGER NOT NULL,
+    expires_at_millis INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS reconciliation_run_sequence (
+    record_id INTEGER PRIMARY KEY CHECK (record_id = 1), next_token INTEGER NOT NULL
+  );
+  INSERT OR IGNORE INTO reconciliation_run_sequence (record_id, next_token) VALUES (1, 1);
+  UPDATE private_history_record SET schema_version = 11 WHERE record_id = 1;
+`;
+
 const MAINTENANCE_LEASE_MILLIS = 5 * 60 * 1000;
 
 type SchemaRow = { version: number };
@@ -217,6 +266,7 @@ type RevisionRow = { revision: number | null };
 type MaintenanceStateRow = { enabled: number; status: MaintenanceSnapshot['status']; last_checked_at_millis: number | null; last_updated_at_millis: number | null; message: string | null };
 type MaintenanceCheckpointRow = { scope: Extract<ImportScope, 'full' | 'limited'>; next_offset: number; run_token: number; status: MaintenanceCheckpoint['status'] };
 type SourceRow = { modified_at_millis: number | null; availability: SourceCandidate['availability'] };
+type ReconciliationStateRow = { status: ReconciliationSnapshot['status']; last_checked_at_millis: number | null; last_updated_at_millis: number | null; new_journey_count: number; updated_journey_count: number; message: string | null; pending_count: number };
 
 function toCheckpoint(row: CheckpointRow | null): ImportCheckpoint | null {
   return row && {
@@ -253,6 +303,9 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
           if (version < 6) await db.execAsync(migrationV6);
           if (version < 7) await db.execAsync(migrationV7);
           if (version < 8) await db.execAsync(migrationV8);
+          if (version < 9) await db.execAsync(migrationV9);
+          if (version < 10) await db.execAsync(migrationV10);
+          if (version < 11) await db.execAsync(migrationV11);
           if (version === 0) await db.runAsync('INSERT INTO import_schema_version (version) VALUES (?)', CURRENT_SCHEMA_VERSION);
           else if (version < CURRENT_SCHEMA_VERSION) await db.runAsync('UPDATE import_schema_version SET version = ?', CURRENT_SCHEMA_VERSION);
           await db.execAsync('COMMIT');
@@ -288,9 +341,11 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
 
   async function assertMaintenanceWritable(db: SqliteDatabase, runToken: number) {
     await assertImportActive(db);
-    const state = await db.getFirstAsync<{ enabled: number }>('SELECT enabled FROM maintenance_state WHERE record_id = 1');
     const lease = await db.getFirstAsync<{ run_token: number }>('SELECT run_token FROM maintenance_lease WHERE record_id = 1');
-    if (state?.enabled !== 1 || lease?.run_token !== runToken) throw new ImportLifecycleBlockedError();
+    // The lease is acquired only by enabled scheduled work or an explicit
+    // foreground rescan. It is the write authority; scheduler preference is
+    // never silently changed by a manual scan.
+    if (lease?.run_token !== runToken) throw new ImportLifecycleBlockedError();
   }
 
   async function correctionTargetExists(db: SqliteDatabase, overlay: CorrectionOverlay) {
@@ -348,6 +403,12 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
           DELETE FROM maintenance_state;
           DELETE FROM maintenance_lease;
           DELETE FROM maintenance_run_sequence;
+          DELETE FROM reconciliation_state;
+          DELETE FROM reconciliation_checkpoint;
+          DELETE FROM reconciliation_queue_snapshot;
+          DELETE FROM reconciliation_unresolved_remap;
+          DELETE FROM reconciliation_lease;
+          DELETE FROM reconciliation_run_sequence;
           DELETE FROM local_cache_registry;
           DELETE FROM reconstruction_disposition;
           DELETE FROM reconstruction_link;
@@ -453,6 +514,7 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
           );
         }
         if (candidates.length) await db.runAsync('UPDATE private_history_record SET canonical_evidence_revision = canonical_evidence_revision + 1 WHERE record_id = 1');
+        if (candidates.length) await db.runAsync("UPDATE reconciliation_state SET status = 'pending', message = 'Local journey updates are waiting to be reconciled.' WHERE record_id = 1 AND EXISTS (SELECT 1 FROM maintenance_change_queue)");
         await db.runAsync(
           `INSERT INTO import_checkpoint (scope, next_offset, scanned, geotagged, unavailable, status)
            VALUES (?, ?, ?, ?, ?, ?)
@@ -480,6 +542,19 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
         lastUpdatedAtMillis: row.last_updated_at_millis, message: row.message,
       } : { enabled: false, status: 'disabled', lastCheckedAtMillis: null, lastUpdatedAtMillis: null, message: null };
     },
+    async loadReconciliation() {
+      const row = await (await open()).getFirstAsync<ReconciliationStateRow>(
+        `SELECT state.status, state.last_checked_at_millis, state.last_updated_at_millis,
+          state.new_journey_count, state.updated_journey_count, state.message,
+          (SELECT COUNT(*) FROM maintenance_change_queue) + (SELECT COUNT(*) FROM reconciliation_unresolved_remap) AS pending_count
+         FROM reconciliation_state state WHERE state.record_id = 1`,
+      );
+      return row ? {
+        status: row.status, pendingCount: row.pending_count, lastCheckedAtMillis: row.last_checked_at_millis,
+        lastUpdatedAtMillis: row.last_updated_at_millis, newJourneyCount: row.new_journey_count,
+        updatedJourneyCount: row.updated_journey_count, message: row.message,
+      } : { status: 'idle', pendingCount: 0, lastCheckedAtMillis: null, lastUpdatedAtMillis: null, newJourneyCount: 0, updatedJourneyCount: 0, message: null };
+    },
     async saveMaintenance(snapshot) {
       const db = await open();
       await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
@@ -505,9 +580,11 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
       await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
       try {
         await assertMaintenanceWritable(db, checkpoint.runToken);
+        let changedEvidence = false;
         for (const candidate of candidates) {
           const prior = await db.getFirstAsync<SourceRow>('SELECT modified_at_millis, availability FROM import_source_index WHERE asset_id = ?', candidate.assetId);
-          const kind = !prior ? 'added' : prior.availability !== 'available' && candidate.availability === 'available' ? 'available'
+          const canonical = await db.getFirstAsync<{ availability: SourceCandidate['availability'] }>('SELECT availability FROM canonical_evidence WHERE source_ref = ?', candidate.assetId);
+          const kind = !prior ? 'added' : canonical?.availability !== 'available' && candidate.availability === 'available' ? 'available'
             : prior.modified_at_millis !== candidate.modifiedAtMillis || prior.availability !== candidate.availability ? 'changed' : null;
           await db.runAsync(
             `INSERT INTO import_source_index (asset_id, media_type, captured_at_millis, captured_day, has_precise_offset, modified_at_millis, location_available, availability, latitude, longitude, reported_accuracy_meters)
@@ -533,8 +610,10 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
           );
           await db.runAsync('INSERT INTO maintenance_source_presence (asset_id, last_seen_run, missing_full_scans) VALUES (?, ?, 0) ON CONFLICT(asset_id) DO UPDATE SET last_seen_run=excluded.last_seen_run, missing_full_scans=0', candidate.assetId, checkpoint.runToken);
           if (kind) await db.runAsync('INSERT OR IGNORE INTO maintenance_change_queue (asset_id, change_kind, source_revision) VALUES (?, ?, ?)', candidate.assetId, kind, candidate.modifiedAtMillis ?? -1);
+          changedEvidence ||= kind !== null;
         }
-        if (candidates.length) await db.runAsync('UPDATE private_history_record SET canonical_evidence_revision = canonical_evidence_revision + 1 WHERE record_id = 1');
+        if (changedEvidence) await db.runAsync('UPDATE private_history_record SET canonical_evidence_revision = canonical_evidence_revision + 1 WHERE record_id = 1');
+        if (candidates.length) await db.runAsync("UPDATE reconciliation_state SET status = 'pending', message = 'Local journey updates are waiting to be reconciled.' WHERE record_id = 1 AND EXISTS (SELECT 1 FROM maintenance_change_queue)");
         await db.runAsync(
           `INSERT INTO maintenance_checkpoint (record_id, scope, next_offset, run_token, status) VALUES (?, ?, ?, ?, ?)
            ON CONFLICT(record_id) DO UPDATE SET scope=excluded.scope, next_offset=excluded.next_offset, run_token=excluded.run_token, status=excluded.status`,
@@ -553,7 +632,16 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
           // consecutive completed full scans before producing a deletion event.
           await db.runAsync('UPDATE maintenance_source_presence SET missing_full_scans = missing_full_scans + 1 WHERE last_seen_run <> ?', checkpoint.runToken);
           await db.runAsync('INSERT OR IGNORE INTO maintenance_change_queue (asset_id, change_kind, source_revision) SELECT asset_id, ?, ? FROM maintenance_source_presence WHERE missing_full_scans >= ?', 'deleted', -1, 2);
+          // Retain the private evidence row and provenance, but make it
+          // ineligible for the next deterministic graph. The deletion queue is
+          // therefore reflected in canonical reconstruction input.
+          await db.runAsync(`UPDATE canonical_evidence SET availability = 'unavailable' WHERE source_ref IN (
+            SELECT asset_id FROM maintenance_source_presence WHERE missing_full_scans >= ?
+          )`, 2);
+          const deleted = (await db.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM maintenance_source_presence WHERE missing_full_scans >= ?', 2))?.count ?? 0;
+          if (deleted > 0) await db.runAsync('UPDATE private_history_record SET canonical_evidence_revision = canonical_evidence_revision + 1 WHERE record_id = 1');
           await db.runAsync('DELETE FROM maintenance_source_presence WHERE missing_full_scans >= ?', 2);
+          await db.runAsync("UPDATE reconciliation_state SET status = 'pending', message = 'Local journey updates are waiting to be reconciled.' WHERE record_id = 1 AND EXISTS (SELECT 1 FROM maintenance_change_queue)");
         }
         await db.runAsync('UPDATE maintenance_checkpoint SET status = ? WHERE record_id = 1', 'complete');
         await db.runAsync('UPDATE maintenance_state SET status=?, last_checked_at_millis=?, last_updated_at_millis=?, message=NULL WHERE record_id=1', 'checked', completedAtMillis, completedAtMillis);
@@ -564,14 +652,14 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
       await this.reconcileMaintenancePage({ ...checkpoint, status: 'paused' }, []);
       await this.saveMaintenance({ ...(await this.loadMaintenance()), status: 'paused', message });
     },
-    async acquireMaintenanceLease(nowMillis) {
+    async acquireMaintenanceLease(nowMillis, allowDisabled = false) {
       const db = await open();
       await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
       try {
         await assertImportActive(db);
         const state = await db.getFirstAsync<{ enabled: number }>('SELECT enabled FROM maintenance_state WHERE record_id = 1');
         const existingLease = await db.getFirstAsync<{ run_token: number; expires_at_millis: number }>('SELECT run_token, expires_at_millis FROM maintenance_lease WHERE record_id = 1');
-        if (state?.enabled !== 1 || (existingLease && existingLease.expires_at_millis > nowMillis)) {
+        if ((!allowDisabled && state?.enabled !== 1) || (existingLease && existingLease.expires_at_millis > nowMillis)) {
           await db.execAsync('COMMIT'); return null;
         }
         const sequence = await db.getFirstAsync<{ next_token: number }>('SELECT next_token FROM maintenance_run_sequence WHERE record_id = 1');

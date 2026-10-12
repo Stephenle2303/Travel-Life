@@ -390,3 +390,22 @@ cover late success, late failure, notification silence, serialization and lifecy
 the full mobile Jest suite passed 152 tests, with TypeScript,
 lint, and the root foundation check also passing. Physical lifecycle interruption and
 SQLite transaction behavior remain unverified on devices.
+
+## M2.6 incremental journey reconciliation (2026-10-12)
+
+The mobile foundation now records aggregate local reconciliation state alongside
+the existing durable M1.5 queue. A completed permitted maintenance pass invokes
+a local `reconstruction-v1` rebuild; the rebuild replaces the inferred projection
+and clears queued invalidations in one SQLite transaction. The prior projection
+remains readable if the transaction, permission, lifecycle, or worker does not
+finish. Atlas and Settings now state pending/caught-up outcomes, provide connected
+local catch-up and rescan controls, and explicitly say these changes stay private
+and unpublished. The headless task uses the same local boundary and does not call
+the optional AI path.
+
+Observed on 2026-10-12: 22 mobile Jest suites / 159 tests, TypeScript, Expo lint,
+and Expo Doctor 21/21 passed. This is synthetic/runtime validation only. Physical
+SQLite migration, iOS/Android interruption, background scheduling, source changes,
+and reconstruction accuracy remain unverified. History-target corrections without
+a safe lineage mapper remain pending for owner review; they are never discarded or
+applied to a partial rebuilt graph.

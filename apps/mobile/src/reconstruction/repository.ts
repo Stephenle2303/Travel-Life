@@ -10,6 +10,7 @@ type Database = {
 };
 
 type EvidenceRow = { evidence_id: string; captured_at_millis: number | null; captured_day: string | null; has_precise_offset: number; availability: ReconstructionEvidence['availability']; latitude: number | null; longitude: number | null; reported_accuracy_meters: number | null };
+const RECONCILIATION_LEASE_MILLIS = 5 * 60 * 1000;
 
 /** A graph rebuild is one local transaction, so readers see the prior complete run or the next one. */
 export function createNativeReconstructionRepository() {
@@ -23,18 +24,69 @@ export function createNativeReconstructionRepository() {
     return database;
   }
 
+  async function acquireLease(nowMillis: number): Promise<number | null> {
+    const db = await open();
+    await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
+    try {
+      const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
+      if (lifecycle?.state !== 'connected') throw new Error('Private record is not connected.');
+      const existing = await db.getFirstAsync<{ expires_at_millis: number }>('SELECT expires_at_millis FROM reconciliation_lease WHERE record_id = 1');
+      if (existing && existing.expires_at_millis > nowMillis) { await db.execAsync('COMMIT'); return null; }
+      const sequence = await db.getFirstAsync<{ next_token: number }>('SELECT next_token FROM reconciliation_run_sequence WHERE record_id = 1');
+      const token = sequence?.next_token ?? 1;
+      await db.runAsync('INSERT INTO reconciliation_run_sequence (record_id, next_token) VALUES (?, ?) ON CONFLICT(record_id) DO UPDATE SET next_token=excluded.next_token', 1, token + 1);
+      await db.runAsync('INSERT INTO reconciliation_lease (record_id, owner_token, expires_at_millis) VALUES (?, ?, ?) ON CONFLICT(record_id) DO UPDATE SET owner_token=excluded.owner_token, expires_at_millis=excluded.expires_at_millis', 1, token, nowMillis + RECONCILIATION_LEASE_MILLIS);
+      await db.execAsync('COMMIT');
+      return token;
+    } catch (error) { await db.execAsync('ROLLBACK'); throw error; }
+  }
+
+  async function releaseLease(token: number) {
+    await (await open()).runAsync('DELETE FROM reconciliation_lease WHERE record_id = 1 AND owner_token = ?', token);
+  }
+
+  async function saveOutcome(status: 'pending' | 'restricted' | 'error', message: string) {
+    const db = await open();
+    await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
+    try {
+      await db.runAsync('UPDATE reconciliation_state SET status = ?, message = ? WHERE record_id = 1', status, message);
+      await db.runAsync('UPDATE reconciliation_checkpoint SET status = ?, message = ? WHERE record_id = 1', status, message);
+      await db.execAsync('COMMIT');
+    } catch (error) { await db.execAsync('ROLLBACK'); throw error; }
+  }
+
   return {
-    async rebuild(nowMillis = Date.now()): Promise<ReconstructionGraph> {
+    async rebuild(nowMillis = Date.now(), consumeQueuedChanges = false, canUseSource: () => Promise<boolean> = async () => true): Promise<ReconstructionGraph> {
       const db = await open();
       await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
       try {
         const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
         if (lifecycle?.state !== 'connected') throw new Error('Private record is not connected.');
+        let queueSnapshot = 0;
+        let snapshotRevision = 0;
+        if (consumeQueuedChanges) {
+          if (!await canUseSource()) throw new Error('Photo access is not permitted.');
+          snapshotRevision = ((await db.getFirstAsync<{ snapshot_revision: number }>('SELECT snapshot_revision FROM reconciliation_checkpoint WHERE record_id = 1'))?.snapshot_revision ?? 0) + 1;
+          await db.runAsync('INSERT INTO reconciliation_queue_snapshot (snapshot_revision, asset_id, change_kind, source_revision) SELECT ?, asset_id, change_kind, source_revision FROM maintenance_change_queue', snapshotRevision);
+          queueSnapshot = (await db.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM reconciliation_queue_snapshot WHERE snapshot_revision = ?', snapshotRevision))?.count ?? 0;
+          await db.runAsync('INSERT INTO reconciliation_checkpoint (record_id, snapshot_revision, status, started_at_millis, message) VALUES (?, ?, ?, ?, ?) ON CONFLICT(record_id) DO UPDATE SET snapshot_revision=excluded.snapshot_revision, status=excluded.status, started_at_millis=excluded.started_at_millis, message=excluded.message', 1, snapshotRevision, 'running', nowMillis, 'Reconciling local journey updates.');
+          await db.runAsync("UPDATE reconciliation_state SET status = 'running', message = 'Reconciling local journey updates.' WHERE record_id = 1");
+        }
+        const previousJourneyIds = new Set((await db.getAllAsync<{ journey_id: string }>('SELECT journey_id FROM reconstruction_journey')).map((row) => row.journey_id));
         const rows = await db.getAllAsync<EvidenceRow>('SELECT evidence_id, captured_at_millis, captured_day, has_precise_offset, availability, latitude, longitude, reported_accuracy_meters FROM canonical_evidence');
         const excluded = new Set((await db.getAllAsync<{ target_id: string }>(`SELECT current.target_id FROM correction_overlays current
           JOIN (SELECT target_id, MAX(revision) AS revision FROM correction_overlays WHERE target_kind = 'evidence' AND correction_scope = 'inclusion' GROUP BY target_id) latest
           ON latest.target_id = current.target_id AND latest.revision = current.revision
           WHERE current.target_kind = 'evidence' AND current.correction_scope = 'inclusion' AND current.owner_action = 'remove'`)).map((row) => row.target_id));
+        // History corrections and owner-entered/confirmed records are already
+        // durable, but M2.1 has no projection mapper for their semantics yet.
+        // Keep the prior complete graph and queue checkpoint pending rather
+        // than silently rebuilding around an owner decision.
+        if (consumeQueuedChanges) {
+          const protectedHistory = await db.getFirstAsync<{ count: number }>(`SELECT COUNT(*) AS count FROM correction_overlays
+            WHERE target_kind = 'history'`);
+          if ((protectedHistory?.count ?? 0) > 0) throw new Error('History corrections need owner review before local reconciliation.');
+        }
         const graph = reconstructV1(rows.map((row) => ({
           id: row.evidence_id, capturedAtMillis: row.captured_at_millis,
           capturedDay: row.captured_day,
@@ -54,9 +106,64 @@ export function createNativeReconstructionRepository() {
         for (const membership of graph.memberships) await db.runAsync('INSERT INTO reconstruction_link (run_id, link_kind, parent_id, child_id) VALUES (?, ?, ?, ?)', runId, `membership:${membership.state}:${membership.reason}`, membership.journeyId, membership.evidenceId);
         for (const merge of graph.possibleMerges) await db.runAsync('INSERT INTO reconstruction_link (run_id, link_kind, parent_id, child_id) VALUES (?, ?, ?, ?)', runId, `possible-merge:${merge.reason}`, merge.fromJourneyId, merge.toJourneyId);
         for (const disposition of graph.dispositions) await db.runAsync('INSERT INTO reconstruction_disposition (run_id, evidence_id, disposition_state, reasons_json) VALUES (?, ?, ?, ?)', runId, disposition.evidenceId, disposition.state, JSON.stringify(disposition.reasons));
+        if (consumeQueuedChanges) {
+          const derivedIds = new Set([...graph.places, ...graph.visits, ...graph.journeys].map((item) => item.id));
+          const overlays = await db.getAllAsync<{ overlay_id: string; target_id: string; identity_lineage_id: string | null }>(`SELECT overlay.overlay_id, overlay.target_id, overlay.identity_lineage_id FROM correction_overlays overlay
+            JOIN inferred_history history ON history.history_id = overlay.target_id
+            WHERE overlay.target_kind = 'history' AND history.history_state = 'inferred'`);
+          await db.runAsync('DELETE FROM reconciliation_unresolved_remap');
+          for (const overlay of overlays) if (!derivedIds.has(overlay.target_id)) await db.runAsync(
+            'INSERT INTO reconciliation_unresolved_remap (overlay_id, target_id, identity_lineage_id, reason) VALUES (?, ?, ?, ?)',
+            overlay.overlay_id, overlay.target_id, overlay.identity_lineage_id, 'The inferred target changed and needs owner review.',
+          );
+          // Acknowledge only the immutable snapshot. A subsequent producer can
+          // add a changed revision while this transaction is pending; it is not
+          // covered by this deletion and remains durable for the next pass.
+          await db.runAsync(`DELETE FROM maintenance_change_queue WHERE EXISTS (
+            SELECT 1 FROM reconciliation_queue_snapshot snapshot
+            WHERE snapshot.snapshot_revision = ? AND snapshot.asset_id = maintenance_change_queue.asset_id
+              AND snapshot.change_kind = maintenance_change_queue.change_kind
+              AND snapshot.source_revision = maintenance_change_queue.source_revision
+          )`, snapshotRevision);
+          await db.runAsync('DELETE FROM reconciliation_queue_snapshot WHERE snapshot_revision = ?', snapshotRevision);
+          const lifecycleBeforeAck = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
+          if (lifecycleBeforeAck?.state !== 'connected') throw new Error('Private record is not connected.');
+          if (!await canUseSource()) throw new Error('Photo access is not permitted.');
+          await db.runAsync('UPDATE reconciliation_checkpoint SET status = ?, message = ? WHERE record_id = 1', 'complete', 'Complete local checkpoint.',);
+          const newJourneyCount = graph.journeys.filter((journey) => !previousJourneyIds.has(journey.id)).length;
+          const updatedJourneyCount = graph.journeys.filter((journey) => previousJourneyIds.has(journey.id)).length;
+          await db.runAsync(
+            "UPDATE reconciliation_state SET status = 'complete', last_checked_at_millis = ?, last_updated_at_millis = ?, new_journey_count = ?, updated_journey_count = ?, message = ? WHERE record_id = 1",
+            nowMillis, nowMillis, queueSnapshot ? newJourneyCount : 0, queueSnapshot ? updatedJourneyCount : 0,
+            queueSnapshot ? 'Local inferred journey updates are ready for review. They remain private and unpublished.' : 'No local journey updates were waiting.',
+          );
+        }
         await db.execAsync('COMMIT');
         return graph;
-      } catch (error) { await db.execAsync('ROLLBACK'); throw error; }
+      } catch (error) {
+        await db.execAsync('ROLLBACK');
+        throw error;
+      }
+    },
+    async reconcileQueued(nowMillis = Date.now(), canUseSource: () => Promise<boolean> = async () => true) {
+      const token = await acquireLease(nowMillis);
+      if (token === null) throw new Error('Local reconciliation is already running; queued changes remain pending.');
+      try {
+        const queued = (await (await open()).getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM maintenance_change_queue'))?.count ?? 0;
+        if (queued === 0) return { graph: { ruleVersion: RECONSTRUCTION_RULE_VERSION, places: [], visits: [], journeys: [], possibleMerges: [], dispositions: [], memberships: [] } as ReconstructionGraph, newJourneyCount: 0, updatedJourneyCount: 0 };
+        const graph = await this.rebuild(nowMillis, true, canUseSource);
+        const outcome = await (await open()).getFirstAsync<{ new_journey_count: number; updated_journey_count: number }>(
+          'SELECT new_journey_count, updated_journey_count FROM reconciliation_state WHERE record_id = 1',
+        );
+        return { graph, newJourneyCount: outcome?.new_journey_count ?? 0, updatedJourneyCount: outcome?.updated_journey_count ?? 0 };
+      } catch (error) {
+        const restricted = error instanceof Error && (error.message.includes('not connected') || error.message.includes('not permitted'));
+        const pending = error instanceof Error && error.message.includes('need owner review');
+        await saveOutcome(restricted ? 'restricted' : pending ? 'pending' : 'error', restricted ? 'Local journey updates are waiting for connected private access.' : pending ? 'Owner history needs review before queued local changes can be reconciled.' : 'Local journey reconciliation did not finish. Queued changes remain pending.');
+        throw error;
+      } finally {
+        await releaseLease(token);
+      }
     },
   };
 }

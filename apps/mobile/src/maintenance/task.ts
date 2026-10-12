@@ -15,8 +15,19 @@ try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { reconcilePermittedLibrary } = require('./reconcile-runner') as typeof import('./reconcile-runner');
     // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createNativeReconstructionRepository } = require('@/reconstruction') as typeof import('@/reconstruction');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const backgroundTask = require('expo-background-task') as { BackgroundTaskResult: { Success: number; Failed: number } };
     const result = await reconcilePermittedLibrary({ repository: createNativeImportRepository(), photoAccess: nativePhotoAccess, now: () => Date.now() });
+    if (result === 'complete') {
+      try {
+        await createNativeReconstructionRepository().reconcileQueued(Date.now(), async () => {
+          const access = await nativePhotoAccess.inspect();
+          return access?.scope === 'full' || access?.scope === 'limited';
+        });
+      }
+      catch { return backgroundTask.BackgroundTaskResult.Failed; }
+    }
     return result === 'complete' ? backgroundTask.BackgroundTaskResult.Success : backgroundTask.BackgroundTaskResult.Failed;
   });
 } catch {

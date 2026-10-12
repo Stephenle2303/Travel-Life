@@ -5,7 +5,7 @@ import { HistoryRecordController, type LifecycleSnapshot } from '@/history-recor
 import { PhotoAccessController, initialPhotoAccess } from './controller';
 import { nativePhotoAccess } from './native-adapter';
 import type { PhotoAccessAdapter, PhotoAccessSnapshot } from './types';
-import { createNativeImportRepository, type ImportCoverage, type ImportRepository, type MaintenanceRepository } from '@/import-record';
+import { createNativeImportRepository, type ImportCoverage, type ImportRepository, type MaintenanceRepository, type ReconciliationSnapshot } from '@/import-record';
 import { MaintenanceController, createExpoScheduler, type MaintenanceView } from '@/maintenance';
 import { createNativeReconstructionRepository, ReconstructionController, type ReconstructionView } from '@/reconstruction';
 import { AiProposalController, type AiReviewView } from '@/ai';
@@ -25,6 +25,17 @@ function maintenanceRepository(repository: ImportRepository): MaintenanceReposit
     acquireMaintenanceLease: async () => null,
     renewMaintenanceLease: async () => false,
     releaseMaintenanceLease: async () => {},
+    loadReconciliation: async () => ({ status: 'restricted', pendingCount: 0, lastCheckedAtMillis: null, lastUpdatedAtMillis: null, newJourneyCount: 0, updatedJourneyCount: 0, message: 'Local reconciliation is unavailable in this runtime.' }),
+  };
+}
+
+// A custom adapter is used by the web/Jest shell. It must not open native
+// SQLite merely to render a private empty state.
+function unavailableRepository(): ImportRepository {
+  return {
+    getCheckpoint: async () => null, loadCoverage: async () => null, commitPage: async () => {},
+    getPrivateRecordLifecycle: async () => ({ state: 'deleted' }), connectPrivateRecord: async () => {},
+    disconnectPrivateRecord: async () => {}, deleteLocalHistory: async () => {}, saveCorrectionOverlay: async () => {},
   };
 }
 
@@ -36,6 +47,8 @@ type PhotoAccessContextValue = {
   privateRecordController: HistoryRecordController;
   maintenance: MaintenanceView;
   maintenanceController: MaintenanceController;
+  reconciliation: ReconciliationSnapshot;
+  catchUpHistory(): Promise<void>;
   reconstruction: ReconstructionView;
   reconstructionController: ReconstructionController;
   aiReview: AiReviewView;
@@ -49,12 +62,20 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
   const [importCoverage, setImportCoverage] = useState<ImportCoverage>({ scope: null, accessible: null, scanned: 0, geotagged: 0, unavailable: 0, status: 'idle', message: null });
   const [privateRecord, setPrivateRecord] = useState<LifecycleSnapshot>({ state: 'deleted', message: null });
   const [maintenance, setMaintenance] = useState<MaintenanceView>({ enabled: false, status: 'disabled', lastCheckedAtMillis: null, lastUpdatedAtMillis: null, message: null, checkpoint: null });
+  const [reconciliation, setReconciliation] = useState<ReconciliationSnapshot>({ status: 'idle', pendingCount: 0, lastCheckedAtMillis: null, lastUpdatedAtMillis: null, newJourneyCount: 0, updatedJourneyCount: 0, message: null });
   const [reconstruction, setReconstruction] = useState<ReconstructionView>({ status: 'idle', graph: null, message: null });
   const [aiReview, setAiReview] = useState<AiReviewView>({ status: 'idle', message: 'Optional AI suggestions are not requested.', proposals: [] });
-  const [sharedRepository] = useState(() => repository ?? createNativeImportRepository());
+  const [sharedRepository] = useState(() => repository ?? (adapter === nativePhotoAccess ? createNativeImportRepository() : unavailableRepository()));
   const [durableMaintenanceRepository] = useState(() => maintenanceRepository(sharedRepository));
-  const [maintenanceController] = useState(() => new MaintenanceController(durableMaintenanceRepository, adapter, createExpoScheduler(), setMaintenance));
   const [reconstructionController] = useState(() => new ReconstructionController(createNativeReconstructionRepository(), setReconstruction));
+  const currentSourcePermitted = async () => {
+    const access = await adapter.inspect();
+    return access?.scope === 'full' || access?.scope === 'limited';
+  };
+  const [maintenanceController] = useState(() => new MaintenanceController(durableMaintenanceRepository, adapter, createExpoScheduler(), setMaintenance, () => Date.now(), async () => {
+    await reconstructionController.reconcile(currentSourcePermitted);
+    if (durableMaintenanceRepository.loadReconciliation) setReconciliation(await durableMaintenanceRepository.loadReconciliation());
+  }));
   // M2.3 intentionally ships with the server kill switch off. This local-safe
   // transport still lets the owner see the skipped outcome without a network call.
   const [aiProposalController] = useState(() => new AiProposalController({ request: async () => ({ status: 'skipped', reason: 'disabled', usage: { inputTokens: null, outputTokens: null } }) }, setAiReview));
@@ -74,6 +95,7 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     void controller.refresh();
     void privateRecordController.refresh();
     void maintenanceController.refresh();
+    if (durableMaintenanceRepository.loadReconciliation) void durableMaintenanceRepository.loadReconciliation().then(setReconciliation);
     const subscription = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
         void controller.refresh(!controller.isBusy);
@@ -86,7 +108,7 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
       controller.interrupt();
       subscription?.remove();
     };
-  }, [controller, privateRecordController, maintenanceController]);
+  }, [controller, privateRecordController, maintenanceController, durableMaintenanceRepository]);
 
   useEffect(() => {
     if (maintenance.enabled && (snapshot.scope === 'revoked' || snapshot.scope === 'unavailable' || snapshot.scope === 'denied')) {
@@ -99,7 +121,11 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     else reconstructionController.clear();
   }, [privateRecord, reconstructionController]);
 
-  return <PhotoAccessContext.Provider value={{ snapshot, controller, importCoverage, privateRecord, privateRecordController, maintenance, maintenanceController, reconstruction, reconstructionController, aiReview, aiProposalController }}>{children}</PhotoAccessContext.Provider>;
+  const catchUpHistory = async () => {
+    await reconstructionController.reconcile(currentSourcePermitted);
+    if (durableMaintenanceRepository.loadReconciliation) setReconciliation(await durableMaintenanceRepository.loadReconciliation());
+  };
+  return <PhotoAccessContext.Provider value={{ snapshot, controller, importCoverage, privateRecord, privateRecordController, maintenance, maintenanceController, reconciliation, catchUpHistory, reconstruction, reconstructionController, aiReview, aiProposalController }}>{children}</PhotoAccessContext.Provider>;
 }
 
 export function usePhotoAccess() {

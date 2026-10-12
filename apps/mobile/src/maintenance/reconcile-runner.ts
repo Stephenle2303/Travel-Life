@@ -12,8 +12,8 @@ export async function reconcilePermittedLibrary(deps: ReconcileDependencies): Pr
     const permission = await deps.photoAccess.inspect();
     if (lifecycle.state !== 'connected' || (permission?.scope !== 'full' && permission?.scope !== 'limited')) return 'restricted';
     const state = await deps.repository.loadMaintenance();
-    if (!state.enabled) return 'restricted';
-    leaseToken = await deps.repository.acquireMaintenanceLease(deps.now());
+    if (!state.enabled && !deps.allowDisabled) return 'restricted';
+    leaseToken = await deps.repository.acquireMaintenanceLease(deps.now(), deps.allowDisabled);
     if (leaseToken === null) return 'paused';
     const saved = await deps.repository.getMaintenanceCheckpoint();
     checkpoint = saved?.status === 'paused' && saved.scope === permission.scope
@@ -43,7 +43,7 @@ export async function reconcilePermittedLibrary(deps: ReconcileDependencies): Pr
       }
       // A disable/disconnect can happen while the page was being read. The
       // repository repeats enabled/lifecycle checks inside its transaction.
-      if ((await deps.repository.getPrivateRecordLifecycle()).state !== 'connected' || !(await deps.repository.loadMaintenance()).enabled) {
+      if ((await deps.repository.getPrivateRecordLifecycle()).state !== 'connected' || (!deps.allowDisabled && !(await deps.repository.loadMaintenance()).enabled)) {
         return 'restricted';
       }
       checkpoint = { ...checkpoint, nextOffset: checkpoint.nextOffset + page.length, status: page.length < PAGE_SIZE ? 'complete' : 'running' };

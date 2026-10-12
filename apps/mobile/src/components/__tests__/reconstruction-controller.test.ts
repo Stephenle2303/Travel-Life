@@ -19,6 +19,25 @@ describe('local reconstruction controller', () => {
     expect(controller.view).toMatchObject({ status: 'restricted', graph, message: expect.stringContaining('Reconnect') });
   });
 
+  it('uses the durable reconciliation boundary and keeps the prior graph on a failed catch-up', async () => {
+    const updated = { ...graph, journeys: [{ id: 'journey:updated', visitIds: [], state: 'inferred' as const }] };
+    const repository = {
+      rebuild: jest.fn(async () => graph),
+      reconcileQueued: jest.fn<Promise<{ graph: ReconstructionGraph; newJourneyCount: number; updatedJourneyCount: number }>, []>()
+        .mockResolvedValueOnce({ graph: updated, newJourneyCount: 1, updatedJourneyCount: 0 })
+        .mockRejectedValueOnce(new Error('transaction failed')),
+    };
+    const controller = new ReconstructionController(repository, jest.fn());
+
+    await controller.rebuild();
+    await controller.reconcile();
+    expect(controller.view).toMatchObject({ status: 'complete', graph: updated, message: expect.stringContaining('private and unpublished') });
+
+    await controller.reconcile();
+    expect(controller.view).toMatchObject({ status: 'error', graph: updated, message: expect.stringContaining('last completed result') });
+    expect(repository.reconcileQueued).toHaveBeenCalledTimes(2);
+  });
+
   it('does not republish a late completed graph after lifecycle clear', async () => {
     let finish!: (result: ReconstructionGraph) => void;
     const notify = jest.fn();

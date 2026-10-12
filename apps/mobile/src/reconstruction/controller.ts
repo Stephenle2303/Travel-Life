@@ -2,6 +2,8 @@ import type { ReconstructionGraph } from './types';
 
 export type ReconstructionView = { status: 'idle' | 'running' | 'complete' | 'restricted' | 'error'; graph: ReconstructionGraph | null; message: string | null };
 
+type ReconciliationRepository = { reconcileQueued(nowMillis?: number, canUseSource?: () => Promise<boolean>): Promise<{ graph: ReconstructionGraph; newJourneyCount: number; updatedJourneyCount: number }> };
+
 export class ReconstructionController {
   private current: ReconstructionView = { status: 'idle', graph: null, message: null };
   private generation = 0;
@@ -39,6 +41,40 @@ export class ReconstructionController {
       if (generation === this.generation) {
         this.notify(this.current);
       }
+    }
+  }
+
+  /** Consumes the durable M1.5 queue through the repository's single SQLite
+   * transaction. It deliberately falls back to a normal local rebuild for
+   * web/test repositories that do not have the private queue. */
+  async reconcile(canUseSource: () => Promise<boolean> = async () => true) {
+    if (this.suspended || this.runningGeneration !== null) return;
+    const generation = ++this.generation;
+    this.runningGeneration = generation;
+    this.current = { ...this.current, status: 'running', message: 'Reconciling local changes. Your last completed draft remains available.' };
+    this.notify(this.current);
+    try {
+      const repository = this.repository as typeof this.repository & Partial<ReconciliationRepository>;
+      const result = repository.reconcileQueued ? await repository.reconcileQueued(Date.now(), canUseSource) : { graph: await this.repository.rebuild(), newJourneyCount: 0, updatedJourneyCount: 0 };
+      if (generation !== this.generation) return;
+      if (repository.reconcileQueued && result.newJourneyCount === 0 && result.updatedJourneyCount === 0 && result.graph.journeys.length === 0 && this.current.graph !== null) {
+        this.current = { ...this.current, status: 'complete', message: 'No local journey updates were waiting. Your private draft is unchanged.' };
+        return;
+      }
+      this.current = {
+        status: 'complete', graph: result.graph,
+        message: result.newJourneyCount || result.updatedJourneyCount
+          ? `${result.newJourneyCount} inferred journey update${result.newJourneyCount === 1 ? '' : 's'} is ready for review. It remains private and unpublished.`
+          : 'Local changes were checked. Your private inferred draft is up to date.',
+      };
+    } catch (error) {
+      if (generation !== this.generation) return;
+      const restricted = error instanceof Error && (error.message.includes('not connected') || error.message.includes('not permitted'));
+      const busy = error instanceof Error && error.message.includes('already running');
+      this.current = { ...this.current, status: restricted ? 'restricted' : busy ? 'complete' : 'error', message: restricted ? 'Reconnect your private record before catching up.' : busy ? 'Another local catch-up is still running. Queued changes remain pending.' : 'Local reconciliation could not finish. Your last completed result was kept.' };
+    } finally {
+      if (this.runningGeneration === generation) this.runningGeneration = null;
+      if (generation === this.generation) this.notify(this.current);
     }
   }
 }
