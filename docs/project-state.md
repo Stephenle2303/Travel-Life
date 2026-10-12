@@ -1,6 +1,6 @@
 # Project state
 
-Updated: 2026-10-11 (Asia/Bangkok).
+Updated: 2026-10-12 (Asia/Bangkok).
 
 ## Current stage and user direction
 
@@ -379,3 +379,14 @@ cancellation, stale/lifecycle safety, prior-graph retention, and recovery contro
 server kill switch remains false. No anonymous session, provider call, provider cost or
 latency, import timing, physical-device behavior, or reconstruction-quality measurement is
 claimed; all remain unknown until a separately authorized smoke test or device evaluation.
+
+## Reconstruction lifecycle race fix (2026-10-12)
+
+The local reconstruction controller now invalidates an awaiting rebuild when disconnect
+or deletion clears the in-memory graph. A late completion or failure cannot republish
+state after that clear. Rebuilds remain serialized on the shared SQLite connection and
+stay suspended until the private record is connected again. Focused controller regressions
+cover late success, late failure, notification silence, serialization and lifecycle resume;
+the full mobile Jest suite passed 152 tests, with TypeScript,
+lint, and the root foundation check also passing. Physical lifecycle interruption and
+SQLite transaction behavior remain unverified on devices.
