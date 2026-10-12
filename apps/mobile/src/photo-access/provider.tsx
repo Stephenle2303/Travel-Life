@@ -94,6 +94,11 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     }
   }, [maintenance.enabled, maintenanceController, snapshot.scope]);
 
+  useEffect(() => {
+    if (privateRecord.state === 'connected') reconstructionController.resume();
+    else reconstructionController.clear();
+  }, [privateRecord, reconstructionController]);
+
   return <PhotoAccessContext.Provider value={{ snapshot, controller, importCoverage, privateRecord, privateRecordController, maintenance, maintenanceController, reconstruction, reconstructionController, aiReview, aiProposalController }}>{children}</PhotoAccessContext.Provider>;
 }
 
