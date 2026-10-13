@@ -90,4 +90,21 @@ describe('Expo SDK 57 native adapter', () => {
     mockGetPermissions.mockResolvedValue({ granted: true, status: 'granted', accessPrivileges: 'none', canAskAgain: true });
     expect(await nativePhotoAccess.inspect()).toEqual({ scope: 'denied', canAskAgain: false });
   });
+
+  it('resolves only the bounded permitted preview set and keeps cloud or missing assets unavailable', async () => {
+    mockGetPermissions.mockResolvedValue({ granted: true, status: 'granted', accessPrivileges: 'full', canAskAgain: false });
+    mockAsset.mockImplementation((id: string) => id === 'cloud'
+      ? { getIsInCloud: async () => true, getUri: jest.fn() }
+      : id === 'gone'
+        ? { getIsInCloud: async () => { throw new Error('gone'); } }
+        : { getIsInCloud: async () => false, getUri: async () => 'file://private-preview' });
+
+    await expect(nativePhotoAccess.resolveOwnerPreviews!([null, 'ready', 'cloud', 'gone', 'ignored'], 4)).resolves.toEqual([
+      { uri: null, availability: 'unavailable' },
+      { uri: 'file://private-preview', availability: 'available' },
+      { uri: null, availability: 'unavailable' },
+      { uri: null, availability: 'unavailable' },
+    ]);
+    expect(mockAsset).not.toHaveBeenCalledWith('ignored');
+  });
 });

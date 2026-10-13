@@ -80,6 +80,27 @@ describe('private Atlas reveal', () => {
     await expect(recordRevealEvent(true, sink, { name: 'reveal-opened', state: 'ready', journeyCount: 1 })).resolves.toBeUndefined();
     await expect(recordRevealEvent(true, sink, { name: 'reveal-opened', state: 'ready', journeyCount: 1, nested: { sourceId: 'private' } })).resolves.toBeUndefined();
     expect(sink.record).toHaveBeenCalledTimes(1);
+    expect(() => assertRevealPayload({ statistics: { journeyCount: 2, placeCount: 3, supportedCountryCount: 1, countryStatus: 'supported' } })).not.toThrow();
+    expect(() => assertRevealPayload({ statistics: { journeyCount: 2, countryCode: 'THA' } })).toThrow(/aggregate/);
+  });
+
+  it('renders only aggregate inferred statistics and explains unavailable country support', async () => {
+    const model = modelFor({ durableRecord: { journeys: [{ displayId: 'journey-1', state: 'inferred', anchor: null, years: [], periodLabel: 'Date unknown', ordering: 'uncertain' }], statistics: { journeyCount: 1, placeCount: 2, supportedCountryCount: 0, countryStatus: 'supported' } } });
+    const view = await render(<AtlasReveal model={model} {...actions} />);
+    expect(view.getByText('Inferred local record')).toBeOnTheScreen();
+    expect(view.getByText('1 inferred journey.')).toBeOnTheScreen();
+    expect(view.getByText('2 inferred places.')).toBeOnTheScreen();
+    expect(view.getByText(/No supported countries can be counted/)).toBeOnTheScreen();
+    expect(JSON.stringify(model)).not.toMatch(/countryCode|THA|latitude|duration|route/);
+  });
+
+  it('withholds a committed statistics projection while access is restricted or local updates are pending', () => {
+    const durableRecord = {
+      journeys: [{ displayId: 'journey-1', state: 'inferred' as const, anchor: null, years: [], periodLabel: 'Date unknown', ordering: 'uncertain' as const }],
+      statistics: { journeyCount: 1, placeCount: 1, supportedCountryCount: 1, countryStatus: 'supported' as const },
+    };
+    expect(modelFor({ durableRecord, reconstructionStatus: 'restricted', reconciliationStatus: 'restricted', sourceScope: 'revoked' }).statistics).toBeNull();
+    expect(modelFor({ durableRecord, reconstructionStatus: 'running', reconciliationStatus: 'pending', pendingCount: 1 }).statistics).toBeNull();
   });
 
   it('coarsens and range-checks map points, then fits all displayed anchors', () => {
@@ -110,5 +131,14 @@ describe('private Atlas reveal', () => {
     await fireEvent.press(view.getByRole('button', { name: 'Show journeys from 2023' }));
     await fireEvent.press(view.getByRole('button', { name: 'Show all years' }));
     await waitFor(() => expect(view.queryByLabelText('Available journey 1, 2024, selected')).toBeNull());
+  });
+
+  it('opens the selected journey with only its opaque Atlas display ID', async () => {
+    const open = jest.fn();
+    const model = modelFor({ durableRecord: { journeys: [{ displayId: 'atlas-safe-display', state: 'inferred', anchor: null, years: [2024], periodLabel: '2024', ordering: 'chronological' }] } });
+    const view = await render(<AtlasReveal model={model} {...actions} onOpenJourney={open} />);
+    await fireEvent.press(view.getByRole('button', { name: /Available journey 1, 2024/ }));
+    await fireEvent.press(view.getByRole('button', { name: 'Open selected private journey' }));
+    expect(open).toHaveBeenCalledWith('atlas-safe-display');
   });
 });

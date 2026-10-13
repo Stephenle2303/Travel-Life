@@ -92,6 +92,7 @@ export function EmptyAtlasScreen() {
         onCatchUp={() => void catchUpHistory()}
         onManualEntry={() => openRoute(router, appRoutes.settings)}
         onReplay={() => openRoute(router, appRoutes.replay)}
+        onOpenJourney={(id) => router.push({ pathname: appRoutes.journey as never, params: { id } })}
       />
       <ActionButton accessibilityLabel="Open private record settings" onPress={() => openRoute(router, appRoutes.settings)} variant="secondary">Private record settings</ActionButton>
       <ActionButton accessibilityLabel="Return to Trust" onPress={() => openRoute(router, appRoutes.trust, 'replace')} variant="secondary">Back</ActionButton>

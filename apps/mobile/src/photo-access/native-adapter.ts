@@ -168,4 +168,20 @@ export const nativePhotoAccess: PhotoAccessAdapter = {
       stableAssetIds,
     };
   },
+
+  async resolveOwnerPreviews(assetIds, limit) {
+    if (!supported()) throw new Error('Native photo library unavailable');
+    const permission = await this.inspect();
+    if (permission?.scope !== 'full' && permission?.scope !== 'limited') throw new Error('Photo access is not permitted');
+    const previews: import('./types').OwnerPreview[] = [];
+    for (const assetId of assetIds.slice(0, Math.max(0, limit))) {
+      if (assetId === null) { previews.push({ uri: null, availability: 'unavailable' }); continue; }
+      try {
+        const asset = new (mediaLibrary().Asset)(assetId) as { getIsInCloud(): Promise<boolean>; getUri(): Promise<string> };
+        if (await asset.getIsInCloud()) { previews.push({ uri: null, availability: 'unavailable' }); continue; }
+        previews.push({ uri: await asset.getUri(), availability: 'available' });
+      } catch { previews.push({ uri: null, availability: 'unavailable' }); }
+    }
+    return previews;
+  },
 };

@@ -2,7 +2,7 @@ import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { AppState, type AppStateStatus } from 'react-native';
 
 import { EmptyAtlasScreen, ImportScreen } from '@/components/mobile-screens';
-import { isCurrentDurableRevealRead, PhotoAccessProvider } from '@/photo-access/provider';
+import { canPublishJourneyDetail, isCurrentDurableRevealRead, PhotoAccessProvider } from '@/photo-access/provider';
 import type { PermissionSnapshot, PhotoAccessAdapter } from '@/photo-access/types';
 import type { ImportRepository } from '@/import-record';
 
@@ -35,6 +35,15 @@ describe('photo access provider and Import screen', () => {
   it('rejects a durable reveal read that completed after a lifecycle invalidation', () => {
     expect(isCurrentDurableRevealRead(4, 4)).toBe(true);
     expect(isCurrentDurableRevealRead(4, 5)).toBe(false);
+  });
+  it('rejects a deferred detail and preview result after lifecycle invalidation', async () => {
+    let releaseDetail!: () => void; let releasePreview!: () => void;
+    const detail = new Promise<void>((resolve) => { releaseDetail = resolve; });
+    const preview = new Promise<void>((resolve) => { releasePreview = resolve; });
+    const generation = 7;
+    const completed = Promise.all([detail, preview]).then(() => canPublishJourneyDetail(generation, generation + 1, 'deleted'));
+    releaseDetail(); releasePreview();
+    await expect(completed).resolves.toBe(false);
   });
   it('rechecks and updates a finished limited count on foreground return', async () => {
     let activeListener: ((state: AppStateStatus) => void) | undefined;

@@ -458,3 +458,48 @@ TypeScript, Expo lint, and Expo Doctor. This does not validate physical
 iOS/Android map rendering, provider tile behavior, real dense-map usability,
 target-device screen readers, lifecycle interruption, or reconstruction
 accuracy.
+
+## M3.3 private journey detail and source-linked memories (2026-10-13)
+
+Atlas now opens a private journey detail only from an opaque local display ID.
+SQLite resolves that ID inside the connected-record boundary, then returns
+chronological observed visits, date precision, uncertainty, and separately
+worded visit-support versus journey-membership reasons. The Atlas projection,
+route parameters, telemetry, and detail text contain no source identifiers,
+filenames, precise coordinates, raw timestamps, or media URIs. A bounded
+four-item preview resolver receives source references only inside the native
+adapter after it rechecks permission and cloud availability; the rendered
+preview state has no source identifier. Cloud-only, removed, inaccessible, and
+failed previews remain readable unavailable-memory states without a replacement
+asset or download. The new detail surface follows the Living Atlas photo-led
+composition, returns contextually to Atlas, and links only to the later
+non-mutating correction handoff.
+
+Observed on 2026-10-13: focused detail/Atlas/repository/adapter/owner-flow
+checks passed 6 suites / 37 tests. Mobile Jest passed 24 suites / 176 tests,
+with TypeScript and Expo lint also passing. Expo Doctor reported 20/21 checks:
+six pre-existing Expo SDK 57 patch-version mismatches (`@expo/ui`, `expo`,
+`expo-router`, `expo-splash-screen`, `expo-dev-client`, and `jest-expo`) need a
+separate dependency-maintenance decision; M3.3 did not change dependencies.
+This is synthetic and runtime validation only. Physical iOS/Android photo
+permission, URI rendering, cloud-only behavior, cache behavior, and lifecycle
+interruption remain unverified; no reconstruction-accuracy or owner-presence
+claim follows.
+
+## M3.4 supportable travel statistics (2026-10-13)
+
+Atlas now receives a read-only inferred-statistics projection from one captured
+completed reconstruction run. The local schema stores a resolved country code
+and Natural Earth Admin 0 Countries 1:110m dataset version 5.1.1 only on each
+reconstructed place during its atomic rebuild. The bundled resolver uses no map,
+AI, geocoding, or network path, and invalid, border-ambiguous, and unresolved
+coordinates do not receive a country. The display boundary receives only journey,
+place, and supported-country counts; it cannot receive country labels/codes,
+coordinates, evidence/source identifiers, dates, routes, distance, duration, or
+media. Processing, restricted, failed, and sparse reveal states suppress totals.
+
+Observed on 2026-10-13: focused resolver/repository/Atlas tests passed 3 suites
+/ 23 tests, and TypeScript passed. This is synthetic validation only. Physical
+iOS/Android SQLite migration, resolver performance, screen-reader behavior,
+lifecycle interruption, and reconstruction/country-resolution accuracy remain
+unverified.

@@ -20,7 +20,7 @@ type CheckpointRow = {
   status: ImportCheckpoint['status'];
 };
 
-const CURRENT_SCHEMA_VERSION = 11;
+const CURRENT_SCHEMA_VERSION = 12;
 
 const migrationV1 = `
   CREATE TABLE IF NOT EXISTS import_checkpoint (
@@ -258,6 +258,14 @@ const migrationV11 = `
   UPDATE private_history_record SET schema_version = 11 WHERE record_id = 1;
 `;
 
+// Country metadata is derived only from the durable reconstructed place during
+// an on-device rebuild. It never changes canonical evidence or leaves SQLite.
+const migrationV12 = `
+  ALTER TABLE reconstruction_place ADD COLUMN country_code TEXT NULL;
+  ALTER TABLE reconstruction_place ADD COLUMN country_dataset_version TEXT NULL;
+  UPDATE private_history_record SET schema_version = 12 WHERE record_id = 1;
+`;
+
 const MAINTENANCE_LEASE_MILLIS = 5 * 60 * 1000;
 
 type SchemaRow = { version: number };
@@ -306,6 +314,7 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
           if (version < 9) await db.execAsync(migrationV9);
           if (version < 10) await db.execAsync(migrationV10);
           if (version < 11) await db.execAsync(migrationV11);
+          if (version < 12) await db.execAsync(migrationV12);
           if (version === 0) await db.runAsync('INSERT INTO import_schema_version (version) VALUES (?)', CURRENT_SCHEMA_VERSION);
           else if (version < CURRENT_SCHEMA_VERSION) await db.runAsync('UPDATE import_schema_version SET version = ?', CURRENT_SCHEMA_VERSION);
           await db.execAsync('COMMIT');

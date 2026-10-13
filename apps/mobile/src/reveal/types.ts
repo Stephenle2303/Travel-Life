@@ -11,7 +11,8 @@ export type DurableRevealJourney = {
   periodLabel: string;
   ordering: 'chronological' | 'uncertain';
 };
-export type DurableRevealRecord = { journeys: DurableRevealJourney[] };
+export type InferredStatistics = { journeyCount: number; placeCount: number; supportedCountryCount: number; countryStatus: 'supported' | 'unavailable' };
+export type DurableRevealRecord = { journeys: DurableRevealJourney[]; statistics?: InferredStatistics | null };
 
 /** The only reconstruction shape that the reveal UI may receive. */
 export type RevealInput = {
@@ -41,7 +42,18 @@ export type RevealModel = {
   message: string;
   journeys: RevealJourney[];
   replay: { eligible: boolean; reason: string };
+  statistics: InferredStatistics | null;
 };
 
 export type AtlasView = 'map' | 'timeline';
 export type AtlasExploration = { view: AtlasView; year: number | null; selectedJourneyId: string | null };
+
+/** Owner-readable data for one explicitly selected journey. It is never Atlas state. */
+export type JourneyDetail = {
+  id: string;
+  title: string;
+  observedSpan: string;
+  visits: { label: string; precision: string; support: string }[];
+  memories: { id: string; availability: 'available' | 'unavailable' | 'unknown'; association: string }[];
+  uncertainty: string[];
+};

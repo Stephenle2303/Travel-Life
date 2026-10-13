@@ -25,6 +25,8 @@ export type SelectionResult = { canceled: true } | {
   missingAssetIds: number;
   stableAssetIds: string[];
 };
+/** Ephemeral private display data. Source identifiers never leave the adapter. */
+export type OwnerPreview = { uri: string | null; availability: 'available' | 'unavailable' };
 
 export interface PhotoAccessAdapter {
   inspect(): Promise<PermissionSnapshot | null>;
@@ -34,4 +36,5 @@ export interface PhotoAccessAdapter {
   readSelectedMetadata(assetIds: string[]): Promise<SourceCandidate[]>;
   manageLimited(): Promise<void>;
   select(): Promise<SelectionResult>;
+  resolveOwnerPreviews?(assetIds: (string | null)[], limit: number): Promise<OwnerPreview[]>;
 }

@@ -4,15 +4,18 @@ import { AppState } from 'react-native';
 import { HistoryRecordController, type LifecycleSnapshot } from '@/history-record';
 import { PhotoAccessController, initialPhotoAccess } from './controller';
 import { nativePhotoAccess } from './native-adapter';
-import type { PhotoAccessAdapter, PhotoAccessSnapshot } from './types';
+import type { OwnerPreview, PhotoAccessAdapter, PhotoAccessSnapshot } from './types';
 import { createNativeImportRepository, type ImportCoverage, type ImportRepository, type MaintenanceRepository, type ReconciliationSnapshot } from '@/import-record';
 import { MaintenanceController, createExpoScheduler, type MaintenanceView } from '@/maintenance';
 import { createNativeReconstructionRepository, ReconstructionController, type ReconstructionView } from '@/reconstruction';
 import { AiProposalController, type AiReviewView } from '@/ai';
-import type { DurableRevealRecord } from '@/reveal/types';
+import type { DurableRevealRecord, JourneyDetail } from '@/reveal/types';
 
 export function isCurrentDurableRevealRead(readGeneration: number, currentGeneration: number) {
   return readGeneration === currentGeneration;
+}
+export function canPublishJourneyDetail(readGeneration: number, currentGeneration: number, lifecycle: LifecycleSnapshot['state']) {
+  return readGeneration === currentGeneration && lifecycle === 'connected';
 }
 
 class DurableRevealGate {
@@ -20,6 +23,7 @@ class DurableRevealGate {
   next() { this.generation += 1; return this.generation; }
   invalidate() { this.generation += 1; }
   isCurrent(readGeneration: number) { return isCurrentDurableRevealRead(readGeneration, this.generation); }
+  current() { return this.generation; }
 }
 
 function maintenanceRepository(repository: ImportRepository): MaintenanceRepository {
@@ -63,6 +67,7 @@ type PhotoAccessContextValue = {
   catchUpHistory(): Promise<void>;
   reconstruction: ReconstructionView;
   durableReveal: DurableRevealRecord | null;
+  loadJourneyDetail(displayId: string): Promise<{ detail: JourneyDetail; previews: OwnerPreview[] }>;
   reconstructionController: ReconstructionController;
   aiReview: AiReviewView;
   aiProposalController: AiProposalController;
@@ -157,7 +162,17 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     await reconstructionController.reconcile(currentSourcePermitted);
     if (durableMaintenanceRepository.loadReconciliation) setReconciliation(await durableMaintenanceRepository.loadReconciliation());
   };
-  return <PhotoAccessContext.Provider value={{ snapshot, controller, importCoverage, privateRecord, privateRecordController, maintenance, maintenanceController, reconciliation, catchUpHistory, reconstruction, durableReveal, reconstructionController, aiReview, aiProposalController }}>{children}</PhotoAccessContext.Provider>;
+  const loadJourneyDetail = async (displayId: string) => {
+    const generation = durableRevealGate.next();
+    const result = await nativeReconstructionRepository.loadJourneyDetail(displayId);
+    if (!canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state)) throw new Error('Journey is no longer available.');
+    // Preserve placeholder slots: JourneyDetailScreen pairs previews with memories
+    // by index, and a missing first asset must not shift a later preview upward.
+    const previews = adapter.resolveOwnerPreviews ? await adapter.resolveOwnerPreviews(result.previewSourceRefs, 4) : [];
+    if (!canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state)) throw new Error('Journey is no longer available.');
+    return { detail: result.detail, previews };
+  };
+  return <PhotoAccessContext.Provider value={{ snapshot, controller, importCoverage, privateRecord, privateRecordController, maintenance, maintenanceController, reconciliation, catchUpHistory, reconstruction, durableReveal, loadJourneyDetail, reconstructionController, aiReview, aiProposalController }}>{children}</PhotoAccessContext.Provider>;
 }
 
 export function usePhotoAccess() {

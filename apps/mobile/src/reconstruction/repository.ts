@@ -1,7 +1,8 @@
 import type { ReconstructionEvidence, ReconstructionGraph } from './types';
 import { RECONSTRUCTION_RULE_VERSION } from './types';
 import { reconstructV1 } from './engine';
-import type { DurableRevealRecord, RevealMapAnchor } from '@/reveal/types';
+import { NATURAL_EARTH_ADMIN_0_DATASET_VERSION, resolveCountry } from './country-resolver';
+import type { DurableRevealRecord, JourneyDetail, RevealMapAnchor } from '@/reveal/types';
 
 type Database = {
   execAsync(source: string): Promise<void>;
@@ -35,6 +36,9 @@ function opaqueJourneyDisplayId(journeyId: string) {
 /** A graph rebuild is one local transaction, so readers see the prior complete run or the next one. */
 export function createNativeReconstructionRepository() {
   let database: Promise<Database> | null = null;
+  // Populated only by the redacted Atlas read. It keeps the raw journey id in
+  // this local repository, so opening one selected card never scans all IDs.
+  const displayedJourneys = new Map<string, { runId: number; journeyId: string }>();
   async function open() {
     if (!database) database = (async () => {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -76,13 +80,57 @@ export function createNativeReconstructionRepository() {
   }
 
   return {
+    /** Resolves an opaque Atlas id only inside SQLite and returns owner-readable text. */
+    async loadJourneyDetail(displayId: string): Promise<{ detail: JourneyDetail; previewSourceRefs: (string | null)[] }> {
+      const db = await open();
+      const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
+      if (lifecycle?.state !== 'connected') throw new Error('Private record is not connected.');
+      const selected = displayedJourneys.get(displayId);
+      if (!selected) throw new Error('Journey is unavailable.');
+      const visits = await db.getAllAsync<{ captured_day: string | null; has_precise_offset: number; ordering: 'chronological' | 'uncertain' }>(`WITH visit_summary AS (
+        SELECT visit.visit_id, MIN(evidence.captured_day) AS captured_day, MAX(evidence.has_precise_offset) AS has_precise_offset, visit.ordering
+        FROM reconstruction_link journey_visit
+        JOIN reconstruction_visit visit ON visit.run_id = journey_visit.run_id AND visit.visit_id = journey_visit.child_id
+        LEFT JOIN reconstruction_link support ON support.run_id = visit.run_id AND support.link_kind = 'visit-support' AND support.parent_id = visit.visit_id
+        LEFT JOIN canonical_evidence evidence ON evidence.evidence_id = support.child_id
+        WHERE journey_visit.run_id = ? AND journey_visit.link_kind = 'journey-visit' AND journey_visit.parent_id = ?
+        GROUP BY visit.visit_id, visit.ordering
+      ) SELECT captured_day, has_precise_offset, ordering FROM visit_summary
+        ORDER BY captured_day IS NULL, captured_day, visit_id`, selected.runId, selected.journeyId);
+      const memories = await db.getAllAsync<{ captured_day: string | null; availability: 'available' | 'unavailable' | 'unknown'; source_ref: string; association: string; disposition: string | null }>(`WITH journey_evidence AS (
+          SELECT child_id AS evidence_id, link_kind AS association
+          FROM reconstruction_link
+          WHERE run_id = ?
+            AND parent_id = ? AND link_kind LIKE 'membership:%'
+          UNION
+          SELECT support.child_id AS evidence_id, 'visit-support' AS association
+          FROM reconstruction_link journey_visit
+          JOIN reconstruction_link support ON support.run_id = journey_visit.run_id AND support.link_kind = 'visit-support' AND support.parent_id = journey_visit.child_id
+          WHERE journey_visit.run_id = ?
+            AND journey_visit.link_kind = 'journey-visit' AND journey_visit.parent_id = ?
+        )
+        SELECT evidence.captured_day, evidence.availability, evidence.source_ref, journey_evidence.association, disposition.disposition_state AS disposition
+        FROM journey_evidence JOIN canonical_evidence evidence ON evidence.evidence_id = journey_evidence.evidence_id
+        LEFT JOIN reconstruction_disposition disposition ON disposition.run_id = ? AND disposition.evidence_id = evidence.evidence_id
+        GROUP BY evidence.evidence_id, journey_evidence.association
+        ORDER BY evidence.captured_day IS NULL, evidence.captured_day, evidence.evidence_id LIMIT 4`, selected.runId, selected.journeyId, selected.runId, selected.journeyId, selected.runId);
+      if (!visits.length && !memories.length) throw new Error('Journey is unavailable.');
+      const days = visits.map((visit) => visit.captured_day).filter((day): day is string => !!day).sort();
+      const span = !days.length ? 'Observed date unknown' : days[0] === days[days.length - 1] ? `Observed ${days[0]}` : `Observed ${days[0]} to ${days[days.length - 1]}`;
+      const detailVisits = visits.map((visit) => ({ label: visit.captured_day ?? 'Date unknown', precision: visit.captured_day ? (visit.has_precise_offset ? 'Observed day and time' : 'Observed day') : 'Date precision unavailable', support: 'Source supports this visit; it does not prove owner presence.' }));
+      const detailMemories = memories.map((memory, index) => ({ id: `memory-${index + 1}`, availability: memory.availability, association: memory.association.startsWith('membership:') ? `Associated with this journey as a memory (${memory.association.slice('membership:'.length).replaceAll(/[-:]/g, ' ')}); separate from destination support.` : memory.disposition ? `This source is ${memory.disposition}; it is reviewable without being visit support.` : 'Supports an observed visit; this is not proof of owner presence.' }));
+      const uncertainty = [...new Set([...(visits.some((visit) => visit.ordering === 'uncertain') ? ['Visit ordering is uncertain.'] : []), ...(visits.some((visit) => !visit.captured_day || !visit.has_precise_offset) ? ['Date precision is limited for part of this journey.'] : []), ...memories.filter((memory) => memory.disposition === 'unresolved' || memory.disposition === 'unassigned').map((memory) => `A source remains ${memory.disposition} and is not treated as visit support.`), ...memories.filter((memory) => memory.association.startsWith('membership:') && memory.captured_day === null).map(() => 'A GPS-less or date-limited memory is associated with this journey without destination support.')])];
+      return { detail: { id: displayId, title: 'Private journey', observedSpan: span, visits: detailVisits, memories: detailMemories, uncertainty }, previewSourceRefs: memories.map((memory) => memory.availability === 'available' ? memory.source_ref : null) };
+    },
     /** Reads only coarse map anchors and journey state from the committed run.
      * Source/evidence IDs, dates, and raw coordinates stay inside this query. */
     async loadDurableReveal(): Promise<DurableRevealRecord> {
       const db = await open();
       const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
       if (lifecycle?.state !== 'connected') throw new Error('Private record is not connected.');
-      const rows = await db.getAllAsync<{ journey_id: string; journey_state: 'inferred' | 'possible-merge'; latitude: number | null; longitude: number | null; display_ordinal: number; year: number | null; ordering: 'chronological' | 'uncertain'; first_year: number | null; last_year: number | null }>(`
+      const completed = await db.getFirstAsync<{ run_id: number }>('SELECT MAX(run_id) AS run_id FROM reconstruction_run WHERE status = \'complete\'');
+      if (!completed?.run_id) return { journeys: [], statistics: null };
+      const rows = await db.getAllAsync<{ journey_id: string; run_id: number; journey_state: 'inferred' | 'possible-merge'; latitude: number | null; longitude: number | null; display_ordinal: number; year: number | null; ordering: 'chronological' | 'uncertain'; first_year: number | null; last_year: number | null }>(`
         WITH journey_anchor AS (
           SELECT journey_link.parent_id AS journey_id, MIN(visit.visit_id) AS visit_id
           FROM reconstruction_link journey_link
@@ -103,7 +151,7 @@ export function createNativeReconstructionRepository() {
           LEFT JOIN reconstruction_visit journey_visit_row ON journey_visit_row.run_id = journey_visit.run_id AND journey_visit_row.visit_id = journey_visit.child_id
           LEFT JOIN reconstruction_link visit_support ON visit_support.run_id = journey.run_id AND visit_support.link_kind = 'visit-support' AND visit_support.parent_id = journey_visit.child_id
           LEFT JOIN canonical_evidence canonical ON canonical.evidence_id = visit_support.child_id
-          WHERE journey.run_id = (SELECT MAX(run_id) FROM reconstruction_run WHERE status = 'complete')
+          WHERE journey.run_id = ?
           GROUP BY journey.journey_id
         ), numbered_journeys AS (
           SELECT *,
@@ -118,22 +166,30 @@ export function createNativeReconstructionRepository() {
           JOIN canonical_evidence canonical ON canonical.evidence_id = visit_support.child_id
           WHERE journey_visit.link_kind = 'journey-visit' AND canonical.captured_day GLOB '????-??-??'
         )
-        SELECT numbered_journeys.journey_id, numbered_journeys.journey_state, numbered_journeys.latitude, numbered_journeys.longitude,
+        SELECT numbered_journeys.journey_id, numbered_journeys.run_id, numbered_journeys.journey_state, numbered_journeys.latitude, numbered_journeys.longitude,
           numbered_journeys.display_ordinal, journey_years.year,
           CASE WHEN numbered_journeys.first_year IS NULL OR numbered_journeys.first_year_count > 1 THEN 'uncertain' ELSE numbered_journeys.ordering END AS ordering,
           numbered_journeys.first_year, numbered_journeys.last_year
         FROM numbered_journeys LEFT JOIN journey_years ON journey_years.journey_id = numbered_journeys.journey_id
         ORDER BY numbered_journeys.display_ordinal, journey_years.year
-      `);
+      `, completed.run_id);
+      const statistics = await db.getFirstAsync<{ journey_count: number; place_count: number; country_count: number }>(`
+        SELECT
+          (SELECT COUNT(*) FROM reconstruction_journey WHERE run_id = ?) AS journey_count,
+          (SELECT COUNT(*) FROM reconstruction_place WHERE run_id = ?) AS place_count,
+          (SELECT COUNT(DISTINCT country_code) FROM reconstruction_place WHERE run_id = ? AND country_code IS NOT NULL) AS country_count
+      `, completed.run_id, completed.run_id, completed.run_id);
       const journeys = new Map<string, DurableRevealRecord['journeys'][number]>();
+      displayedJourneys.clear();
       for (const row of rows) {
         const displayId = opaqueJourneyDisplayId(row.journey_id);
+        displayedJourneys.set(displayId, { runId: row.run_id, journeyId: row.journey_id });
         const existing = journeys.get(displayId);
         if (existing) { if (row.year !== null) existing.years.push(row.year); continue; }
         const periodLabel = row.first_year === null ? 'Date unknown' : row.first_year === row.last_year ? String(row.first_year) : `${row.first_year}–${row.last_year}`;
         journeys.set(displayId, { displayId, state: row.journey_state, anchor: coarseMapAnchor(row.latitude, row.longitude), years: row.year === null ? [] : [row.year], periodLabel, ordering: row.ordering });
       }
-      return { journeys: [...journeys.values()] };
+      return { journeys: [...journeys.values()], statistics: statistics ? { journeyCount: statistics.journey_count, placeCount: statistics.place_count, supportedCountryCount: statistics.country_count, countryStatus: 'supported' } : null };
     },
     async rebuild(nowMillis = Date.now(), consumeQueuedChanges = false, canUseSource: () => Promise<boolean> = async () => true): Promise<ReconstructionGraph> {
       const db = await open();
@@ -179,7 +235,12 @@ export function createNativeReconstructionRepository() {
         const runId = (await db.getFirstAsync<{ run_id: number }>('SELECT MAX(run_id) AS run_id FROM reconstruction_run'))?.run_id;
         if (runId === undefined) throw new Error('Could not create reconstruction run.');
         await db.runAsync('DELETE FROM reconstruction_disposition'); await db.runAsync('DELETE FROM reconstruction_link'); await db.runAsync('DELETE FROM reconstruction_journey'); await db.runAsync('DELETE FROM reconstruction_visit'); await db.runAsync('DELETE FROM reconstruction_place');
-        for (const place of graph.places) { await db.runAsync('INSERT INTO reconstruction_place (place_id, run_id, representative_evidence_id, uncertainty_json) VALUES (?, ?, ?, ?)', place.id, runId, place.representativeId, JSON.stringify(place.uncertainty)); for (const evidenceId of place.memberIds) await db.runAsync('INSERT INTO reconstruction_link (run_id, link_kind, parent_id, child_id) VALUES (?, ?, ?, ?)', runId, 'place-support', place.id, evidenceId); }
+        for (const place of graph.places) {
+          const representative = rows.find((row) => row.evidence_id === place.representativeId);
+          const country = resolveCountry({ latitude: representative?.latitude ?? null, longitude: representative?.longitude ?? null });
+          await db.runAsync('INSERT INTO reconstruction_place (place_id, run_id, representative_evidence_id, uncertainty_json, country_code, country_dataset_version) VALUES (?, ?, ?, ?, ?, ?)', place.id, runId, place.representativeId, JSON.stringify(place.uncertainty), country.status === 'resolved' ? country.code : null, country.status === 'resolved' ? NATURAL_EARTH_ADMIN_0_DATASET_VERSION : null);
+          for (const evidenceId of place.memberIds) await db.runAsync('INSERT INTO reconstruction_link (run_id, link_kind, parent_id, child_id) VALUES (?, ?, ?, ?)', runId, 'place-support', place.id, evidenceId);
+        }
         for (const visit of graph.visits) { await db.runAsync('INSERT INTO reconstruction_visit (visit_id, run_id, place_id, ordering) VALUES (?, ?, ?, ?)', visit.id, runId, visit.placeId, visit.order); for (const evidenceId of visit.evidenceIds) await db.runAsync('INSERT INTO reconstruction_link (run_id, link_kind, parent_id, child_id) VALUES (?, ?, ?, ?)', runId, 'visit-support', visit.id, evidenceId); }
         for (const journey of graph.journeys) { await db.runAsync('INSERT INTO reconstruction_journey (journey_id, run_id, journey_state) VALUES (?, ?, ?)', journey.id, runId, journey.state); for (const visitId of journey.visitIds) await db.runAsync('INSERT INTO reconstruction_link (run_id, link_kind, parent_id, child_id) VALUES (?, ?, ?, ?)', runId, 'journey-visit', journey.id, visitId); }
         for (const membership of graph.memberships) await db.runAsync('INSERT INTO reconstruction_link (run_id, link_kind, parent_id, child_id) VALUES (?, ?, ?, ?)', runId, `membership:${membership.state}:${membership.reason}`, membership.journeyId, membership.evidenceId);

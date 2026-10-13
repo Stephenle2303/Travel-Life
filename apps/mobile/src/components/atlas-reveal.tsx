@@ -51,7 +51,7 @@ function MapUnavailable({ onUnavailable }: { onUnavailable: () => void }) {
   return null;
 }
 
-export function AtlasReveal({ model, onImport, onRetry, onCatchUp, onManualEntry, onReplay, mapAvailable = true }: { model: RevealModel; onImport(): void; onRetry(): void; onCatchUp(): void; onManualEntry(): void; onReplay(): void; mapAvailable?: boolean }) {
+export function AtlasReveal({ model, onImport, onRetry, onCatchUp, onManualEntry, onReplay, onOpenJourney, mapAvailable = true }: { model: RevealModel; onImport(): void; onRetry(): void; onCatchUp(): void; onManualEntry(): void; onReplay(): void; onOpenJourney?(id: string): void; mapAvailable?: boolean }) {
   const [view, setView] = useState<'map' | 'timeline'>('map');
   const [year, setYear] = useState<number | null>(null);
   const [selectedJourneyId, setSelectedJourneyId] = useState<string | null>(null);
@@ -72,6 +72,16 @@ export function AtlasReveal({ model, onImport, onRetry, onCatchUp, onManualEntry
       <Body>{model.coverage} It may be incomplete and is not a lifetime claim.</Body>
       <Body>The native map provider may receive map viewport and tile requests. Travel Life does not submit your journey records to it.</Body>
     </InsetPanel>
+    {model.state === 'ready' && <InsetPanel>
+      <Text style={{ color: palette.limestone, fontSize: 20, fontWeight: '900' }}>Inferred local record</Text>
+      {model.statistics ? <>
+        <Body>{model.statistics.journeyCount} inferred {model.statistics.journeyCount === 1 ? 'journey' : 'journeys'}.</Body>
+        <Body>{model.statistics.placeCount} inferred {model.statistics.placeCount === 1 ? 'place' : 'places'}.</Body>
+        <Body>{model.statistics.countryStatus === 'unavailable' ? 'Supported-country total is unavailable for this local record.' : model.statistics.supportedCountryCount === 0 ? 'No supported countries can be counted from this local record.' : `${model.statistics.supportedCountryCount} supported ${model.statistics.supportedCountryCount === 1 ? 'country' : 'countries'}.`}</Body>
+      </> : <Body>Inferred totals are unavailable until a completed local reconstruction can be read.</Body>}
+      <Body>These totals reflect the available private record and may be incomplete.</Body>
+    </InsetPanel>}
+    {exploration.selectedJourneyId && onOpenJourney && <ActionButton accessibilityLabel="Open selected private journey" onPress={() => onOpenJourney(exploration.selectedJourneyId!)}>Open journey</ActionButton>}
     {model.state === 'ready' && <View style={{ flexDirection: 'row', gap: 8 }}>
       <ActionButton accessibilityLabel="Show Atlas map" accessibilityState={{ selected: view === 'map' }} onPress={() => setView('map')} variant={view === 'map' ? 'primary' : 'secondary'}>Map</ActionButton>
       <ActionButton accessibilityLabel="Show chronological Timeline" accessibilityState={{ selected: view === 'timeline' }} onPress={() => setView('timeline')} variant={view === 'timeline' ? 'primary' : 'secondary'}>Timeline</ActionButton>

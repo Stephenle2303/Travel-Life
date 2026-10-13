@@ -11,6 +11,7 @@ jest.mock('expo-sqlite', () => ({ openDatabaseAsync: (...args: unknown[]) => moc
 describe('durable local reconciliation repository', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockGetAllAsync.mockReset(); mockGetAllAsync.mockResolvedValue([]);
     mockExecAsync.mockResolvedValue(undefined); mockRunAsync.mockResolvedValue(undefined);
     mockOpenDatabaseAsync.mockResolvedValue({ execAsync: mockExecAsync, runAsync: mockRunAsync, getFirstAsync: mockGetFirstAsync, getAllAsync: mockGetAllAsync });
     mockGetFirstAsync.mockImplementation(async (sql: string) => {
@@ -21,6 +22,7 @@ describe('durable local reconciliation repository', () => {
       if (sql.includes('canonical_evidence_revision')) return { canonical_evidence_revision: 2 };
       if (sql.includes('MAX(revision)')) return { revision: 1 };
       if (sql.includes('MAX(run_id)')) return { run_id: 7 };
+      if (sql.includes('COUNT(DISTINCT country_code)')) return { journey_count: 2, place_count: 3, country_count: 1 };
       return null;
     });
     mockGetAllAsync.mockResolvedValue([]);
@@ -52,11 +54,49 @@ describe('durable local reconciliation repository', () => {
     const read = mockGetAllAsync.mock.calls[0][0] as string;
     expect(read).toContain('WITH journey_anchor AS');
     expect(read).toContain('MIN(visit.visit_id) AS visit_id');
-    expect(read).toContain('WHERE journey.run_id = (SELECT MAX(run_id) FROM reconstruction_run WHERE status = \'complete\')');
+    expect(read).toContain('WHERE journey.run_id = ?');
+    expect(mockGetFirstAsync).toHaveBeenCalledWith('SELECT MAX(run_id) AS run_id FROM reconstruction_run WHERE status = \'complete\'');
     expect(read).not.toContain('source_ref');
     expect(read).toContain('journey_years');
     expect(read).toContain('first_year_count');
     expect(read).not.toContain('source_ref');
+  });
+
+  it('reads aggregate counts from one completed run without memberships or country detail', async () => {
+    mockGetAllAsync.mockResolvedValueOnce([]);
+    const display = await createNativeReconstructionRepository().loadDurableReveal();
+    expect(display.statistics).toEqual({ journeyCount: 2, placeCount: 3, supportedCountryCount: 1, countryStatus: 'supported' });
+    const statisticRead = mockGetFirstAsync.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('COUNT(DISTINCT country_code)'))?.[0] as string;
+    expect(statisticRead).toContain('reconstruction_journey');
+    expect(statisticRead).toContain('reconstruction_place');
+    expect(statisticRead).not.toContain('reconstruction_link');
+    expect(statisticRead).not.toContain('canonical_evidence');
+    expect(statisticRead).not.toContain('country_code AS');
+  });
+
+  it('resolves an opaque journey locally with separate visit support and membership-only memories', async () => {
+    mockGetAllAsync.mockResolvedValueOnce([{ journey_id: 'private:alpha', journey_state: 'inferred', latitude: null, longitude: null, year: null, first_year: null, last_year: null, ordering: 'uncertain' }]);
+    const repository = createNativeReconstructionRepository();
+    const displayId = (await repository.loadDurableReveal()).journeys[0]?.displayId;
+    mockGetAllAsync.mockReset();
+    mockGetAllAsync
+      .mockResolvedValueOnce([{ captured_day: '2024-01-01', has_precise_offset: 0, ordering: 'uncertain' }])
+      .mockResolvedValueOnce([
+        { captured_day: '2024-01-01', availability: 'available', source_ref: 'private:source-a', association: 'visit-support', disposition: null },
+        { captured_day: null, availability: 'unavailable', source_ref: 'private:source-b', association: 'membership:inferred:ordered-24-hour-bracket', disposition: 'unresolved' },
+      ]);
+
+    const result = await repository.loadJourneyDetail(displayId!);
+
+    expect(result.detail.memories.map((memory) => memory.association)).toEqual([
+      'Supports an observed visit; this is not proof of owner presence.',
+      'Associated with this journey as a memory (inferred ordered 24 hour bracket); separate from destination support.',
+    ]);
+    expect(result.detail.uncertainty).toEqual(expect.arrayContaining(['Visit ordering is uncertain.', 'Date precision is limited for part of this journey.', 'A source remains unresolved and is not treated as visit support.', 'A GPS-less or date-limited memory is associated with this journey without destination support.']));
+    expect(result.previewSourceRefs).toEqual(['private:source-a', null]);
+    expect(JSON.stringify(result.detail)).not.toContain('private:');
+    expect(mockGetAllAsync.mock.calls[1][0]).toContain("link_kind LIKE 'membership:%'");
+    expect(mockGetAllAsync.mock.calls[1][0]).toContain("'visit-support' AS association");
   });
 
   it('refuses an overlapping reconciliation lease without snapshotting or acknowledging queue rows', async () => {
