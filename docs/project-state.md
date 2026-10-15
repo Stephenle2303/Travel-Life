@@ -1,6 +1,34 @@
 # Project state
 
-Updated: 2026-10-12 (Asia/Bangkok).
+Updated: 2026-10-16 (Asia/Bangkok).
+
+## Dimensional Atlas and minimal journey list (2026-10-15)
+
+The private Atlas now has an owner-controlled 2D/3D camera presentation, quiet
+layered local markers, compact map disclosure, and flat two-line journey rows.
+It retains the existing redacted projection, year filtering, map-unavailable
+Timeline fallback, selection clearing, and words/accessibility state alongside
+Citrus selection. Reduced Motion keeps the camera flat, and the implementation
+does not animate camera changes. No terrain, route, provider configuration,
+schema, migration, or reconstruction behavior was added.
+
+Review fixes keep unknown-coordinate journeys Timeline-only, clear a selected
+journey removed by a refreshed projection, preserve a coarse explored viewport
+when 2D/3D changes, prevent camera/region prop competition, wrap depth controls,
+and give duplicate safe row labels a non-sensitive screen-reader disambiguator.
+The provider disclosure is visible before the native map mounts. Android/iOS
+owner-operated presentation smoke instructions are in `apps/mobile/README.md`;
+their results remain pending.
+
+After installing the lockfile-pinned dependencies in the isolated worktree, the
+focused Atlas suite passed 21 tests after review fixes; the complete mobile suite passed 25 suites /
+186 tests; mobile TypeScript and lint passed; root `npm run check` and
+`git diff --check` passed. On the final review rerun, mobile Jest passed 25
+suites / 190 tests, TypeScript and lint passed, while Expo Doctor was an
+explicit non-passing pre-existing configuration/SDK maintenance gate (19/21
+checks; nine packages out of date plus the baseline `ios.icon` bundle), recorded
+as EP-002. Native iOS/Android validation is still pending for marker hit testing,
+camera pitch, provider rendering, large-text wrapping, and screen-reader order.
 
 ## Current stage and user direction
 

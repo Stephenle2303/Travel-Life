@@ -49,6 +49,8 @@ npm run android:device
 
 This invokes `expo run:android --device`, creating and installing a local development build when the Android toolchain is available. On Import, confirm no prompt appears before tapping **Allow full photo library**. Then test full access, Android 14+ limited access where available, denial, revocation in Settings, foreground return, and explicit picker cancellation/selection. Verify the count is labelled for the current access scope and that Atlas remains empty.
 
+For Atlas presentation smoke checks, use only a synthetic/private-safe local record: verify 2D and 3D retain the explored coarse area, a marker selects the matching journey row, Reduce Motion keeps the map flat, large text wraps the map controls and journey rows, and **Use Timeline** remains usable if the map is unavailable. Record only aggregate outcomes; native map rendering, marker hit testing, screen-reader behavior, and provider behavior are pending until this is completed on a physical device.
+
 ## iOS development build
 
 Physical iOS development builds require macOS with Xcode. On that machine, run:
@@ -58,6 +60,8 @@ npm run ios:device
 ```
 
 This Windows workspace cannot prove iOS device behavior. An EAS build profile has not been configured for this repository. After a macOS build, perform the Welcome → Trust → Import → Atlas flow, including reduced motion, backgrounding, and video fallback. Test iOS limited access and **Manage limited selection** as well as full access, denial, revocation, and picker cancellation/selection.
+
+Use the same Atlas presentation smoke checks as Android: 2D/3D depth retains the explored coarse area, marker and row selection match, Reduce Motion stays flat, large text wraps controls/rows, and Timeline remains available after a map failure. Keep any record of the run aggregate-only.
 
 ## Private device sample procedure and status
 

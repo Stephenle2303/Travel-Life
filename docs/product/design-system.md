@@ -155,3 +155,18 @@ extension or changed owner preference here and in a decision record before it
 becomes a new project-wide convention. The separate [mobile UI primitives](../../apps/mobile/src/components/ui.tsx)
 currently express the same core palette; a shared code package is optional and
 has not been established by this decision.
+
+## Dimensional Atlas extension (2026-10-15)
+
+The private Atlas may offer a small owner-controlled 2D/3D presentation toggle.
+Depth is limited to a restrained native-map camera pitch, layered circular local
+markers, and a matte map frame; it never adds terrain, routes, buildings,
+satellite imagery, or a globe. Citrus identifies the current selected marker
+and journey row, with the selected word and accessibility state carrying the
+same meaning. Reduce Motion keeps the camera flat and no camera change animates
+automatically.
+
+Keep the map visually dominant, while its privacy/tile disclosure stays compact
+and reachable. Journey lists are flat, two-line recognition rows: safe title,
+observed period, and only necessary owner-readable uncertainty/status words.
+Rows wrap at larger text and retain the same selection state as the map.
