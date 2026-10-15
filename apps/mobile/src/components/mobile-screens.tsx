@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useRouter } from 'expo-router';
 
 import { appRoutes, openRoute } from '@/navigation/app-contract';
@@ -6,6 +6,7 @@ import { ActionButton, Body, Eyebrow, InsetPanel, Screen, Title } from '@/compon
 import { AtlasReveal } from '@/components/atlas-reveal';
 import { usePhotoAccess } from '@/photo-access/provider';
 import { projectReveal } from '@/reveal/projection';
+import { consumeAtlasPreviewContext, saveAtlasPreviewContext } from '@/atlas/preview-context';
 
 export function TrustScreen() {
   const router = useRouter();
@@ -71,7 +72,9 @@ export function ImportScreen() {
 
 export function EmptyAtlasScreen() {
   const router = useRouter();
-  const { snapshot, importCoverage, reconciliation, catchUpHistory, reconstruction, reconstructionController, durableReveal } = usePhotoAccess();
+  const { snapshot, importCoverage, reconciliation, catchUpHistory, reconstruction, reconstructionController, durableReveal, loadJourneyDetail, loadJourneyMediaPage } = usePhotoAccess();
+  const [initialAtlasContext] = useState(() => consumeAtlasPreviewContext());
+  const [atlasGestureActive, setAtlasGestureActive] = useState(false);
   const reveal = projectReveal({
     graph: reconstruction.graph,
     durableRecord: durableReveal,
@@ -81,18 +84,29 @@ export function EmptyAtlasScreen() {
     sourceScope: snapshot.scope,
     importedCount: importCoverage.scanned,
   });
+  const loadPreview = useCallback(async (id: string) => {
+    const result = await loadJourneyDetail(id);
+    return { detail: result.detail, previews: result.previews, snapshotToken: result.snapshotToken };
+  }, [loadJourneyDetail]);
   return (
-    <Screen>
+    <Screen scrollEnabled={!atlasGestureActive}>
       <Eyebrow>Private Atlas</Eyebrow>
       <AtlasReveal
-        key={`${reveal.state}:${reveal.journeys.map((journey) => journey.id).join(':')}`}
         model={reveal}
+        initialExploration={initialAtlasContext}
         onImport={() => openRoute(router, appRoutes.import)}
         onRetry={() => void reconstructionController.rebuild()}
         onCatchUp={() => void catchUpHistory()}
         onManualEntry={() => openRoute(router, appRoutes.settings)}
         onReplay={() => openRoute(router, appRoutes.replay)}
         onOpenJourney={(id) => router.push({ pathname: appRoutes.journey as never, params: { id } })}
+        loadJourneyPreview={loadPreview}
+        loadJourneyMediaPage={loadJourneyMediaPage}
+        onMapGestureChange={setAtlasGestureActive}
+        onCorrectJourney={(id, context) => {
+          saveAtlasPreviewContext(context);
+          router.push({ pathname: '/journey/[id]/correct' as never, params: { id, fromAtlas: '1' } });
+        }}
       />
       <ActionButton accessibilityLabel="Open private record settings" onPress={() => openRoute(router, appRoutes.settings)} variant="secondary">Private record settings</ActionButton>
       <ActionButton accessibilityLabel="Return to Trust" onPress={() => openRoute(router, appRoutes.trust, 'replace')} variant="secondary">Back</ActionButton>

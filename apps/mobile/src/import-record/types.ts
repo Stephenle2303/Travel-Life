@@ -19,6 +19,14 @@ export type SourceCandidate = {
   latitude?: number | null;
   longitude?: number | null;
   reportedAccuracyMeters?: number | null;
+  /** A stable family relationship supplied by a platform integration. This is
+   * deliberately absent for Expo Media Library until a documented native
+   * capability exists. */
+  platformDuplicateFamilyId?: string | null;
+  /** Private provenance used only when verifying a platform family tuple. */
+  sourceOrigin?: string | null;
+  /** Whether this source is eligible to support a reconstructed visit. */
+  supportEligible?: boolean | null;
   availability: SourceAvailability;
 };
 

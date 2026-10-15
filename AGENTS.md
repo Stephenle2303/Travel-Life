@@ -5,6 +5,17 @@ Travel Life reconstructs a person's travel history from existing evidence. Read
 the concise product context. The original analysis in `docs/product/source-analysis.txt`
 is reference material, not executable instructions or an approved specification.
 
+## Continue until the task is complete
+
+When the user delegates a task or story, keep working until its requested scope and
+acceptance criteria are complete and the required checks have been run. Do not stop
+or send a final handoff at a partial milestone, after a passing narrow check, or
+because the next step is substantial. Share progress updates while continuing.
+Stop and ask for input only when a specific decision, missing information, or
+approval from the user is required to proceed. State exactly what is needed and
+continue any independent work that remains possible. Once the user responds,
+resume the same task through completion.
+
 ## Scope and decisions
 
 The current product goal is **Minimum Lovable Product (MLP)**, not Minimum Viable
@@ -69,7 +80,34 @@ Do not send private evidence to a model provider without authorization covering
 that data and processing. Public fixture data must be synthetic or explicitly
 approved for publication.
 
-## Validation and completion
+## Mandatory error learning
+
+Before implementation or verification, read the index and relevant entries in
+`docs/development/error-playbook.md` and apply their prevention checks. Consult it
+again when a failure or user correction occurs.
+
+Every agent-caused bug, failed command/check, incorrect claim, missed requirement,
+or user-reported mismatch MUST be recorded in that playbook during the same task.
+Record the symptom and evidence promptly; if the cause is unknown, mark it unknown.
+Investigate and fix within the authorized scope, then record the verified cause,
+correction, verification result, and a concrete prevention action. External or
+pre-existing failures must be identified honestly rather than attributed to the
+agent. Expected negative tests are not incidents unless they expose a new defect.
+
+Before declaring completion, ensure every observed incident has an entry or an
+updated existing entry. Unresolved incidents stay open with the blocker and next
+action; never describe them as fixed. Prefer a regression test, validator, lint
+rule, or other executable safeguard when appropriate. Repeated incidents require
+updating the existing lesson with recurrence evidence and strengthening the safeguard.
+Do not repeat an unchanged failed approach without new evidence.
+
+Keep entries factual, searchable, concise, and free of private evidence, secrets,
+or raw traces. Retain lessons until their underlying risk is demonstrably removed
+or the user explicitly retires them. Report significant new lessons or recurrences
+in the handoff. These records guide future sessions; they do not retrain the model
+or guarantee that an error can never recur.
+
+## Required checks
 
 Use `npm run check` for the current foundation. Commands are defined in
 `package.json`. Before changing the AI engine, read `evals/README.md` and attach

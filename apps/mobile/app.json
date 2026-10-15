@@ -42,7 +42,7 @@
     "plugins": [
       "expo-router",
       "expo-background-task",
-      "react-native-maps",
+      "@maplibre/maplibre-react-native",
       [
         "expo-media-library",
         {

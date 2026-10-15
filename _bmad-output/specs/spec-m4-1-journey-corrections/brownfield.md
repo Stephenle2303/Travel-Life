@@ -1,0 +1,9 @@
+# M4.1 brownfield findings
+
+The local `canonical_evidence.evidence_id` is inserted from the source asset ID and retained on a same-source upsert. The current schema does not store a durable duplicate-family ID or explicit source-origin/support eligibility. The reconstruction adapter passes `duplicateFamilyId: null` and `duplicateConflict: false`. Family-scoped support keys in the delivery contract therefore require a new verified identity source and migration; they are not a property of the current graph.
+
+`correction_overlays` currently supports inclusion, label and note scopes. The M2.6 queued rebuild pauses when a history-target overlay exists because it has no safe history mapper. M4.1 must add typed owner decisions and resolution states, then replace that pause only for scopes with a proven mapper. The lifecycle table stores connected/disconnected state but no durable generation for the planned save token.
+
+The delivery spec's exact-remap algorithm is deliberately conservative: a reviewed support-key type or support-relevant normalized tuple change becomes pending even if a generated place or visit appears unchanged. Media availability alone does not change a canonical photo ID, but loss of eligible visit support can still make a visit-scoped correction pending. A failed correction withholds the whole candidate run and leaves the last complete projection and queue intact.
+
+Before implementation, define the family identity source and support-origin fields, then test the migration and mixed exact/conflicting-family cases. Until then, no test can demonstrate family-key persistence across real rescans. Synthetic cases can test the proposed mapping contract but cannot establish product accuracy or device behavior. The correction migration also needs separate committed-application and candidate-evaluation records: an ambiguous new rebuild must not demote the application attached to the last completed projection.

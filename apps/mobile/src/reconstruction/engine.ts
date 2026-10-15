@@ -3,9 +3,18 @@ import { RECONSTRUCTION_RULE_VERSION, type EvidenceDisposition, type JourneyMemb
 const R = 6_371_000;
 const MAX_PLACE_METERS = 5_000;
 
+/** Owner rejections are expressed in canonical evidence support, never a
+ * generated visit or journey id. They are consulted before automatic journey
+ * grouping, so a rescan cannot recreate the rejected relationship. */
+export type JourneyGroupingConstraint =
+  | { kind: 'forbid-automatic-journey-membership'; support: string[] }
+  | { kind: 'cannot-co-member'; leftSupport: string[]; rightSupport: string[] };
+
+type ReconstructionOptions = { journeyGroupingConstraints?: JourneyGroupingConstraint[] };
+
 function normalizedLongitude(value: number) { return ((value + 180) % 360 + 360) % 360 - 180; }
 function eligible(evidence: ReconstructionEvidence) {
-  return evidence.availability !== 'unavailable' && !evidence.excluded && !evidence.duplicateConflict
+  return evidence.availability !== 'unavailable' && !evidence.excluded && !evidence.duplicateConflict && evidence.supportEligible !== false
     && Number.isFinite(evidence.latitude) && Number.isFinite(evidence.longitude)
     && evidence.latitude! >= -90 && evidence.latitude! <= 90 && evidence.longitude! >= -180 && evidence.longitude! <= 180
     && (evidence.reportedAccuracyMeters === null || (evidence.reportedAccuracyMeters >= 0 && evidence.reportedAccuracyMeters <= MAX_PLACE_METERS));
@@ -62,6 +71,21 @@ function visitHasUsualAreaContext(visit: Visit, input: ReconstructionEvidence[])
   return visitEvidence(visit, input).some((item) => item.usualAreaContext);
 }
 
+function visitContainsSupport(visit: Visit, support: string[]) {
+  return support.every((evidenceId) => visit.evidenceIds.includes(evidenceId));
+}
+
+function blocksAutomaticMembership(visit: Visit, constraints: JourneyGroupingConstraint[]) {
+  return constraints.some((constraint) => constraint.kind === 'forbid-automatic-journey-membership' && visitContainsSupport(visit, constraint.support));
+}
+
+function blocksCoMembership(prior: Visit, next: Visit, constraints: JourneyGroupingConstraint[]) {
+  return constraints.some((constraint) => constraint.kind === 'cannot-co-member' && (
+    (visitContainsSupport(prior, constraint.leftSupport) && visitContainsSupport(next, constraint.rightSupport))
+    || (visitContainsSupport(prior, constraint.rightSupport) && visitContainsSupport(next, constraint.leftSupport))
+  ));
+}
+
 function visitCanFollow(prior: Visit, next: Visit, input: ReconstructionEvidence[]) {
   const priorEvidence = visitEndEvidence(prior, input);
   const nextEvidence = visitStartEvidence(next, input);
@@ -80,7 +104,8 @@ function mergeAiCandidates(fromJourneyId: string, toJourneyId: string, prior: Re
 }
 
 /** Pure deterministic baseline. It intentionally produces uncertainty instead of travel claims. */
-export function reconstructV1(input: ReconstructionEvidence[]): ReconstructionGraph {
+export function reconstructV1(input: ReconstructionEvidence[], options: ReconstructionOptions = {}): ReconstructionGraph {
+  const constraints = options.journeyGroupingConstraints ?? [];
   const family = new Map<string, ReconstructionEvidence[]>();
   for (const item of input) { const key = item.duplicateFamilyId ?? item.id; family.set(key, [...(family.get(key) ?? []), item]); }
   // A contradictory duplicate family is not allowed to select one convenient
@@ -153,6 +178,7 @@ export function reconstructV1(input: ReconstructionEvidence[]): ReconstructionGr
   });
   const journeys: ReconstructionGraph['journeys'] = []; const possibleMerges: ReconstructionGraph['possibleMerges'] = [];
   for (const visit of orderedVisits) {
+    if (blocksAutomaticMembership(visit, constraints)) continue;
     const prior = journeys.at(-1); const priorVisit = prior && visits.find((candidate) => candidate.id === prior.visitIds.at(-1));
     const priorEvidence = priorVisit && visitEndEvidence(priorVisit, input); const nextEvidence = visitStartEvidence(visit, input);
     const gap = priorEvidence && nextEvidence ? dayGap(priorEvidence, nextEvidence) : null;
@@ -163,10 +189,10 @@ export function reconstructV1(input: ReconstructionEvidence[]): ReconstructionGr
     const mergeLimit = priorEvidence?.hasPreciseOffset && nextEvidence?.hasPreciseOffset ? 10 : 10;
     const boundary = priorVisit ? visitHasOwnerBoundary(priorVisit, input) : false;
     const localContext = visitHasUsualAreaContext(visit, input) || (priorVisit ? visitHasUsualAreaContext(priorVisit, input) : false);
-    if (prior && priorVisit && !boundary && !localContext && priorVisit.placeId !== visit.placeId && gap !== null && gap <= automaticLimit && journeySpan !== null && journeySpan <= 30) prior.visitIds.push(visit.id);
+    if (prior && priorVisit && !boundary && !localContext && !blocksCoMembership(priorVisit, visit, constraints) && priorVisit.placeId !== visit.placeId && gap !== null && gap <= automaticLimit && journeySpan !== null && journeySpan <= 30) prior.visitIds.push(visit.id);
     else {
       const next = { id: `journey:${visit.id}`, visitIds: [visit.id], state: 'inferred' as const }; journeys.push(next);
-      if (prior && !boundary && gap !== null && gap <= mergeLimit) {
+      if (prior && !boundary && !blocksCoMembership(priorVisit!, visit, constraints) && gap !== null && gap <= mergeLimit) {
         const aiCandidates = mergeAiCandidates(prior.id, next.id, priorEvidence, nextEvidence);
         possibleMerges.push({ fromJourneyId: prior.id, toJourneyId: next.id, reason: journeySpan !== null && journeySpan > 30 ? 'span-cap' : 'adjacent-gap', ...(aiCandidates ? { aiCandidates } : {}) });
       }
@@ -180,6 +206,7 @@ export function reconstructV1(input: ReconstructionEvidence[]): ReconstructionGr
     return compareVisitEvidence(firstA, firstB) || a.id.localeCompare(b.id);
   });
   for (const visit of weakVisits) {
+    if (blocksAutomaticMembership(visit, constraints)) continue;
     const prior = journeys.at(-1);
     const priorVisit = prior && visits.find((candidate) => candidate.id === prior.visitIds.at(-1));
     const priorEvidence = priorVisit && visitEndEvidence(priorVisit, input);
@@ -188,12 +215,12 @@ export function reconstructV1(input: ReconstructionEvidence[]): ReconstructionGr
     const journeyStartVisit = prior && visits.find((candidate) => candidate.id === prior.visitIds[0]);
     const journeyStart = journeyStartVisit && visitStartEvidence(journeyStartVisit, input);
     const journeySpan = journeyStart && nextEvidence ? calendarGap(journeyStart, nextEvidence) : null;
-    if (prior && priorVisit?.order === 'uncertain' && !sameCivilDay && visitCanFollow(priorVisit, visit, input) && journeySpan !== null && journeySpan <= 30) {
+    if (prior && priorVisit?.order === 'uncertain' && !sameCivilDay && !blocksCoMembership(priorVisit, visit, constraints) && visitCanFollow(priorVisit, visit, input) && journeySpan !== null && journeySpan <= 30) {
       prior.visitIds.push(visit.id);
     } else {
       const next = { id: `journey:${visit.id}`, visitIds: [visit.id], state: 'inferred' as const }; journeys.push(next);
       const gap = priorEvidence && nextEvidence ? dayGap(priorEvidence, nextEvidence) : null;
-      if (prior && priorVisit?.order === 'uncertain' && !sameCivilDay && !visitHasOwnerBoundary(priorVisit, input) && !visitHasUsualAreaContext(priorVisit, input) && !visitHasUsualAreaContext(visit, input) && gap !== null && gap <= 10) {
+      if (prior && priorVisit?.order === 'uncertain' && !sameCivilDay && !blocksCoMembership(priorVisit, visit, constraints) && !visitHasOwnerBoundary(priorVisit, input) && !visitHasUsualAreaContext(priorVisit, input) && !visitHasUsualAreaContext(visit, input) && gap !== null && gap <= 10) {
         const aiCandidates = mergeAiCandidates(prior.id, next.id, priorEvidence, nextEvidence);
         possibleMerges.push({ fromJourneyId: prior.id, toJourneyId: next.id, reason: journeySpan !== null && journeySpan > 30 ? 'span-cap' : 'adjacent-gap', ...(aiCandidates ? { aiCandidates } : {}) });
       }

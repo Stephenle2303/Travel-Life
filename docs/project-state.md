@@ -1,6 +1,72 @@
 # Project state
 
-Updated: 2026-10-12 (Asia/Bangkok).
+Updated: 2026-10-14 (Asia/Bangkok).
+
+## Dimensional Atlas development plan (2026-10-15)
+
+The owner accepted vibrant, professional 3D visual polish through color,
+perspective, markers, cards and responsive motion, explicitly excluding terrain
+and mountains/valleys. The journey list must be simple, minimal, intuitive and
+uncluttered. [Decision 0012](decisions/0012-dimensional-atlas-and-minimal-list.md)
+records that direction. The [spec and development plan](../_bmad-output/specs/spec-atlas-dimensional-polish/SPEC.md)
+define four capabilities, five ordered work packages and 18 acceptance scenarios.
+This task changes planning documents only; implementation and device evidence are
+pending. Next work starts with installed MapLibre API/style feasibility, then
+dimensional styling, bounded safe row summaries/list layout, camera/context
+integration and verification. Production basemap selection remains unresolved.
+
+## Atlas map/list refinement (2026-10-15)
+
+The private Atlas now leads with a compact header, inferred-record summary,
+Map/Timeline and year controls, then a larger MapLibre surface and flat journey
+rows rather than a nested scroll panel. Ordinary anchors are quiet while the
+current selection is citrus/ring styled; coincident map hits require an explicit
+choice. The selected local preview is rendered over the map (or through the
+same Timeline fallback), preserves the redacted opaque selection boundary, and
+suppresses stale preview publications. Coverage and tile-request disclosure are
+available through the labelled About control. The focused Atlas suite passed 14
+tests and mobile TypeScript passed. Native hit-testing, camera gesture fidelity,
+safe-area/large-text behavior, and full paged-gallery/correction-successor
+validation remain unverified; the existing bounded preview viewer is not proof
+of a complete device media flow.
+
+## M4.1b owner title and date claims (2026-10-14)
+
+Owners can now save a private journey title plus either an exact day or an
+ordered approximate interval. Schema v20 records these as immutable `claim`
+revisions, separate from the observed span and existing confirm/reject
+semantics. A claim follows only an exact full-support successor during a
+rebuild; a missing, split, or duplicated mapping preserves the last complete
+projection and enters pending remap. The claim does not alter evidence,
+membership, place/country aggregates, routes, or sharing. The focused mobile
+suites passed 5 suites / 55 tests, and mobile TypeScript, Expo lint, and root
+`npm run check` passed. The React 19.2-compatible test renderer and awaited
+RNTL v14 test interactions resolved EP-011; the full mobile suite passed 27
+suites / 213 tests with no console diagnostics. Device SQLite migration and
+native owner-input behavior remain unverified.
+
+## M4.1a successor-identity repair (2026-10-14)
+
+M4.1 remains in progress and is now explicitly staged as an epic-sized correction
+capability. The confirm/reject foundation persists immutable review revisions and
+rebuilds atomically. Schema v18 distinguishes a confirmation applied to a rebuilt
+successor journey from a rejection applied as a durable `grouping-constraint` with
+no generated journey target. This prevents a rejection from being recorded against
+the predecessor journey that the corrected projection removes. The focused mobile
+suite passed 4 suites / 73 tests, including the new rejection-application and
+migration assertions. TypeScript, Expo lint, and the root foundation checks also
+passed; device SQLite migration remains unverified. The broader M4.1 owner-edit, split/merge,
+duplicate-family, and pending-remap-resolution work remains outside M4.1a.
+
+## Mandatory error learning (2026-10-13)
+
+The owner requested strict recording and reuse of agent mistakes. `AGENTS.md` now
+requires relevant playbook checks before work, same-task incident recording,
+verified corrections, explicit unresolved status, and stronger safeguards for
+recurrences. `docs/development/error-playbook.md` holds the index, template, and
+observed lessons. This provides persistent procedural learning across sessions;
+it does not change model weights. Future work must apply relevant lessons and
+record newly discovered failures before completion.
 
 ## Current stage and user direction
 
@@ -414,8 +480,8 @@ applied to a partial rebuilt graph.
 
 `/history` now projects the committed local reconstruction graph into a bounded
 owner-facing reveal model before it reaches UI. The Living Atlas screen leads with
-a native `react-native-maps` canvas when local inferred journeys are available,
-states its normal viewport/tile-request boundary, and always retains a readable
+a native map canvas when local inferred journeys are available, states its normal
+viewport/tile-request boundary, and always retains a readable
 local list. Sparse, pending reconciliation, restricted access, recoverable failure,
 and no-journey states present truthful recovery actions. The Replay handoff is
 typed and appears only for eligible revealed journeys; it is an availability screen,
@@ -498,8 +564,611 @@ place, and supported-country counts; it cannot receive country labels/codes,
 coordinates, evidence/source identifiers, dates, routes, distance, duration, or
 media. Processing, restricted, failed, and sparse reveal states suppress totals.
 
-Observed on 2026-10-13: focused resolver/repository/Atlas tests passed 3 suites
-/ 23 tests, and TypeScript passed. This is synthetic validation only. Physical
-iOS/Android SQLite migration, resolver performance, screen-reader behavior,
-lifecycle interruption, and reconstruction/country-resolution accuracy remain
-unverified.
+Observed on 2026-10-13: focused repository/Atlas/resolver/import/lifecycle-provider
+/journey-detail tests passed 6 suites / 44 tests. Mobile Jest passed 25 suites / 183
+tests, with TypeScript and Expo lint also passing. Expo Doctor reported 20/21 checks
+because six existing Expo SDK 57 patch versions are behind its expected versions; this
+feature did not change dependencies. Root `npm run check` passed framework integrity,
+20 foundation tests, and evaluation smoke checks; `git diff --check` found no whitespace
+errors. This is synthetic validation only. Physical iOS/Android SQLite migration,
+resolver performance, screen-reader behavior, lifecycle interruption, and
+reconstruction/country-resolution accuracy remain unverified.
+
+## M4.1 journey correction planning (2026-10-13)
+
+The [M4.1 delivery spec](../_bmad-output/implementation-artifacts/spec-m4-1-confirm-reject-and-edit-a-journey.md)
+now plans scoped confirm/reject, title and date edits, destination and memory
+membership changes, basic split/merge, and pending correction-remap review. It
+keeps observed evidence separate from owner-entered claims, preserves the
+official Journey detail composition, and requires corrections to survive
+restart, rescan, and foreground/background reconstruction without silently
+remapping ambiguous identities. The current correction schema and M2.6
+history-correction pause are identified as implementation prerequisites.
+This is planning only: no correction behavior, migration, UI, test result, or
+device validation is claimed. Next work is the durable correction contract,
+reconciliation mapper, owner review UI, and their acceptance checks within M4.1.
+The plan now defines exact successor mapping from reviewed evidence/visit support
+sets, strict split/merge ordering for weak dates, an uncertain-memory assignment
+entry, one effective owner-visible journey count alongside evidence-based
+place/country counts, and a common validator for deterministic, AI-suggested,
+and owner-initiated longer-gap merges. Ambiguous lineage and unknown order remain
+pending for owner review.
+Owner-initiated split/merge now has a distinct publication rule: validated
+successors and counts appear in one atomic save, while predecessor-wide title,
+date bounds and confirmation await scope review. Only a later ambiguous
+automatic remap holds the last complete view. A rejected single-visit journey
+cannot automatically re-enter a journey when new evidence arrives; its source
+visit remains available and the owner can explicitly resolve or reverse it.
+The M4.1 spec now fixes partial-overlap and duplicate-family remap outcomes,
+separates `pending_scope_review` from `pending_remap` as durable correction
+states, scopes negative constraints to reviewed support units and visit links,
+and defines the save token, shared write guard, rollback and rebuild race rules.
+An uncertain-memory state matrix keeps availability, trip membership and visit
+support independent. These are planning contracts; the current schema and
+adapter do not yet implement their lifecycle-generation or duplicate-family
+requirements.
+The follow-up planning pass adds ordered remap gates with no partial-match
+fallback, a rejection invariant anchored to support-unit sets and pairwise
+visit incompatibility, an editor state machine for stale previews and save
+races, and a legal/forbidden transition table for uncertain memories. These
+are acceptance contracts for M4.1, not implemented behavior.
+The latest remap clarification gives explicit first-failure outcomes for partial
+and mixed support matches. The memory contract now models suggestion targets,
+owner-rejected targets, and the one accepted primary separately; choosing a
+different primary requires an explicit atomic transfer when one already exists.
+The remap plan now includes a normative typed-key resolver and whole-set
+containment algorithm. A mixed exact/ambiguous/conflicting correction is
+pending in full; no portion of its candidate graph publishes. Existing
+media-only choices map by their canonical photo ID without requiring visit
+support, while visit and journey corrections require exact support-unit and
+successor-visit mappings.
+
+## M4.1 BMAD spec validation (2026-10-13)
+
+The [BMAD M4.1 kernel](../_bmad-output/specs/spec-m4-1-journey-corrections/SPEC.md)
+now adopts the existing delivery record and the accepted design/evidence
+decisions as its complete planning contract. Its append-only memlog records a
+two-pass coherence and preservation review. The remap rules are conservative
+and explicit for keys that can be verified, but family-key remapping is not
+implementation-ready: the current adapter passes no duplicate-family ID and
+the local schema lacks a durable family identity and explicit source-origin
+support field. The BMAD spec leaves the source of those signals as an open
+question and the delivery spec marks it as a prerequisite. No correction code,
+runtime behavior, device result or accuracy measurement changed in this pass.
+The follow-up check found a state-model conflict: a newer `pending_remap`
+candidate had been described as replacing an `effective` correction even while
+the old completed projection remained visible. The M4.1 contract now keeps
+owner decisions, committed applications and candidate evaluations separate.
+An ambiguous candidate leaves the prior application effective and publishes no
+partial result; a valid owner split/merge instead commits its successors and
+`pending_scope_review` claims together. Exact matching, partial overlap,
+family/source conflicts and both rejection scopes have an explicit case table
+in the delivery spec. Durable family identity remains an open dependency.
+
+The M4.1 implementation has now advanced beyond the initial preview-only panel.
+On mobile, Confirm/Reject first show the current visible scope, then persist a
+local evidence-support revision and the exact owner-visible snapshot, tied to the
+loaded reconstruction run. A successful save immediately attempts a local rebuild;
+confirmed/rejected outcomes are shown as applied only after that rebuild succeeds.
+Stale runs are refused. A failed exact remap is tracked as a separate durable
+candidate evaluation, preserving the last committed application and complete
+projection. Focused correction UI/provider/reconstruction/migration tests, mobile
+typecheck, and mobile lint passed. The migration is now at schema v16. This is a
+partial implementation, not full M4.1: title/date edits, destination and memory
+membership, split/merge, uncertain-memory review, family identity, owner resolution
+of pending remaps, atomic save-plus-projection, device validation and the complete
+acceptance matrix remain outstanding.
+
+Final checks on 2026-10-13: mobile Jest passed 27 suites / 198 tests, TypeScript
+and Expo lint passed, and root `npm run check` passed framework integrity, all 20
+foundation tests, and evaluation smoke. Mobile `npm run check` stopped at Expo
+Doctor (20/21): six existing SDK 57 patch versions are behind the expected
+versions; no dependencies were changed for this correction work. No iOS/Android
+device run or reconstruction-accuracy result is claimed.
+
+## M4.1 implementation start (2026-10-13)
+
+The owner-facing correction entry point is now wired into the private Journey
+screen flow within `apps/mobile`: the details screen exposes a review/correct
+action, and a dedicated correction route renders a private, read-only review
+panel with explicit Confirm / Reject / Review uncertain memories choices. The UI
+keeps source evidence local, preserves no-upload semantics, and uses the
+existing private journey data contract rather than publishing a remote correction.
+This is a bounded implementation step aligned with the M4.1 direction; it is not
+an end-to-end correction engine or a final family-identity remap implementation.
+The remaining implementation dependency is the durable duplicate-family/support-unit
+identity and exact remap precedence for partial and ambiguous successor cases.
+The mobile app and repository tests were re-run after the route and local preview
+changes; the reconciliation and photo-access suites both passed.
+
+The 2026-10-13 M4.1 code review found that this remains a UI shell: the
+Confirm/Reject controls do not save owner decisions, and the story's durable
+correction, reconstruction remap, editing, uncertain-memory, and preview/save
+safeguards are not implemented in the reviewed diff. The new screen also fails
+mobile lint at `journey-correction.tsx:32` (`react/no-unescaped-entities`), though
+mobile TypeScript checking passes. Review findings are tracked in the M4.1 story;
+the story remains in progress. No device behavior or durable correction is claimed.
+
+Follow-up implementation added schema v13 for immutable local confirm/reject
+revisions, with canonical evidence support snapshots, lifecycle/run freshness
+checks, replacement lineage, and delete-all cleanup. The correction route now
+uses a durable provider save path and returns to the existing detail route; it
+shows a save failure instead of presenting an unsaved selection as completed.
+This is only the canonical-evidence slice. The native adapter still has no
+verified duplicate-family source, so family-key remapping and automatic
+projection reconciliation remain unavailable rather than guessed. Focused import
+repository/provider tests passed (19 tests), as did mobile TypeScript and lint.
+Physical devices, split/merge, membership editing, negative-constraint grouping,
+and exact remap publication are still unimplemented and must remain in progress.
+
+Follow-up M4.1 implementation review on 2026-10-13 retained the story as
+in-progress. The confirm/reject slice has focused fixture coverage, but its
+revision write and projection rebuild still commit separately; a failed or
+interrupted rebuild can leave a durable decision without the required updated
+projection. The current remapper flattens support to a journey-level match and
+rejection removes candidates after grouping, so it cannot enforce per-visit exact
+lineage or negative grouping constraints. Owner edits, uncertain-memory actions,
+split/merge, duplicate-family identity, idempotent save commands, and owner
+pending-remap resolution remain absent. Six focused suites passed (45 tests),
+TypeScript and lint passed, and `git diff --check` passed; the correction UI tests
+still emit React `act` warnings. The sandbox blocked Jest cache resolution with the
+known Windows temporary-directory EPERM; the approved outside-sandbox run supplied
+the passing test result. No device behavior or full M4.1 acceptance is claimed.
+
+The next M4.1 correction increment moved the confirm/reject write and its
+successor reconstruction into one SQLite immediate transaction. The repository
+now records reviewed visit support sets, so a split or ambiguous successor fails
+closed instead of flattening every decision to one journey-level support set.
+The command key has a unique durable index: a response-loss retry reads the
+already committed decision and does not append a revision or a second projection
+run. The provider publishes the graph returned by the committing transaction,
+then refreshes the redacted Atlas cache, instead of opening another rebuild.
+Focused correction/provider/repository suites passed 32 tests; TypeScript and
+Expo lint passed, and `git diff --check` found no whitespace errors. The
+journey-correction renderer still emits React `act` diagnostics despite the
+tests passing; this remains open in the error playbook. M4.1 remains incomplete:
+the pre-grouping negative-constraint engine, typed title/date/destination/memory
+claims, split/merge, duplicate-family identity, pending-remap resolution, full
+acceptance matrix, and device checks are not claimed.
+
+The correction engine now also consumes effective rejection support sets before
+automatic journey grouping. A rejected single visit remains a source-supported
+visit but is withheld from automatic journey membership; a rejected reviewed
+pair becomes separate automatic journeys and is not offered as a possible merge.
+The repository validates exact lineage on the unconstrained graph before it
+creates this constrained successor graph, so a split or ambiguous remap rolls
+back instead of publishing a constraint that guessed at a successor. Focused
+engine, correction, provider, and repository suites passed 64 tests. This does
+not complete M4.1's structural editing or typed owner-claim requirements.
+
+M4.1a regression coverage now also proves the correction transaction rolls back
+when the projection write fails after a revision is staged, when the selected
+run becomes stale before save, and when the connected private record is lost at
+the final pre-commit lifecycle guard. In each case no commit is issued. The
+focused reconciliation repository suite passed 15 tests; mobile TypeScript and
+Expo lint passed. This remains synthetic coverage, not a physical-device result.
+
+The focused M4.1a correction regression set now passes 67 tests across engine,
+correction-application, provider, and reconciliation repository suites. The
+React `act` diagnostics are traced to an installed incompatible nested test
+renderer peer range (`^19.3.0` against the app's React 19.2.3), recorded in the
+error playbook, and intentionally left for the framework-version workflow rather
+than changing dependencies during this story.
+
+The root `npm run check` also passed: framework integrity matched 44 skills and
+four BMAD runtime trees, all 20 foundation tests passed, and eval smoke checks
+retained their explicit non-quality result. This does not replace the pending
+native device validation for M4.1a.
+
+## M4.1 memory membership corrections (2026-10-14)
+
+The local correction path now stores immutable v21 memory-membership revisions
+for assign, move, reject, and unassign decisions. Each revision carries the
+selected canonical evidence key and the complete target-journey support set;
+the rebuild accepts the target only through the same exact successor mapping
+used for other corrections. An assign or move atomically replaces any earlier
+owner primary for that evidence, while reject and unassign remove only the
+selected membership. The overlay changes neither visit support nor place or
+country counts. Journey correction shows opaque memory IDs only and requires a
+preview before the local save; inaccessible memories cannot newly assign or
+move. Lifecycle and stale-run guards protect the save and the provider only
+publishes the committed graph after the redacted Atlas refresh.
+
+Focused correction/provider/repository/migration tests passed 5 suites / 56
+tests, and mobile TypeScript and Expo lint passed. This is synthetic coverage.
+The bounded uncertain-memory list, competing-target display, durable pending
+remap candidates for memory corrections, duplicate-family identity, split/merge,
+and device validation remain incomplete.
+
+## M4.1 structural split and merge (2026-10-14)
+
+The local correction schema now migrates through v23 and stores immutable split
+and merge revisions with a typed structural payload. A split records the complete
+reviewed support for one strictly ordered left visit and rebuilds with an
+owner-boundary marker. A merge records two adjacent, strictly ordered single-visit
+journeys and rebuilds them as one owner-visible successor. Both writes use the
+existing immediate transaction, lifecycle/stale guards, idempotency key, and
+redacted Atlas refresh. The owner correction screen previews both operations and
+uses only opaque local visit and journey IDs. Save-time validation rejects weak,
+same-day/unknown ordering, nonadjacent targets, missing support, and generated-ID
+targets. Structural revisions are applied as grouping constraints rather than
+being mapped to a generated journey target.
+
+Focused structural, correction UI, provider, migration, and repository suites
+passed 6 suites / 60 tests; the complete mobile suite passed 28 suites / 218
+tests; mobile TypeScript and Expo lint passed; and root `npm run check` passed.
+This is synthetic verification only. M4.1 remains in progress: merge currently
+covers adjacent single-visit journeys, predecessor-wide claims still need durable
+pending-scope records and owner resolution, the bounded uncertain-memory list and
+competing-target view are incomplete, duplicate-family support identity is not
+available from the adapter, destination removal and owner remap resolution remain
+unimplemented, and physical iOS/Android validation has not been run.
+
+## M4.1 pending scope review (2026-10-14)
+
+Schema v24 adds durable `pending_scope_review` records. A structural split or
+merge supersedes only predecessor-wide confirmation and owner title/date
+revisions, publishes the structural successor in the same transaction, then
+records each affected successor for owner scope review. A successor does not
+show the predecessor claim as accepted. Saving a fresh scoped confirmation or
+owner claim resolves that successor's pending-scope record. This is distinct
+from `pending_remap`, which holds a later ambiguous automatic rebuild.
+
+The complete mobile suite passed 28 suites / 219 tests, and root `npm run
+check` passed. Remaining M4.1 work includes destination removal, broad memory
+review, duplicate-family identity, remap resolution, integration coverage of
+titled predecessors and successor scope records, and device acceptance checks.
+
+## M4.1 destination removal (2026-10-14)
+
+Schema v25 adds a typed `remove-visit` correction revision. The owner selects
+one opaque reviewed visit, previews the change, and saves an exact support-set
+revision. Rebuild removes that visit only from the selected journey projection;
+the visit, canonical evidence, place support, and country support remain in the
+underlying reconstruction. The correction is stale/lifecycle guarded and uses
+the existing atomic projection transaction. Full mobile verification passed 28
+suites / 220 tests, TypeScript, Expo lint, root `npm run check`, and diff
+whitespace validation. Remaining M4.1 work is the durable remap-resolution UI
+and candidate records, bounded uncertain-memory review with competing targets,
+duplicate-family identity, acceptance-matrix integration coverage, and device
+checks.
+
+## M4.1 pending-remap owner resolution (2026-10-14)
+
+An ambiguous correction remains withheld from the published projection and is now
+visible only on a successor that overlaps its private reviewed support. The
+journey review surface explains the bounded remap reason and offers two owner
+paths: save a fresh scoped correction for the rebuilt journey, or preview and
+discard the old withheld correction. Discarding supersedes only the pending
+revision and candidate, then rebuilds and publishes the resulting complete graph
+inside one SQLite transaction. It does not delete evidence, visits, places,
+memories, or silently accept a successor. Candidate identifiers remain inside
+the local repository and never enter the owner-readable detail contract.
+
+Focused UI, provider, reconstruction-repository, and migration suites passed 4
+suites / 47 tests, with mobile typecheck and Expo lint passing. This is
+synthetic coverage. Remaining M4.1 work is bounded uncertain-memory review and
+competing-target display, durable pending-remap handling for memory corrections,
+duplicate-family identity when an adapter source is available, broader
+acceptance-matrix integration coverage, and physical iOS/Android checks.
+
+## M4.1 uncertain-memory review (2026-10-14)
+
+The journey correction screen now opens a bounded, local page of photos that
+lack visit support. Owners may search by observed date, page through at most 12
+rows at a time, see availability and coarse location-metadata state, and see how
+many journey suggestions exist without exposing other journey identifiers. Each
+row retains the existing preview-before-save assign, move, reject, and unassign
+flow. A memory-only assignment remains separate from visit, place, country, and
+owner-presence support. The database query and all opaque memory mappings remain
+on device.
+
+Focused UI, provider, and reconstruction repository suites passed 3 suites / 36
+tests, with mobile typecheck and Expo lint passing. This is synthetic coverage.
+Remaining M4.1 work includes durable pending-remap handling for memory
+corrections, integration coverage for the full acceptance matrix, and physical
+iOS/Android checks. Duplicate-family scoped correction remains unavailable until
+the import adapter supplies a durable verified family identity and normalized
+support tuple.
+
+## M4.1 code-level closure (2026-10-14)
+
+Schema v26 gives memory corrections their own durable pending-remap queue. An
+automatic ambiguous memory remap is now retained for owner review and can be
+discarded without affecting source evidence or unrelated corrections. The full
+M4.1 implementation is ready for physical validation; use
+`docs/development/m4-1-device-validation.md` for the private iOS and Android
+checks. Duplicate-family scoped correction remains a deliberate unsupported
+case until import exposes a durable verified family identity and normalized
+support tuple; current independent canonical evidence corrections remain
+supported.
+
+## M4.1c verified duplicate-family identity (2026-10-14)
+
+- **Decision implemented:** only an explicit stable identifier provided by a platform integration may form a duplicate family. Expo Media Library currently provides no documented identifier, so normal imports persist `null` and remain independent evidence.
+- **Durable behavior:** schema v27 stores private family identity plus a versioned normalized support tuple; schema v28 stores the reviewed family membership and tuple snapshot with each journey or memory correction. A family is usable only when all available members agree exactly. A changed, missing, or conflicting reviewed family fails closed to pending remap and never supplies duplicate visit support.
+- **Evidence:** focused family/import/reconstruction tests passed 5 suites / 84 tests; full mobile Jest passed 28 suites / 223 tests; `npm --prefix apps/mobile run typecheck` and `npm --prefix apps/mobile run lint` passed.
+- **Remaining device check:** on iOS and Android, determine whether a selected native provider exposes a documented stable family relationship. Record only aggregate capability. If no provider does, the implemented independent-copy path is the intended result.
+
+## Android Atlas sparse-state clarification (2026-10-14)
+
+Android device validation showed a connected local import with 2,989 accessible records and 1,957 available geotag metadata, while Atlas was sparse. The prior sparse heading incorrectly said `No private record yet`; it now says `No journey revealed yet.` so it does not direct an owner to nonexistent Settings controls. Focused owner-flow and Atlas reveal suites (17 tests), typecheck, lint, and `git diff --check` passed. This does not establish why the current private library produces no supported journey; it remains an Android reconstruction/device observation to investigate without recording personal metadata.
+
+## Android sparse Atlas aggregate diagnostics (2026-10-14)
+
+The sparse Atlas now displays aggregate counts from the last completed local reconstruction: evidence assessed and supported, inferred places and visits, and fixed reason buckets for evidence without visit support. The read uses the completed run in SQLite, so the counts survive an app reload, and the UI includes a local recheck action when no completed run is available. It does not expose evidence IDs, precise locations, or media metadata. Focused suites passed 35 tests; full mobile Jest passed 28 suites / 228 tests; mobile typecheck, Expo lint, and root `npm run check` passed. The physical Android result remains unverified: reload the running development build, open the sparse Atlas, and share only the aggregate numbers from **Local evidence check**. Those numbers will determine the next reconstruction fix, if any.
+
+The owner subsequently observed 2,989 assessed, zero supported, zero places, zero visits, and all 2,989 in the broad insufficient-location bucket on Android. The current adapter and repeat-import path can fill coordinates, but the pre-reconstruction M1.3 import retained only a location-present flag. An existing index may therefore need an explicit metadata refresh; the cause remains unverified until the owner reruns Start metadata import and checks the new aggregate. Do not infer that the 1,957 location-present flags are valid coordinates or supported visits.
+
+## Android reload SQLite lock repair (2026-10-14)
+
+The owner saw an uncaught `database is locked` rejection from native SQLite during an Android development reload. The exact call is unknown. The import repository previously began an immediate write transaction on every lazy open, even at the current schema version, while reconstruction used another connection to the same database. Current-schema opens now only read the version, both connections wait up to 30 seconds for an active SQLite writer, and the startup reconciliation read has a handled error state. Fresh installs and older schemas still run the migration transaction. Full mobile Jest passed 28 suites / 234 tests; mobile typecheck and lint and root `npm run check` passed. The device reload and metadata refresh still need physical recheck; this synthetic result does not prove the lock is gone in every OS scheduling case.
+
+## Android Atlas native map manager compatibility (2026-10-14)
+
+The Android development client then reported that the native `Marker` view manager
+was undefined. Atlas initially prevented a repeat crash by falling back to Timeline,
+but that safeguard recognized only legacy `AIRMap` and `AIRMapMarker` managers.
+This app has React Native new architecture enabled; the linked `react-native-maps`
+1.27 package uses the Fabric names `RNMapsMapView` and `RNMapsMarker`. The
+Fabric-aware gate then exposed a Marker-only Android runtime failure, so Atlas now
+uses the native map surface without native Marker children. It centers on the
+already-coarsened anchors and retains Timeline as the journey-selection control.
+Focused Atlas coverage, mobile typecheck, and lint passed. Reload the JavaScript
+bundle to verify this marker-free map; the separate SQLite reload repair still
+needs its deliberate concurrent device check.
+
+## Android metadata-refresh result (2026-10-14)
+
+The owner refreshed the current Android accessible scope and Atlas then reported
+165 inferred journeys, 67 inferred places, and 5 supported countries from 2,989
+device-visible records. This resolves the earlier zero-support result as a stale
+local-index outcome for this device. These aggregate counts do not prove exact
+journey boundaries, complete coverage, or owner presence. The installed client
+also displayed the tested Timeline fallback without a marker crash. The device
+then exposed the legacy-only manager-name gate; the Fabric-compatible correction
+is ready for a JavaScript reload. An intentionally concurrent reload/import timing
+case is still required to fully close the SQLite-lock check.
+
+## Android Atlas MapLibre provider replacement (2026-10-14)
+
+The prior marker-free Google map could not be enabled because Google Maps Platform
+reported that this billing profile is in a prohibited territory. The app now removes
+`react-native-maps`, the Android Google-key dynamic configuration, and every
+Google API-key prerequisite. It uses `@maplibre/maplibre-react-native` 11.5 with
+its Expo config plugin and the existing React Native new architecture. The Android
+development build uses MapLibre demo tiles solely for device verification; the
+native source receives only coarsened local anchor points and contains no evidence,
+media, or source identifiers. Its disclosure says that the tile service may receive
+viewport and tile requests. A production tile/style provider remains deliberately
+unconfigured because MapLibre documents its demo tiles as development-only.
+
+The view renders map points as a local GeoJSON source, supports selection by a
+coarsened anchor, and keeps the Timeline fallback if an old development client
+lacks the native module. Focused Atlas coverage passed 14 tests with TypeScript
+and Expo lint; full mobile Jest passed 28 suites / 235 tests, and root `npm run
+check` passed. The fresh debug APK includes `libmaplibre.so` and no Google Maps
+package. `npx expo run:android --device 2211133G --no-bundler` built successfully,
+installed it, and opened the development deep link on the connected device. The
+owner must still validate the visible MapLibre surface. This is not a production
+map-service decision or a proof of external-provider privacy behavior.
+
+## Atlas map journey preview specification (2026-10-15)
+
+The owner requested a map-first exploration loop: tapping a journey point should
+open a dismissible card over the map with trustworthy date/title context and a
+local media preview. “See photos and videos” should open a private gallery and
+return to the same map camera, selected point and year filter; X or an empty-map
+tap should close the card without taking the owner to Timeline. A secondary
+“Review or correct journey” action opens the existing correction flow and must
+restore valid map context on return. The planning
+contract is [the Atlas journey preview spec](../_bmad-output/specs/spec-atlas-map-journey-preview/SPEC.md)
+with interaction, acceptance, and brownfield companions. It distinguishes
+owner-provided titles/dates from observed evidence, prohibits invented place
+names from coarse anchors, and requires bounded media loading and a Timeline
+fallback. The present Journey detail exposes only four preview memories, so a
+full associated-media viewer still requires implementation. The owner confirmed
+that videos belong in the same gallery and that correction belongs on the card;
+those choices are now recorded as acceptance cases. No app code was changed for
+this specification.
+
+## Atlas map journey preview implementation (2026-10-15)
+
+Atlas now keeps selected journey context in place, loads the current private
+journey projection behind the opaque display ID, and presents a dismissible
+Living Atlas preview card rather than requiring the detail route. The card
+separates owner claims from observed evidence, has a photos-and-videos entry,
+and offers correction directly. A private in-memory return context restores the
+Map/Timeline choice, year, and selected opaque ID after backing out of a
+map-origin correction. It never holds media source IDs or media data.
+
+The viewer renders only device-local available media returned by the existing
+bounded preview resolver. Videos are muted and require an explicit Play action;
+they pause on background or viewer close. The current local detail resolver is
+still bounded to four associated entries, so this does not establish an
+unbounded associated-media album. Focused Atlas/detail tests (19 tests), mobile
+TypeScript, Expo lint, root `npm run check`, and `git diff --check` passed.
+Physical iOS/Android map hit testing, safe areas, background playback, and
+correction return remain unverified.
+
+## Atlas map and journey-list refinement requirements (2026-10-15)
+
+The owner requested detailed requirements for a lean, minimalist, professional
+Atlas while retaining MapLibre. The new
+[refinement contract](../_bmad-output/specs/spec-atlas-map-and-list-refinement/SPEC.md)
+defines compact header/summary/filter controls, a generous quiet map, restrained
+selected points, and flat year-grouped journey rows below. Visual, interaction,
+brownfield and Given/When/Then acceptance companions capture the detailed work.
+The existing journey-preview contract remains mandatory, including paged local
+photos/videos, overlap choice, camera preservation and safe correction return.
+The current partial viewer and return context are not treated as completed
+evidence for those requirements. Basemap styling is separate from MapLibre's
+renderer; a production source/provider remains unselected. Portrait sizing and
+latest-first comparable ordering are explicit working defaults. This turn changes
+requirements only; no app code or device results are added.
+Document checks passed for five stable capabilities, 23 acceptance cases and
+all companion paths; root `npm run check` and `git diff --check` passed.
+
+## Atlas map and journey-list refinement implementation (2026-10-15)
+
+Atlas now leads with a compact private header, reachable map disclosure, shared
+year filter, larger MapLibre surface, muted ordinary anchors, a distinct citrus
+selected anchor, explicit overlap choice, an in-place preview, and concise local
+journey rows. The redacted fallback title is `Private journey`, not an ordinal or
+invented place. The selected gallery now reads stable pages of at most 12 mixed
+local associations from the current completed projection; source references are
+resolved only by the local photo adapter after explicit entry, and videos remain
+muted and stopped until Play. Page reads and preview reads are lifecycle and
+generation guarded, so stale or revoked content does not publish.
+
+Focused Atlas, provider, and reconstruction-repository suites passed 47 tests;
+mobile typecheck and Expo lint passed; root `npm run check` and `git diff --check`
+passed. The Jest sandbox cannot rename its cache files, so focused Jest ran
+outside that sandbox after the documented EP-010 retry. Native iOS/Android
+validation remains required for actual MapLibre overlap/empty-map hit testing,
+the actual MapLibre pan/zoom event and correction-return behavior, safe-area/
+large-text layout, gallery Back and video background pause. A production map
+provider remains deliberately unselected. The implementation now stores only a
+coarse `[longitude, latitude]` plus zoom in ephemeral Atlas context when
+MapLibre reports a region change; this is never persisted or sent to the tile
+service.
+
+Independent review then added source-press/overlap and gallery page/retry
+coverage, corrected latest-first durable ordering, antimeridian framing,
+filtered-anchor recovery, Timeline preview errors and gallery retry behavior.
+The focused mobile suites now pass 49 tests alongside typecheck, lint, root
+checks and whitespace validation. Device interaction remains unverified; it is
+not implied by the mocked MapLibre or Expo Video suites.
+
+The final full mobile check passed all 28 suites / 237 tests with TypeScript and
+lint. Expo Doctor remains 20/21 because nine Expo SDK packages are one patch
+version behind its current recommendation; this pre-existing dependency drift is
+recorded separately and was not changed as part of Atlas.
+
+## Android Atlas rebuild and smoke validation (2026-10-15)
+
+The fresh debug Android build installed successfully and loaded the current
+Atlas route on the connected physical device. The MapLibre surface initialized
+without the prior marker crash. During the first native smoke run, the
+OS-invoked maintenance task exposed a real nested SQLite transaction error:
+foreground and maintenance repository wrappers can share Expo SQLite's native
+connection. A shared transaction gate now serializes every explicit transaction
+across import and reconstruction wrappers, including migration. The regression
+uses two repository wrappers around one database double; it proves that the
+second transaction waits for the first to commit.
+
+Focused device-fix coverage passed 4 suites / 41 tests; the complete mobile
+check passed 29 suites / 238 tests, plus typecheck and lint. Expo Doctor remains
+20/21 due to the existing nine SDK patch-version recommendations. The rebuilt
+device registered the maintenance task and opened Atlas/MapLibre without a
+nested-transaction, fatal, React Native, marker, or bundle-load error in
+filtered native logs. Android did not execute a new scheduled maintenance
+callback during the observed smoke window, so this repair remains a
+code-level/device-startup mitigation until that callback is observed. The
+registered job was subsequently forced once through Android JobScheduler; it
+logged that it was executing and remained active during a bounded observation
+window without an error, but its completion was not observed. No
+screenshots, raw media, coordinates, or device
+identifiers were retained. Direct private UI interaction—point overlap choice,
+empty-map dismissal, gallery Back/video pause, and correction return—still
+needs owner-performed visual validation because this check deliberately did not
+read or capture private screen content.
+
+## Android Atlas processing-map repair (2026-10-15)
+
+The owner photo showed a responsive selected journey card and list but no map.
+That was not a MapLibre native-module failure: reconciliation correctly marked
+the current record as processing, while Atlas incorrectly hid its existing
+durable map projection unless the record was ready. Atlas now keeps a non-empty
+durable map/list/filter projection available during processing, with the
+not-final warning retained and Replay still unavailable. It also uses MapLibre's
+texture-backed Android view so the map composes beneath the React preview card,
+stops source presses from bubbling into the empty-map dismiss action, and
+switches to the Timeline fallback if style loading fails.
+
+Focused Atlas coverage passed 18 tests with mobile typecheck, Expo lint and
+whitespace validation. A physical device rerun remains required to confirm the
+visible map beneath the card and its touch/overlay behavior; mocked MapLibre
+tests are not proof of native composition or tile rendering.
+
+The follow-up debug APK rebuilt and installed on Android. Filtered native logs
+confirmed the texture-backed MapLibre manager loaded and Atlas opened without a
+React Native, SQLite, marker, or bundle-load error. The owner still needs to
+confirm the rendered map/card composition and touch behavior visually; no
+private screen capture was collected for that check.
+
+## Android Atlas gesture and point-selection repair (2026-10-15)
+
+The owner confirmed the texture-backed map is visible, then reported that its
+pan/zoom felt unsmooth and that journey-point taps did not open a preview. Atlas
+now disables the enclosing screen scroll while the native map owns a touch or a
+region gesture, then restores normal page scrolling at gesture end. MapLibre's
+pan, pinch, and double-tap zoom are explicit at its 60 FPS target, and the local
+coarsened-source hitbox is enlarged for reliable point selection. No map anchor
+precision, media reference, or provider configuration changed.
+
+Focused Atlas interaction coverage passed 19 tests; the complete mobile check
+passed 29 suites / 241 tests with TypeScript and Expo lint. Expo Doctor remains
+20/21 solely due to the existing nine Expo SDK patch-version recommendations.
+Physical Android verification is still required: pan/zoom should feel direct,
+point taps should open the preview, and scrolling should resume immediately
+after leaving the map gesture.
+
+The JavaScript-only repair was then loaded into the connected Android
+development client without a native rebuild. Atlas opened with no filtered
+fatal, React Native, marker, SQLite-lock, or bundle-load error. The remaining
+acceptance evidence is owner-performed touch confirmation; no private screen
+capture was taken.
+
+During the follow-up device validation Metro had stopped, leaving the connected
+development client with no local bundle to load. Metro was restarted in
+development-client mode, port 8081 and the ADB reverse tunnel were restored,
+and Android accepted a fresh Atlas launch. This is a recovered development
+server lifecycle issue, not evidence of a native Atlas crash; owner visual
+confirmation remains required.
+
+## Atlas visible associated-photo repair (2026-10-15)
+
+The owner correctly observed that Atlas did not visibly show photos. The local
+media resolver and full-screen viewer existed, but the map card and gallery
+rendered only text labels. Atlas now renders the first accessible associated
+local photo in the selected journey card and photo thumbnails for the bounded
+gallery page; unavailable and video entries retain explicit non-fictional
+placeholders and do not trigger a download. Focused Atlas coverage passed 19
+tests and the complete mobile suite passed 29 suites / 241 tests with
+TypeScript and cache-free lint. A physical Android confirmation is still
+required; no private photo was inspected or captured during implementation.
+
+The first Android gallery recheck showed every association as unavailable. The
+cause was confirmed: Expo Media Library's `getIsInCloud()` is iOS-only, but the
+preview resolver called it on Android; its thrown unsupported-platform error was
+mistaken for an unavailable image. The resolver now performs the cloud check on
+iOS only and reads permitted Android local URIs directly. Focused Atlas/native
+adapter coverage passed 27 tests and the full mobile suite passed 29 suites /
+242 tests. The updated bundle still requires an owner device check.
+
+After Android was reauthorized for ADB, the repaired local bundle loaded and
+Atlas opened without a filtered app startup error. The owner must now confirm
+that selecting a journey and opening its gallery displays local photos; no
+private photo content was collected during this validation.
+
+The next owner screenshot showed that previously imported Android media remained
+labelled unavailable. Those records carry an `unknown` persisted availability
+when their original Android import could not perform the iOS-only cloud probe;
+the repository had incorrectly removed their bounded local references before
+the current-permission resolver could check them. Atlas now withholds only
+confirmed-unavailable sources and attempts the bounded `unknown` set locally.
+The gallery distinguishes that transitional state from a confirmed unavailable
+asset. A new repository regression proves the source is retained; focused
+coverage passed 51 tests and the full mobile suite passed 29 suites / 243
+tests, with TypeScript and cache-free Expo lint. Expo Doctor remains 20/21
+solely due to the pre-existing nine Expo SDK patch-version recommendations.
+The JavaScript-only bundle still needs a physical owner check; no private media
+or device identifier is recorded here.
+
+The connected Android development client has now been relaunched with this
+unknown-reference correction. The Metro tunnel was restored and a
+privacy-filtered, application-process-only startup check found no fatal, React
+Native, bundle-load, marker, or SQLite-lock error. This confirms only that the
+bundle starts; the owner must still confirm visible photo thumbnails in the
+gallery.

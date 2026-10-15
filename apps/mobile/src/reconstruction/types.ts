@@ -12,6 +12,7 @@ export type ReconstructionEvidence = {
   availability: 'available' | 'unavailable' | 'unknown';
   duplicateFamilyId: string | null;
   duplicateConflict: boolean;
+  supportEligible?: boolean;
   excluded: boolean;
   /** Owner-confirmed split following this evidence. */
   ownerBoundaryAfter?: boolean;
@@ -23,7 +24,7 @@ export type Place = { id: string; memberIds: string[]; representativeId: string;
 export type Visit = { id: string; placeId: string; evidenceIds: string[]; order: 'ordered' | 'uncertain' };
 export type JourneyDraft = { id: string; visitIds: string[]; state: 'inferred' | 'possible-merge' };
 export type EvidenceDisposition = { evidenceId: string; state: 'supported' | 'unresolved' | 'unassigned'; reasons: string[] };
-export type JourneyMembership = { evidenceId: string; journeyId: string; state: 'inferred' | 'suggested'; reason: 'visit-support' | 'ordered-24-hour-bracket' | 'unique-three-day-suggestion' };
+export type JourneyMembership = { evidenceId: string; journeyId: string; state: 'inferred' | 'suggested' | 'owner'; reason: 'visit-support' | 'ordered-24-hour-bracket' | 'unique-three-day-suggestion' | 'owner-primary' };
 export type ReconstructionGraph = {
   ruleVersion: typeof RECONSTRUCTION_RULE_VERSION;
   places: Place[];

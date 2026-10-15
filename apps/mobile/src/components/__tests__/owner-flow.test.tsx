@@ -67,7 +67,8 @@ describe('private first-run navigation', () => {
     await user.press(view.getByRole('button', { name: 'Continue to import' }));
     expect(view.getByText('Choose what this device can share.')).toBeOnTheScreen();
     await user.press(view.getByRole('button', { name: 'View empty Atlas' }));
-    expect(view.getByText('No private record yet.')).toBeOnTheScreen();
+    expect(view.getByText('Your Atlas')).toBeOnTheScreen();
+    expect(view.getByText(/Access is limited/)).toBeOnTheScreen();
     expect(view.queryByText('Nothing on this screen is a travel claim, map, or inferred history.')).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -76,7 +77,8 @@ describe('private first-run navigation', () => {
     useRouterMock.mockReturnValue({ push: jest.fn() } as unknown as ReturnType<typeof useRouter>);
     const view = await render(<PhotoAccessProvider adapter={unavailableAdapter}><EmptyAtlasRoute /></PhotoAccessProvider>);
 
-    expect(view.getByText('No private record yet.')).toBeOnTheScreen();
+    expect(view.getByText('Your Atlas')).toBeOnTheScreen();
+    expect(view.getByText(/Access is limited/)).toBeOnTheScreen();
     expect(view.getByRole('button', { name: 'Import or reconnect photos' })).toBeOnTheScreen();
     expect(view.queryByText(/sign in|create account|allow photos/i)).toBeNull();
   });

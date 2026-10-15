@@ -2,11 +2,18 @@ import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { AppState, type AppStateStatus } from 'react-native';
 
 import { EmptyAtlasScreen, ImportScreen } from '@/components/mobile-screens';
-import { canPublishJourneyDetail, isCurrentDurableRevealRead, PhotoAccessProvider } from '@/photo-access/provider';
+import { canPublishJourneyDetail, isCurrentDurableRevealRead, PhotoAccessProvider, usePhotoAccess } from '@/photo-access/provider';
 import type { PermissionSnapshot, PhotoAccessAdapter } from '@/photo-access/types';
 import type { ImportRepository } from '@/import-record';
 
 jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn(), replace: jest.fn() }) }));
+jest.mock('expo-video', () => ({
+  useVideoPlayer: (_source: unknown, setup: (player: { muted: boolean; volume: number; loop: boolean; play(): void; pause(): void }) => void) => {
+    const player = { muted: true, volume: 0, loop: false, play: jest.fn(), pause: jest.fn() };
+    setup(player); return player;
+  },
+  VideoView: () => null,
+}));
 
 function adapterFor(permission: PermissionSnapshot | null, count = 0): PhotoAccessAdapter {
   return {
@@ -32,6 +39,106 @@ const emptyRepository: ImportRepository = {
 };
 
 describe('photo access provider and Import screen', () => {
+  it('shows a recoverable status when the startup reconciliation read is locked', async () => {
+    let access!: ReturnType<typeof usePhotoAccess>;
+    const repository = {
+      ...emptyRepository,
+      loadMaintenance: async () => ({ enabled: false, status: 'disabled' as const, lastCheckedAtMillis: null, lastUpdatedAtMillis: null, message: null }),
+      getMaintenanceCheckpoint: async () => null,
+      loadReconciliation: async () => { throw new Error('database is locked'); },
+    };
+    const Harness = () => { access = usePhotoAccess(); return null; };
+    await render(<PhotoAccessProvider adapter={adapterFor({ scope: 'full', canAskAgain: false })} repository={repository}><Harness /></PhotoAccessProvider>);
+    await waitFor(() => expect(access.reconciliation).toMatchObject({ status: 'error', message: 'Local update status could not be read. Retry when ready.' }));
+  });
+
+  it('rejects mounted detail and preview reads after lifecycle invalidation', async () => {
+    let access!: ReturnType<typeof usePhotoAccess>;
+    let releaseDetail!: (value: { detail: never; previewSourceRefs: string[]; snapshotToken: number }) => void;
+    let releasePreview!: (value: []) => void;
+    const detail = new Promise<{ detail: never; previewSourceRefs: string[]; snapshotToken: number }>((resolve) => { releaseDetail = resolve; });
+    const preview = new Promise<[]>((resolve) => { releasePreview = resolve; });
+    const reconstructionRepository = {
+      loadDurableReveal: async () => ({ journeys: [], statistics: null }), loadJourneyDetail: jest.fn(() => detail),
+      loadJourneyMediaPage: async () => ({ items: [], previewSourceRefs: [], hasMore: false }),
+      loadUncertainMemories: async () => ({ memories: [], hasMore: false }),
+      saveJourneyCorrection: async () => ({ revisionId: 'review', state: 'confirmed' as const, graph: { ruleVersion: 'reconstruction-v1' as const, places: [], visits: [], journeys: [], possibleMerges: [], dispositions: [], memberships: [] } }),
+      saveJourneyMemoryCorrection: async () => ({ revisionId: 'memory-review', graph: null }),
+      discardJourneyCorrectionPending: async () => ({ graph: null }),
+      markJourneyCorrectionPending: async () => {},
+      rebuild: async () => ({ ruleVersion: 'reconstruction-v1' as const, places: [], visits: [], journeys: [], possibleMerges: [], dispositions: [], memberships: [] }), reconcileQueued: async () => ({ graph: { ruleVersion: 'reconstruction-v1' as const, places: [], visits: [], journeys: [], possibleMerges: [], dispositions: [], memberships: [] }, newJourneyCount: 0, updatedJourneyCount: 0 }),
+    };
+    const adapter: PhotoAccessAdapter = { ...adapterFor({ scope: 'full', canAskAgain: false }), resolveOwnerPreviews: jest.fn(() => preview) };
+    const Harness = () => { access = usePhotoAccess(); return null; };
+    await render(<PhotoAccessProvider adapter={adapter} repository={emptyRepository} reconstructionRepository={reconstructionRepository}><Harness /></PhotoAccessProvider>);
+    await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
+    const pendingDetail = access.loadJourneyDetail('opaque');
+    const rejectedDetail = expect(pendingDetail).rejects.toThrow('no longer available');
+    await act(async () => { await access.privateRecordController.disconnect(); releaseDetail({ detail: null as never, previewSourceRefs: [], snapshotToken: 1 }); });
+    await rejectedDetail;
+    await act(async () => { await access.privateRecordController.reconnect(); });
+    await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
+    reconstructionRepository.loadJourneyDetail.mockResolvedValueOnce({ detail: null as never, previewSourceRefs: [], snapshotToken: 1 });
+    const pendingPreview = access.loadJourneyDetail('opaque');
+    await waitFor(() => expect(adapter.resolveOwnerPreviews).toHaveBeenCalled());
+    const rejectedPreview = expect(pendingPreview).rejects.toThrow('no longer available');
+    await act(async () => { await access.privateRecordController.disconnect(); releasePreview([]); });
+    await rejectedPreview;
+  });
+  it('publishes the projection that was committed with a revision-bound decision', async () => {
+    let access!: ReturnType<typeof usePhotoAccess>;
+    const graph = { ruleVersion: 'reconstruction-v1' as const, places: [], visits: [], journeys: [], possibleMerges: [], dispositions: [], memberships: [] };
+    const reconstructionRepository = {
+      loadDurableReveal: jest.fn(async () => ({ journeys: [], statistics: null })),
+      loadJourneyDetail: async () => ({ detail: null as never, previewSourceRefs: [], snapshotToken: 7 }),
+      loadJourneyMediaPage: async () => ({ items: [], previewSourceRefs: [], hasMore: false }),
+      loadUncertainMemories: async () => ({ memories: [], hasMore: false }),
+      saveJourneyCorrection: jest.fn(async () => ({ revisionId: 'revision-1', state: 'rejected' as const, graph })),
+      saveJourneyMemoryCorrection: jest.fn(async () => ({ revisionId: 'memory-review', graph })),
+      discardJourneyCorrectionPending: jest.fn(async () => ({ graph })),
+      markJourneyCorrectionPending: jest.fn(async () => {}),
+      rebuild: jest.fn(async () => graph),
+      reconcileQueued: async () => ({ graph, newJourneyCount: 0, updatedJourneyCount: 0 }),
+    };
+    const Harness = () => { access = usePhotoAccess(); return null; };
+    await render(<PhotoAccessProvider adapter={adapterFor({ scope: 'full', canAskAgain: false })} repository={emptyRepository} reconstructionRepository={reconstructionRepository}><Harness /></PhotoAccessProvider>);
+    await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
+    let result!: 'applied' | 'pending';
+    const snapshot = { id: 'opaque', title: 'Private journey', observedSpan: 'Observed 2024-01-01', visits: [], memories: [], uncertainty: [] };
+    await act(async () => { result = await access.saveJourneyCorrection('opaque', 'reject', 7, snapshot, 'command-reject'); });
+    expect(reconstructionRepository.saveJourneyCorrection).toHaveBeenCalledWith('opaque', 'reject', 7, snapshot, 'command-reject');
+    expect(reconstructionRepository.rebuild).not.toHaveBeenCalled();
+    // The success state is withheld until the redacted Atlas cache has been
+    // refreshed from the same completed projection.
+    expect(reconstructionRepository.loadDurableReveal).toHaveBeenCalledTimes(2);
+    expect(result).toBe('applied');
+    expect(reconstructionRepository.markJourneyCorrectionPending).not.toHaveBeenCalled();
+  });
+  it('does not start a second projection transaction after a saved decision', async () => {
+    let access!: ReturnType<typeof usePhotoAccess>;
+    const graph = { ruleVersion: 'reconstruction-v1' as const, places: [], visits: [], journeys: [], possibleMerges: [], dispositions: [], memberships: [] };
+    const reconstructionRepository = {
+      loadDurableReveal: async () => ({ journeys: [], statistics: null }),
+      loadJourneyDetail: async () => ({ detail: null as never, previewSourceRefs: [], snapshotToken: 7 }),
+      loadJourneyMediaPage: async () => ({ items: [], previewSourceRefs: [], hasMore: false }),
+      loadUncertainMemories: async () => ({ memories: [], hasMore: false }),
+      saveJourneyCorrection: jest.fn(async () => ({ revisionId: 'revision-2', state: 'confirmed' as const, graph })),
+      saveJourneyMemoryCorrection: jest.fn(async () => ({ revisionId: 'memory-review', graph })),
+      discardJourneyCorrectionPending: jest.fn(async () => ({ graph })),
+      markJourneyCorrectionPending: jest.fn(async () => {}),
+      rebuild: jest.fn().mockRejectedValue(new Error('must not run')),
+      reconcileQueued: async () => ({ graph, newJourneyCount: 0, updatedJourneyCount: 0 }),
+    };
+    const Harness = () => { access = usePhotoAccess(); return null; };
+    await render(<PhotoAccessProvider adapter={adapterFor({ scope: 'full', canAskAgain: false })} repository={emptyRepository} reconstructionRepository={reconstructionRepository}><Harness /></PhotoAccessProvider>);
+    await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
+    let result!: 'applied' | 'pending';
+    const snapshot = { id: 'opaque', title: 'Private journey', observedSpan: 'Observed 2024-01-01', visits: [], memories: [], uncertainty: [] };
+    await act(async () => { result = await access.saveJourneyCorrection('opaque', 'confirm', 7, snapshot, 'command-confirm'); });
+    expect(result).toBe('applied');
+    expect(reconstructionRepository.rebuild).not.toHaveBeenCalled();
+    expect(reconstructionRepository.markJourneyCorrectionPending).not.toHaveBeenCalled();
+  });
   it('rejects a durable reveal read that completed after a lifecycle invalidation', () => {
     expect(isCurrentDurableRevealRead(4, 4)).toBe(true);
     expect(isCurrentDurableRevealRead(4, 5)).toBe(false);

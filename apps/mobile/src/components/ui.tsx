@@ -46,10 +46,10 @@ export function useReducedMotion(): boolean {
   return reduced;
 }
 
-export function Screen({ children }: PropsWithChildren) {
+export function Screen({ children, scrollEnabled = true }: PropsWithChildren<{ scrollEnabled?: boolean }>) {
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      <ScrollView contentContainerStyle={styles.screen} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.screen} scrollEnabled={scrollEnabled} showsVerticalScrollIndicator={false}>
         {children}
       </ScrollView>
     </SafeAreaView>

@@ -79,6 +79,12 @@ async function candidateFromMetadata(metadata: { id: string; mediaType: string; 
     latitude,
     longitude,
     reportedAccuracyMeters,
+    // Expo Media Library exposes no documented stable duplicate-family
+    // relationship. Keep this explicit null rather than deriving one from
+    // metadata that merely happens to look similar.
+    platformDuplicateFamilyId: null,
+    sourceOrigin: null,
+    supportEligible: true,
     availability,
   };
 }
@@ -175,12 +181,16 @@ export const nativePhotoAccess: PhotoAccessAdapter = {
     if (permission?.scope !== 'full' && permission?.scope !== 'limited') throw new Error('Photo access is not permitted');
     const previews: import('./types').OwnerPreview[] = [];
     for (const assetId of assetIds.slice(0, Math.max(0, limit))) {
-      if (assetId === null) { previews.push({ uri: null, availability: 'unavailable' }); continue; }
+      if (assetId === null) { previews.push({ uri: null, availability: 'unavailable', kind: 'photo' }); continue; }
       try {
-        const asset = new (mediaLibrary().Asset)(assetId) as { getIsInCloud(): Promise<boolean>; getUri(): Promise<string> };
-        if (await asset.getIsInCloud()) { previews.push({ uri: null, availability: 'unavailable' }); continue; }
-        previews.push({ uri: await asset.getUri(), availability: 'available' });
-      } catch { previews.push({ uri: null, availability: 'unavailable' }); }
+        const asset = new (mediaLibrary().Asset)(assetId) as { getIsInCloud(): Promise<boolean>; getUri(): Promise<string>; getMediaType(): Promise<string> };
+        const kind = await asset.getMediaType() === 'video' ? 'video' as const : 'photo' as const;
+        // `getIsInCloud` is an iOS-only Expo Media Library API. On Android it
+        // throws before `getUri` can run, which would incorrectly turn every
+        // otherwise accessible local asset into an unavailable gallery slot.
+        if (Platform.OS === 'ios' && await asset.getIsInCloud()) { previews.push({ uri: null, availability: 'unavailable', kind }); continue; }
+        previews.push({ uri: await asset.getUri(), availability: 'available', kind });
+      } catch { previews.push({ uri: null, availability: 'unavailable', kind: 'photo' }); }
     }
     return previews;
   },

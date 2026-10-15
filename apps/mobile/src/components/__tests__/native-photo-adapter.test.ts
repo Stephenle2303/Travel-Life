@@ -1,4 +1,5 @@
 import { nativePhotoAccess } from '@/photo-access/native-adapter';
+import { Platform } from 'react-native';
 
 const mockQuery = {
   within: jest.fn().mockReturnThis(),
@@ -43,8 +44,8 @@ describe('Expo SDK 57 native adapter', () => {
     expect(mockQuery.offset).toHaveBeenCalledWith(100);
     expect(mockQuery.exeForMetadata).toHaveBeenCalledTimes(1);
     expect(await nativePhotoAccess.readMetadataPage(0, 100)).toEqual([
-      { assetId: 'synthetic-1', mediaType: 'image', capturedAtMillis: null, capturedDay: null, hasPreciseOffset: false, modifiedAtMillis: null, locationAvailable: false, latitude: null, longitude: null, reportedAccuracyMeters: null, availability: 'available' },
-      { assetId: 'synthetic-2', mediaType: 'video', capturedAtMillis: 2, capturedDay: '1970-01-01', hasPreciseOffset: false, modifiedAtMillis: 3, locationAvailable: false, latitude: null, longitude: null, reportedAccuracyMeters: null, availability: 'available' },
+      { assetId: 'synthetic-1', mediaType: 'image', capturedAtMillis: null, capturedDay: null, hasPreciseOffset: false, modifiedAtMillis: null, locationAvailable: false, latitude: null, longitude: null, reportedAccuracyMeters: null, platformDuplicateFamilyId: null, sourceOrigin: null, supportEligible: true, availability: 'available' },
+      { assetId: 'synthetic-2', mediaType: 'video', capturedAtMillis: 2, capturedDay: '1970-01-01', hasPreciseOffset: false, modifiedAtMillis: 3, locationAvailable: false, latitude: null, longitude: null, reportedAccuracyMeters: null, platformDuplicateFamilyId: null, sourceOrigin: null, supportEligible: true, availability: 'available' },
     ]);
   });
 
@@ -64,6 +65,14 @@ describe('Expo SDK 57 native adapter', () => {
     }));
   });
 
+  it('normalizes numeric native coordinates for reconstruction support', async () => {
+    mockQuery.exeForMetadata.mockResolvedValue([{ id: 'synthetic-location', mediaType: 'image', creationTime: Date.UTC(2026, 0, 1), modificationTime: null }]);
+    mockAsset.mockImplementation(() => ({ getLocation: async () => ({ latitude: 13.7, longitude: 100.5 }), getIsInCloud: async () => false }));
+
+    const [candidate] = await nativePhotoAccess.readMetadataPage(0, 1);
+    expect(candidate).toMatchObject({ locationAvailable: true, latitude: 13.7, longitude: 100.5, reportedAccuracyMeters: null, supportEligible: true, availability: 'available' });
+  });
+
   it('omits a selected stable ID that disappears before metadata lookup', async () => {
     mockAsset.mockImplementation((id: string) => {
       if (id === 'gone') return { getMediaType: async () => { throw new Error('missing'); } };
@@ -77,7 +86,7 @@ describe('Expo SDK 57 native adapter', () => {
     });
 
     await expect(nativePhotoAccess.readSelectedMetadata(['stable', 'gone'])).resolves.toEqual([
-      { assetId: 'stable', mediaType: 'image', capturedAtMillis: null, capturedDay: null, hasPreciseOffset: false, modifiedAtMillis: null, locationAvailable: false, latitude: null, longitude: null, reportedAccuracyMeters: null, availability: 'available' },
+      { assetId: 'stable', mediaType: 'image', capturedAtMillis: null, capturedDay: null, hasPreciseOffset: false, modifiedAtMillis: null, locationAvailable: false, latitude: null, longitude: null, reportedAccuracyMeters: null, platformDuplicateFamilyId: null, sourceOrigin: null, supportEligible: true, availability: 'available' },
     ]);
   });
 
@@ -94,17 +103,34 @@ describe('Expo SDK 57 native adapter', () => {
   it('resolves only the bounded permitted preview set and keeps cloud or missing assets unavailable', async () => {
     mockGetPermissions.mockResolvedValue({ granted: true, status: 'granted', accessPrivileges: 'full', canAskAgain: false });
     mockAsset.mockImplementation((id: string) => id === 'cloud'
-      ? { getIsInCloud: async () => true, getUri: jest.fn() }
+      ? { getIsInCloud: async () => true, getUri: jest.fn(), getMediaType: async () => 'video' }
       : id === 'gone'
-        ? { getIsInCloud: async () => { throw new Error('gone'); } }
-        : { getIsInCloud: async () => false, getUri: async () => 'file://private-preview' });
+        ? { getIsInCloud: async () => { throw new Error('gone'); }, getMediaType: async () => 'photo' }
+        : { getIsInCloud: async () => false, getUri: async () => 'file://private-preview', getMediaType: async () => 'photo' });
 
     await expect(nativePhotoAccess.resolveOwnerPreviews!([null, 'ready', 'cloud', 'gone', 'ignored'], 4)).resolves.toEqual([
-      { uri: null, availability: 'unavailable' },
-      { uri: 'file://private-preview', availability: 'available' },
-      { uri: null, availability: 'unavailable' },
-      { uri: null, availability: 'unavailable' },
+      { uri: null, availability: 'unavailable', kind: 'photo' },
+      { uri: 'file://private-preview', availability: 'available', kind: 'photo' },
+      { uri: null, availability: 'unavailable', kind: 'video' },
+      { uri: null, availability: 'unavailable', kind: 'photo' },
     ]);
     expect(mockAsset).not.toHaveBeenCalledWith('ignored');
+  });
+
+  it('does not call the iOS-only cloud check before resolving an Android local URI', async () => {
+    const platformDescriptor = Object.getOwnPropertyDescriptor(Platform, 'OS');
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+    const getIsInCloud = jest.fn(async () => { throw new Error('iOS only'); });
+    mockGetPermissions.mockResolvedValue({ granted: true, status: 'granted', accessPrivileges: 'full', canAskAgain: false });
+    mockAsset.mockImplementation(() => ({ getIsInCloud, getUri: async () => 'file://android-preview', getMediaType: async () => 'image' }));
+
+    try {
+      await expect(nativePhotoAccess.resolveOwnerPreviews!(['android-ready'], 1)).resolves.toEqual([
+        { uri: 'file://android-preview', availability: 'available', kind: 'photo' },
+      ]);
+      expect(getIsInCloud).not.toHaveBeenCalled();
+    } finally {
+      if (platformDescriptor) Object.defineProperty(Platform, 'OS', platformDescriptor);
+    }
   });
 });

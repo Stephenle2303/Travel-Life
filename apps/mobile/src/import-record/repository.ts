@@ -1,4 +1,5 @@
 import type { CorrectionOverlay, PrivateRecordLifecycle } from '@/history-record';
+import { serializeNativeTransactions } from '@/database/native-transaction';
 
 import {
   ImportLifecycleBlockedError, type ImportCheckpoint, type ImportRepository, type ImportScope,
@@ -20,7 +21,7 @@ type CheckpointRow = {
   status: ImportCheckpoint['status'];
 };
 
-const CURRENT_SCHEMA_VERSION = 12;
+const CURRENT_SCHEMA_VERSION = 28;
 
 const migrationV1 = `
   CREATE TABLE IF NOT EXISTS import_checkpoint (
@@ -266,6 +267,309 @@ const migrationV12 = `
   UPDATE private_history_record SET schema_version = 12 WHERE record_id = 1;
 `;
 
+// Corrections deliberately retain canonical evidence ids and a completed-run
+// snapshot. Generated reconstruction ids are never used as durable identity.
+const migrationV13 = `
+  CREATE TABLE IF NOT EXISTS journey_correction_revision (
+    revision_id TEXT PRIMARY KEY NOT NULL,
+    action TEXT NOT NULL CHECK (action IN ('confirm', 'reject')),
+    source_run_id INTEGER NOT NULL,
+    journey_id TEXT NOT NULL,
+    reviewed_support_json TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('effective', 'pending_remap', 'superseded')),
+    created_at_millis INTEGER NOT NULL,
+    replaces_revision_id TEXT NULL
+  );
+  CREATE INDEX IF NOT EXISTS journey_correction_target ON journey_correction_revision (journey_id, source_run_id, created_at_millis);
+  UPDATE private_history_record SET schema_version = 13 WHERE record_id = 1;
+`;
+
+// An application records the exact generated successor for one immutable owner
+// revision. It is separate from the revision because generated journey IDs may
+// change across a later complete rebuild.
+const migrationV14 = `
+  CREATE TABLE IF NOT EXISTS journey_correction_application (
+    revision_id TEXT NOT NULL,
+    run_id INTEGER NOT NULL,
+    journey_id TEXT NOT NULL,
+    application_state TEXT NOT NULL CHECK (application_state IN ('effective', 'pending_remap')),
+    PRIMARY KEY (revision_id, run_id)
+  );
+  CREATE INDEX IF NOT EXISTS journey_correction_application_run ON journey_correction_application (run_id, journey_id);
+  UPDATE private_history_record SET schema_version = 14 WHERE record_id = 1;
+`;
+
+const migrationV15 = `
+  ALTER TABLE journey_correction_revision ADD COLUMN reviewed_snapshot_json TEXT NOT NULL DEFAULT '{}';
+  UPDATE private_history_record SET schema_version = 15 WHERE record_id = 1;
+`;
+
+const migrationV16 = `
+  CREATE TABLE IF NOT EXISTS journey_correction_candidate (
+    candidate_id TEXT PRIMARY KEY NOT NULL,
+    revision_id TEXT NOT NULL,
+    base_run_id INTEGER NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('pending_remap', 'resolved', 'superseded')),
+    reason TEXT NOT NULL,
+    created_at_millis INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS journey_correction_candidate_revision ON journey_correction_candidate (revision_id, state);
+  UPDATE private_history_record SET schema_version = 16 WHERE record_id = 1;
+`;
+
+// Store each reviewed visit separately. A flattened journey-wide list cannot
+// distinguish an exact successor from a split reviewed visit on a later rebuild.
+const migrationV17 = `
+  ALTER TABLE journey_correction_revision ADD COLUMN reviewed_visits_json TEXT NOT NULL DEFAULT '[]';
+  ALTER TABLE journey_correction_revision ADD COLUMN command_key TEXT NULL;
+  CREATE UNIQUE INDEX IF NOT EXISTS journey_correction_command ON journey_correction_revision (command_key) WHERE command_key IS NOT NULL;
+  UPDATE private_history_record SET schema_version = 17 WHERE record_id = 1;
+`;
+
+// A rejection is enforced as a durable grouping constraint and can deliberately
+// remove its predecessor journey. Its application therefore has no generated
+// journey target. Rebuild this narrow table to represent either case explicitly.
+const migrationV18 = `
+  DROP INDEX IF EXISTS journey_correction_application_run;
+  ALTER TABLE journey_correction_application RENAME TO journey_correction_application_legacy;
+  CREATE TABLE journey_correction_application (
+    revision_id TEXT NOT NULL,
+    run_id INTEGER NOT NULL,
+    target_kind TEXT NOT NULL CHECK (target_kind IN ('journey', 'grouping-constraint')),
+    journey_id TEXT NULL,
+    application_state TEXT NOT NULL CHECK (application_state IN ('effective', 'pending_remap')),
+    PRIMARY KEY (revision_id, run_id),
+    CHECK ((target_kind = 'journey' AND journey_id IS NOT NULL) OR (target_kind = 'grouping-constraint' AND journey_id IS NULL))
+  );
+  INSERT INTO journey_correction_application (revision_id, run_id, target_kind, journey_id, application_state)
+    SELECT revision_id, run_id, 'journey', journey_id, application_state
+    FROM journey_correction_application_legacy;
+  DROP TABLE journey_correction_application_legacy;
+  CREATE INDEX journey_correction_application_run ON journey_correction_application (run_id, target_kind, journey_id);
+  UPDATE private_history_record SET schema_version = 18 WHERE record_id = 1;
+`;
+
+// Owner-written labels and dates are claims, not reconstructed evidence. They
+// stay on the immutable correction revision so an exact successor remap can
+// carry them without changing visits, places, or source support.
+const migrationV19 = `
+  ALTER TABLE journey_correction_revision ADD COLUMN owner_title TEXT NULL;
+  ALTER TABLE journey_correction_revision ADD COLUMN owner_date_kind TEXT NULL CHECK (owner_date_kind IN ('exact', 'approximate'));
+  ALTER TABLE journey_correction_revision ADD COLUMN owner_date_start TEXT NULL;
+  ALTER TABLE journey_correction_revision ADD COLUMN owner_date_end TEXT NULL;
+  UPDATE private_history_record SET schema_version = 19 WHERE record_id = 1;
+`;
+
+// SQLite cannot extend the original action CHECK in place. Rebuild the
+// immutable revision table so claim revisions share the existing remap and
+// audit trail while confirmation and rejection semantics remain unchanged.
+const migrationV20 = `
+  DROP INDEX IF EXISTS journey_correction_target;
+  DROP INDEX IF EXISTS journey_correction_command;
+  ALTER TABLE journey_correction_revision RENAME TO journey_correction_revision_legacy;
+  CREATE TABLE journey_correction_revision (
+    revision_id TEXT PRIMARY KEY NOT NULL,
+    action TEXT NOT NULL CHECK (action IN ('confirm', 'reject', 'claim')),
+    source_run_id INTEGER NOT NULL,
+    journey_id TEXT NOT NULL,
+    reviewed_support_json TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('effective', 'pending_remap', 'superseded')),
+    created_at_millis INTEGER NOT NULL,
+    replaces_revision_id TEXT NULL,
+    reviewed_snapshot_json TEXT NOT NULL DEFAULT '{}',
+    reviewed_visits_json TEXT NOT NULL DEFAULT '[]',
+    command_key TEXT NULL,
+    owner_title TEXT NULL,
+    owner_date_kind TEXT NULL CHECK (owner_date_kind IN ('exact', 'approximate')),
+    owner_date_start TEXT NULL,
+    owner_date_end TEXT NULL
+  );
+  INSERT INTO journey_correction_revision
+    (revision_id, action, source_run_id, journey_id, reviewed_support_json, state, created_at_millis, replaces_revision_id, reviewed_snapshot_json, reviewed_visits_json, command_key, owner_title, owner_date_kind, owner_date_start, owner_date_end)
+    SELECT revision_id, action, source_run_id, journey_id, reviewed_support_json, state, created_at_millis, replaces_revision_id, reviewed_snapshot_json, reviewed_visits_json, command_key, owner_title, owner_date_kind, owner_date_start, owner_date_end
+    FROM journey_correction_revision_legacy;
+  DROP TABLE journey_correction_revision_legacy;
+  CREATE INDEX journey_correction_target ON journey_correction_revision (journey_id, source_run_id, created_at_millis);
+  CREATE UNIQUE INDEX journey_correction_command ON journey_correction_revision (command_key) WHERE command_key IS NOT NULL;
+  UPDATE private_history_record SET schema_version = 20 WHERE record_id = 1;
+`;
+
+// Photo-to-journey choices are distinct from visit support. Each immutable
+// revision retains the selected photo and the reviewed target support needed
+// to remap its one primary membership without exposing media identifiers in UI.
+const migrationV21 = `
+  CREATE TABLE IF NOT EXISTS journey_memory_correction_revision (
+    revision_id TEXT PRIMARY KEY NOT NULL,
+    action TEXT NOT NULL CHECK (action IN ('assign', 'move', 'reject', 'unassign')),
+    source_run_id INTEGER NOT NULL,
+    source_evidence_id TEXT NOT NULL,
+    journey_id TEXT NOT NULL,
+    reviewed_support_json TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('effective', 'pending_remap', 'superseded')),
+    created_at_millis INTEGER NOT NULL,
+    replaces_revision_id TEXT NULL,
+    command_key TEXT NOT NULL UNIQUE
+  );
+  CREATE TABLE IF NOT EXISTS journey_memory_correction_application (
+    revision_id TEXT NOT NULL,
+    run_id INTEGER NOT NULL,
+    journey_id TEXT NULL,
+    application_state TEXT NOT NULL CHECK (application_state IN ('effective', 'pending_remap')),
+    PRIMARY KEY (revision_id, run_id)
+  );
+  CREATE INDEX IF NOT EXISTS journey_memory_correction_target ON journey_memory_correction_revision (source_evidence_id, created_at_millis);
+  CREATE INDEX IF NOT EXISTS journey_memory_correction_application_run ON journey_memory_correction_application (run_id, journey_id);
+  UPDATE private_history_record SET schema_version = 21 WHERE record_id = 1;
+`;
+
+// Structural corrections must remain immutable and auditable. SQLite cannot
+// widen the v20 action CHECK, so carry every existing revision forward before
+// allowing a reviewed split boundary to be stored.
+const migrationV22 = `
+  DROP INDEX IF EXISTS journey_correction_target;
+  DROP INDEX IF EXISTS journey_correction_command;
+  ALTER TABLE journey_correction_revision RENAME TO journey_correction_revision_legacy;
+  CREATE TABLE journey_correction_revision (
+    revision_id TEXT PRIMARY KEY NOT NULL,
+    action TEXT NOT NULL CHECK (action IN ('confirm', 'reject', 'claim', 'split')),
+    source_run_id INTEGER NOT NULL,
+    journey_id TEXT NOT NULL,
+    reviewed_support_json TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('effective', 'pending_remap', 'superseded')),
+    created_at_millis INTEGER NOT NULL,
+    replaces_revision_id TEXT NULL,
+    reviewed_snapshot_json TEXT NOT NULL DEFAULT '{}',
+    reviewed_visits_json TEXT NOT NULL DEFAULT '[]',
+    command_key TEXT NULL,
+    owner_title TEXT NULL,
+    owner_date_kind TEXT NULL CHECK (owner_date_kind IN ('exact', 'approximate')),
+    owner_date_start TEXT NULL,
+    owner_date_end TEXT NULL,
+    structural_boundary_json TEXT NULL
+  );
+  INSERT INTO journey_correction_revision
+    (revision_id, action, source_run_id, journey_id, reviewed_support_json, state, created_at_millis, replaces_revision_id, reviewed_snapshot_json, reviewed_visits_json, command_key, owner_title, owner_date_kind, owner_date_start, owner_date_end)
+    SELECT revision_id, action, source_run_id, journey_id, reviewed_support_json, state, created_at_millis, replaces_revision_id, reviewed_snapshot_json, reviewed_visits_json, command_key, owner_title, owner_date_kind, owner_date_start, owner_date_end
+    FROM journey_correction_revision_legacy;
+  DROP TABLE journey_correction_revision_legacy;
+  CREATE INDEX journey_correction_target ON journey_correction_revision (journey_id, source_run_id, created_at_millis);
+  CREATE UNIQUE INDEX journey_correction_command ON journey_correction_revision (command_key) WHERE command_key IS NOT NULL;
+  UPDATE private_history_record SET schema_version = 22 WHERE record_id = 1;
+`;
+
+const migrationV23 = `
+  DROP INDEX IF EXISTS journey_correction_target;
+  DROP INDEX IF EXISTS journey_correction_command;
+  ALTER TABLE journey_correction_revision RENAME TO journey_correction_revision_legacy;
+  CREATE TABLE journey_correction_revision (
+    revision_id TEXT PRIMARY KEY NOT NULL,
+    action TEXT NOT NULL CHECK (action IN ('confirm', 'reject', 'claim', 'split', 'merge')),
+    source_run_id INTEGER NOT NULL,
+    journey_id TEXT NOT NULL,
+    reviewed_support_json TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('effective', 'pending_remap', 'superseded')),
+    created_at_millis INTEGER NOT NULL,
+    replaces_revision_id TEXT NULL,
+    reviewed_snapshot_json TEXT NOT NULL DEFAULT '{}',
+    reviewed_visits_json TEXT NOT NULL DEFAULT '[]',
+    command_key TEXT NULL,
+    owner_title TEXT NULL,
+    owner_date_kind TEXT NULL CHECK (owner_date_kind IN ('exact', 'approximate')),
+    owner_date_start TEXT NULL,
+    owner_date_end TEXT NULL,
+    structural_boundary_json TEXT NULL
+  );
+  INSERT INTO journey_correction_revision SELECT * FROM journey_correction_revision_legacy;
+  DROP TABLE journey_correction_revision_legacy;
+  CREATE INDEX journey_correction_target ON journey_correction_revision (journey_id, source_run_id, created_at_millis);
+  CREATE UNIQUE INDEX journey_correction_command ON journey_correction_revision (command_key) WHERE command_key IS NOT NULL;
+  UPDATE private_history_record SET schema_version = 23 WHERE record_id = 1;
+`;
+
+// A valid structural save publishes successors immediately, but predecessor-wide
+// claims cannot be silently copied to those successors. Keep the private source
+// revision and each affected successor in an explicit owner-review queue.
+const migrationV24 = `
+  CREATE TABLE IF NOT EXISTS journey_correction_scope_review (
+    scope_review_id TEXT PRIMARY KEY NOT NULL,
+    structural_revision_id TEXT NOT NULL,
+    predecessor_revision_id TEXT NOT NULL,
+    run_id INTEGER NOT NULL,
+    journey_id TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('pending_scope_review', 'resolved', 'discarded')),
+    created_at_millis INTEGER NOT NULL,
+    UNIQUE (structural_revision_id, predecessor_revision_id, run_id, journey_id)
+  );
+  CREATE INDEX IF NOT EXISTS journey_correction_scope_review_target ON journey_correction_scope_review (run_id, journey_id, state);
+  UPDATE private_history_record SET schema_version = 24 WHERE record_id = 1;
+`;
+
+const migrationV25 = `
+  DROP INDEX IF EXISTS journey_correction_target;
+  DROP INDEX IF EXISTS journey_correction_command;
+  ALTER TABLE journey_correction_revision RENAME TO journey_correction_revision_legacy;
+  CREATE TABLE journey_correction_revision (
+    revision_id TEXT PRIMARY KEY NOT NULL,
+    action TEXT NOT NULL CHECK (action IN ('confirm', 'reject', 'claim', 'split', 'merge', 'remove-visit')),
+    source_run_id INTEGER NOT NULL,
+    journey_id TEXT NOT NULL,
+    reviewed_support_json TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('effective', 'pending_remap', 'superseded')),
+    created_at_millis INTEGER NOT NULL,
+    replaces_revision_id TEXT NULL,
+    reviewed_snapshot_json TEXT NOT NULL DEFAULT '{}',
+    reviewed_visits_json TEXT NOT NULL DEFAULT '[]',
+    command_key TEXT NULL,
+    owner_title TEXT NULL,
+    owner_date_kind TEXT NULL CHECK (owner_date_kind IN ('exact', 'approximate')),
+    owner_date_start TEXT NULL,
+    owner_date_end TEXT NULL,
+    structural_boundary_json TEXT NULL
+  );
+  INSERT INTO journey_correction_revision SELECT * FROM journey_correction_revision_legacy;
+  DROP TABLE journey_correction_revision_legacy;
+  CREATE INDEX journey_correction_target ON journey_correction_revision (journey_id, source_run_id, created_at_millis);
+  CREATE UNIQUE INDEX journey_correction_command ON journey_correction_revision (command_key) WHERE command_key IS NOT NULL;
+  UPDATE private_history_record SET schema_version = 25 WHERE record_id = 1;
+`;
+
+// Memory corrections have their own immutable revision table, so an ambiguous
+// remap needs an equally separate review queue rather than a fake journey row.
+const migrationV26 = `
+  CREATE TABLE IF NOT EXISTS journey_memory_correction_candidate (
+    candidate_id TEXT PRIMARY KEY NOT NULL,
+    revision_id TEXT NOT NULL,
+    base_run_id INTEGER NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('pending_remap', 'resolved', 'superseded')),
+    reason TEXT NOT NULL,
+    created_at_millis INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS journey_memory_correction_candidate_revision ON journey_memory_correction_candidate (revision_id, state);
+  UPDATE private_history_record SET schema_version = 26 WHERE record_id = 1;
+`;
+
+// Family identity is private import metadata. A fingerprint records the exact
+// versioned tuple observed at import time; it is never exposed outside SQLite.
+const migrationV27 = `
+  ALTER TABLE import_source_index ADD COLUMN platform_duplicate_family_id TEXT NULL;
+  ALTER TABLE import_source_index ADD COLUMN source_origin TEXT NULL;
+  ALTER TABLE import_source_index ADD COLUMN support_eligible INTEGER NULL;
+  ALTER TABLE import_source_index ADD COLUMN duplicate_tuple_version INTEGER NULL;
+  ALTER TABLE import_source_index ADD COLUMN duplicate_tuple_fingerprint TEXT NULL;
+  ALTER TABLE canonical_evidence ADD COLUMN platform_duplicate_family_id TEXT NULL;
+  ALTER TABLE canonical_evidence ADD COLUMN source_origin TEXT NULL;
+  ALTER TABLE canonical_evidence ADD COLUMN support_eligible INTEGER NULL;
+  ALTER TABLE canonical_evidence ADD COLUMN duplicate_tuple_version INTEGER NULL;
+  ALTER TABLE canonical_evidence ADD COLUMN duplicate_tuple_fingerprint TEXT NULL;
+  UPDATE private_history_record SET schema_version = 27 WHERE record_id = 1;
+`;
+
+const migrationV28 = `
+  ALTER TABLE journey_correction_revision ADD COLUMN reviewed_family_snapshot_json TEXT NOT NULL DEFAULT '{}';
+  ALTER TABLE journey_memory_correction_revision ADD COLUMN reviewed_family_snapshot_json TEXT NOT NULL DEFAULT '{}';
+  UPDATE private_history_record SET schema_version = 28 WHERE record_id = 1;
+`;
+
 const MAINTENANCE_LEASE_MILLIS = 5 * 60 * 1000;
 
 type SchemaRow = { version: number };
@@ -273,8 +577,22 @@ type LifecycleRow = { state: 'connected' | 'disconnected' };
 type RevisionRow = { revision: number | null };
 type MaintenanceStateRow = { enabled: number; status: MaintenanceSnapshot['status']; last_checked_at_millis: number | null; last_updated_at_millis: number | null; message: string | null };
 type MaintenanceCheckpointRow = { scope: Extract<ImportScope, 'full' | 'limited'>; next_offset: number; run_token: number; status: MaintenanceCheckpoint['status'] };
-type SourceRow = { modified_at_millis: number | null; availability: SourceCandidate['availability'] };
+type SourceRow = { modified_at_millis: number | null; availability: SourceCandidate['availability']; platform_duplicate_family_id?: string | null; duplicate_tuple_fingerprint?: string | null };
 type ReconciliationStateRow = { status: ReconciliationSnapshot['status']; last_checked_at_millis: number | null; last_updated_at_millis: number | null; new_journey_count: number; updated_journey_count: number; message: string | null; pending_count: number };
+
+const DUPLICATE_TUPLE_VERSION = 1;
+function normalizedFamilyId(value: string | null | undefined) {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  return normalized.length ? normalized : null;
+}
+function duplicateTuple(candidate: SourceCandidate) {
+  const tuple = [
+    candidate.capturedDay ?? null, candidate.capturedAtMillis ?? null, Boolean(candidate.hasPreciseOffset),
+    candidate.latitude ?? null, candidate.longitude ?? null, candidate.reportedAccuracyMeters ?? null,
+    candidate.sourceOrigin ?? null, candidate.supportEligible ?? null,
+  ];
+  return JSON.stringify(tuple);
+}
 
 function toCheckpoint(row: CheckpointRow | null): ImportCheckpoint | null {
   return row && {
@@ -297,7 +615,19 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
         // Native-only dependency loading keeps an unsupported runtime closed.
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const sqlite = require('expo-sqlite') as { openDatabaseAsync(name: string): Promise<SqliteDatabase> };
-        const db = await sqlite.openDatabaseAsync('travel-life-import-v1.db');
+        const db = serializeNativeTransactions(await sqlite.openDatabaseAsync('travel-life-import-v1.db'));
+        // A rebuild or maintenance transaction may be finishing on the other
+        // connection when the app reloads. Wait for that writer to finish.
+        await db.execAsync('PRAGMA busy_timeout = 30000');
+        let currentSchema: SchemaRow | null = null;
+        try {
+          currentSchema = await db.getFirstAsync<SchemaRow>('SELECT version FROM import_schema_version LIMIT 1');
+        } catch (error) {
+          if (!(error instanceof Error) || !error.message.includes('no such table: import_schema_version')) throw error;
+        }
+        // Most opens only read the existing schema. Avoid taking a write lock
+        // during startup when there is nothing to migrate.
+        if (currentSchema?.version === CURRENT_SCHEMA_VERSION) return db;
         await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
         try {
           await db.execAsync('CREATE TABLE IF NOT EXISTS import_schema_version (version INTEGER NOT NULL)');
@@ -315,6 +645,22 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
           if (version < 10) await db.execAsync(migrationV10);
           if (version < 11) await db.execAsync(migrationV11);
           if (version < 12) await db.execAsync(migrationV12);
+          if (version < 13) await db.execAsync(migrationV13);
+          if (version < 14) await db.execAsync(migrationV14);
+          if (version < 15) await db.execAsync(migrationV15);
+          if (version < 16) await db.execAsync(migrationV16);
+          if (version < 17) await db.execAsync(migrationV17);
+          if (version < 18) await db.execAsync(migrationV18);
+          if (version < 19) await db.execAsync(migrationV19);
+          if (version < 20) await db.execAsync(migrationV20);
+          if (version < 21) await db.execAsync(migrationV21);
+          if (version < 22) await db.execAsync(migrationV22);
+          if (version < 23) await db.execAsync(migrationV23);
+          if (version < 24) await db.execAsync(migrationV24);
+          if (version < 25) await db.execAsync(migrationV25);
+          if (version < 26) await db.execAsync(migrationV26);
+          if (version < 27) await db.execAsync(migrationV27);
+          if (version < 28) await db.execAsync(migrationV28);
           if (version === 0) await db.runAsync('INSERT INTO import_schema_version (version) VALUES (?)', CURRENT_SCHEMA_VERSION);
           else if (version < CURRENT_SCHEMA_VERSION) await db.runAsync('UPDATE import_schema_version SET version = ?', CURRENT_SCHEMA_VERSION);
           await db.execAsync('COMMIT');
@@ -402,6 +748,13 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
         await db.execAsync(`
           DELETE FROM correction_markers;
           DELETE FROM correction_overlays;
+          DELETE FROM journey_correction_revision;
+          DELETE FROM journey_correction_candidate;
+          DELETE FROM journey_correction_application;
+          DELETE FROM journey_correction_scope_review;
+          DELETE FROM journey_memory_correction_revision;
+          DELETE FROM journey_memory_correction_application;
+          DELETE FROM journey_memory_correction_candidate;
           DELETE FROM inferred_history;
           DELETE FROM canonical_evidence;
           DELETE FROM import_source_index;
@@ -485,34 +838,39 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
         for (const candidate of candidates) {
           await db.runAsync(
             `INSERT INTO import_source_index
-              (asset_id, media_type, captured_at_millis, captured_day, has_precise_offset, modified_at_millis, location_available, availability, latitude, longitude, reported_accuracy_meters)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              (asset_id, media_type, captured_at_millis, captured_day, has_precise_offset, modified_at_millis, location_available, availability, latitude, longitude, reported_accuracy_meters, platform_duplicate_family_id, source_origin, support_eligible, duplicate_tuple_version, duplicate_tuple_fingerprint)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(asset_id) DO UPDATE SET
               media_type = excluded.media_type,
               captured_at_millis = excluded.captured_at_millis, captured_day = excluded.captured_day, has_precise_offset = excluded.has_precise_offset,
               modified_at_millis = excluded.modified_at_millis,
               location_available = excluded.location_available,
-              availability = excluded.availability, latitude = excluded.latitude, longitude = excluded.longitude, reported_accuracy_meters = excluded.reported_accuracy_meters`,
+              availability = excluded.availability, latitude = excluded.latitude, longitude = excluded.longitude, reported_accuracy_meters = excluded.reported_accuracy_meters,
+              platform_duplicate_family_id = excluded.platform_duplicate_family_id, source_origin = excluded.source_origin, support_eligible = excluded.support_eligible,
+              duplicate_tuple_version = excluded.duplicate_tuple_version, duplicate_tuple_fingerprint = excluded.duplicate_tuple_fingerprint`,
             candidate.assetId,
             candidate.mediaType,
             candidate.capturedAtMillis, candidate.capturedDay, Number(candidate.hasPreciseOffset),
             candidate.modifiedAtMillis,
             candidate.locationAvailable === null ? null : Number(candidate.locationAvailable),
             candidate.availability, candidate.latitude ?? null, candidate.longitude ?? null, candidate.reportedAccuracyMeters ?? null,
+            normalizedFamilyId(candidate.platformDuplicateFamilyId), candidate.sourceOrigin ?? null, candidate.supportEligible === null || candidate.supportEligible === undefined ? null : Number(candidate.supportEligible), DUPLICATE_TUPLE_VERSION, duplicateTuple(candidate),
           );
           // A later foreground import is also proof this stable identity is
           // present. Do not overwrite a live maintenance run marker.
           await db.runAsync('INSERT OR IGNORE INTO maintenance_source_presence (asset_id, last_seen_run) VALUES (?, ?)', candidate.assetId, 0);
           await db.runAsync(
             `INSERT INTO canonical_evidence
-              (evidence_id, source_ref, media_type, captured_at_millis, captured_day, has_precise_offset, modified_at_millis, location_available, availability, latitude, longitude, reported_accuracy_meters)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              (evidence_id, source_ref, media_type, captured_at_millis, captured_day, has_precise_offset, modified_at_millis, location_available, availability, latitude, longitude, reported_accuracy_meters, platform_duplicate_family_id, source_origin, support_eligible, duplicate_tuple_version, duplicate_tuple_fingerprint)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(source_ref) DO UPDATE SET
               media_type = excluded.media_type,
               captured_at_millis = excluded.captured_at_millis, captured_day = excluded.captured_day, has_precise_offset = excluded.has_precise_offset,
               modified_at_millis = excluded.modified_at_millis,
               location_available = excluded.location_available,
-              availability = excluded.availability, latitude = excluded.latitude, longitude = excluded.longitude, reported_accuracy_meters = excluded.reported_accuracy_meters`,
+              availability = excluded.availability, latitude = excluded.latitude, longitude = excluded.longitude, reported_accuracy_meters = excluded.reported_accuracy_meters,
+              platform_duplicate_family_id = excluded.platform_duplicate_family_id, source_origin = excluded.source_origin, support_eligible = excluded.support_eligible,
+              duplicate_tuple_version = excluded.duplicate_tuple_version, duplicate_tuple_fingerprint = excluded.duplicate_tuple_fingerprint`,
             candidate.assetId,
             candidate.assetId,
             candidate.mediaType,
@@ -520,6 +878,7 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
             candidate.modifiedAtMillis,
             candidate.locationAvailable === null ? null : Number(candidate.locationAvailable),
             candidate.availability, candidate.latitude ?? null, candidate.longitude ?? null, candidate.reportedAccuracyMeters ?? null,
+            normalizedFamilyId(candidate.platformDuplicateFamilyId), candidate.sourceOrigin ?? null, candidate.supportEligible === null || candidate.supportEligible === undefined ? null : Number(candidate.supportEligible), DUPLICATE_TUPLE_VERSION, duplicateTuple(candidate),
           );
         }
         if (candidates.length) await db.runAsync('UPDATE private_history_record SET canonical_evidence_revision = canonical_evidence_revision + 1 WHERE record_id = 1');
@@ -591,31 +950,37 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
         await assertMaintenanceWritable(db, checkpoint.runToken);
         let changedEvidence = false;
         for (const candidate of candidates) {
-          const prior = await db.getFirstAsync<SourceRow>('SELECT modified_at_millis, availability FROM import_source_index WHERE asset_id = ?', candidate.assetId);
+          const prior = await db.getFirstAsync<SourceRow>('SELECT modified_at_millis, availability, platform_duplicate_family_id, duplicate_tuple_fingerprint FROM import_source_index WHERE asset_id = ?', candidate.assetId);
           const canonical = await db.getFirstAsync<{ availability: SourceCandidate['availability'] }>('SELECT availability FROM canonical_evidence WHERE source_ref = ?', candidate.assetId);
           const kind = !prior ? 'added' : canonical?.availability !== 'available' && candidate.availability === 'available' ? 'available'
-            : prior.modified_at_millis !== candidate.modifiedAtMillis || prior.availability !== candidate.availability ? 'changed' : null;
+            : prior.modified_at_millis !== candidate.modifiedAtMillis || prior.availability !== candidate.availability
+              || prior.platform_duplicate_family_id !== normalizedFamilyId(candidate.platformDuplicateFamilyId)
+              || prior.duplicate_tuple_fingerprint !== duplicateTuple(candidate) ? 'changed' : null;
           await db.runAsync(
-            `INSERT INTO import_source_index (asset_id, media_type, captured_at_millis, captured_day, has_precise_offset, modified_at_millis, location_available, availability, latitude, longitude, reported_accuracy_meters)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(asset_id) DO UPDATE SET media_type=excluded.media_type,
+            `INSERT INTO import_source_index (asset_id, media_type, captured_at_millis, captured_day, has_precise_offset, modified_at_millis, location_available, availability, latitude, longitude, reported_accuracy_meters, platform_duplicate_family_id, source_origin, support_eligible, duplicate_tuple_version, duplicate_tuple_fingerprint)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(asset_id) DO UPDATE SET media_type=excluded.media_type,
              captured_at_millis=excluded.captured_at_millis, captured_day=excluded.captured_day, has_precise_offset=excluded.has_precise_offset, modified_at_millis=excluded.modified_at_millis,
-             location_available=excluded.location_available, availability=excluded.availability, latitude=excluded.latitude, longitude=excluded.longitude, reported_accuracy_meters=excluded.reported_accuracy_meters
+             location_available=excluded.location_available, availability=excluded.availability, latitude=excluded.latitude, longitude=excluded.longitude, reported_accuracy_meters=excluded.reported_accuracy_meters,
+             platform_duplicate_family_id=excluded.platform_duplicate_family_id, source_origin=excluded.source_origin, support_eligible=excluded.support_eligible, duplicate_tuple_version=excluded.duplicate_tuple_version, duplicate_tuple_fingerprint=excluded.duplicate_tuple_fingerprint
              WHERE modified_at_millis IS NOT excluded.modified_at_millis OR availability IS NOT excluded.availability OR
-             media_type IS NOT excluded.media_type OR captured_at_millis IS NOT excluded.captured_at_millis OR captured_day IS NOT excluded.captured_day OR has_precise_offset IS NOT excluded.has_precise_offset OR location_available IS NOT excluded.location_available OR latitude IS NOT excluded.latitude OR longitude IS NOT excluded.longitude OR reported_accuracy_meters IS NOT excluded.reported_accuracy_meters`,
+             media_type IS NOT excluded.media_type OR captured_at_millis IS NOT excluded.captured_at_millis OR captured_day IS NOT excluded.captured_day OR has_precise_offset IS NOT excluded.has_precise_offset OR location_available IS NOT excluded.location_available OR latitude IS NOT excluded.latitude OR longitude IS NOT excluded.longitude OR reported_accuracy_meters IS NOT excluded.reported_accuracy_meters OR platform_duplicate_family_id IS NOT excluded.platform_duplicate_family_id OR source_origin IS NOT excluded.source_origin OR support_eligible IS NOT excluded.support_eligible OR duplicate_tuple_fingerprint IS NOT excluded.duplicate_tuple_fingerprint`,
             candidate.assetId, candidate.mediaType, candidate.capturedAtMillis, candidate.capturedDay, Number(candidate.hasPreciseOffset), candidate.modifiedAtMillis,
             candidate.locationAvailable === null ? null : Number(candidate.locationAvailable), candidate.availability, candidate.latitude ?? null, candidate.longitude ?? null, candidate.reportedAccuracyMeters ?? null,
+            normalizedFamilyId(candidate.platformDuplicateFamilyId), candidate.sourceOrigin ?? null, candidate.supportEligible === null || candidate.supportEligible === undefined ? null : Number(candidate.supportEligible), DUPLICATE_TUPLE_VERSION, duplicateTuple(candidate),
           );
           if (kind) await db.runAsync(
             `INSERT INTO canonical_evidence
-              (evidence_id, source_ref, media_type, captured_at_millis, captured_day, has_precise_offset, modified_at_millis, location_available, availability, latitude, longitude, reported_accuracy_meters)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              (evidence_id, source_ref, media_type, captured_at_millis, captured_day, has_precise_offset, modified_at_millis, location_available, availability, latitude, longitude, reported_accuracy_meters, platform_duplicate_family_id, source_origin, support_eligible, duplicate_tuple_version, duplicate_tuple_fingerprint)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(source_ref) DO UPDATE SET media_type=excluded.media_type,
               captured_at_millis=excluded.captured_at_millis, captured_day=excluded.captured_day, has_precise_offset=excluded.has_precise_offset, modified_at_millis=excluded.modified_at_millis,
-              location_available=excluded.location_available, availability=excluded.availability, latitude=excluded.latitude, longitude=excluded.longitude, reported_accuracy_meters=excluded.reported_accuracy_meters
+              location_available=excluded.location_available, availability=excluded.availability, latitude=excluded.latitude, longitude=excluded.longitude, reported_accuracy_meters=excluded.reported_accuracy_meters,
+              platform_duplicate_family_id=excluded.platform_duplicate_family_id, source_origin=excluded.source_origin, support_eligible=excluded.support_eligible, duplicate_tuple_version=excluded.duplicate_tuple_version, duplicate_tuple_fingerprint=excluded.duplicate_tuple_fingerprint
               WHERE modified_at_millis IS NOT excluded.modified_at_millis OR availability IS NOT excluded.availability OR
-              media_type IS NOT excluded.media_type OR captured_at_millis IS NOT excluded.captured_at_millis OR captured_day IS NOT excluded.captured_day OR has_precise_offset IS NOT excluded.has_precise_offset OR location_available IS NOT excluded.location_available OR latitude IS NOT excluded.latitude OR longitude IS NOT excluded.longitude OR reported_accuracy_meters IS NOT excluded.reported_accuracy_meters`,
+              media_type IS NOT excluded.media_type OR captured_at_millis IS NOT excluded.captured_at_millis OR captured_day IS NOT excluded.captured_day OR has_precise_offset IS NOT excluded.has_precise_offset OR location_available IS NOT excluded.location_available OR latitude IS NOT excluded.latitude OR longitude IS NOT excluded.longitude OR reported_accuracy_meters IS NOT excluded.reported_accuracy_meters OR platform_duplicate_family_id IS NOT excluded.platform_duplicate_family_id OR source_origin IS NOT excluded.source_origin OR support_eligible IS NOT excluded.support_eligible OR duplicate_tuple_fingerprint IS NOT excluded.duplicate_tuple_fingerprint`,
             candidate.assetId, candidate.assetId, candidate.mediaType, candidate.capturedAtMillis, candidate.capturedDay, Number(candidate.hasPreciseOffset),
             candidate.modifiedAtMillis, candidate.locationAvailable === null ? null : Number(candidate.locationAvailable), candidate.availability, candidate.latitude ?? null, candidate.longitude ?? null, candidate.reportedAccuracyMeters ?? null,
+            normalizedFamilyId(candidate.platformDuplicateFamilyId), candidate.sourceOrigin ?? null, candidate.supportEligible === null || candidate.supportEligible === undefined ? null : Number(candidate.supportEligible), DUPLICATE_TUPLE_VERSION, duplicateTuple(candidate),
           );
           await db.runAsync('INSERT INTO maintenance_source_presence (asset_id, last_seen_run, missing_full_scans) VALUES (?, ?, 0) ON CONFLICT(asset_id) DO UPDATE SET last_seen_run=excluded.last_seen_run, missing_full_scans=0', candidate.assetId, checkpoint.runToken);
           if (kind) await db.runAsync('INSERT OR IGNORE INTO maintenance_change_queue (asset_id, change_kind, source_revision) VALUES (?, ?, ?)', candidate.assetId, kind, candidate.modifiedAtMillis ?? -1);

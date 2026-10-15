@@ -147,6 +147,15 @@ layouts; the prototype is a reference, not proof of production accessibility.
 
 ## Applying and extending the system
 
+Decision [0012](../decisions/0012-dimensional-atlas-and-minimal-list.md) extends
+the Atlas direction with richer map color, subtle perspective, dimensional
+markers, restrained preview-card depth and responsive motion. The owner explicitly
+does not require terrain, mountains, valleys or a globe. Keep journey rows simple,
+minimal, intuitive and uncluttered. Core palette and matte interface remain in
+force; exact geographic colors and motion values are implementation candidates
+in the [development plan](../../_bmad-output/specs/spec-atlas-dimensional-polish/development-plan.md),
+not newly accepted global tokens. This records direction, not implemented behavior.
+
 For each UI story, consult this document and the relevant accepted product
 decisions. Reuse the Living Atlas palette, visual hierarchy, navigation language,
 state patterns, and evidence wording. Adapt dimensions and native controls to the

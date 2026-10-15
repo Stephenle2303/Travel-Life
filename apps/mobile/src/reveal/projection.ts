@@ -18,7 +18,10 @@ export function projectReveal(input: RevealInput): RevealModel {
   const sourceJourneys = input.durableRecord?.journeys ?? graph?.journeys.map((journey) => ({ state: journey.state, anchor: null })) ?? [];
   const journeys = sourceJourneys.map((journey, index) => ({
     id: 'displayId' in journey ? journey.displayId : `journey-${index + 1}`,
-    label: `Available journey ${index + 1}`,
+    // A coarse anchor is never a destination claim. Titles from owner claims
+    // stay in the selected local detail boundary, so this redacted list uses a
+    // truthful neutral fallback.
+    label: 'Private journey',
     status: journey.state === 'inferred' ? 'Inferred' as const : 'Needs review' as const,
     years: 'years' in journey ? journey.years : [],
     periodLabel: 'periodLabel' in journey ? journey.periodLabel : 'Date unknown',
@@ -42,7 +45,7 @@ export function projectReveal(input: RevealInput): RevealModel {
     return { state: 'failed', coverage, journeys, statistics: null, replay: { eligible: false, reason: 'Replay is unavailable while the local record needs recovery.' }, message: 'The local reveal could not finish. Your last committed record remains available.' };
   }
   if (!journeys.length) {
-    return { state: 'sparse', coverage, journeys, statistics: null, replay: { eligible: false, reason: 'Replay needs at least one supported revealed journey.' }, message: 'There is not enough supported local evidence to reveal a journey yet.' };
+    return { state: 'sparse', coverage, journeys, statistics: null, diagnostics: input.durableRecord?.diagnostics ?? null, replay: { eligible: false, reason: 'Replay needs at least one supported revealed journey.' }, message: input.durableRecord?.diagnostics ? 'There is not enough supported local evidence to reveal a journey yet.' : 'No completed local reconstruction diagnostics are available yet.' };
   }
   return { state: 'ready', coverage, journeys, statistics: input.durableRecord?.statistics ?? null, replay: { eligible: true, reason: 'Replay can use only the observed destinations in this private reveal.' }, message: 'Available reconstructed journeys are shown as inferred local records. Photo location does not verify your presence.' };
 }

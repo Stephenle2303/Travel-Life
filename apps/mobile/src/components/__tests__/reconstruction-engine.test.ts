@@ -78,6 +78,29 @@ describe('reconstruction-v1 deterministic baseline', () => {
     expect(graph.possibleMerges).toEqual([]);
   });
 
+  it('applies durable rejection support before automatic journey grouping', () => {
+    const input = [
+      e('first', 0, 0, { capturedAtMillis: Date.UTC(2026, 0, 1) }),
+      e('second', 2, 2, { capturedAtMillis: Date.UTC(2026, 0, 2), capturedDay: '2026-01-02' }),
+    ];
+    const baseline = reconstructV1(input);
+    expect(baseline.journeys).toHaveLength(1);
+
+    const separated = reconstructV1(input, {
+      journeyGroupingConstraints: [{ kind: 'cannot-co-member', leftSupport: ['first'], rightSupport: ['second'] }],
+    });
+    expect(separated.visits).toHaveLength(2);
+    expect(separated.journeys).toHaveLength(2);
+    expect(separated.possibleMerges).toEqual([]);
+
+    const withheld = reconstructV1(input, {
+      journeyGroupingConstraints: [{ kind: 'forbid-automatic-journey-membership', support: ['first'] }],
+    });
+    expect(withheld.visits).toHaveLength(2);
+    expect(withheld.journeys).toHaveLength(1);
+    expect(withheld.memberships.some((membership) => membership.evidenceId === 'first')).toBe(false);
+  });
+
   it('attaches bounded structural metadata to a possible merge only when its civil days are known', () => {
     const graph = reconstructV1([
       e('first', 0, 0, { capturedAtMillis: Date.UTC(2026, 0, 1), capturedDay: '2026-01-01' }),

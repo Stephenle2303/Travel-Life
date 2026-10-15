@@ -8,6 +8,8 @@ describe('offline Natural Earth country resolver', () => {
 
   it('omits invalid and border-ambiguous coordinates without a fallback', () => {
     expect(resolveCountry({ latitude: 91, longitude: 100 })).toEqual({ status: 'invalid' });
-    expect(resolveCountry({ latitude: 0, longitude: 0 })).not.toMatchObject({ status: 'resolved' });
+    // A bundled Thailand polygon edge is deterministic; an edge
+    // point must remain ambiguous rather than resolve to a country.
+    expect(resolveCountry({ latitude: 14.2732, longitude: 105.2188 })).not.toMatchObject({ status: 'resolved' });
   });
 });

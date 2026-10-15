@@ -7,3 +7,5 @@
 *.yml text eol=lf
 *.toml text eol=lf
 *.ps1 text eol=crlf
+# Archived review patches retain original whitespace so they remain faithful evidence.
+*.diff whitespace=-blank-at-eol,-blank-at-eof

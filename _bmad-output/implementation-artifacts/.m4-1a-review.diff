@@ -1,0 +1,1376 @@
+diff --git a/apps/mobile/src/app/journey/[id].tsx b/apps/mobile/src/app/journey/[id].tsx
+index 65144d3..4e7cbd1 100644
+--- a/apps/mobile/src/app/journey/[id].tsx
++++ b/apps/mobile/src/app/journey/[id].tsx
+@@ -4,6 +4,8 @@ import { usePhotoAccess } from '@/photo-access/provider';
+ import { appRoutes, openRoute } from '@/navigation/app-contract';
+ 
+ export default function JourneyRoute() {
+-  const router = useRouter(); const { id } = useLocalSearchParams<{ id?: string }>(); const { loadJourneyDetail } = usePhotoAccess();
+-  return <JourneyDetailScreen id={typeof id === 'string' ? id : ''} load={loadJourneyDetail} onBack={() => openRoute(router, appRoutes.atlas, 'replace')} onCorrect={() => openRoute(router, appRoutes.settings)} />;
++  const router = useRouter();
++  const { id } = useLocalSearchParams<{ id?: string }>();
++  const { loadJourneyDetail } = usePhotoAccess();
++  return <JourneyDetailScreen id={typeof id === 'string' ? id : ''} load={loadJourneyDetail} onBack={() => openRoute(router, appRoutes.atlas, 'replace')} onCorrect={() => router.push({ pathname: '/journey/[id]/correct' as never, params: { id } })} />;
+ }
+diff --git a/apps/mobile/src/components/__tests__/import-repository.test.ts b/apps/mobile/src/components/__tests__/import-repository.test.ts
+index 878267e..eda8a1d 100644
+--- a/apps/mobile/src/components/__tests__/import-repository.test.ts
++++ b/apps/mobile/src/components/__tests__/import-repository.test.ts
+@@ -35,8 +35,10 @@ describe('native import SQLite repository', () => {
+     expect(mockOpenDatabaseAsync).toHaveBeenCalledWith('travel-life-import-v1.db');
+     expect(mockExecAsync).toHaveBeenCalledWith('BEGIN IMMEDIATE TRANSACTION');
+     expect(mockExecAsync).toHaveBeenCalledWith(expect.stringContaining('CREATE TABLE IF NOT EXISTS import_source_index'));
+-    expect(mockRunAsync).toHaveBeenCalledWith('INSERT INTO import_schema_version (version) VALUES (?)', 12);
++    expect(mockRunAsync).toHaveBeenCalledWith('INSERT INTO import_schema_version (version) VALUES (?)', 17);
+     expect(mockExecAsync).toHaveBeenLastCalledWith('COMMIT');
++    expect(mockExecAsync.mock.calls.flat().join('\n')).toContain('ADD COLUMN reviewed_snapshot_json');
++    expect(mockExecAsync.mock.calls.flat().join('\n')).toContain('CREATE TABLE IF NOT EXISTS journey_correction_candidate');
+   });
+ 
+   it('maps a checkpoint and atomically upserts source and canonical evidence without touching correction overlays', async () => {
+@@ -64,7 +66,17 @@ describe('native import SQLite repository', () => {
+     expect(mockExecAsync.mock.calls.flat().join('\n')).toContain('CREATE TABLE IF NOT EXISTS inferred_history');
+     expect(mockExecAsync.mock.calls.flat().join('\n')).toContain('INSERT OR IGNORE INTO canonical_evidence');
+     expect(mockExecAsync.mock.calls.flat().join('\n')).toContain('VALUES (1, 2)');
+-    expect(mockRunAsync).toHaveBeenCalledWith('UPDATE import_schema_version SET version = ?', 12);
++    expect(mockRunAsync).toHaveBeenCalledWith('UPDATE import_schema_version SET version = ?', 17);
++  });
++
++  it('adds both reconstructed-place country columns before recording schema v12', async () => {
++    const repository = createNativeImportRepository();
++    mockGetFirstAsync.mockResolvedValueOnce({ version: 11 }).mockResolvedValueOnce(null);
++    await repository.getCheckpoint('full');
++    const migration = mockExecAsync.mock.calls.flat().join('\n');
++    expect(migration).toContain('ADD COLUMN country_code');
++    expect(migration).toContain('ADD COLUMN country_dataset_version');
++    expect(mockRunAsync).toHaveBeenCalledWith('UPDATE import_schema_version SET version = ?', 17);
+   });
+ 
+   it('keeps a disconnected record locally and clears every covered table only on deletion', async () => {
+@@ -77,6 +89,9 @@ describe('native import SQLite repository', () => {
+     const statements = mockExecAsync.mock.calls.flat().join('\n');
+     expect(statements).toContain('DELETE FROM correction_markers');
+     expect(statements).toContain('DELETE FROM correction_overlays');
++    expect(statements).toContain('DELETE FROM journey_correction_revision');
++    expect(statements).toContain('DELETE FROM journey_correction_candidate');
++    expect(statements).toContain('DELETE FROM journey_correction_application');
+     expect(statements).toContain('DELETE FROM inferred_history');
+     expect(statements).toContain('DELETE FROM canonical_evidence');
+     expect(statements).toContain('DELETE FROM import_source_index');
+diff --git a/apps/mobile/src/components/__tests__/photo-access-provider.test.tsx b/apps/mobile/src/components/__tests__/photo-access-provider.test.tsx
+index 8a312f5..5f7e882 100644
+--- a/apps/mobile/src/components/__tests__/photo-access-provider.test.tsx
++++ b/apps/mobile/src/components/__tests__/photo-access-provider.test.tsx
+@@ -2,7 +2,7 @@ import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+ import { AppState, type AppStateStatus } from 'react-native';
+ 
+ import { EmptyAtlasScreen, ImportScreen } from '@/components/mobile-screens';
+-import { canPublishJourneyDetail, isCurrentDurableRevealRead, PhotoAccessProvider } from '@/photo-access/provider';
++import { canPublishJourneyDetail, isCurrentDurableRevealRead, PhotoAccessProvider, usePhotoAccess } from '@/photo-access/provider';
+ import type { PermissionSnapshot, PhotoAccessAdapter } from '@/photo-access/types';
+ import type { ImportRepository } from '@/import-record';
+ 
+@@ -32,6 +32,81 @@ const emptyRepository: ImportRepository = {
+ };
+ 
+ describe('photo access provider and Import screen', () => {
++  it('rejects mounted detail and preview reads after lifecycle invalidation', async () => {
++    let access!: ReturnType<typeof usePhotoAccess>;
++    let releaseDetail!: (value: { detail: never; previewSourceRefs: string[]; snapshotToken: number }) => void;
++    let releasePreview!: (value: []) => void;
++    const detail = new Promise<{ detail: never; previewSourceRefs: string[]; snapshotToken: number }>((resolve) => { releaseDetail = resolve; });
++    const preview = new Promise<[]>((resolve) => { releasePreview = resolve; });
++    const reconstructionRepository = {
++      loadDurableReveal: async () => ({ journeys: [], statistics: null }), loadJourneyDetail: jest.fn(() => detail),
++      saveJourneyCorrection: async () => ({ revisionId: 'review', state: 'confirmed' as const, graph: { ruleVersion: 'reconstruction-v1' as const, places: [], visits: [], journeys: [], possibleMerges: [], dispositions: [], memberships: [] } }),
++      markJourneyCorrectionPending: async () => {},
++      rebuild: async () => ({ ruleVersion: 'reconstruction-v1' as const, places: [], visits: [], journeys: [], possibleMerges: [], dispositions: [], memberships: [] }), reconcileQueued: async () => ({ graph: { ruleVersion: 'reconstruction-v1' as const, places: [], visits: [], journeys: [], possibleMerges: [], dispositions: [], memberships: [] }, newJourneyCount: 0, updatedJourneyCount: 0 }),
++    };
++    const adapter: PhotoAccessAdapter = { ...adapterFor({ scope: 'full', canAskAgain: false }), resolveOwnerPreviews: jest.fn(() => preview) };
++    const Harness = () => { access = usePhotoAccess(); return null; };
++    await render(<PhotoAccessProvider adapter={adapter} repository={emptyRepository} reconstructionRepository={reconstructionRepository}><Harness /></PhotoAccessProvider>);
++    await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
++    const pendingDetail = access.loadJourneyDetail('opaque');
++    const rejectedDetail = expect(pendingDetail).rejects.toThrow('no longer available');
++    await act(async () => { await access.privateRecordController.disconnect(); releaseDetail({ detail: null as never, previewSourceRefs: [], snapshotToken: 1 }); });
++    await rejectedDetail;
++    await act(async () => { await access.privateRecordController.reconnect(); });
++    await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
++    reconstructionRepository.loadJourneyDetail.mockResolvedValueOnce({ detail: null as never, previewSourceRefs: [], snapshotToken: 1 });
++    const pendingPreview = access.loadJourneyDetail('opaque');
++    await waitFor(() => expect(adapter.resolveOwnerPreviews).toHaveBeenCalled());
++    const rejectedPreview = expect(pendingPreview).rejects.toThrow('no longer available');
++    await act(async () => { await access.privateRecordController.disconnect(); releasePreview([]); });
++    await rejectedPreview;
++  });
++  it('publishes the projection that was committed with a revision-bound decision', async () => {
++    let access!: ReturnType<typeof usePhotoAccess>;
++    const graph = { ruleVersion: 'reconstruction-v1' as const, places: [], visits: [], journeys: [], possibleMerges: [], dispositions: [], memberships: [] };
++    const reconstructionRepository = {
++      loadDurableReveal: jest.fn(async () => ({ journeys: [], statistics: null })),
++      loadJourneyDetail: async () => ({ detail: null as never, previewSourceRefs: [], snapshotToken: 7 }),
++      saveJourneyCorrection: jest.fn(async () => ({ revisionId: 'revision-1', state: 'rejected' as const, graph })),
++      markJourneyCorrectionPending: jest.fn(async () => {}),
++      rebuild: jest.fn(async () => graph),
++      reconcileQueued: async () => ({ graph, newJourneyCount: 0, updatedJourneyCount: 0 }),
++    };
++    const Harness = () => { access = usePhotoAccess(); return null; };
++    await render(<PhotoAccessProvider adapter={adapterFor({ scope: 'full', canAskAgain: false })} repository={emptyRepository} reconstructionRepository={reconstructionRepository}><Harness /></PhotoAccessProvider>);
++    await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
++    let result!: 'applied' | 'pending';
++    const snapshot = { id: 'opaque', title: 'Private journey', observedSpan: 'Observed 2024-01-01', visits: [], memories: [], uncertainty: [] };
++    await act(async () => { result = await access.saveJourneyCorrection('opaque', 'reject', 7, snapshot, 'command-reject'); });
++    expect(reconstructionRepository.saveJourneyCorrection).toHaveBeenCalledWith('opaque', 'reject', 7, snapshot, 'command-reject');
++    expect(reconstructionRepository.rebuild).not.toHaveBeenCalled();
++    // The success state is withheld until the redacted Atlas cache has been
++    // refreshed from the same completed projection.
++    expect(reconstructionRepository.loadDurableReveal).toHaveBeenCalledTimes(2);
++    expect(result).toBe('applied');
++    expect(reconstructionRepository.markJourneyCorrectionPending).not.toHaveBeenCalled();
++  });
++  it('does not start a second projection transaction after a saved decision', async () => {
++    let access!: ReturnType<typeof usePhotoAccess>;
++    const graph = { ruleVersion: 'reconstruction-v1' as const, places: [], visits: [], journeys: [], possibleMerges: [], dispositions: [], memberships: [] };
++    const reconstructionRepository = {
++      loadDurableReveal: async () => ({ journeys: [], statistics: null }),
++      loadJourneyDetail: async () => ({ detail: null as never, previewSourceRefs: [], snapshotToken: 7 }),
++      saveJourneyCorrection: jest.fn(async () => ({ revisionId: 'revision-2', state: 'confirmed' as const, graph })),
++      markJourneyCorrectionPending: jest.fn(async () => {}),
++      rebuild: jest.fn().mockRejectedValue(new Error('must not run')),
++      reconcileQueued: async () => ({ graph, newJourneyCount: 0, updatedJourneyCount: 0 }),
++    };
++    const Harness = () => { access = usePhotoAccess(); return null; };
++    await render(<PhotoAccessProvider adapter={adapterFor({ scope: 'full', canAskAgain: false })} repository={emptyRepository} reconstructionRepository={reconstructionRepository}><Harness /></PhotoAccessProvider>);
++    await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
++    let result!: 'applied' | 'pending';
++    const snapshot = { id: 'opaque', title: 'Private journey', observedSpan: 'Observed 2024-01-01', visits: [], memories: [], uncertainty: [] };
++    await act(async () => { result = await access.saveJourneyCorrection('opaque', 'confirm', 7, snapshot, 'command-confirm'); });
++    expect(result).toBe('applied');
++    expect(reconstructionRepository.rebuild).not.toHaveBeenCalled();
++    expect(reconstructionRepository.markJourneyCorrectionPending).not.toHaveBeenCalled();
++  });
+   it('rejects a durable reveal read that completed after a lifecycle invalidation', () => {
+     expect(isCurrentDurableRevealRead(4, 4)).toBe(true);
+     expect(isCurrentDurableRevealRead(4, 5)).toBe(false);
+diff --git a/apps/mobile/src/components/__tests__/reconciliation-repository.test.ts b/apps/mobile/src/components/__tests__/reconciliation-repository.test.ts
+index 9fea399..3c2ec9a 100644
+--- a/apps/mobile/src/components/__tests__/reconciliation-repository.test.ts
++++ b/apps/mobile/src/components/__tests__/reconciliation-repository.test.ts
+@@ -22,7 +22,7 @@ describe('durable local reconciliation repository', () => {
+       if (sql.includes('canonical_evidence_revision')) return { canonical_evidence_revision: 2 };
+       if (sql.includes('MAX(revision)')) return { revision: 1 };
+       if (sql.includes('MAX(run_id)')) return { run_id: 7 };
+-      if (sql.includes('COUNT(DISTINCT country_code)')) return { journey_count: 2, place_count: 3, country_count: 1 };
++      if (sql.includes('COUNT(DISTINCT country_code)')) return { journey_count: 2, place_count: 3, country_count: 1, resolved_count: 3 };
+       return null;
+     });
+     mockGetAllAsync.mockResolvedValue([]);
+@@ -89,8 +89,8 @@ describe('durable local reconciliation repository', () => {
+     const result = await repository.loadJourneyDetail(displayId!);
+ 
+     expect(result.detail.memories.map((memory) => memory.association)).toEqual([
+-      'Supports an observed visit; this is not proof of owner presence.',
+-      'Associated with this journey as a memory (inferred ordered 24 hour bracket); separate from destination support.',
++      'Supports an observed visit; it does not prove owner presence.',
++      'Associated with this journey as a memory (inferred ordered 24 hour bracket); separate from destination support. This source is unresolved; it is reviewable without being visit support.',
+     ]);
+     expect(result.detail.uncertainty).toEqual(expect.arrayContaining(['Visit ordering is uncertain.', 'Date precision is limited for part of this journey.', 'A source remains unresolved and is not treated as visit support.', 'A GPS-less or date-limited memory is associated with this journey without destination support.']));
+     expect(result.previewSourceRefs).toEqual(['private:source-a', null]);
+@@ -99,6 +99,164 @@ describe('durable local reconciliation repository', () => {
+     expect(mockGetAllAsync.mock.calls[1][0]).toContain("'visit-support' AS association");
+   });
+ 
++  it('stores the exact owner-visible snapshot only against its current completed run', async () => {
++    mockGetFirstAsync.mockImplementation(async (sql: string) => {
++      if (sql.includes('private_record_lifecycle')) return { state: 'connected' };
++      if (sql.includes('MAX(run_id)')) return { run_id: 7 };
++      if (sql.includes('COUNT(DISTINCT country_code)')) return { journey_count: 1, place_count: 1, country_count: 1, resolved_count: 1 };
++      return null;
++    });
++    mockGetAllAsync.mockImplementation(async (sql: string) => {
++      if (sql.includes('WITH journey_anchor AS')) return [{ journey_id: 'private:alpha', run_id: 7, journey_state: 'inferred', latitude: null, longitude: null, display_ordinal: 1, year: 2024, first_year: 2024, last_year: 2024, ordering: 'chronological' }];
++      if (sql.includes('WITH visit_summary AS')) return [{ captured_day: '2024-01-01', has_precise_offset: 0, ordering: 'chronological' }];
++      if (sql.includes('WITH journey_evidence AS')) return [{ captured_day: '2024-01-01', availability: 'available', source_ref: 'private:source-a', association: 'visit-support', disposition: null }];
++      if (sql.includes('SELECT DISTINCT support.child_id AS evidence_id')) return [{ evidence_id: 'evidence-a' }];
++      return [];
++    });
++
++    const repository = createNativeReconstructionRepository();
++    const displayId = (await repository.loadDurableReveal()).journeys[0]?.displayId;
++    const loaded = await repository.loadJourneyDetail(displayId!);
++    await repository.saveJourneyCorrection(displayId!, 'confirm', loaded.snapshotToken, loaded.detail, 'command-1', 99);
++
++    const insert = mockRunAsync.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO journey_correction_revision'));
++    expect(insert?.[0]).toContain('reviewed_snapshot_json');
++    expect(insert?.[5]).toBe(JSON.stringify(['E:evidence-a']));
++    expect(insert?.[8]).toContain('"title":"Private journey"');
++    expect(insert?.[8]).toContain('"observedSpan":"Observed 2024-01-01"');
++    expect(insert?.[8]).not.toContain('private:source-a');
++    // The correction revision and its successor projection share the one
++    // write transaction. A nested rebuild must not publish an intermediate run.
++    expect(mockExecAsync.mock.calls.filter(([sql]) => sql === 'BEGIN IMMEDIATE TRANSACTION')).toHaveLength(1);
++    expect(mockExecAsync.mock.calls.filter(([sql]) => sql === 'COMMIT')).toHaveLength(1);
++  });
++
++  it('rolls back a correction revision when its in-transaction projection write fails', async () => {
++    mockGetFirstAsync.mockImplementation(async (sql: string) => {
++      if (sql.includes('private_record_lifecycle')) return { state: 'connected' };
++      if (sql.includes('MAX(run_id)')) return { run_id: 7 };
++      return null;
++    });
++    mockGetAllAsync.mockImplementation(async (sql: string) => {
++      if (sql.includes('WITH journey_anchor AS')) return [{ journey_id: 'private:alpha', run_id: 7, journey_state: 'inferred', latitude: null, longitude: null, display_ordinal: 1, year: 2024, first_year: 2024, last_year: 2024, ordering: 'chronological' }];
++      if (sql.includes('WITH visit_summary AS')) return [{ captured_day: '2024-01-01', has_precise_offset: 0, ordering: 'chronological' }];
++      if (sql.includes('WITH journey_evidence AS')) return [];
++      if (sql.includes('SELECT DISTINCT support.child_id AS evidence_id')) return [{ evidence_id: 'evidence-a', visit_id: 'visit:evidence-a' }];
++      return [];
++    });
++    mockRunAsync.mockImplementation(async (sql: string) => {
++      if (sql.includes('INSERT INTO reconstruction_run')) throw new Error('projection write failed');
++    });
++    const repository = createNativeReconstructionRepository();
++    const displayId = (await repository.loadDurableReveal()).journeys[0]?.displayId;
++    const loaded = await repository.loadJourneyDetail(displayId!);
++
++    await expect(repository.saveJourneyCorrection(displayId!, 'confirm', loaded.snapshotToken, loaded.detail, 'command-rollback', 99)).rejects.toThrow('projection write failed');
++    expect(mockRunAsync.mock.calls.some(([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO journey_correction_revision'))).toBe(true);
++    expect(mockExecAsync).toHaveBeenCalledWith('ROLLBACK');
++    expect(mockExecAsync).not.toHaveBeenCalledWith('COMMIT');
++  });
++
++  it('rejects a stale correction preview before writing a revision', async () => {
++    mockGetFirstAsync.mockImplementation(async (sql: string) => {
++      if (sql.includes('private_record_lifecycle')) return { state: 'connected' };
++      if (sql.includes('MAX(run_id)')) return { run_id: 7 };
++      return null;
++    });
++    mockGetAllAsync.mockImplementation(async (sql: string) => {
++      if (sql.includes('WITH journey_anchor AS')) return [{ journey_id: 'private:alpha', run_id: 7, journey_state: 'inferred', latitude: null, longitude: null, display_ordinal: 1, year: 2024, first_year: 2024, last_year: 2024, ordering: 'chronological' }];
++      if (sql.includes('WITH visit_summary AS')) return [{ captured_day: '2024-01-01', has_precise_offset: 0, ordering: 'chronological' }];
++      if (sql.includes('WITH journey_evidence AS')) return [];
++      return [];
++    });
++    const repository = createNativeReconstructionRepository();
++    const displayId = (await repository.loadDurableReveal()).journeys[0]?.displayId;
++    const loaded = await repository.loadJourneyDetail(displayId!);
++    mockGetFirstAsync.mockImplementation(async (sql: string) => {
++      if (sql.includes('private_record_lifecycle')) return { state: 'connected' };
++      if (sql.includes('MAX(run_id)')) return { run_id: 8 };
++      return null;
++    });
++
++    await expect(repository.saveJourneyCorrection(displayId!, 'confirm', loaded.snapshotToken, loaded.detail, 'command-stale', 99)).rejects.toThrow('Review is stale');
++    expect(mockRunAsync.mock.calls.some(([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO journey_correction_revision'))).toBe(false);
++    expect(mockExecAsync).toHaveBeenCalledWith('ROLLBACK');
++  });
++
++  it('rolls back when the private record disconnects before correction commit', async () => {
++    let lifecycleReads = 0;
++    mockGetFirstAsync.mockImplementation(async (sql: string) => {
++      if (sql.includes('private_record_lifecycle')) {
++        lifecycleReads += 1;
++        return { state: lifecycleReads >= 5 ? 'disconnected' : 'connected' };
++      }
++      if (sql.includes('MAX(run_id)')) return { run_id: 7 };
++      return null;
++    });
++    mockGetAllAsync.mockImplementation(async (sql: string) => {
++      if (sql.includes('WITH journey_anchor AS')) return [{ journey_id: 'private:alpha', run_id: 7, journey_state: 'inferred', latitude: null, longitude: null, display_ordinal: 1, year: 2024, first_year: 2024, last_year: 2024, ordering: 'chronological' }];
++      if (sql.includes('WITH visit_summary AS')) return [{ captured_day: '2024-01-01', has_precise_offset: 0, ordering: 'chronological' }];
++      if (sql.includes('WITH journey_evidence AS')) return [];
++      if (sql.includes('SELECT DISTINCT support.child_id AS evidence_id')) return [{ evidence_id: 'evidence-a', visit_id: 'visit:evidence-a' }];
++      return [];
++    });
++    const repository = createNativeReconstructionRepository();
++    const displayId = (await repository.loadDurableReveal()).journeys[0]?.displayId;
++    const loaded = await repository.loadJourneyDetail(displayId!);
++
++    await expect(repository.saveJourneyCorrection(displayId!, 'confirm', loaded.snapshotToken, loaded.detail, 'command-disconnect', 99)).rejects.toThrow('Private record is unavailable');
++    expect(mockRunAsync.mock.calls.some(([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO journey_correction_revision'))).toBe(true);
++    expect(mockExecAsync).toHaveBeenCalledWith('ROLLBACK');
++    expect(mockExecAsync).not.toHaveBeenCalledWith('COMMIT');
++  });
++
++  it('returns an idempotent correction command without writing another projection', async () => {
++    let commandAlreadyCommitted = false;
++    mockGetFirstAsync.mockImplementation(async (sql: string) => {
++      if (sql.includes('private_record_lifecycle')) return { state: 'connected' };
++      if (sql.includes('MAX(run_id)')) return { run_id: 7 };
++      if (sql.includes('command_key') && commandAlreadyCommitted) return { revision_id: 'revision-1', action: 'confirm' };
++      return null;
++    });
++    mockGetAllAsync.mockImplementation(async (sql: string) => {
++      if (sql.includes('WITH journey_anchor AS')) return [{ journey_id: 'private:alpha', run_id: 7, journey_state: 'inferred', latitude: null, longitude: null, display_ordinal: 1, year: 2024, first_year: 2024, last_year: 2024, ordering: 'chronological' }];
++      if (sql.includes('WITH visit_summary AS')) return [{ captured_day: '2024-01-01', has_precise_offset: 0, ordering: 'chronological' }];
++      if (sql.includes('WITH journey_evidence AS')) return [];
++      return [];
++    });
++    const repository = createNativeReconstructionRepository();
++    const displayId = (await repository.loadDurableReveal()).journeys[0]?.displayId;
++    const loaded = await repository.loadJourneyDetail(displayId!);
++    commandAlreadyCommitted = true;
++    const result = await repository.saveJourneyCorrection(displayId!, 'confirm', loaded.snapshotToken, loaded.detail, 'command-1', 99);
++
++    expect(result).toEqual({ revisionId: 'revision-1', state: 'confirmed', graph: null });
++    expect(mockRunAsync).not.toHaveBeenCalled();
++    expect(mockExecAsync.mock.calls.filter(([sql]) => sql === 'BEGIN IMMEDIATE TRANSACTION')).toHaveLength(1);
++    expect(mockExecAsync.mock.calls.filter(([sql]) => sql === 'COMMIT')).toHaveLength(1);
++  });
++
++  it('records an unresolved remap separately without demoting the committed application', async () => {
++    mockGetFirstAsync.mockImplementation(async (sql: string) => {
++      if (sql.includes('private_record_lifecycle')) return { state: 'connected' };
++      if (sql.includes('SELECT source_run_id FROM journey_correction_revision')) return { source_run_id: 7 };
++      return null;
++    });
++
++    await createNativeReconstructionRepository().markJourneyCorrectionPending('revision-1');
++
++    expect(mockRunAsync).toHaveBeenCalledWith(
++      expect.stringContaining('INSERT INTO journey_correction_candidate'),
++      expect.stringMatching(/^candidate-revision-1-/),
++      'revision-1',
++      7,
++      expect.any(String),
++      expect.any(Number),
++    );
++    expect(mockRunAsync.mock.calls.some(([sql]) => typeof sql === 'string' && sql.includes('UPDATE journey_correction_application'))).toBe(false);
++    expect(mockExecAsync).toHaveBeenCalledWith('COMMIT');
++  });
++
+   it('refuses an overlapping reconciliation lease without snapshotting or acknowledging queue rows', async () => {
+     mockGetFirstAsync.mockImplementation(async (sql: string) => {
+       if (sql.includes('private_record_lifecycle')) return { state: 'connected' };
+diff --git a/apps/mobile/src/import-record/repository.ts b/apps/mobile/src/import-record/repository.ts
+index 6b1c252..366e31f 100644
+--- a/apps/mobile/src/import-record/repository.ts
++++ b/apps/mobile/src/import-record/repository.ts
+@@ -20,7 +20,7 @@ type CheckpointRow = {
+   status: ImportCheckpoint['status'];
+ };
+ 
+-const CURRENT_SCHEMA_VERSION = 12;
++const CURRENT_SCHEMA_VERSION = 17;
+ 
+ const migrationV1 = `
+   CREATE TABLE IF NOT EXISTS import_checkpoint (
+@@ -266,6 +266,65 @@ const migrationV12 = `
+   UPDATE private_history_record SET schema_version = 12 WHERE record_id = 1;
+ `;
+ 
++// Corrections deliberately retain canonical evidence ids and a completed-run
++// snapshot. Generated reconstruction ids are never used as durable identity.
++const migrationV13 = `
++  CREATE TABLE IF NOT EXISTS journey_correction_revision (
++    revision_id TEXT PRIMARY KEY NOT NULL,
++    action TEXT NOT NULL CHECK (action IN ('confirm', 'reject')),
++    source_run_id INTEGER NOT NULL,
++    journey_id TEXT NOT NULL,
++    reviewed_support_json TEXT NOT NULL,
++    state TEXT NOT NULL CHECK (state IN ('effective', 'pending_remap', 'superseded')),
++    created_at_millis INTEGER NOT NULL,
++    replaces_revision_id TEXT NULL
++  );
++  CREATE INDEX IF NOT EXISTS journey_correction_target ON journey_correction_revision (journey_id, source_run_id, created_at_millis);
++  UPDATE private_history_record SET schema_version = 13 WHERE record_id = 1;
++`;
++
++// An application records the exact generated successor for one immutable owner
++// revision. It is separate from the revision because generated journey IDs may
++// change across a later complete rebuild.
++const migrationV14 = `
++  CREATE TABLE IF NOT EXISTS journey_correction_application (
++    revision_id TEXT NOT NULL,
++    run_id INTEGER NOT NULL,
++    journey_id TEXT NOT NULL,
++    application_state TEXT NOT NULL CHECK (application_state IN ('effective', 'pending_remap')),
++    PRIMARY KEY (revision_id, run_id)
++  );
++  CREATE INDEX IF NOT EXISTS journey_correction_application_run ON journey_correction_application (run_id, journey_id);
++  UPDATE private_history_record SET schema_version = 14 WHERE record_id = 1;
++`;
++
++const migrationV15 = `
++  ALTER TABLE journey_correction_revision ADD COLUMN reviewed_snapshot_json TEXT NOT NULL DEFAULT '{}';
++  UPDATE private_history_record SET schema_version = 15 WHERE record_id = 1;
++`;
++
++const migrationV16 = `
++  CREATE TABLE IF NOT EXISTS journey_correction_candidate (
++    candidate_id TEXT PRIMARY KEY NOT NULL,
++    revision_id TEXT NOT NULL,
++    base_run_id INTEGER NOT NULL,
++    state TEXT NOT NULL CHECK (state IN ('pending_remap', 'resolved', 'superseded')),
++    reason TEXT NOT NULL,
++    created_at_millis INTEGER NOT NULL
++  );
++  CREATE INDEX IF NOT EXISTS journey_correction_candidate_revision ON journey_correction_candidate (revision_id, state);
++  UPDATE private_history_record SET schema_version = 16 WHERE record_id = 1;
++`;
++
++// Store each reviewed visit separately. A flattened journey-wide list cannot
++// distinguish an exact successor from a split reviewed visit on a later rebuild.
++const migrationV17 = `
++  ALTER TABLE journey_correction_revision ADD COLUMN reviewed_visits_json TEXT NOT NULL DEFAULT '[]';
++  ALTER TABLE journey_correction_revision ADD COLUMN command_key TEXT NULL;
++  CREATE UNIQUE INDEX IF NOT EXISTS journey_correction_command ON journey_correction_revision (command_key) WHERE command_key IS NOT NULL;
++  UPDATE private_history_record SET schema_version = 17 WHERE record_id = 1;
++`;
++
+ const MAINTENANCE_LEASE_MILLIS = 5 * 60 * 1000;
+ 
+ type SchemaRow = { version: number };
+@@ -315,6 +374,11 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
+           if (version < 10) await db.execAsync(migrationV10);
+           if (version < 11) await db.execAsync(migrationV11);
+           if (version < 12) await db.execAsync(migrationV12);
++          if (version < 13) await db.execAsync(migrationV13);
++          if (version < 14) await db.execAsync(migrationV14);
++          if (version < 15) await db.execAsync(migrationV15);
++          if (version < 16) await db.execAsync(migrationV16);
++          if (version < 17) await db.execAsync(migrationV17);
+           if (version === 0) await db.runAsync('INSERT INTO import_schema_version (version) VALUES (?)', CURRENT_SCHEMA_VERSION);
+           else if (version < CURRENT_SCHEMA_VERSION) await db.runAsync('UPDATE import_schema_version SET version = ?', CURRENT_SCHEMA_VERSION);
+           await db.execAsync('COMMIT');
+@@ -402,6 +466,9 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
+         await db.execAsync(`
+           DELETE FROM correction_markers;
+           DELETE FROM correction_overlays;
++          DELETE FROM journey_correction_revision;
++          DELETE FROM journey_correction_candidate;
++          DELETE FROM journey_correction_application;
+           DELETE FROM inferred_history;
+           DELETE FROM canonical_evidence;
+           DELETE FROM import_source_index;
+diff --git a/apps/mobile/src/photo-access/provider.tsx b/apps/mobile/src/photo-access/provider.tsx
+index ef04050..5d29a88 100644
+--- a/apps/mobile/src/photo-access/provider.tsx
++++ b/apps/mobile/src/photo-access/provider.tsx
+@@ -1,4 +1,4 @@
+-import { createContext, useContext, useEffect, useState, type PropsWithChildren } from 'react';
++import { createContext, useCallback, useContext, useEffect, useState, type PropsWithChildren } from 'react';
+ import { AppState } from 'react-native';
+ 
+ import { HistoryRecordController, type LifecycleSnapshot } from '@/history-record';
+@@ -67,7 +67,9 @@ type PhotoAccessContextValue = {
+   catchUpHistory(): Promise<void>;
+   reconstruction: ReconstructionView;
+   durableReveal: DurableRevealRecord | null;
+-  loadJourneyDetail(displayId: string): Promise<{ detail: JourneyDetail; previews: OwnerPreview[] }>;
++  loadJourneyDetail(displayId: string): Promise<{ detail: JourneyDetail; previews: OwnerPreview[]; snapshotToken: number }>;
++  saveJourneyCorrection(displayId: string, action: 'confirm' | 'reject', snapshotToken: number, snapshot: JourneyDetail, commandKey: string): Promise<'applied' | 'pending'>;
++  retryJourneyCorrectionProjection(): Promise<boolean>;
+   reconstructionController: ReconstructionController;
+   aiReview: AiReviewView;
+   aiProposalController: AiProposalController;
+@@ -75,7 +77,7 @@ type PhotoAccessContextValue = {
+ 
+ const PhotoAccessContext = createContext<PhotoAccessContextValue | null>(null);
+ 
+-export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, repository }: PropsWithChildren<{ adapter?: PhotoAccessAdapter; repository?: ImportRepository }>) {
++export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, repository, reconstructionRepository }: PropsWithChildren<{ adapter?: PhotoAccessAdapter; repository?: ImportRepository; reconstructionRepository?: ReturnType<typeof createNativeReconstructionRepository> }>) {
+   const [snapshot, setSnapshot] = useState(initialPhotoAccess);
+   const [importCoverage, setImportCoverage] = useState<ImportCoverage>({ scope: null, accessible: null, scanned: 0, geotagged: 0, unavailable: 0, status: 'idle', message: null });
+   const [privateRecord, setPrivateRecord] = useState<LifecycleSnapshot>({ state: 'deleted', message: null });
+@@ -87,7 +89,7 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
+   const [aiReview, setAiReview] = useState<AiReviewView>({ status: 'idle', message: 'Optional AI suggestions are not requested.', proposals: [] });
+   const [sharedRepository] = useState(() => repository ?? (adapter === nativePhotoAccess ? createNativeImportRepository() : unavailableRepository()));
+   const [durableMaintenanceRepository] = useState(() => maintenanceRepository(sharedRepository));
+-  const [nativeReconstructionRepository] = useState(() => createNativeReconstructionRepository());
++  const [nativeReconstructionRepository] = useState(() => reconstructionRepository ?? createNativeReconstructionRepository());
+   const [reconstructionController] = useState(() => new ReconstructionController(nativeReconstructionRepository, (view) => {
+     setReconstruction(view);
+     if (view.status === 'complete') {
+@@ -145,11 +147,19 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
+     }
+   }, [maintenance.enabled, maintenanceController, snapshot.scope]);
+ 
++  const refreshDurableReveal = useCallback(async () => {
++    if (privateRecord.state !== 'connected') throw new Error('Private record is unavailable.');
++    const generation = durableRevealGate.next();
++    const record = await nativeReconstructionRepository.loadDurableReveal();
++    if (!canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state)) throw new Error('Private record is unavailable.');
++    setDurableReveal(record);
++  }, [durableRevealGate, nativeReconstructionRepository, privateRecord.state]);
++
+   useEffect(() => {
+     if (privateRecord.state !== 'connected' || adapter !== nativePhotoAccess) return;
+     const generation = durableRevealGate.next();
+     void nativeReconstructionRepository.loadDurableReveal().then((record) => {
+-      if (durableRevealGate.isCurrent(generation)) setDurableReveal(record);
++      if (canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state)) setDurableReveal(record);
+     }).catch(() => {});
+   }, [adapter, durableRevealGate, nativeReconstructionRepository, privateRecord.state]);
+ 
+@@ -162,7 +172,7 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
+     await reconstructionController.reconcile(currentSourcePermitted);
+     if (durableMaintenanceRepository.loadReconciliation) setReconciliation(await durableMaintenanceRepository.loadReconciliation());
+   };
+-  const loadJourneyDetail = async (displayId: string) => {
++  const loadJourneyDetail = useCallback(async (displayId: string) => {
+     const generation = durableRevealGate.next();
+     const result = await nativeReconstructionRepository.loadJourneyDetail(displayId);
+     if (!canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state)) throw new Error('Journey is no longer available.');
+@@ -170,9 +180,29 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
+     // by index, and a missing first asset must not shift a later preview upward.
+     const previews = adapter.resolveOwnerPreviews ? await adapter.resolveOwnerPreviews(result.previewSourceRefs, 4) : [];
+     if (!canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state)) throw new Error('Journey is no longer available.');
+-    return { detail: result.detail, previews };
+-  };
+-  return <PhotoAccessContext.Provider value={{ snapshot, controller, importCoverage, privateRecord, privateRecordController, maintenance, maintenanceController, reconciliation, catchUpHistory, reconstruction, durableReveal, loadJourneyDetail, reconstructionController, aiReview, aiProposalController }}>{children}</PhotoAccessContext.Provider>;
++    return { detail: result.detail, previews, snapshotToken: result.snapshotToken };
++  }, [adapter, durableRevealGate, nativeReconstructionRepository, privateRecord.state]);
++  const saveJourneyCorrection = useCallback(async (displayId: string, action: 'confirm' | 'reject', snapshotToken: number, snapshot: JourneyDetail, commandKey: string) => {
++    if (privateRecord.state !== 'connected') throw new Error('Private record is unavailable.');
++    const saved = await nativeReconstructionRepository.saveJourneyCorrection(displayId, action, snapshotToken, snapshot, commandKey);
++    const projection = saved.graph ? reconstructionController.publishCommitted(saved.graph) : { status: 'complete' as const };
++    if (projection.status === 'complete') {
++      // A correction is not owner-visible until the redacted Atlas projection
++      // is refreshed from the run that committed it. This prevents navigation
++      // from showing an old cached journey after a successful rejection.
++      await refreshDurableReveal();
++      return 'applied';
++    }
++    return 'pending';
++  }, [nativeReconstructionRepository, privateRecord.state, reconstructionController, refreshDurableReveal]);
++  const retryJourneyCorrectionProjection = useCallback(async () => {
++    if (privateRecord.state !== 'connected') throw new Error('Private record is unavailable.');
++    const projection = await reconstructionController.rebuild();
++    if (projection.status !== 'complete') return false;
++    await refreshDurableReveal();
++    return true;
++  }, [privateRecord.state, reconstructionController, refreshDurableReveal]);
++  return <PhotoAccessContext.Provider value={{ snapshot, controller, importCoverage, privateRecord, privateRecordController, maintenance, maintenanceController, reconciliation, catchUpHistory, reconstruction, durableReveal, loadJourneyDetail, saveJourneyCorrection, retryJourneyCorrectionProjection, reconstructionController, aiReview, aiProposalController }}>{children}</PhotoAccessContext.Provider>;
+ }
+ 
+ export function usePhotoAccess() {
+diff --git a/apps/mobile/src/reconstruction/controller.ts b/apps/mobile/src/reconstruction/controller.ts
+index 3318258..4ca8780 100644
+--- a/apps/mobile/src/reconstruction/controller.ts
++++ b/apps/mobile/src/reconstruction/controller.ts
+@@ -23,19 +23,35 @@ export class ReconstructionController {
+ 
+   resume() { this.suspended = false; }
+ 
+-  async rebuild() {
+-    if (this.suspended || this.runningGeneration !== null) return;
++  /** Publish a graph which the repository has already committed atomically.
++   * This avoids reopening a second reconstruction transaction after an owner
++   * correction has been saved. */
++  publishCommitted(graph: ReconstructionGraph) {
++    if (this.suspended) return { status: 'skipped' as const };
++    this.generation += 1;
++    this.current = {
++      status: 'complete', graph,
++      message: graph.journeys.length ? 'Local inferred drafts are ready for review.' : 'No supported journey draft is available yet.',
++    };
++    this.notify(this.current);
++    return { status: 'complete' as const };
++  }
++
++  async rebuild(): Promise<{ status: 'complete' } | { status: 'failed'; error: unknown } | { status: 'skipped' }> {
++    if (this.suspended || this.runningGeneration !== null) return { status: 'skipped' };
+     const generation = ++this.generation;
+     this.runningGeneration = generation;
+     this.current = { ...this.current, status: 'running', message: null }; this.notify(this.current);
+     try {
+       const graph = await this.repository.rebuild();
+-      if (generation !== this.generation) return;
++      if (generation !== this.generation) return { status: 'skipped' };
+       this.current = { status: 'complete', graph, message: graph.journeys.length ? 'Local inferred drafts are ready for review.' : 'No supported journey draft is available yet.' };
++      return { status: 'complete' };
+     } catch (error) {
+-      if (generation !== this.generation) return;
++      if (generation !== this.generation) return { status: 'skipped' };
+       const restricted = error instanceof Error && error.message.includes('not connected');
+       this.current = { ...this.current, status: restricted ? 'restricted' : 'error', message: restricted ? 'Reconnect your private record before rebuilding.' : 'Local reconstruction could not finish. Your last completed result was kept.' };
++      return { status: 'failed', error };
+     } finally {
+       if (this.runningGeneration === generation) this.runningGeneration = null;
+       if (generation === this.generation) {
+diff --git a/apps/mobile/src/reconstruction/engine.ts b/apps/mobile/src/reconstruction/engine.ts
+index 0e9e10a..bc49505 100644
+--- a/apps/mobile/src/reconstruction/engine.ts
++++ b/apps/mobile/src/reconstruction/engine.ts
+@@ -3,6 +3,15 @@ import { RECONSTRUCTION_RULE_VERSION, type EvidenceDisposition, type JourneyMemb
+ const R = 6_371_000;
+ const MAX_PLACE_METERS = 5_000;
+ 
++/** Owner rejections are expressed in canonical evidence support, never a
++ * generated visit or journey id. They are consulted before automatic journey
++ * grouping, so a rescan cannot recreate the rejected relationship. */
++export type JourneyGroupingConstraint =
++  | { kind: 'forbid-automatic-journey-membership'; support: string[] }
++  | { kind: 'cannot-co-member'; leftSupport: string[]; rightSupport: string[] };
++
++type ReconstructionOptions = { journeyGroupingConstraints?: JourneyGroupingConstraint[] };
++
+ function normalizedLongitude(value: number) { return ((value + 180) % 360 + 360) % 360 - 180; }
+ function eligible(evidence: ReconstructionEvidence) {
+   return evidence.availability !== 'unavailable' && !evidence.excluded && !evidence.duplicateConflict
+@@ -62,6 +71,21 @@ function visitHasUsualAreaContext(visit: Visit, input: ReconstructionEvidence[])
+   return visitEvidence(visit, input).some((item) => item.usualAreaContext);
+ }
+ 
++function visitContainsSupport(visit: Visit, support: string[]) {
++  return support.every((evidenceId) => visit.evidenceIds.includes(evidenceId));
++}
++
++function blocksAutomaticMembership(visit: Visit, constraints: JourneyGroupingConstraint[]) {
++  return constraints.some((constraint) => constraint.kind === 'forbid-automatic-journey-membership' && visitContainsSupport(visit, constraint.support));
++}
++
++function blocksCoMembership(prior: Visit, next: Visit, constraints: JourneyGroupingConstraint[]) {
++  return constraints.some((constraint) => constraint.kind === 'cannot-co-member' && (
++    (visitContainsSupport(prior, constraint.leftSupport) && visitContainsSupport(next, constraint.rightSupport))
++    || (visitContainsSupport(prior, constraint.rightSupport) && visitContainsSupport(next, constraint.leftSupport))
++  ));
++}
++
+ function visitCanFollow(prior: Visit, next: Visit, input: ReconstructionEvidence[]) {
+   const priorEvidence = visitEndEvidence(prior, input);
+   const nextEvidence = visitStartEvidence(next, input);
+@@ -80,7 +104,8 @@ function mergeAiCandidates(fromJourneyId: string, toJourneyId: string, prior: Re
+ }
+ 
+ /** Pure deterministic baseline. It intentionally produces uncertainty instead of travel claims. */
+-export function reconstructV1(input: ReconstructionEvidence[]): ReconstructionGraph {
++export function reconstructV1(input: ReconstructionEvidence[], options: ReconstructionOptions = {}): ReconstructionGraph {
++  const constraints = options.journeyGroupingConstraints ?? [];
+   const family = new Map<string, ReconstructionEvidence[]>();
+   for (const item of input) { const key = item.duplicateFamilyId ?? item.id; family.set(key, [...(family.get(key) ?? []), item]); }
+   // A contradictory duplicate family is not allowed to select one convenient
+@@ -153,6 +178,7 @@ export function reconstructV1(input: ReconstructionEvidence[]): ReconstructionGr
+   });
+   const journeys: ReconstructionGraph['journeys'] = []; const possibleMerges: ReconstructionGraph['possibleMerges'] = [];
+   for (const visit of orderedVisits) {
++    if (blocksAutomaticMembership(visit, constraints)) continue;
+     const prior = journeys.at(-1); const priorVisit = prior && visits.find((candidate) => candidate.id === prior.visitIds.at(-1));
+     const priorEvidence = priorVisit && visitEndEvidence(priorVisit, input); const nextEvidence = visitStartEvidence(visit, input);
+     const gap = priorEvidence && nextEvidence ? dayGap(priorEvidence, nextEvidence) : null;
+@@ -163,10 +189,10 @@ export function reconstructV1(input: ReconstructionEvidence[]): ReconstructionGr
+     const mergeLimit = priorEvidence?.hasPreciseOffset && nextEvidence?.hasPreciseOffset ? 10 : 10;
+     const boundary = priorVisit ? visitHasOwnerBoundary(priorVisit, input) : false;
+     const localContext = visitHasUsualAreaContext(visit, input) || (priorVisit ? visitHasUsualAreaContext(priorVisit, input) : false);
+-    if (prior && priorVisit && !boundary && !localContext && priorVisit.placeId !== visit.placeId && gap !== null && gap <= automaticLimit && journeySpan !== null && journeySpan <= 30) prior.visitIds.push(visit.id);
++    if (prior && priorVisit && !boundary && !localContext && !blocksCoMembership(priorVisit, visit, constraints) && priorVisit.placeId !== visit.placeId && gap !== null && gap <= automaticLimit && journeySpan !== null && journeySpan <= 30) prior.visitIds.push(visit.id);
+     else {
+       const next = { id: `journey:${visit.id}`, visitIds: [visit.id], state: 'inferred' as const }; journeys.push(next);
+-      if (prior && !boundary && gap !== null && gap <= mergeLimit) {
++      if (prior && !boundary && !blocksCoMembership(priorVisit!, visit, constraints) && gap !== null && gap <= mergeLimit) {
+         const aiCandidates = mergeAiCandidates(prior.id, next.id, priorEvidence, nextEvidence);
+         possibleMerges.push({ fromJourneyId: prior.id, toJourneyId: next.id, reason: journeySpan !== null && journeySpan > 30 ? 'span-cap' : 'adjacent-gap', ...(aiCandidates ? { aiCandidates } : {}) });
+       }
+@@ -180,6 +206,7 @@ export function reconstructV1(input: ReconstructionEvidence[]): ReconstructionGr
+     return compareVisitEvidence(firstA, firstB) || a.id.localeCompare(b.id);
+   });
+   for (const visit of weakVisits) {
++    if (blocksAutomaticMembership(visit, constraints)) continue;
+     const prior = journeys.at(-1);
+     const priorVisit = prior && visits.find((candidate) => candidate.id === prior.visitIds.at(-1));
+     const priorEvidence = priorVisit && visitEndEvidence(priorVisit, input);
+@@ -188,12 +215,12 @@ export function reconstructV1(input: ReconstructionEvidence[]): ReconstructionGr
+     const journeyStartVisit = prior && visits.find((candidate) => candidate.id === prior.visitIds[0]);
+     const journeyStart = journeyStartVisit && visitStartEvidence(journeyStartVisit, input);
+     const journeySpan = journeyStart && nextEvidence ? calendarGap(journeyStart, nextEvidence) : null;
+-    if (prior && priorVisit?.order === 'uncertain' && !sameCivilDay && visitCanFollow(priorVisit, visit, input) && journeySpan !== null && journeySpan <= 30) {
++    if (prior && priorVisit?.order === 'uncertain' && !sameCivilDay && !blocksCoMembership(priorVisit, visit, constraints) && visitCanFollow(priorVisit, visit, input) && journeySpan !== null && journeySpan <= 30) {
+       prior.visitIds.push(visit.id);
+     } else {
+       const next = { id: `journey:${visit.id}`, visitIds: [visit.id], state: 'inferred' as const }; journeys.push(next);
+       const gap = priorEvidence && nextEvidence ? dayGap(priorEvidence, nextEvidence) : null;
+-      if (prior && priorVisit?.order === 'uncertain' && !sameCivilDay && !visitHasOwnerBoundary(priorVisit, input) && !visitHasUsualAreaContext(priorVisit, input) && !visitHasUsualAreaContext(visit, input) && gap !== null && gap <= 10) {
++      if (prior && priorVisit?.order === 'uncertain' && !sameCivilDay && !blocksCoMembership(priorVisit, visit, constraints) && !visitHasOwnerBoundary(priorVisit, input) && !visitHasUsualAreaContext(priorVisit, input) && !visitHasUsualAreaContext(visit, input) && gap !== null && gap <= 10) {
+         const aiCandidates = mergeAiCandidates(prior.id, next.id, priorEvidence, nextEvidence);
+         possibleMerges.push({ fromJourneyId: prior.id, toJourneyId: next.id, reason: journeySpan !== null && journeySpan > 30 ? 'span-cap' : 'adjacent-gap', ...(aiCandidates ? { aiCandidates } : {}) });
+       }
+diff --git a/apps/mobile/src/reconstruction/index.ts b/apps/mobile/src/reconstruction/index.ts
+index 0974583..adb8117 100644
+--- a/apps/mobile/src/reconstruction/index.ts
++++ b/apps/mobile/src/reconstruction/index.ts
+@@ -1,4 +1,5 @@
+ export { reconstructV1 } from './engine';
++export type { JourneyGroupingConstraint } from './engine';
+ export { RECONSTRUCTION_RULE_VERSION } from './types';
+ export type { ReconstructionEvidence, ReconstructionGraph, Place, Visit, JourneyDraft, EvidenceDisposition } from './types';
+ export { createNativeReconstructionRepository } from './repository';
+diff --git a/apps/mobile/src/reconstruction/repository.ts b/apps/mobile/src/reconstruction/repository.ts
+index 4ca0c68..7aa1976 100644
+--- a/apps/mobile/src/reconstruction/repository.ts
++++ b/apps/mobile/src/reconstruction/repository.ts
+@@ -1,6 +1,6 @@
+ import type { ReconstructionEvidence, ReconstructionGraph } from './types';
+ import { RECONSTRUCTION_RULE_VERSION } from './types';
+-import { reconstructV1 } from './engine';
++import { reconstructV1, type JourneyGroupingConstraint } from './engine';
+ import { NATURAL_EARTH_ADMIN_0_DATASET_VERSION, resolveCountry } from './country-resolver';
+ import type { DurableRevealRecord, JourneyDetail, RevealMapAnchor } from '@/reveal/types';
+ 
+@@ -12,8 +12,83 @@ type Database = {
+ };
+ 
+ type EvidenceRow = { evidence_id: string; captured_at_millis: number | null; captured_day: string | null; has_precise_offset: number; availability: ReconstructionEvidence['availability']; latitude: number | null; longitude: number | null; reported_accuracy_meters: number | null };
++type JourneyCorrectionRevision = { revision_id: string; action: 'confirm' | 'reject'; reviewed_support_json: string; reviewed_visits_json?: string };
+ const RECONCILIATION_LEASE_MILLIS = 5 * 60 * 1000;
+ 
++class JourneyCorrectionRemapRequiredError extends Error {
++  constructor(readonly revisionId: string) {
++    super('Journey correction needs owner remap.');
++  }
++}
++
++/** Apply only corrections whose complete canonical support set maps to exactly
++ * one candidate journey. A changed or split support set fails closed before the
++ * new graph can replace the owner's last complete projection. */
++export function applyJourneyCorrections(graph: ReconstructionGraph, corrections: JourneyCorrectionRevision[], applyRejections = true) {
++  const visitById = new Map(graph.visits.map((visit) => [visit.id, visit]));
++  const matches = new Map<string, string>();
++  const reviewedVisitsByRevision = new Map<string, string[]>();
++  for (const correction of corrections) {
++    let parsed: unknown;
++    try { parsed = JSON.parse(correction.reviewed_support_json); } catch { throw new JourneyCorrectionRemapRequiredError(correction.revision_id); }
++    if (!Array.isArray(parsed) || !parsed.every((item): item is string => typeof item === 'string')) throw new JourneyCorrectionRemapRequiredError(correction.revision_id);
++    const reviewed = parsed;
++    if (!reviewed.length || new Set(reviewed).size !== reviewed.length || reviewed.some((key) => !key.startsWith('E:') || key.length <= 2)) throw new JourneyCorrectionRemapRequiredError(correction.revision_id);
++    let reviewedVisits: string[][];
++    try { reviewedVisits = correction.reviewed_visits_json ? JSON.parse(correction.reviewed_visits_json) : [reviewed]; } catch { throw new JourneyCorrectionRemapRequiredError(correction.revision_id); }
++    if (!Array.isArray(reviewedVisits) || !reviewedVisits.length || !reviewedVisits.every((group) => Array.isArray(group) && group.length && group.every((key) => typeof key === 'string' && reviewed.includes(key)))) throw new JourneyCorrectionRemapRequiredError(correction.revision_id);
++    const supportByJourney = new Map(graph.journeys.map((journey) => [
++      journey.id,
++      new Set(journey.visitIds.flatMap((visitId) => visitById.get(visitId)?.evidenceIds ?? [])),
++    ]));
++    const uniqueSuccessors = new Set<string>();
++    for (const key of reviewed) {
++      const evidenceId = key.slice(2);
++      const successors = [...supportByJourney.entries()]
++        .filter(([, support]) => support.has(evidenceId))
++        .map(([journeyId]) => journeyId);
++      if (successors.length !== 1) throw new JourneyCorrectionRemapRequiredError(correction.revision_id);
++      uniqueSuccessors.add(successors[0]);
++    }
++    if (uniqueSuccessors.size !== 1) throw new JourneyCorrectionRemapRequiredError(correction.revision_id);
++    const successorId = [...uniqueSuccessors][0];
++    const candidate = graph.journeys.find((journey) => journey.id === successorId);
++    if (!candidate) throw new JourneyCorrectionRemapRequiredError(correction.revision_id);
++    const mappedVisits: string[] = [];
++    for (const group of reviewedVisits) {
++      const candidates = graph.visits.filter((visit) => group.every((key) => visit.evidenceIds.includes(key.slice(2))));
++      if (candidates.length !== 1 || !candidate.visitIds.includes(candidates[0].id)) throw new JourneyCorrectionRemapRequiredError(correction.revision_id);
++      mappedVisits.push(candidates[0].id);
++    }
++    if (new Set(mappedVisits).size !== mappedVisits.length) throw new JourneyCorrectionRemapRequiredError(correction.revision_id);
++    matches.set(correction.revision_id, candidate.id);
++    reviewedVisitsByRevision.set(correction.revision_id, mappedVisits);
++  }
++  if (!applyRejections) return { graph, matches };
++  const rejectedVisits = new Set(corrections.filter((correction) => correction.action === 'reject').flatMap((correction) => reviewedVisitsByRevision.get(correction.revision_id) ?? []));
++  const rejectedEvidence = new Set([...rejectedVisits].flatMap((visitId) => visitById.get(visitId)?.evidenceIds ?? []));
++  // A rejection forbids only its reviewed visits from automatic membership.
++  // Preserve any independently supported, later visits in the candidate.
++  const journeys = graph.journeys.map((journey) => ({ ...journey, visitIds: journey.visitIds.filter((visitId) => !rejectedVisits.has(visitId)) })).filter((journey) => journey.visitIds.length > 0);
++  const journeyIds = new Set(journeys.map((journey) => journey.id));
++  return { graph: { ...graph, journeys, memberships: graph.memberships.filter((membership) => journeyIds.has(membership.journeyId) && !rejectedEvidence.has(membership.evidenceId)), possibleMerges: graph.possibleMerges.filter((merge) => journeyIds.has(merge.fromJourneyId) && journeyIds.has(merge.toJourneyId)) }, matches };
++}
++
++function rejectionGroupingConstraints(corrections: JourneyCorrectionRevision[]): JourneyGroupingConstraint[] {
++  const constraints: JourneyGroupingConstraint[] = [];
++  for (const correction of corrections) {
++    if (correction.action !== 'reject') continue;
++    const parsed = JSON.parse(correction.reviewed_visits_json ?? correction.reviewed_support_json) as string[][] | string[];
++    const groups = (Array.isArray(parsed[0]) ? parsed : [parsed]) as string[][];
++    const support = groups.map((group) => group.map((key) => key.slice(2)).sort());
++    if (support.length === 1) constraints.push({ kind: 'forbid-automatic-journey-membership', support: support[0] });
++    for (let left = 0; left < support.length; left += 1) for (let right = left + 1; right < support.length; right += 1) {
++      constraints.push({ kind: 'cannot-co-member', leftSupport: support[left], rightSupport: support[right] });
++    }
++  }
++  return constraints;
++}
++
+ function coarseMapAnchor(latitude: number | null, longitude: number | null): RevealMapAnchor | null {
+   if (latitude === null || longitude === null || !Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+   // About eleven kilometres at the equator: useful for an Atlas overview but
+@@ -79,16 +154,36 @@ export function createNativeReconstructionRepository() {
+     } catch (error) { await db.execAsync('ROLLBACK'); throw error; }
+   }
+ 
++  async function recordPendingCorrectionRemap(revisionId: string) {
++    const db = await open();
++    await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
++    try {
++      const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
++      if (lifecycle?.state !== 'connected') throw new Error('Private record is not connected.');
++      const revision = await db.getFirstAsync<{ source_run_id: number }>(
++        "SELECT source_run_id FROM journey_correction_revision WHERE revision_id = ? AND state = 'effective'", revisionId,
++      );
++      if (!revision) throw new Error('Journey correction revision is unavailable.');
++      const candidateId = `candidate-${revisionId}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
++      await db.runAsync(
++        `INSERT INTO journey_correction_candidate (candidate_id, revision_id, base_run_id, state, reason, created_at_millis)
++         VALUES (?, ?, ?, 'pending_remap', ?, ?)`,
++        candidateId, revisionId, revision.source_run_id, 'Reviewed support did not map uniquely to a successor.', Date.now(),
++      );
++      await db.execAsync('COMMIT');
++    } catch (error) { await db.execAsync('ROLLBACK'); throw error; }
++  }
++
+   return {
+     /** Resolves an opaque Atlas id only inside SQLite and returns owner-readable text. */
+-    async loadJourneyDetail(displayId: string): Promise<{ detail: JourneyDetail; previewSourceRefs: (string | null)[] }> {
++    async loadJourneyDetail(displayId: string): Promise<{ detail: JourneyDetail; previewSourceRefs: (string | null)[]; snapshotToken: number }> {
+       const db = await open();
+       const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
+       if (lifecycle?.state !== 'connected') throw new Error('Private record is not connected.');
+       const selected = displayedJourneys.get(displayId);
+       if (!selected) throw new Error('Journey is unavailable.');
+       const visits = await db.getAllAsync<{ captured_day: string | null; has_precise_offset: number; ordering: 'chronological' | 'uncertain' }>(`WITH visit_summary AS (
+-        SELECT visit.visit_id, MIN(evidence.captured_day) AS captured_day, MAX(evidence.has_precise_offset) AS has_precise_offset, visit.ordering
++        SELECT visit.visit_id, MIN(evidence.captured_day) AS captured_day, MIN(evidence.has_precise_offset) AS has_precise_offset, visit.ordering
+         FROM reconstruction_link journey_visit
+         JOIN reconstruction_visit visit ON visit.run_id = journey_visit.run_id AND visit.visit_id = journey_visit.child_id
+         LEFT JOIN reconstruction_link support ON support.run_id = visit.run_id AND support.link_kind = 'visit-support' AND support.parent_id = visit.visit_id
+@@ -102,26 +197,97 @@ export function createNativeReconstructionRepository() {
+           FROM reconstruction_link
+           WHERE run_id = ?
+             AND parent_id = ? AND link_kind LIKE 'membership:%'
+-          UNION
++          UNION ALL
+           SELECT support.child_id AS evidence_id, 'visit-support' AS association
+           FROM reconstruction_link journey_visit
+           JOIN reconstruction_link support ON support.run_id = journey_visit.run_id AND support.link_kind = 'visit-support' AND support.parent_id = journey_visit.child_id
+           WHERE journey_visit.run_id = ?
+             AND journey_visit.link_kind = 'journey-visit' AND journey_visit.parent_id = ?
+         )
+-        SELECT evidence.captured_day, evidence.availability, evidence.source_ref, journey_evidence.association, disposition.disposition_state AS disposition
++        SELECT evidence.captured_day, evidence.availability, evidence.source_ref, GROUP_CONCAT(journey_evidence.association) AS association, disposition.disposition_state AS disposition
+         FROM journey_evidence JOIN canonical_evidence evidence ON evidence.evidence_id = journey_evidence.evidence_id
+         LEFT JOIN reconstruction_disposition disposition ON disposition.run_id = ? AND disposition.evidence_id = evidence.evidence_id
+-        GROUP BY evidence.evidence_id, journey_evidence.association
++        GROUP BY evidence.evidence_id
+         ORDER BY evidence.captured_day IS NULL, evidence.captured_day, evidence.evidence_id LIMIT 4`, selected.runId, selected.journeyId, selected.runId, selected.journeyId, selected.runId);
+       if (!visits.length && !memories.length) throw new Error('Journey is unavailable.');
+       const days = visits.map((visit) => visit.captured_day).filter((day): day is string => !!day).sort();
++      const correction = await db.getFirstAsync<{ action: 'confirm' | 'reject'; application_state: 'effective' | 'pending_remap' }>(
++        `SELECT revision.action, application.application_state
++         FROM journey_correction_application application
++         JOIN journey_correction_revision revision ON revision.revision_id = application.revision_id
++         WHERE application.run_id = ? AND application.journey_id = ? AND revision.state <> 'superseded'
++         ORDER BY revision.created_at_millis DESC LIMIT 1`, selected.runId, selected.journeyId,
++      );
++      const pendingRemap = await db.getFirstAsync<{ candidate_id: string }>(
++        `SELECT candidate.candidate_id
++         FROM journey_correction_candidate candidate
++         JOIN journey_correction_revision revision ON revision.revision_id = candidate.revision_id
++         WHERE revision.journey_id = ? AND candidate.state = 'pending_remap'
++         ORDER BY candidate.created_at_millis DESC LIMIT 1`, selected.journeyId,
++      );
+       const span = !days.length ? 'Observed date unknown' : days[0] === days[days.length - 1] ? `Observed ${days[0]}` : `Observed ${days[0]} to ${days[days.length - 1]}`;
+       const detailVisits = visits.map((visit) => ({ label: visit.captured_day ?? 'Date unknown', precision: visit.captured_day ? (visit.has_precise_offset ? 'Observed day and time' : 'Observed day') : 'Date precision unavailable', support: 'Source supports this visit; it does not prove owner presence.' }));
+-      const detailMemories = memories.map((memory, index) => ({ id: `memory-${index + 1}`, availability: memory.availability, association: memory.association.startsWith('membership:') ? `Associated with this journey as a memory (${memory.association.slice('membership:'.length).replaceAll(/[-:]/g, ' ')}); separate from destination support.` : memory.disposition ? `This source is ${memory.disposition}; it is reviewable without being visit support.` : 'Supports an observed visit; this is not proof of owner presence.' }));
++      const detailMemories = memories.map((memory, index) => ({ id: `memory-${index + 1}`, availability: memory.availability, association: [memory.association.includes('visit-support') ? 'Supports an observed visit; it does not prove owner presence.' : null, memory.association.includes('membership:') ? `Associated with this journey as a memory (${memory.association.split(',').find((item) => item.startsWith('membership:'))?.slice('membership:'.length).replaceAll(/[-:]/g, ' ')}); separate from destination support.` : null, memory.disposition ? `This source is ${memory.disposition}; it is reviewable without being visit support.` : null].filter(Boolean).join(' ') }));
+       const uncertainty = [...new Set([...(visits.some((visit) => visit.ordering === 'uncertain') ? ['Visit ordering is uncertain.'] : []), ...(visits.some((visit) => !visit.captured_day || !visit.has_precise_offset) ? ['Date precision is limited for part of this journey.'] : []), ...memories.filter((memory) => memory.disposition === 'unresolved' || memory.disposition === 'unassigned').map((memory) => `A source remains ${memory.disposition} and is not treated as visit support.`), ...memories.filter((memory) => memory.association.startsWith('membership:') && memory.captured_day === null).map(() => 'A GPS-less or date-limited memory is associated with this journey without destination support.')])];
+-      return { detail: { id: displayId, title: 'Private journey', observedSpan: span, visits: detailVisits, memories: detailMemories, uncertainty }, previewSourceRefs: memories.map((memory) => memory.availability === 'available' ? memory.source_ref : null) };
++      return { detail: { id: displayId, title: 'Private journey', observedSpan: span, visits: detailVisits, memories: detailMemories, uncertainty, correctionState: pendingRemap || correction?.application_state === 'pending_remap' ? 'pending remap' : correction?.action === 'confirm' ? 'confirmed' : correction?.action === 'reject' ? 'rejected' : 'inferred' }, previewSourceRefs: memories.map((memory) => memory.availability === 'available' ? memory.source_ref : null), snapshotToken: selected.runId };
+     },
++    /** Persist a review snapshot against canonical evidence only. Duplicate-family
++     * identity is not available from this adapter, so every key is explicitly E:. */
++    async saveJourneyCorrection(displayId: string, action: 'confirm' | 'reject', expectedSnapshotToken: number, reviewedSnapshot: JourneyDetail, commandKey: string, nowMillis = Date.now()) {
++      const db = await open();
++      const selected = displayedJourneys.get(displayId);
++      if (!selected) throw new Error('Journey is unavailable.');
++      await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
++      try {
++        if (!commandKey || commandKey.length > 200) throw new Error('A correction command key is required.');
++        const committed = await db.getFirstAsync<{ revision_id: string; action: 'confirm' | 'reject' }>('SELECT revision_id, action FROM journey_correction_revision WHERE command_key = ?', commandKey);
++        if (committed) {
++          await db.execAsync('COMMIT');
++          // A lost response retry must not create a second reconstruction run.
++          // The first command already committed its graph with this revision.
++          return { revisionId: committed.revision_id, state: committed.action === 'confirm' ? 'confirmed' as const : 'rejected' as const, graph: null };
++        }
++        const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
++        const completed = await db.getFirstAsync<{ run_id: number }>("SELECT MAX(run_id) AS run_id FROM reconstruction_run WHERE status = 'complete'");
++        if (lifecycle?.state !== 'connected' || selected.runId !== expectedSnapshotToken || completed?.run_id !== expectedSnapshotToken || reviewedSnapshot.id !== displayId) throw new Error('Review is stale. Reload the journey before saving.');
++        const support = await db.getAllAsync<{ evidence_id: string; visit_id: string }>(`SELECT DISTINCT support.child_id AS evidence_id, journey.child_id AS visit_id
++          FROM reconstruction_link journey JOIN reconstruction_link support
++            ON support.run_id = journey.run_id AND support.link_kind = 'visit-support' AND support.parent_id = journey.child_id
++          WHERE journey.run_id = ? AND journey.link_kind = 'journey-visit' AND journey.parent_id = ? ORDER BY support.child_id`, selected.runId, selected.journeyId);
++        if (!support.length) throw new Error('This journey has no stable evidence support to review.');
++        const reviewedSupport = support.map((row) => `E:${row.evidence_id}`).sort();
++        const reviewedSupportJson = JSON.stringify(reviewedSupport);
++        const reviewedVisitsJson = JSON.stringify([...new Map(support.map((row) => [row.visit_id, [] as string[]])).entries()].map(([visitId]) => support.filter((row) => row.visit_id === visitId).map((row) => `E:${row.evidence_id}`).sort()));
++        const reviewedSnapshotJson = JSON.stringify({
++          title: reviewedSnapshot.title,
++          observedSpan: reviewedSnapshot.observedSpan,
++          visits: reviewedSnapshot.visits.map(({ label, precision, support: visitSupport }) => ({ label, precision, support: visitSupport })),
++          memories: reviewedSnapshot.memories.map(({ availability, association }) => ({ availability, association })),
++          uncertainty: reviewedSnapshot.uncertainty,
++        });
++        const matchingRevisions = await db.getAllAsync<{ revision_id: string; created_at_millis: number }>(
++          `SELECT DISTINCT revision.revision_id, revision.created_at_millis
++           FROM journey_correction_revision revision
++           LEFT JOIN journey_correction_application application ON application.revision_id = revision.revision_id
++           WHERE revision.state <> 'superseded'
++             AND ((application.run_id = ? AND application.journey_id = ?) OR revision.reviewed_support_json = ?)
++           ORDER BY revision.created_at_millis DESC`, selected.runId, selected.journeyId, reviewedSupportJson,
++        );
++        const prior = matchingRevisions[0];
++        for (const revision of matchingRevisions) {
++          await db.runAsync("UPDATE journey_correction_revision SET state = 'superseded' WHERE revision_id = ?", revision.revision_id);
++          await db.runAsync("UPDATE journey_correction_candidate SET state = 'superseded' WHERE revision_id = ? AND state = 'pending_remap'", revision.revision_id);
++        }
++        const revisionId = `journey-review-${nowMillis}-${Math.random().toString(36).slice(2)}`;
++        await db.runAsync(`INSERT INTO journey_correction_revision (revision_id, action, source_run_id, journey_id, reviewed_support_json, state, created_at_millis, replaces_revision_id, reviewed_snapshot_json, reviewed_visits_json, command_key) VALUES (?, ?, ?, ?, ?, 'effective', ?, ?, ?, ?, ?)`, revisionId, action, selected.runId, selected.journeyId, reviewedSupportJson, nowMillis, prior?.revision_id ?? null, reviewedSnapshotJson, reviewedVisitsJson, commandKey);
++        const graph = await this.rebuild(nowMillis, false, async () => true, true);
++        const lifecycleBeforeCommit = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
++        if (lifecycleBeforeCommit?.state !== 'connected') throw new Error('Private record is unavailable.');
++        await db.execAsync('COMMIT');
++        return { revisionId, state: action === 'confirm' ? 'confirmed' as const : 'rejected' as const, graph };
++      } catch (error) { await db.execAsync('ROLLBACK'); throw error; }
++    },
++    async markJourneyCorrectionPending(revisionId: string) { await recordPendingCorrectionRemap(revisionId); },
+     /** Reads only coarse map anchors and journey state from the committed run.
+      * Source/evidence IDs, dates, and raw coordinates stay inside this query. */
+     async loadDurableReveal(): Promise<DurableRevealRecord> {
+@@ -173,12 +339,13 @@ export function createNativeReconstructionRepository() {
+         FROM numbered_journeys LEFT JOIN journey_years ON journey_years.journey_id = numbered_journeys.journey_id
+         ORDER BY numbered_journeys.display_ordinal, journey_years.year
+       `, completed.run_id);
+-      const statistics = await db.getFirstAsync<{ journey_count: number; place_count: number; country_count: number }>(`
++      const statistics = await db.getFirstAsync<{ journey_count: number; place_count: number; country_count: number; resolved_count: number }>(`
+         SELECT
+           (SELECT COUNT(*) FROM reconstruction_journey WHERE run_id = ?) AS journey_count,
+           (SELECT COUNT(*) FROM reconstruction_place WHERE run_id = ?) AS place_count,
+-          (SELECT COUNT(DISTINCT country_code) FROM reconstruction_place WHERE run_id = ? AND country_code IS NOT NULL) AS country_count
+-      `, completed.run_id, completed.run_id, completed.run_id);
++          (SELECT COUNT(DISTINCT country_code) FROM reconstruction_place WHERE run_id = ? AND country_code IS NOT NULL AND country_dataset_version = ?) AS country_count,
++          (SELECT COUNT(*) FROM reconstruction_place WHERE run_id = ? AND country_dataset_version = ?) AS resolved_count
++      `, completed.run_id, completed.run_id, completed.run_id, NATURAL_EARTH_ADMIN_0_DATASET_VERSION, completed.run_id, NATURAL_EARTH_ADMIN_0_DATASET_VERSION);
+       const journeys = new Map<string, DurableRevealRecord['journeys'][number]>();
+       displayedJourneys.clear();
+       for (const row of rows) {
+@@ -189,11 +356,11 @@ export function createNativeReconstructionRepository() {
+         const periodLabel = row.first_year === null ? 'Date unknown' : row.first_year === row.last_year ? String(row.first_year) : `${row.first_year}–${row.last_year}`;
+         journeys.set(displayId, { displayId, state: row.journey_state, anchor: coarseMapAnchor(row.latitude, row.longitude), years: row.year === null ? [] : [row.year], periodLabel, ordering: row.ordering });
+       }
+-      return { journeys: [...journeys.values()], statistics: statistics ? { journeyCount: statistics.journey_count, placeCount: statistics.place_count, supportedCountryCount: statistics.country_count, countryStatus: 'supported' } : null };
++      return { journeys: [...journeys.values()], statistics: statistics ? { journeyCount: statistics.journey_count, placeCount: statistics.place_count, supportedCountryCount: statistics.country_count, countryStatus: statistics.resolved_count === statistics.place_count ? 'supported' : 'unavailable' } : null };
+     },
+-    async rebuild(nowMillis = Date.now(), consumeQueuedChanges = false, canUseSource: () => Promise<boolean> = async () => true): Promise<ReconstructionGraph> {
++    async rebuild(nowMillis = Date.now(), consumeQueuedChanges = false, canUseSource: () => Promise<boolean> = async () => true, transactionAlreadyOpen = false): Promise<ReconstructionGraph> {
+       const db = await open();
+-      await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
++      if (!transactionAlreadyOpen) await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
+       try {
+         const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
+         if (lifecycle?.state !== 'connected') throw new Error('Private record is not connected.');
+@@ -222,23 +389,44 @@ export function createNativeReconstructionRepository() {
+             WHERE target_kind = 'history'`);
+           if ((protectedHistory?.count ?? 0) > 0) throw new Error('History corrections need owner review before local reconciliation.');
+         }
+-        const graph = reconstructV1(rows.map((row) => ({
++        const evidence = rows.map((row) => ({
+           id: row.evidence_id, capturedAtMillis: row.captured_at_millis,
+           capturedDay: row.captured_day,
+           hasPreciseOffset: row.has_precise_offset === 1, latitude: row.latitude, longitude: row.longitude, reportedAccuracyMeters: row.reported_accuracy_meters,
+           availability: row.availability, duplicateFamilyId: null, duplicateConflict: false, excluded: excluded.has(row.evidence_id),
+-        })));
++        }));
++        const corrections = await db.getAllAsync<JourneyCorrectionRevision>(`SELECT revision_id, action, reviewed_support_json, reviewed_visits_json
++          FROM journey_correction_revision WHERE state = 'effective'`);
++        // Resolve correction lineage against the unconstrained graph first.
++        // A split or ambiguous reviewed support set aborts this transaction
++        // before a newly generated graph can bypass the owner decision.
++        const baseline = applyJourneyCorrections(reconstructV1(evidence), corrections, false);
++        const confirmed = applyJourneyCorrections(
++          reconstructV1(evidence, { journeyGroupingConstraints: rejectionGroupingConstraints(corrections) }),
++          corrections.filter((correction) => correction.action === 'confirm'),
++          false,
++        );
++        const graph = confirmed.graph;
++        const matches = new Map([...baseline.matches, ...confirmed.matches]);
+         const evidenceRevision = (await db.getFirstAsync<{ canonical_evidence_revision: number | null }>('SELECT canonical_evidence_revision FROM private_history_record WHERE record_id = 1'))?.canonical_evidence_revision ?? 0;
+         const correctionRevision = (await db.getFirstAsync<{ revision: number | null }>('SELECT MAX(revision) AS revision FROM correction_overlays'))?.revision ?? 0;
+         const revision = Math.max(evidenceRevision, correctionRevision);
+         await db.runAsync('INSERT INTO reconstruction_run (rule_version, evidence_revision, status, completed_at_millis) VALUES (?, ?, ?, ?)', RECONSTRUCTION_RULE_VERSION, revision, 'complete', nowMillis);
+         const runId = (await db.getFirstAsync<{ run_id: number }>('SELECT MAX(run_id) AS run_id FROM reconstruction_run'))?.run_id;
+         if (runId === undefined) throw new Error('Could not create reconstruction run.');
++        for (const correction of corrections) await db.runAsync(
++          `INSERT INTO journey_correction_application (revision_id, run_id, journey_id, application_state) VALUES (?, ?, ?, 'effective')`,
++          correction.revision_id, runId, matches.get(correction.revision_id)!,
++        );
++        for (const correction of corrections) await db.runAsync(
++          "UPDATE journey_correction_candidate SET state = 'resolved' WHERE revision_id = ? AND state = 'pending_remap'",
++          correction.revision_id,
++        );
+         await db.runAsync('DELETE FROM reconstruction_disposition'); await db.runAsync('DELETE FROM reconstruction_link'); await db.runAsync('DELETE FROM reconstruction_journey'); await db.runAsync('DELETE FROM reconstruction_visit'); await db.runAsync('DELETE FROM reconstruction_place');
+         for (const place of graph.places) {
+           const representative = rows.find((row) => row.evidence_id === place.representativeId);
+           const country = resolveCountry({ latitude: representative?.latitude ?? null, longitude: representative?.longitude ?? null });
+-          await db.runAsync('INSERT INTO reconstruction_place (place_id, run_id, representative_evidence_id, uncertainty_json, country_code, country_dataset_version) VALUES (?, ?, ?, ?, ?, ?)', place.id, runId, place.representativeId, JSON.stringify(place.uncertainty), country.status === 'resolved' ? country.code : null, country.status === 'resolved' ? NATURAL_EARTH_ADMIN_0_DATASET_VERSION : null);
++          await db.runAsync('INSERT INTO reconstruction_place (place_id, run_id, representative_evidence_id, uncertainty_json, country_code, country_dataset_version) VALUES (?, ?, ?, ?, ?, ?)', place.id, runId, place.representativeId, JSON.stringify(place.uncertainty), country.status === 'resolved' ? country.code : null, NATURAL_EARTH_ADMIN_0_DATASET_VERSION);
+           for (const evidenceId of place.memberIds) await db.runAsync('INSERT INTO reconstruction_link (run_id, link_kind, parent_id, child_id) VALUES (?, ?, ?, ?)', runId, 'place-support', place.id, evidenceId);
+         }
+         for (const visit of graph.visits) { await db.runAsync('INSERT INTO reconstruction_visit (visit_id, run_id, place_id, ordering) VALUES (?, ?, ?, ?)', visit.id, runId, visit.placeId, visit.order); for (const evidenceId of visit.evidenceIds) await db.runAsync('INSERT INTO reconstruction_link (run_id, link_kind, parent_id, child_id) VALUES (?, ?, ?, ?)', runId, 'visit-support', visit.id, evidenceId); }
+@@ -278,10 +466,10 @@ export function createNativeReconstructionRepository() {
+             queueSnapshot ? 'Local inferred journey updates are ready for review. They remain private and unpublished.' : 'No local journey updates were waiting.',
+           );
+         }
+-        await db.execAsync('COMMIT');
++        if (!transactionAlreadyOpen) await db.execAsync('COMMIT');
+         return graph;
+       } catch (error) {
+-        await db.execAsync('ROLLBACK');
++        if (!transactionAlreadyOpen) await db.execAsync('ROLLBACK');
+         throw error;
+       }
+     },
+@@ -298,8 +486,9 @@ export function createNativeReconstructionRepository() {
+         return { graph, newJourneyCount: outcome?.new_journey_count ?? 0, updatedJourneyCount: outcome?.updated_journey_count ?? 0 };
+       } catch (error) {
+         const restricted = error instanceof Error && (error.message.includes('not connected') || error.message.includes('not permitted'));
+-        const pending = error instanceof Error && error.message.includes('need owner review');
+-        await saveOutcome(restricted ? 'restricted' : pending ? 'pending' : 'error', restricted ? 'Local journey updates are waiting for connected private access.' : pending ? 'Owner history needs review before queued local changes can be reconciled.' : 'Local journey reconciliation did not finish. Queued changes remain pending.');
++        const pending = error instanceof Error && (error.message.includes('need owner review') || error.message.includes('needs owner remap'));
++        if (error instanceof JourneyCorrectionRemapRequiredError) await recordPendingCorrectionRemap(error.revisionId);
++        await saveOutcome(restricted ? 'restricted' : pending ? 'pending' : 'error', restricted ? 'Local journey updates are waiting for connected private access.' : pending ? 'An owner correction needs review before queued local changes can be reconciled.' : 'Local journey reconciliation did not finish. Queued changes remain pending.');
+         throw error;
+       } finally {
+         await releaseLease(token);
+diff --git a/apps/mobile/src/reveal/types.ts b/apps/mobile/src/reveal/types.ts
+index dccdf31..08c0b86 100644
+--- a/apps/mobile/src/reveal/types.ts
++++ b/apps/mobile/src/reveal/types.ts
+@@ -56,4 +56,5 @@ export type JourneyDetail = {
+   visits: { label: string; precision: string; support: string }[];
+   memories: { id: string; availability: 'available' | 'unavailable' | 'unknown'; association: string }[];
+   uncertainty: string[];
++  correctionState?: 'inferred' | 'confirmed' | 'rejected' | 'pending remap';
+ };
+
+===== UNTRACKED FILE: apps/mobile/src/app/journey/[id]/correct.tsx =====
+
+import { useLocalSearchParams, useRouter } from 'expo-router';
+
+import { JourneyCorrectionScreen } from '@/components/journey-correction';
+import { appRoutes, openRoute } from '@/navigation/app-contract';
+import { usePhotoAccess } from '@/photo-access/provider';
+
+export default function JourneyCorrectionRoute() {
+  const router = useRouter();
+  const { id } = useLocalSearchParams<{ id?: string }>();
+  const { loadJourneyDetail, saveJourneyCorrection, retryJourneyCorrectionProjection } = usePhotoAccess();
+
+  return <JourneyCorrectionScreen
+    id={typeof id === 'string' ? id : ''}
+    load={loadJourneyDetail}
+    save={saveJourneyCorrection}
+    retryProjection={retryJourneyCorrectionProjection}
+    onBack={() => router.replace({ pathname: '/journey/[id]' as never, params: { id } })}
+    onRejected={() => openRoute(router, appRoutes.atlas, 'replace')}
+  />;
+}
+
+===== UNTRACKED FILE: apps/mobile/src/components/journey-correction.tsx =====
+
+import { useEffect, useState } from 'react';
+import { ScrollView, View } from 'react-native';
+import { Image } from 'expo-image';
+
+import { ActionButton, Body, Eyebrow, InsetPanel, Title } from '@/components/ui';
+import type { JourneyDetail } from '@/reveal/types';
+import type { OwnerPreview } from '@/photo-access/types';
+
+export function JourneyCorrectionScreen({ id, load, save, retryProjection, onBack, onRejected }: { id: string; load(id: string): Promise<{ detail: JourneyDetail; previews: OwnerPreview[]; snapshotToken: number }>; save(id: string, action: 'confirm' | 'reject', snapshotToken: number, snapshot: JourneyDetail, commandKey: string): Promise<'applied' | 'pending'>; retryProjection(): Promise<boolean>; onBack(): void; onRejected(): void }) {
+  const [state, setState] = useState<{ id: string; result?: { detail: JourneyDetail; previews: OwnerPreview[]; snapshotToken: number }; error?: string } | null>(null);
+  const [preview, setPreview] = useState<{ id: string; action: 'confirm' | 'reject'; commandKey: string } | null>(null);
+  const [selection, setSelection] = useState<{ id: string; action: 'confirm' | 'reject'; applied: boolean } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void load(id)
+      .then((result) => { if (active) setState({ id, result }); })
+      .catch(() => { if (active) setState({ id, error: 'This private review cannot continue. Return to the Atlas and choose a fresh local record.' }); });
+    return () => { active = false; };
+  }, [id, load]);
+
+  const current = state?.id === id ? state : null;
+  if (current?.error) return <ScrollView contentContainerStyle={{ gap: 16, paddingBottom: 32 }} accessibilityLabel="Journey correction review"><Title>Review unavailable</Title><InsetPanel><Body>{current.error}</Body></InsetPanel><ActionButton accessibilityLabel="Return to journey detail" onPress={onBack}>Return to journey</ActionButton></ScrollView>;
+  if (!current?.result) return <ScrollView contentContainerStyle={{ gap: 16, paddingBottom: 32 }} accessibilityLabel="Journey correction review"><Title>Preparing review</Title><Body>Loading the selected private record and the visible evidence set.</Body></ScrollView>;
+
+  const { detail, previews } = current.result;
+  const snapshotToken = current.result.snapshotToken;
+  const persist = async (action: 'confirm' | 'reject', commandKey: string) => {
+    setSaving(true); setSaveError(null);
+    try {
+      const projection = await save(id, action, snapshotToken, detail, commandKey);
+      setSelection({ id, action, applied: projection === 'applied' });
+      setPreview(null);
+    }
+    catch { setSaveError('The save could not be confirmed. Reload this private journey before retrying; do not assume the decision was or was not saved.'); }
+    finally { setSaving(false); }
+  };
+  const retry = async () => {
+    setRetrying(true); setSaveError(null);
+    try {
+      const applied = await retryProjection();
+      if (!applied) {
+        setSaveError('The saved decision is still not reflected in the journey. Your previous complete view remains available.');
+        return;
+      }
+      setSelection((previous) => previous?.id === id ? { ...previous, applied: true } : previous);
+    } catch {
+      setSaveError('The saved decision is still not reflected in the journey. Your previous complete view remains available.');
+    } finally { setRetrying(false); }
+  };
+  return (
+    <ScrollView contentContainerStyle={{ gap: 16, paddingBottom: 32 }} accessibilityLabel="Journey correction review">
+      <Eyebrow>Private review</Eyebrow>
+      <Title>{detail.title}</Title>
+      <InsetPanel>
+        <Body>Review state: {detail.correctionState === 'confirmed' ? 'Confirmed by you' : detail.correctionState === 'rejected' ? 'Rejected by you' : detail.correctionState === 'pending remap' ? 'Pending your remap review' : 'Inferred; not yet reviewed'}</Body>
+        <Body>{detail.observedSpan}</Body>
+        <Body>Owner corrections stay on device. They never upload the source media, and they never turn a photo&apos;s location into proof of presence.</Body>
+      </InsetPanel>
+      <InsetPanel>
+        <Title>Review choices</Title>
+        <ActionButton accessibilityLabel="Preview confirmation" onPress={() => { setPreview({ id, action: 'confirm', commandKey: `journey:${id}:${snapshotToken}:confirm:${Date.now()}` }); setSaveError(null); }} disabled={saving}>Preview confirmation</ActionButton>
+        <ActionButton accessibilityLabel="Preview rejection" onPress={() => { setPreview({ id, action: 'reject', commandKey: `journey:${id}:${snapshotToken}:reject:${Date.now()}` }); setSaveError(null); }} disabled={saving} variant="secondary">Preview rejection</ActionButton>
+      </InsetPanel>
+      {preview?.id === id && <InsetPanel>
+        <Title>{preview.action === 'confirm' ? 'Preview confirmation' : 'Preview rejection'}</Title>
+        <Body>{preview.action === 'confirm'
+          ? `This records only the facts currently shown: ${detail.title}, ${detail.visits.length} observed visit${detail.visits.length === 1 ? '' : 's'}, and ${detail.memories.length} visible ${detail.memories.length === 1 ? 'memory' : 'memories'}. New or unseen evidence stays inferred.`
+          : `This rejects only the current grouping of ${detail.visits.length} observed visit${detail.visits.length === 1 ? '' : 's'}. Source photos and independently supported visits are retained.`}</Body>
+        <Body>The preview is tied to the loaded local reconstruction. If that reconstruction changes before saving, the save will be refused.</Body>
+        <ActionButton accessibilityLabel={preview.action === 'confirm' ? 'Save confirmation' : 'Save rejection'} onPress={() => void persist(preview.action, preview.commandKey)} disabled={saving}>
+          {saving ? 'Saving privately…' : preview.action === 'confirm' ? 'Save confirmation' : 'Save rejection'}
+        </ActionButton>
+        <ActionButton accessibilityLabel="Cancel decision preview" onPress={() => setPreview(null)} disabled={saving} variant="secondary">Cancel</ActionButton>
+      </InsetPanel>}
+      {selection?.id === id && <InsetPanel>
+        <Title>{selection.action === 'confirm' ? 'Confirmation saved' : 'Rejection saved'}</Title>
+        <Body>{selection.applied
+          ? selection.action === 'confirm'
+            ? 'Your decision is saved locally and applied to this complete reconstruction. Unseen evidence and later additions remain inferred.'
+            : 'Your decision is saved locally and this grouping is removed from the updated projection. Source evidence remains available.'
+          : 'Your decision is saved locally, but the previous complete journey view is still shown because the rebuild did not finish. It has not been presented as applied.'}</Body>
+        {!selection.applied && <ActionButton accessibilityLabel="Retry local correction update" onPress={() => void retry()} disabled={retrying}>{retrying ? 'Retrying local update…' : 'Retry local update'}</ActionButton>}
+        {selection.applied && selection.action === 'reject' && <ActionButton accessibilityLabel="Return to private Atlas" onPress={onRejected}>Return to private Atlas</ActionButton>}
+      </InsetPanel>}
+      {saveError && <InsetPanel><Body>{saveError}</Body></InsetPanel>}
+      <InsetPanel>
+        <Title>Observed visits</Title>
+        {detail.visits.map((visit, index) => <Body key={`${visit.label}-${index}`}>{visit.label} · {visit.precision}. {visit.support}</Body>)}
+      </InsetPanel>
+      <InsetPanel>
+        <Title>Memories</Title>
+        {detail.memories.map((memory, index) => {
+          const preview = previews[index];
+          return <View key={memory.id} style={{ gap: 8 }}>
+            {preview?.uri ? <Image source={{ uri: preview.uri }} style={{ height: 110, borderRadius: 12 }} accessibilityLabel="Private memory preview" cachePolicy="memory" allowDownscaling priority="low" /> : <Body>Memory unavailable</Body>}
+            <Body>{memory.association}</Body>
+          </View>;
+        })}
+      </InsetPanel>
+      {!!detail.uncertainty.length && <InsetPanel>
+        <Title>Uncertainty</Title>
+        {detail.uncertainty.map((item) => <Body key={item}>{item}</Body>)}
+      </InsetPanel>}
+      {selection?.id !== id || selection.action !== 'reject' || !selection.applied
+        ? <ActionButton accessibilityLabel="Return to journey detail" onPress={onBack} variant="secondary">Return to journey</ActionButton>
+        : null}
+    </ScrollView>
+  );
+}
+
+===== UNTRACKED FILE: apps/mobile/src/components/__tests__/journey-correction.test.tsx =====
+
+import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import type { ReactNode } from 'react';
+import type { PressableProps } from 'react-native';
+
+import { JourneyCorrectionScreen } from '@/components/journey-correction';
+
+// The screen's visual primitives include a device reduced-motion subscription.
+// This focused state-machine suite replaces those primitives so its assertions
+// cover correction transitions without an unrelated native accessibility read.
+jest.mock('@/components/ui', () => {
+  const { Pressable, Text, View } = jest.requireActual<typeof import('react-native')>('react-native');
+  return {
+    ActionButton: ({ children, ...props }: Omit<PressableProps, 'children'> & { children: ReactNode }) => <Pressable accessibilityRole="button" {...props}><Text>{children}</Text></Pressable>,
+    Body: ({ children }: { children: ReactNode }) => <Text>{children}</Text>,
+    Eyebrow: ({ children }: { children: ReactNode }) => <Text>{children}</Text>,
+    InsetPanel: ({ children }: { children: ReactNode }) => <View>{children}</View>,
+    Title: ({ children }: { children: ReactNode }) => <Text>{children}</Text>,
+  };
+});
+
+const load = async () => ({ detail: { id: 'atlas-safe', title: 'Private journey', observedSpan: 'Observed 2024-01-01', visits: [], memories: [], uncertainty: [] }, previews: [], snapshotToken: 7 });
+const retryProjection = async () => true;
+
+describe('JourneyCorrectionScreen', () => {
+  it('previews the selected decision and shows it as applied only after save and projection finish', async () => {
+    let resolve!: () => void;
+    const save = jest.fn(() => new Promise<'applied' | 'pending'>((done) => { resolve = () => done('applied'); }));
+    const view = await render(<JourneyCorrectionScreen id="atlas-safe" load={load} save={save} retryProjection={retryProjection} onBack={jest.fn()} onRejected={jest.fn()} />);
+    await waitFor(() => expect(view.getByRole('button', { name: 'Preview confirmation' })).toBeOnTheScreen());
+    fireEvent.press(view.getByRole('button', { name: 'Preview confirmation' }));
+    await waitFor(() => expect(view.getByRole('button', { name: 'Save confirmation' })).toBeOnTheScreen());
+    expect(view.getByText(/records only the facts currently shown/i)).toBeOnTheScreen();
+    expect(save).not.toHaveBeenCalled();
+    fireEvent.press(view.getByRole('button', { name: 'Save confirmation' }));
+    expect(save).toHaveBeenCalledWith('atlas-safe', 'confirm', 7, expect.objectContaining({ id: 'atlas-safe', title: 'Private journey' }), expect.stringMatching(/^journey:atlas-safe:7:confirm:/));
+    expect(view.queryByText('Confirmation saved')).toBeNull();
+    resolve();
+    await waitFor(() => expect(view.getByText('Confirmation saved')).toBeOnTheScreen());
+    expect(view.getByText(/applied to this complete reconstruction/i)).toBeOnTheScreen();
+  });
+
+  it('does not claim a save when the revision-bound durable operation fails', async () => {
+    const view = await render(<JourneyCorrectionScreen id="atlas-safe" load={load} save={async () => { throw new Error('stale'); }} retryProjection={retryProjection} onBack={jest.fn()} onRejected={jest.fn()} />);
+    await waitFor(() => expect(view.getByRole('button', { name: 'Preview rejection' })).toBeOnTheScreen());
+    fireEvent.press(view.getByRole('button', { name: 'Preview rejection' }));
+    await waitFor(() => expect(view.getByRole('button', { name: 'Save rejection' })).toBeOnTheScreen());
+    fireEvent.press(view.getByRole('button', { name: 'Save rejection' }));
+    await waitFor(() => expect(view.getByText(/save could not be confirmed/i)).toBeOnTheScreen());
+    expect(view.queryByText('Rejection saved')).toBeNull();
+  });
+
+  it('shows a durable decision as pending when projection fails and offers a retry', async () => {
+    const retry = jest.fn(async () => true);
+    const onRejected = jest.fn();
+    const view = await render(<JourneyCorrectionScreen id="atlas-safe" load={load} save={async () => 'pending'} retryProjection={retry} onBack={jest.fn()} onRejected={onRejected} />);
+    await waitFor(() => expect(view.getByRole('button', { name: 'Preview rejection' })).toBeOnTheScreen());
+    fireEvent.press(view.getByRole('button', { name: 'Preview rejection' }));
+    await waitFor(() => expect(view.getByRole('button', { name: 'Save rejection' })).toBeOnTheScreen());
+    fireEvent.press(view.getByRole('button', { name: 'Save rejection' }));
+    await waitFor(() => expect(view.getByText(/previous complete journey view is still shown/i)).toBeOnTheScreen());
+    fireEvent.press(view.getByRole('button', { name: 'Retry local correction update' }));
+    await waitFor(() => expect(view.getByText(/this grouping is removed from the updated projection/i)).toBeOnTheScreen());
+    expect(retry).toHaveBeenCalledTimes(1);
+    fireEvent.press(view.getByRole('button', { name: 'Return to private Atlas' }));
+    expect(onRejected).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not carry a completed choice into a newly selected journey', async () => {
+    const view = await render(<JourneyCorrectionScreen id="atlas-safe" load={load} save={async () => 'applied'} retryProjection={retryProjection} onBack={jest.fn()} onRejected={jest.fn()} />);
+    await waitFor(() => expect(view.getByRole('button', { name: 'Preview confirmation' })).toBeOnTheScreen());
+    fireEvent.press(view.getByRole('button', { name: 'Preview confirmation' }));
+    await waitFor(() => expect(view.getByRole('button', { name: 'Save confirmation' })).toBeOnTheScreen());
+    fireEvent.press(view.getByRole('button', { name: 'Save confirmation' }));
+    await waitFor(() => expect(view.getByText('Confirmation saved')).toBeOnTheScreen());
+
+    const nextJourney = async () => ({
+      detail: { id: 'atlas-next', title: 'Another private journey', observedSpan: 'Observed 2025-01-01', visits: [], memories: [], uncertainty: [] },
+      previews: [],
+      snapshotToken: 8,
+    });
+    view.rerender(<JourneyCorrectionScreen id="atlas-next" load={nextJourney} save={async () => 'applied'} retryProjection={retryProjection} onBack={jest.fn()} onRejected={jest.fn()} />);
+    await waitFor(() => expect(view.getByText('Another private journey')).toBeOnTheScreen());
+    expect(view.queryByText('Confirmation saved')).toBeNull();
+  });
+});
+
+===== UNTRACKED FILE: apps/mobile/src/components/__tests__/journey-correction-application.test.ts =====
+
+import { applyJourneyCorrections } from '@/reconstruction/repository';
+import type { ReconstructionGraph } from '@/reconstruction/types';
+
+const graph: ReconstructionGraph = {
+  ruleVersion: 'reconstruction-v1',
+  places: [],
+  visits: [
+    { id: 'visit:a', placeId: 'place:a', evidenceIds: ['a', 'b'], order: 'ordered' },
+    { id: 'visit:c', placeId: 'place:c', evidenceIds: ['c'], order: 'ordered' },
+  ],
+  journeys: [
+    { id: 'journey:a', visitIds: ['visit:a'], state: 'inferred' },
+    { id: 'journey:c', visitIds: ['visit:c'], state: 'inferred' },
+  ],
+  memberships: [
+    { evidenceId: 'a', journeyId: 'journey:a', state: 'inferred', reason: 'visit-support' },
+    { evidenceId: 'c', journeyId: 'journey:c', state: 'inferred', reason: 'visit-support' },
+  ],
+  possibleMerges: [{ fromJourneyId: 'journey:a', toJourneyId: 'journey:c', reason: 'adjacent-gap' }],
+  dispositions: [],
+};
+
+describe('journey correction application', () => {
+  it('keeps an exact confirmation attached to its successor and preserves later inferred evidence', () => {
+    const result = applyJourneyCorrections(graph, [{ revision_id: 'confirm-a', action: 'confirm', reviewed_support_json: JSON.stringify(['E:a']) }]);
+    expect(result.matches.get('confirm-a')).toBe('journey:a');
+    expect(result.graph.journeys).toHaveLength(2);
+  });
+
+  it('removes a rejected grouping while keeping its source visits and places available', () => {
+    const result = applyJourneyCorrections(graph, [{ revision_id: 'reject-a', action: 'reject', reviewed_support_json: JSON.stringify(['E:a', 'E:b']) }]);
+    expect(result.graph.journeys.map((journey) => journey.id)).toEqual(['journey:c']);
+    expect(result.graph.visits.map((visit) => visit.id)).toEqual(['visit:a', 'visit:c']);
+    expect(result.graph.memberships.map((membership) => membership.journeyId)).toEqual(['journey:c']);
+  });
+
+  it('fails closed when reviewed support no longer maps to a candidate journey', () => {
+    expect(() => applyJourneyCorrections(graph, [{ revision_id: 'missing', action: 'confirm', reviewed_support_json: JSON.stringify(['E:missing']) }])).toThrow('needs owner remap');
+  });
+
+  it('fails closed when reviewed support is divided between successors', () => {
+    const splitGraph: ReconstructionGraph = {
+      ...graph,
+      visits: [
+        ...graph.visits.map((visit) => visit.id === 'visit:a' ? { ...visit, evidenceIds: ['a'] } : visit),
+        { id: 'visit:b', placeId: 'place:a', evidenceIds: ['b'], order: 'ordered' },
+      ],
+      journeys: [
+        { id: 'successor:a', visitIds: ['visit:a'], state: 'inferred' },
+        { id: 'successor:b', visitIds: ['visit:b'], state: 'inferred' },
+      ],
+    };
+    expect(() => applyJourneyCorrections(splitGraph, [
+      { revision_id: 'split-support', action: 'confirm', reviewed_support_json: JSON.stringify(['E:a', 'E:b']) },
+    ])).toThrow('needs owner remap');
+  });
+
+  it('keeps a later independent visit while removing a rejected reviewed visit from automatic membership', () => {
+    const extendedGraph: ReconstructionGraph = {
+      ...graph,
+      visits: [...graph.visits, { id: 'visit:later', placeId: 'place:later', evidenceIds: ['later'], order: 'ordered' }],
+      journeys: [{ id: 'journey:extended', visitIds: ['visit:a', 'visit:later'], state: 'inferred' }, graph.journeys[1]],
+      memberships: [
+        { evidenceId: 'a', journeyId: 'journey:extended', state: 'inferred', reason: 'visit-support' },
+        { evidenceId: 'later', journeyId: 'journey:extended', state: 'inferred', reason: 'visit-support' },
+        graph.memberships[1],
+      ],
+    };
+    const result = applyJourneyCorrections(extendedGraph, [{
+      revision_id: 'reject-reviewed-visit', action: 'reject', reviewed_support_json: JSON.stringify(['E:a', 'E:b']), reviewed_visits_json: JSON.stringify([['E:a', 'E:b']]),
+    }]);
+    expect(result.graph.journeys.find((journey) => journey.id === 'journey:extended')?.visitIds).toEqual(['visit:later']);
+    expect(result.graph.memberships.map((membership) => membership.evidenceId)).toEqual(['later', 'c']);
+  });
+
+  it('fails closed when the same reviewed support maps to multiple successors', () => {
+    const ambiguousGraph: ReconstructionGraph = {
+      ...graph,
+      journeys: [...graph.journeys, { id: 'journey:a-copy', visitIds: ['visit:a'], state: 'inferred' }],
+    };
+    expect(() => applyJourneyCorrections(ambiguousGraph, [
+      { revision_id: 'ambiguous-support', action: 'reject', reviewed_support_json: JSON.stringify(['E:a', 'E:b']) },
+    ])).toThrow('needs owner remap');
+  });
+
+  it('fails closed when one reviewed support unit is duplicated despite a unique full-set match', () => {
+    const partiallyAmbiguousGraph: ReconstructionGraph = {
+      ...graph,
+      visits: [...graph.visits, { id: 'visit:a-copy', placeId: 'place:a', evidenceIds: ['a'], order: 'ordered' }],
+      journeys: [...graph.journeys, { id: 'journey:a-copy', visitIds: ['visit:a-copy'], state: 'inferred' }],
+    };
+    expect(() => applyJourneyCorrections(partiallyAmbiguousGraph, [
+      { revision_id: 'partially-ambiguous-support', action: 'confirm', reviewed_support_json: JSON.stringify(['E:a', 'E:b']) },
+    ])).toThrow('needs owner remap');
+  });
+});

@@ -22,3 +22,4 @@ The current product direction and provisional defaults are recorded below.
 - [0009 — MLP lifetime reveal and replay](0009-mlp-lifetime-reveal-and-replay.md): defines the private map reveal, replay and selected lifetime sharing loop.
 - [0010 — Living Atlas design system](0010-living-atlas-design-system.md): makes the agreed prototype direction the official UI/UX reference for every Travel Life surface.
 - [0011 — Prototype screens as product UI](0011-prototype-screens-as-product-ui.md): adopts the agreed prototype screens, including the video welcome, as production UI targets.
+- [0012 — Dimensional Atlas and minimal list](0012-dimensional-atlas-and-minimal-list.md): adopts subtle 3D visual polish without terrain and a simple, uncluttered journey list; development plan only.

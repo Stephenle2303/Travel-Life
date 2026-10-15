@@ -6,6 +6,14 @@ import { PhotoAccessProvider, usePhotoAccess } from '@/photo-access/provider';
 import type { PhotoAccessAdapter } from '@/photo-access/types';
 import type { ImportRepository } from '@/import-record';
 
+jest.mock('expo-video', () => ({
+  useVideoPlayer: (_source: unknown, setup: (player: { muted: boolean; volume: number; loop: boolean; play(): void; pause(): void }) => void) => {
+    const player = { muted: true, volume: 0, loop: false, play: jest.fn(), pause: jest.fn() };
+    setup(player); return player;
+  },
+  VideoView: () => null,
+}));
+
 const adapter: PhotoAccessAdapter = {
   inspect: async () => ({ scope: 'full', canAskAgain: false }),
   request: async () => ({ scope: 'full', canAskAgain: false }),

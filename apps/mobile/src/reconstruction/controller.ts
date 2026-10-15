@@ -23,19 +23,35 @@ export class ReconstructionController {
 
   resume() { this.suspended = false; }
 
-  async rebuild() {
-    if (this.suspended || this.runningGeneration !== null) return;
+  /** Publish a graph which the repository has already committed atomically.
+   * This avoids reopening a second reconstruction transaction after an owner
+   * correction has been saved. */
+  publishCommitted(graph: ReconstructionGraph) {
+    if (this.suspended) return { status: 'skipped' as const };
+    this.generation += 1;
+    this.current = {
+      status: 'complete', graph,
+      message: graph.journeys.length ? 'Local inferred drafts are ready for review.' : 'No supported journey draft is available yet.',
+    };
+    this.notify(this.current);
+    return { status: 'complete' as const };
+  }
+
+  async rebuild(): Promise<{ status: 'complete' } | { status: 'failed'; error: unknown } | { status: 'skipped' }> {
+    if (this.suspended || this.runningGeneration !== null) return { status: 'skipped' };
     const generation = ++this.generation;
     this.runningGeneration = generation;
     this.current = { ...this.current, status: 'running', message: null }; this.notify(this.current);
     try {
       const graph = await this.repository.rebuild();
-      if (generation !== this.generation) return;
+      if (generation !== this.generation) return { status: 'skipped' };
       this.current = { status: 'complete', graph, message: graph.journeys.length ? 'Local inferred drafts are ready for review.' : 'No supported journey draft is available yet.' };
+      return { status: 'complete' };
     } catch (error) {
-      if (generation !== this.generation) return;
+      if (generation !== this.generation) return { status: 'skipped' };
       const restricted = error instanceof Error && error.message.includes('not connected');
       this.current = { ...this.current, status: restricted ? 'restricted' : 'error', message: restricted ? 'Reconnect your private record before rebuilding.' : 'Local reconstruction could not finish. Your last completed result was kept.' };
+      return { status: 'failed', error };
     } finally {
       if (this.runningGeneration === generation) this.runningGeneration = null;
       if (generation === this.generation) {

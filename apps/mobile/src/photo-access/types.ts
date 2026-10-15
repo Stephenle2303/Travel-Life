@@ -26,7 +26,7 @@ export type SelectionResult = { canceled: true } | {
   stableAssetIds: string[];
 };
 /** Ephemeral private display data. Source identifiers never leave the adapter. */
-export type OwnerPreview = { uri: string | null; availability: 'available' | 'unavailable' };
+export type OwnerPreview = { uri: string | null; availability: 'available' | 'unavailable'; kind: 'photo' | 'video' };
 
 export interface PhotoAccessAdapter {
   inspect(): Promise<PermissionSnapshot | null>;

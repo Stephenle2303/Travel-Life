@@ -2,7 +2,7 @@
 title: 'Display supportable travel statistics'
 type: 'feature'
 created: '2026-10-13'
-status: 'in-review'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
 baseline_commit: '0e8fffd27135b7c231de6d6da4a85a56ffb06351'
@@ -69,6 +69,21 @@ context:
 
 ## Review Triage Log
 
+- blind-hunter — medium / patch — `countryStatus` always reported supported and unresolved results lacked dataset provenance, so older or incompletely resolved runs could be shown as zero countries; persist the resolver dataset version for every reconstructed place and derive status/counts only for the current dataset.
+- blind-hunter — medium / patch — the aggregate read accepted country codes from any resolver version, allowing stale or partial rows to affect the current total; scope country counts to the current bundled dataset version.
+- blind-hunter — medium / patch — the resolver scanned every geometry edge for every place while an atomic rebuild holds SQLite; precompute local bounding boxes and skip non-candidate countries before ring checks.
+- blind-hunter — low / patch — the fixed angular border margin varies in physical distance by latitude; use a bounded meter-based local comparison so the ambiguity rule is applied consistently.
+- blind-hunter — medium / patch — the resolver test called an ocean coordinate rather than a dataset boundary; add a deterministic bundled-ring border fixture that must remain unresolved.
+- blind-hunter — medium / patch — JourneyDetailScreen retained an old result or error when its opaque route ID changed; clear both before beginning the replacement read.
+- blind-hunter — low / patch — provider rerenders recreated the journey-detail loader and could repeat bounded preview reads for the same detail screen; memoize it against its actual lifecycle dependencies.
+- blind-hunter — medium / patch — visit precision used the least-conservative supporting value, which could overstate a mixed-precision visit; require all support to have precise offsets before displaying time precision.
+- blind-hunter — medium / patch — memory evidence with both membership and visit support was rendered twice and could consume the bounded preview limit; combine its associations into one memory model with both owner-readable reasons.
+- edge-case-hunter — medium / patch — antimeridian-crossing country rings were not unwrapped before containment and boundary checks, so interior points could be omitted; normalize longitude segments around the tested point.
+- verification-gap — medium / patch — no rebuild behavior test asserted resolved and unresolved country metadata written to reconstructed places; add deterministic repository coverage for both writes.
+- verification-gap — high / patch — no v11 migration test asserted both new reconstructed-place columns before schema version advancement; add a direct upgrade-path test.
+- verification-gap — medium / patch — border ambiguity was untested; add an actual bundled geometry edge assertion.
+- verification-gap — medium / patch — provider lifecycle coverage invoked only a helper rather than the guarded detail flow; mount a provider harness with deferred detail/preview reads and assert lifecycle invalidation rejects them.
+
 ## Design Notes
 
 Keep the panel calm and secondary to map/timeline exploration: one `InsetPanel`, a plain “Inferred local record” heading, three readable count lines, and short support/coverage language. Treat “country unavailable” as an honest text state, never a zero shown as complete travel coverage.
@@ -81,4 +96,4 @@ Keep the panel calm and secondary to map/timeline exploration: one `InsetPanel`,
 - `npm run check` -- expected: repository framework and evaluation smoke checks pass.
 - `git diff --check` -- expected: no whitespace errors.
 
-**Actual (2026-10-13):** Focused aggregate/resolver/Atlas checks passed 3 suites / 23 tests, and TypeScript passed. The bundled `natural-earth-110m-admin-0-countries-5.1.1.json` is derived from Natural Earth Admin 0 Countries 1:110m 5.1.1 and is resolved only on device. Physical SQLite migration, iOS/Android resolver performance, screen-reader behavior, lifecycle interruption, and reconstruction accuracy remain unverified.
+**Actual (2026-10-13):** Focused repository, Atlas, resolver, import, lifecycle-provider, and journey-detail checks passed 6 suites / 44 tests. Mobile Jest passed 25 suites / 183 tests, with TypeScript and Expo lint also passing. Expo Doctor reported 20/21 checks because six existing Expo SDK 57 patch versions are behind its expected versions; this feature did not change dependencies. Root `npm run check` passed framework integrity, 20 foundation tests, and evaluation smoke checks; `git diff --check` found no whitespace errors. The bundled `natural-earth-110m-admin-0-countries-5.1.1.json` is derived from Natural Earth Admin 0 Countries 1:110m 5.1.1 and is resolved only on device. Physical SQLite migration, iOS/Android resolver performance, screen-reader behavior, lifecycle interruption, and reconstruction accuracy remain unverified.
