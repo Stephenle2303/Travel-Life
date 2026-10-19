@@ -1812,17 +1812,20 @@ anchor. If continuity gives that trip a new opaque ID, the provider accepts
 only one durable successor with the exact selected label/anchor and verifies
 its detail before reporting success. The focused mobile suite passes 53 tests,
 TypeScript and lint pass.
-Physical Android confirmation of a saved choice moving the intended marker,
-including after reopen, remains outstanding and is not inferred from these
-automated checks.
+**Android owner acceptance (2026-10-19):** The owner confirmed that the
+journey Edit → Location flow works on the physical device: a saved choice moves
+the intended marker and persists after reopening. This closes the outstanding
+Android acceptance gate for this focused correction flow. It does not establish
+iOS behavior, unrelated edit tasks, reconstruction accuracy, or general map
+cartography acceptance.
 
 **Device delivery follow-up:** The first post-reload device view revealed a
 Dev Launcher `Unable to load script` screen, so earlier process-only evidence
 was insufficient. The local Metro status endpoint and ADB reverse mapping were
 re-established; cold-launch then visibly rendered Travel Life's Welcome screen
 without clearing device data. The device policy rejects automated touch input,
-so opening the existing private Atlas and completing the re-save remains an
-owner-operated acceptance check.
+so opening the existing private Atlas and completing the re-save was an
+owner-operated acceptance check; the owner subsequently confirmed it works.
 
 ## Atlas readable cartography implementation (2026-10-18)
 
