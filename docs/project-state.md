@@ -1,6 +1,38 @@
 # Project state
 
-Updated: 2026-10-14 (Asia/Bangkok).
+Updated: 2026-10-18 (Asia/Bangkok).
+
+## Supported trip destination names (isolated worktree)
+
+The destination-label fix is implemented in the separate `destination-labels`
+worktree based on commit `00211bd`. A bundled Natural Earth 5.1.1 10m lookup
+resolves countries and administrative regions worldwide, including public
+synthetic Bali points. Committed visit-support evidence, grouped by verified
+duplicate family, must supply two independent resolved sources per place.
+The repository derives names at read time for existing trips, then passes the
+same supported summary to Atlas and selected trip details. Owner titles retain
+precedence in detail; mixed regions fall back to country and multiple supported
+countries remain explicit. Unknown, inaccurate and boundary-ambiguous evidence
+retains a neutral fallback. No schema migration, private-data export or network
+geocoder was added.
+
+The public geographic asset is packed to 11,197,388 bytes; candidate-only ring
+decoding retains at most 50,000 points. A Node synthetic probe performed 1,000
+local lookups in 56 ms with about 15 MB retained heap increase, including the
+resolver; this is host evidence, not device performance acceptance. Full mobile
+verification passed 30 suites / 249 tests, TypeScript and lint. Android export
+compiled 1,485 modules and produced a 14 MB Hermes bundle. Foundation `npm run
+check` and whitespace checks pass. Expo Doctor remains 20/21 due to nine existing
+locked SDK patch-version mismatches. No dependency upgrade was made.
+
+The original dirty workspace, newer uncommitted V1.1 work and phone were not
+modified. This fix is not active on the phone yet. Integration with that newer
+engine and physical Bali/other-trip acceptance remain next work; synthetic
+geographic tests do not establish private-library accuracy. The independent
+review reported memory and omitted-accuracy concerns before hitting an account
+usage limit; both were corrected and the main agent completed diff inspection.
+Delivery record: [supported destination labels](../_bmad-output/implementation-artifacts/spec-supported-destination-labels.md).
+
 
 ## Dimensional Atlas development plan (2026-10-15)
 

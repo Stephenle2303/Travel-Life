@@ -5,6 +5,8 @@ export type RevealMapAnchor = { latitude: number; longitude: number };
 export type DurableRevealJourney = {
   /** A local display ordinal, never a reconstruction or source identifier. */
   displayId: string;
+  /** Supported offline geographic name, never an owner-presence claim. */
+  label?: string;
   state: 'inferred' | 'possible-merge';
   anchor: RevealMapAnchor | null;
   years: number[];

@@ -1,6 +1,7 @@
 import { createNativeReconstructionRepository } from '@/reconstruction';
 import { applyJourneyCorrections, resolveVerifiedDuplicateFamilies } from '@/reconstruction/repository';
 import type { ReconstructionGraph } from '@/reconstruction';
+import { projectReveal, assertRevealPayload } from '@/reveal/projection';
 
 const mockExecAsync = jest.fn();
 const mockRunAsync = jest.fn();
@@ -40,6 +41,35 @@ describe('durable local reconciliation repository', () => {
     expect(mockRunAsync).toHaveBeenCalledWith('DELETE FROM reconciliation_queue_snapshot WHERE snapshot_revision = ?', 5);
     expect(mockRunAsync.mock.calls.flat().join('\n')).toContain('reconciliation_unresolved_remap');
     expect(mockExecAsync).toHaveBeenCalledWith('COMMIT');
+  });
+
+  it('carries a supported Bali label from committed visit support through Atlas and detail while preserving owner titles', async () => {
+    mockGetAllAsync.mockImplementation(async (sql: string) => {
+      if (sql.includes('WITH journey_anchor AS')) return [{ journey_id: 'private:bali', run_id: 7, journey_state: 'inferred', latitude: -8.5069, longitude: 115.2625, year: 2025, first_year: 2025, last_year: 2025, ordering: 'uncertain' }];
+      if (sql.includes('AS journey_id, visit.place_id')) return ['a', 'b'].map((id) => ({ journey_id: 'private:bali', place_id: 'p', evidence_id: id, latitude: -8.5069, longitude: 115.2625, captured_day: '2025-09-10', availability: 'available' }));
+      if (sql.includes('WITH visit_summary AS')) return [{ visit_id: 'v', captured_day: '2025-09-10', ordering: 'uncertain', has_precise_offset: 0 }];
+      return [];
+    });
+    const repository = createNativeReconstructionRepository();
+    const record = await repository.loadDurableReveal();
+    expect(record.journeys[0].label).toBe('Bali, Indonesia');
+    const model = projectReveal({ graph: null, durableRecord: record, reconstructionStatus: 'complete', reconciliationStatus: 'complete', pendingCount: 0, sourceScope: 'full', importedCount: 2 });
+    expect(model.journeys[0].label).toBe('Bali, Indonesia');
+    // Native map anchors have their own approved boundary; the text payload
+    // must remain valid under the general reveal privacy validator.
+    expect(() => assertRevealPayload({ journeys: model.journeys.map(({ mapAnchor: _anchor, ...text }) => text) })).not.toThrow();
+    const id = record.journeys[0].displayId;
+    expect((await repository.loadJourneyDetail(id)).detail.title).toBe('Bali, Indonesia');
+    const priorFirst = mockGetFirstAsync.getMockImplementation()!;
+    mockGetFirstAsync.mockImplementation(async (sql: string) => sql.includes('SELECT revision.owner_title')
+      ? { owner_title: 'Our holiday', owner_date_kind: 'exact', owner_date_start: '2025-09-10' }
+      : priorFirst(sql));
+    expect((await repository.loadJourneyDetail(id)).detail.title).toBe('Our holiday');
+    const labelQuery = mockGetAllAsync.mock.calls.find(([sql]) => sql.includes('AS journey_id, visit.place_id'))![0];
+    expect(labelQuery).toContain("support.link_kind = 'visit-support'");
+    expect(labelQuery).not.toContain('source_ref');
+    expect(JSON.stringify(model)).not.toContain('private:bali');
+    expect(JSON.stringify(model)).not.toContain('115.2625');
   });
 
   it('reads only redacted chronology, coarsened anchors, and journey states from the committed graph', async () => {
@@ -100,7 +130,7 @@ describe('durable local reconciliation repository', () => {
     mockGetAllAsync.mockResolvedValueOnce([{ journey_id: 'private:alpha', journey_state: 'inferred', latitude: null, longitude: null, year: null, first_year: null, last_year: null, ordering: 'uncertain' }]);
     const repository = createNativeReconstructionRepository();
     const displayId = (await repository.loadDurableReveal()).journeys[0]?.displayId;
-    mockGetAllAsync.mockReset();
+    mockGetAllAsync.mockReset(); mockGetAllAsync.mockResolvedValue([]);
     mockGetAllAsync
       .mockResolvedValueOnce([{ captured_day: '2024-01-01', has_precise_offset: 0, ordering: 'uncertain' }])
       .mockResolvedValueOnce([
@@ -125,7 +155,7 @@ describe('durable local reconciliation repository', () => {
     mockGetAllAsync.mockResolvedValueOnce([{ journey_id: 'private:alpha', journey_state: 'inferred', latitude: null, longitude: null, year: null, first_year: null, last_year: null, ordering: 'uncertain' }]);
     const repository = createNativeReconstructionRepository();
     const displayId = (await repository.loadDurableReveal()).journeys[0]?.displayId;
-    mockGetAllAsync.mockReset();
+    mockGetAllAsync.mockReset(); mockGetAllAsync.mockResolvedValue([]);
     mockGetAllAsync
       .mockResolvedValueOnce([{ captured_day: '2024-01-01', has_precise_offset: 0, ordering: 'uncertain' }])
       .mockResolvedValueOnce([

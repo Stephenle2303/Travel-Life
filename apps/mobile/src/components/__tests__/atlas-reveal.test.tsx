@@ -29,6 +29,13 @@ function modelFor(overrides: Partial<Parameters<typeof projectReveal>[0]>) {
 }
 
 describe('private Atlas reveal', () => {
+  it('renders a metadata-supported destination in the trip list and Timeline fallback', async () => {
+    const model = modelFor({ durableRecord: { journeys: [{ displayId: 'bali', label: 'Bali, Indonesia', state: 'inferred', anchor: null, years: [2025], periodLabel: '2025', ordering: 'uncertain' }] } });
+    const view = await render(<AtlasReveal model={model} {...actions} mapAvailable={false} />);
+    expect(view.getByText('Bali, Indonesia')).toBeOnTheScreen();
+    expect(view.getByRole('button', { name: 'Bali, Indonesia, 2025' })).toBeOnTheScreen();
+  });
+
   it('projects a completed graph into redacted inferred list items and a Replay handoff', async () => {
     const model = projectReveal({ graph: null, durableRecord: { journeys: [{ displayId: 'journey-1', state: 'inferred', anchor: { latitude: 13.7, longitude: 100.5 }, years: [2024], periodLabel: '2024', ordering: 'chronological' }] }, reconstructionStatus: 'complete', reconciliationStatus: 'complete', pendingCount: 0, sourceScope: 'full', importedCount: 3 });
     expect(model).toMatchObject({ state: 'ready', replay: { eligible: true } });

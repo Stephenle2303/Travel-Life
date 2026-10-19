@@ -18,10 +18,9 @@ export function projectReveal(input: RevealInput): RevealModel {
   const sourceJourneys = input.durableRecord?.journeys ?? graph?.journeys.map((journey) => ({ state: journey.state, anchor: null })) ?? [];
   const journeys = sourceJourneys.map((journey, index) => ({
     id: 'displayId' in journey ? journey.displayId : `journey-${index + 1}`,
-    // A coarse anchor is never a destination claim. Titles from owner claims
-    // stay in the selected local detail boundary, so this redacted list uses a
-    // truthful neutral fallback.
-    label: 'Private journey',
+    // Only the repository's supported geographic label may replace the neutral
+    // fallback. A coarse anchor alone cannot establish a destination.
+    label: 'label' in journey && typeof journey.label === 'string' ? journey.label : 'Private journey',
     status: journey.state === 'inferred' ? 'Inferred' as const : 'Needs review' as const,
     years: 'years' in journey ? journey.years : [],
     periodLabel: 'periodLabel' in journey ? journey.periodLabel : 'Date unknown',

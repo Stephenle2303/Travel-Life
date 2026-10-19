@@ -1,54 +1,94 @@
-import dataset from './data/natural-earth-110m-admin-0-countries-5.1.1.json';
+import dataset from './data/natural-earth-destinations-5.1.1.json';
 
-export const NATURAL_EARTH_ADMIN_0_DATASET_VERSION = '5.1.1';
-const BOUNDARY_MARGIN_METERS = 5_000;
-
-type Country = { code: string; name: string; rings: [number, number][][] };
-type Coordinate = { latitude: number | null; longitude: number | null };
+export const NATURAL_EARTH_ADMIN_0_DATASET_VERSION = dataset.version;
+const GEOMETRY_MARGIN_METERS = 250;
+type Area = { code: string; name: string; rings: string[]; bounds: number[][] };
+type Coordinate = { latitude: number | null; longitude: number | null; reportedAccuracyMeters?: number | null };
 type Resolution = { status: 'resolved'; code: string } | { status: 'invalid' | 'border' | 'unresolved' };
-
-const countries = (dataset.countries as Country[]).map((country) => ({ ...country, bounds: country.rings.reduce((bounds, ring) => ring.reduce((next, [longitude, latitude]) => ({ minLongitude: Math.min(next.minLongitude, longitude), maxLongitude: Math.max(next.maxLongitude, longitude), minLatitude: Math.min(next.minLatitude, latitude), maxLatitude: Math.max(next.maxLatitude, latitude) }), bounds), { minLongitude: Infinity, maxLongitude: -Infinity, minLatitude: Infinity, maxLatitude: -Infinity }) }));
-
-function unwrap(longitude: number, around: number) { return longitude + Math.round((around - longitude) / 360) * 360; }
-function pointOnSegment(longitude: number, latitude: number, start: [number, number], end: [number, number]) {
-  const startLongitude = unwrap(start[0], longitude); const endLongitude = unwrap(end[0], startLongitude);
-  const deltaLongitude = endLongitude - startLongitude;
-  const deltaLatitude = end[1] - start[1];
-  const lengthSquared = deltaLongitude ** 2 + deltaLatitude ** 2;
-  const ratio = Math.max(0, Math.min(1, ((longitude - startLongitude) * deltaLongitude + (latitude - start[1]) * deltaLatitude) / lengthSquared));
-  const meters = Math.hypot((longitude - (startLongitude + ratio * deltaLongitude)) * 111_320 * Math.cos(latitude * Math.PI / 180), (latitude - (start[1] + ratio * deltaLatitude)) * 110_574);
-  return meters <= BOUNDARY_MARGIN_METERS;
+export type Destination = { code: string; country: string; region: string | null };
+const countries = dataset.countries as Area[];
+const regions = new Map<string, Area[]>();
+for (const region of dataset.regions as Area[]) {
+  const group = regions.get(region.code) ?? [];
+  group.push(region);
+  regions.set(region.code, group);
 }
-
-function pointInRing(longitude: number, latitude: number, ring: [number, number][]) {
-  let inside = false;
-  for (let current = 0, previous = ring.length - 1; current < ring.length; previous = current++) {
-    const [currentLongitude, currentLatitude] = [unwrap(ring[current][0], longitude), ring[current][1]];
-    const [previousLongitude, previousLatitude] = [unwrap(ring[previous][0], currentLongitude), ring[previous][1]];
-    if ((currentLatitude > latitude) !== (previousLatitude > latitude)
-      && longitude < (previousLongitude - currentLongitude) * (latitude - currentLatitude) / (previousLatitude - currentLatitude) + currentLongitude) inside = !inside;
+// Keep global geometry as compact strings. Decode candidate rings only and
+// bound retained coordinate allocations, including very large country rings.
+const decodedRings = new Map<string, number[][]>();
+let cachedPoints = 0;
+function decodeRing(packed: string): number[][] {
+  const cached = decodedRings.get(packed);
+  if (cached) return cached;
+  const values = packed.split(',');
+  const points: number[][] = [];
+  let x = 0; let y = 0;
+  for (let i = 0; i < values.length; i += 2) {
+    x += parseInt(values[i], 36); y += parseInt(values[i + 1], 36);
+    points.push([x / 10000, y / 10000]);
   }
-  return inside;
-}
-
-/**
- * Device-only Natural Earth lookup. The country name remains in the bundled
- * geometry for attribution; callers receive a code only and never send a point
- * to a map, geocoder, or network service.
- */
-export function resolveCountry(coordinate: Coordinate): Resolution {
-  const { latitude, longitude } = coordinate;
-  if (latitude === null || longitude === null || !Number.isFinite(latitude) || !Number.isFinite(longitude)
-    || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return { status: 'invalid' };
-  const matches: Country[] = [];
-  for (const country of countries) {
-    if (latitude < country.bounds.minLatitude - 1 || latitude > country.bounds.maxLatitude + 1 || longitude < country.bounds.minLongitude - 1 || longitude > country.bounds.maxLongitude + 1) continue;
-    let inside = false;
-    for (const ring of country.rings) {
-      for (let index = 1; index < ring.length; index += 1) if (pointOnSegment(longitude, latitude, ring[index - 1], ring[index])) return { status: 'border' };
-      if (pointInRing(longitude, latitude, ring)) inside = !inside;
+  if (points.length <= 50000) {
+    while (cachedPoints + points.length > 50000) {
+      const oldest = decodedRings.keys().next().value!;
+      cachedPoints -= decodedRings.get(oldest)!.length;
+      decodedRings.delete(oldest);
     }
-    if (inside) matches.push(country);
+    decodedRings.set(packed, points);
+    cachedPoints += points.length;
+  }
+  return points;
+}
+function valid(point: Coordinate) {
+  return point.latitude !== null && point.longitude !== null && Number.isFinite(point.latitude) && Number.isFinite(point.longitude)
+    && Math.abs(point.latitude) <= 90 && Math.abs(point.longitude) <= 180
+    && (point.reportedAccuracyMeters == null || (Number.isFinite(point.reportedAccuracyMeters) && point.reportedAccuracyMeters >= 0 && point.reportedAccuracyMeters <= 1000));
+}
+function unwrap(x: number, around: number) { return x + Math.round((around - x) / 360) * 360; }
+function contains(area: Area, x: number, y: number, margin: number): 'inside' | 'outside' | 'border' {
+  let inside = false;
+  for (let r = 0; r < area.rings.length; r += 1) {
+    const bounds = area.bounds[r];
+    const latitudeMargin = margin / 110574;
+    const longitudeMargin = Math.min(180, margin / Math.max(1, 111320 * Math.cos(y * Math.PI / 180)));
+    if (y < bounds[1] - latitudeMargin || y > bounds[3] + latitudeMargin || (bounds[2] - bounds[0] < 180 && (x < bounds[0] - longitudeMargin || x > bounds[2] + longitudeMargin))) continue;
+    const ring = decodeRing(area.rings[r]);
+    let ringInside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const ax = unwrap(ring[j][0], x); const ay = ring[j][1];
+      const bx = unwrap(ring[i][0], ax); const by = ring[i][1];
+      const scaleX = 111320 * Math.cos(y * Math.PI / 180);
+      const dx = (bx - ax) * scaleX; const dy = (by - ay) * 110574;
+      const length = dx * dx + dy * dy;
+      const t = length ? Math.max(0, Math.min(1, ((x - ax) * scaleX * dx + (y - ay) * 110574 * dy) / length)) : 0;
+      if (Math.hypot((x - ax) * scaleX - t * dx, (y - ay) * 110574 - t * dy) <= margin) return 'border';
+      if ((ay > y) !== (by > y) && x < (bx - ax) * (y - ay) / (by - ay) + ax) ringInside = !ringInside;
+    }
+    if (ringInside) inside = !inside;
+  }
+  return inside ? 'inside' : 'outside';
+}
+export function countryDisplayName(code: string): string | null {
+  return countries.find((country) => country.code === code)?.name ?? null;
+}
+/** Public geometry stays bundled; coordinates are never sent to a service. */
+export function resolveCountry(point: Coordinate): Resolution {
+  if (!valid(point)) return { status: 'invalid' };
+  const matches = [];
+  for (const country of countries) {
+    const result = contains(country, point.longitude!, point.latitude!, GEOMETRY_MARGIN_METERS + (point.reportedAccuracyMeters ?? 0));
+    if (result === 'border') return { status: 'border' };
+    if (result === 'inside') matches.push(country);
   }
   return matches.length === 1 ? { status: 'resolved', code: matches[0].code } : { status: 'unresolved' };
+}
+export function resolveDestination(point: Coordinate): Destination | null {
+  const country = resolveCountry(point);
+  if (country.status !== 'resolved') return null;
+  const matches = [];
+  for (const region of regions.get(country.code) ?? []) {
+    const result = contains(region, point.longitude!, point.latitude!, GEOMETRY_MARGIN_METERS + (point.reportedAccuracyMeters ?? 0));
+    if (result === 'border') return { code: country.code, country: countryDisplayName(country.code)!, region: null };
+    if (result === 'inside') matches.push(region.name);
+  }
+  return { code: country.code, country: countryDisplayName(country.code)!, region: matches.length === 1 ? matches[0] : null };
 }
