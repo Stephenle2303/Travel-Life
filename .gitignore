@@ -5,6 +5,7 @@ node_modules/
 __pycache__/
 *.pyc
 coverage/
+apps/mobile/.jest-cache-codex/
 
 # Credentials and personal framework answers
 .env

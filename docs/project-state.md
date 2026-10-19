@@ -1,6 +1,419 @@
 # Project state
 
-Updated: 2026-10-14 (Asia/Bangkok).
+## MapLibre vector-basemap integration (2026-10-18)
+
+Atlas now has an opt-in MapLibre v11 surface backed by a configured MapTiler
+vector-style URL. It renders provider-maintained political boundaries and
+progressive place labels, while Travel Life supplies only the already-coarsened
+private journey GeoJSON and selection state. No provider key, demo URL, public
+place-label list, or second map dependency is embedded. The new
+`EXPO_PUBLIC_ATLAS_MAP_STYLE_URL` is intentionally blank in `.env.example`;
+without a valid HTTPS MapTiler style, or after a style-load failure, Atlas gives
+an honest Timeline recovery instead of displaying the legacy hard-coded map.
+
+Focused Atlas coverage (25 tests), full mobile tests (34 suites / 299 tests),
+TypeScript, lint, root `npm run check`, and `git diff --check` pass. This is not
+device or provider acceptance: an owner-controlled non-demo MapTiler style/key
+must be configured and then Android/iOS must verify native pinch/pan, labels,
+marker selection, failure recovery, and the provider-request disclosure. Vector
+provider detail uses standard map projection rather than claiming the prior
+Winkel Tripel visual plane.
+
+**Local Android configuration update (2026-10-18):** The owner supplied a
+publishable MapTiler key. It is stored only in ignored `apps/mobile/.env` with
+the current `streets-v4-dark` style; the key is not committed. A host-network
+style request returned HTTP 200 with a valid style JSON, sources and layers.
+Metro was restarted, USB port forwarding reapplied, and the already-installed
+Travel Life development client was re-opened on its Atlas route. The filtered
+app log contains no new fatal/native/JavaScript failure. This proves local
+configuration and startup only, not visual cartography, marker selection, or
+physical pinch/pan acceptance; those remain an owner device check.
+
+**Global label follow-up (2026-10-18):** The owner reports that province/city/locality
+names remain absent when zooming into China, Mongolia, and other countries, while
+Vietnam appears acceptable. Live MapTiler Streets Dark and Outdoor style metadata
+both include subdivision labels but stop their state-label layers at zoom 11.
+The actual device style/zoom, feature coverage, glyph loading and label collisions
+are not yet distinguished. Keep this owner-visible mismatch open; compare matched
+viewports across the provider viewer and native app before changing styles.
+ADB can reach the owner's Android device, but the latest capture was of Welcome;
+Android rejected simulated touch input and a deep link was followed by the lock
+screen. Atlas itself has not yet been visually inspected in this diagnostic pass.
+The owner need only unlock the phone and leave Atlas showing an affected country;
+no ChatGPT image upload is required. No map code or style was changed.
+
+**Global style/data review (2026-10-19):** Live Planet v4 vector-tile samples
+at capital locations in 19 countries across six inhabited continents contain
+subdivision data, but the configured Streets Dark z7–9 subdivision-label filter
+rejects all sampled features in Mongolia, Turkey, Germany, Spain, Egypt, South
+Africa, India, Japan, and Australia. Its state-label layers stop at z11 despite
+deeper source data. Outdoor v4 repeats the z7–9 filter and also stops state
+labels at z11; merely switching to Outdoor is not a verified solution. This is
+a confirmed global style/data-schema mismatch for subdivision names, not proof
+that city/town glyphs or rendering also fail. The device was locked during this
+pass, so same-viewport native acceptance remains open. No map code/style changed.
+The same Streets Dark style keeps subdivision borders after labels stop, hides
+regular city names at z14 and town/capital names at z16 (the app's maximum
+camera zoom), and excludes the tileset's `village` places altogether. Progressive
+global naming therefore needs an explicit cross-scale style contract, not only
+more zoom range or a default-style swap.
+
+**Android follow-up (2026-10-19):** The owner unlocked the device. Its development
+client was at Expo Dev Launcher because Metro was no longer running; Metro and
+the ADB reverse route were restored, and Atlas now visibly renders MapLibre.
+The captured public map viewport was Québec, not the requested Mongolia; town
+names appeared there while subdivision names did not at that high zoom. Scoped
+resource logs showed no matching tile/glyph/style errors, which does not prove
+every label loads. Mongolia remains unverified on-device. Its sampled Planet v4
+subdivision tiles have English names but primary local names containing Mongolian
+script, while the current fontstack's requested glyph range lacks U+1800–U+18AF.
+This adds a language/font fallback risk to the confirmed zoom/filter defect.
+MapTiler Countries `level=1` looks structurally useful but sampled Kenya features
+include obsolete province names; it must not be adopted without freshness checks.
+No app code or style changed in this diagnostic pass.
+
+**Proposed correction, not implemented:** Keep MapLibre and the configured Planet
+v4 vector source. Create an owner-controlled MapTiler style variant that selects
+primary subdivisions by data-backed ISO 3166-2 where present, then introduces
+finer administrative labels at appropriate zooms without showing every level at
+once. Keep city/town context through the app's maximum zoom, add a tested village
+band, and use a script-supported language fallback (`name:en` before local `name`
+where needed, with verified glyph coverage). Tune density, priority and muted
+colors against the accepted Obsidian reference; do not solve omissions by making
+all borders/labels heavy. Gate rollout on source/style checks across representative
+countries, current administrative-unit checks (including Vietnam and Kenya), and
+matched Android/iOS screenshots at world, country and local zoom. A same-viewport
+Mongolia device capture remains required before the native symptom is closed.
+
+## Readable cartography and exploration plan (2026-10-18)
+
+Owner accepts the overall map but requests stronger country/province boundaries,
+geographic names and Google Maps-inspired behavior. BMAD party/spec produced the
+[cartographic exploration contract](../_bmad-output/specs/spec-atlas-cartographic-exploration/SPEC.md):
+independent vector boundary and dynamic-label layers over approved Obsidian
+relief, progressive detail, real visible journey clusters and familiar 2D gestures.
+This is planning only; no app behavior or device result is claimed.
+
+Code/data audit found raster-baked Admin0 borders, only seven base labels, no
+Admin1 display layer, and 63 Vietnam regions in the existing destination catalog.
+The official post-July-2025 catalog has 34 provincial units. Current UI geometry
+freshness/licensing must be verified separately, without rewriting historical
+journey/correction data. Five delivery gates and 24 acceptance cases cover source
+truth, offline renderer feasibility, readability, context and Android/iOS evidence.
+Next authorized build should begin with G0/G1, not another image-resolution patch
+or an implicit Google SDK/provider migration.
+
+Planning verification: five paired capabilities, 24 unique acceptance cases, five
+gates and seven companion paths validated; whitespace/template checks,
+`git diff --check` and root `npm run check` pass (20 foundation tests plus eval
+infrastructure smoke). This does not establish native rendering or UX acceptance.
+
+## Zoom-resolution repair (2026-10-18)
+
+The owner reported pixelation after country-level zoom was enabled. The mobile map now overlays visible 512px geographic tiles selected by scale/display density from 4096/8192/16384 world levels. These tiles are freshly projected from the original 10800x5400 Natural Earth relief and country geometry; the 2048px world base is not upscaled to manufacture detail. The 840 WebP tiles total 3,666,258 bytes. The selector culls offscreen tiles and caps active tiles at 48; detail images disable cache accumulation and failed tile decodes retain the base beneath them. Coordinate projection, gestures and small journey overlays are unchanged.
+
+`scripts/check-atlas-tiles.py` verified all 840 hashes/dimensions/asset registry entries and created an ignored public Vietnam before/after comparison. The comparison was visually inspected: coastline/border/relief detail is visibly improved. Root checks, focused tile/map/Atlas tests and mobile focused lint pass; native rendering/memory/frame-time measurements remain separate device gates. This adds resolution to geographic relief/borders, not roads or new location precision.
+
+Final verification: 35 focused tests pass (including visible detail mounts and decode-failure fallback), mobile TypeScript and focused lint pass, root `npm run check` passes. The active Android route bundle returns HTTP 200 and contains `visibleAtlasTiles` plus the Vietnam 16K tile; it contains no screenshot import. ADB delivered the development-client intent to the connected Android app. Physical sharpness and performance still require owner/device observation; intent delivery alone is not that observation.
+
+## Country-level point exploration (2026-10-18)
+
+Owner confirmed panning works but requested deeper zoom for Vietnam journeys. Raised shared pinch/button ceiling from 4x to 64x world fit, with a faster 1.6x button step. Nearby journey choice now depends on 24 logical units of projected screen distance instead of a fixed one-degree geographic bucket, so nearby destinations separate during zoom. Existing coarse anchor precision is retained; zoom does not invent precise locations. Background remains the bundled world raster and becomes softer at deep zoom; streets, city labels and multiresolution cartographic detail are not delivered by this change.
+
+## Continuous trip gallery scroll implementation (2026-10-18)
+
+The owner confirms the destination fix works on device and requests planning for
+Photos and videos as one scrollable album. Code inspection confirms Load more
+clears/replaces `GalleryPage`, and item view conditionally unmounts the list.
+The [gallery scroll contract](../_bmad-output/specs/spec-trip-gallery-continuous-scroll/SPEC.md)
+now has an implementation: each 60-item repository batch appends to the same
+virtualized local grid, with a Load more/retry footer instead of page replacement.
+Earlier media stays available on retry; the selected-media view overlays the grid,
+so Back keeps the same album instance. The session key is journey plus snapshot,
+not the loader callback, so ordinary parent rerenders do not restart browsing.
+Focused isolated gallery tests pass for appending, retained prior items after failure,
+retrying the same page, and Back to the retained grid. The physical Android scroll
+experience still needs owner confirmation. Broader mobile checks are currently
+blocked by unrelated concurrent Atlas work importing a missing `atlas/tile-assets`
+module; that work was not changed by this gallery repair.
+
+
+## Real cartographic base replaces the screenshot (2026-10-18)
+
+The active native Atlas now renders generated Natural Earth 50m country geometry and Natural Earth II shaded relief through Winkel Tripel. The generator never reads the supplied UI screenshot. `world-projection.ts` projects journey anchors through the same equation/scale/dimensions as the generated image. The background contains no application controls, routes, destination card or trip dots. Small selectable overlays retain their screen size; full-world fit, pinch and bounded pan use the measured viewport. Source hashes/license and pinned regeneration instructions accompany the assets. High-resolution PNG is approximately 867 KiB with a local low-resolution decode fallback.
+
+34 focused map/Atlas/owner-flow tests pass; mobile TypeScript and focused lint pass; root checks pass. The previously missing destination-data JSON now exists in the independently updated checkout and owner-flow tests load. The verified Android route bundle (src/app router root, port 8081) contains the generated map and shared projection and no screenshot import. Device deep-link delivery was performed; owner physical pinch/selection and exact visual acceptance remain pending. The generated artwork has real land relief and a dark ocean, but reference ocean-current/detail/lighting fidelity remains unaccepted. Prototype assets were generated identically; prototype integration has not been changed in this repair.
+
+## Destination naming integrated and Android client refreshed (2026-10-18)
+
+The user requested loading the tested destination-label fix onto the connected
+Android device. The fix was integrated narrowly into this current schema-31/V1.1
+checkout rather than loading the older isolated-worktree baseline. The newer
+qualification, Home settings, correction and Atlas work is preserved. A compact
+bundled Natural Earth country/region resolver and committed visit-support label
+query now provide names such as `Bali, Indonesia` to qualified Atlas trips and
+selected trip details. Owner detail titles retain precedence. Existing trip
+labels derive at read time; a metadata reimport is not required to test naming.
+
+Current-checkout verification passed 31 mobile suites / 280 tests, TypeScript,
+lint, foundation `npm run check` and whitespace checks. The connected development
+client was launched successfully through the installed Expo CLI's generated URL
+on port 8081. Its process is running and Metro reports an active React Native
+Bridgeless connection from the physical Xiaomi device. Filtered current-process
+logs showed no matching startup error. These verify delivery/startup; the owner
+must still inspect the September 2025 Bali trip and other destinations. No
+private database was copied, reset or reimported during this load. Persisted
+country statistics can still require the normal rebuild for the new dataset
+version; no automatic private rebuild was triggered here.
+
+
+## Atlas interaction repair planning (2026-10-18)
+
+Earlier broader verification blocker: the active country resolver briefly referenced the not-yet-generated `natural-earth-destinations-5.1.1.json` during destination-data integration. The destination task subsequently generated that asset, passed all 280 current mobile tests and refreshed the physical Android client's JavaScript connection. The missing-dependency blocker is resolved; map interaction and destination correctness still require owner acceptance on device.
+
+Implementation update: the active mobile checkout now uses `local-atlas-map.tsx` and pure viewport math. Full-world fit, touch-distance pinch, drag bounds, shared button scale, fixed-size marker visuals and local viewport correction context are implemented. Focused tests pass 27 cases, mobile TypeScript/focused lint and root foundation checks pass. The verified active Metro is port 8081; ADB forwarding and the development-client deep link reached the connected Android app. Actual native pinch/pan acceptance is pending. The screenshot remains the temporary artwork with embedded decorative UI; real cartographic registration is not claimed. The implementation uses explicit React Native touch/responder math with tested finger transitions; the planned Gesture Handler/Reanimated migration and performance profiling have not been performed.
+
+Owner confirms the reference image is visible and buttons work, but pinch zoom is absent and minimum zoom does not show the whole world. Code inspection confirms translation-only gestures, cover-cropped image fitting, and camera/reset coupling to MapLibre zoom. The [repair plan](../_bmad-output/implementation-artifacts/atlas-map-interaction-repair-plan.md) defines measured full-world fit, simultaneous focal pinch/pan, one viewport state, constant-size selectable markers and actual device gates. The full UI screenshot remains a temporary visual preview with baked decorative controls/dots; clean cartography and proper geographic registration are still required. This party task changed planning/error records only; interaction implementation remains open.
+
+Updated: 2026-10-17 (Asia/Bangkok).
+
+## Atlas recovery retains last committed photos
+
+The Android development bundle is now running again. The observed recovery
+screen retained seven locally committed journeys, but a failed rebuild made
+their durable Atlas projection non-explorable, which looked like the owner's
+photos had disappeared. The Atlas now keeps that committed map, journey list
+and photo/video grid available during `failed` recovery, while clearly stating
+that the next rebuild did not complete. Focused Atlas verification passed
+(22 tests). The cause of the underlying local rebuild failure is not present in
+the app-process log and remains under device diagnosis; no private evidence was
+read, deleted or exported. Physical reload acceptance is pending.
+
+## Android civil-day continuity correction awaiting device acceptance
+
+The owner rebuilt the private Android record and still observed two September
+2025 entries, three April 2024 entries and two February 2022 entries for three
+known continuous holidays. The canonical V1.1 builder was still treating
+Android creation timestamps as exact instants despite `hasPreciseOffset: false`,
+then partitioning every civil-day observation into a separate episode.
+
+The correction now groups compatible mixed-precision observations by civil day,
+preserves their uncertain internal order, and uses the existing ten-day
+continuation only when both blocks independently measure away from a learned or
+owner-configured home context. Repository normalization now carries graph place
+IDs (not visit IDs) and computed home distance into that decision. Host
+verification: 265 mobile tests, TypeScript and lint pass; Expo Doctor retains
+the pre-existing missing iOS icon and nine Expo SDK patch-version warnings.
+Physical rebuild acceptance is still required; no private evidence was exported
+or added to the repository.
+
+## Named private Home bases implemented awaiting device acceptance
+
+Schema v31 adds an owner-entered local label and origin to each configured Home
+base. Existing v30 rows remain active with a null label and display as
+`Unnamed home base`; the app does not infer a locality from their coordinates.
+The Home bases screen now requires a label for a new observed-area choice and
+lists independently named bases with date/radius scope, rename and confirmed
+remove actions. These labels never reach reconstruction inputs; only existing
+private coordinate, radius and date context affect trip handling. Focused
+regressions cover v30 migration, private label CRUD and the journey-review save
+flow. Independent review also corrected stale journey-preview publication,
+rebuild-status messaging, malformed Home-context validation and explicit
+non-capture provenance preservation. Host verification passed: 29 mobile test
+suites / 270 tests, TypeScript, lint, the foundation check and whitespace
+check. Physical Android acceptance is still required; no private evidence was
+exported or added to the repository.
+
+## Atlas reference-direction refinement
+
+The owner supplied a world-map interface reference and clarified that it is the
+direct UI target for Travel Life's map: full-bleed dark world geography, upper
+search/navigation treatment, compact floating controls, side filter stack,
+zoom/orientation control and one selected-place card. The owner then supplied the
+**Obsidian Horizon / Deep Sea Glass** visual brief, which is now the authorized
+Atlas-only palette, glass, typography and motion extension. Decision 0012, the
+Living Atlas design system and the dimensional-Atlas contract require an original
+Travel Life implementation of that interface. Its content remains private and
+evidence-aware: local-only journey/place search, Map/Timeline, year/evidence
+filters, correction and Replay replace public planning, routes, generic map modes
+and unqualified visit claims. Implementation remains pending the delivery work,
+including existing device/provider gates.
+
+## Continuity and photo-backed Home setup specification
+
+The requested BMAD party refinement is recorded in
+[Continuous holidays and Home setup](../_bmad-output/specs/spec-trip-continuity-and-home-setup/SPEC.md),
+with engine, Home experience, development-plan and acceptance companions. It
+requires actual boundary diagnostics for the three reported 4/2/2 fragment
+groups, canonical episodes as the active publication authority, and explicit
+area selection with a scoped photo/video preview before Home save. Home
+management and candidate areas are independent of qualified journeys; durable
+context revisions, queued rebuilds and progress prevent false completion.
+The plan preserves the canonical gap policy; if private diagnosis identifies
+a longer-gap policy mismatch, a tested versioned amendment is required before
+activation. New 20 km home scope and legacy-radius preservation are explicit
+planning defaults. This update changes specifications only. Private diagnosis,
+implementation, regional-data acquisition and device acceptance remain pending;
+`product_quality: not_measured`.
+
+The first implementation slice now makes canonical V1.1 episode grouping the
+active source for unreviewed persisted/displayed journeys, rather than retaining
+it as diagnostics only. It keeps mixed precise/day-only evidence deterministic,
+does not turn a lone configured-home point into a return boundary, and preserves
+reviewed journey projections. A focused synthetic regression covers same-day
+mixed precision/revisits and a corroborated home-return split. Home setup now
+opens the selected journey's local details/photos before saving, requires an
+explicit observed-area choice and saves that choice at a new visible 20 km scope
+instead of selecting the journey's first visit. Focused 91 mobile tests, typecheck
+and lint passed. This is not private-library verification: the April/September/
+February boundaries, complete C0/C1 context, native metadata, generation lineage,
+offline regional naming and device acceptance remain pending.
+
+## Home context and continuity requirements clarified
+
+The integrated continuous-trips delivery record now specifies the current two
+inconsistent home heuristics, shared temporal context, episode boundaries,
+generation-bound diagnostics, naming, migration and an explicit regression/release
+matrix. Qualification selects the most frequent non-candidate twelve-day place;
+merging considers all twelve-day places, including holiday destinations, across
+all history. This can make a trip its own base. The exact private September cause
+remains unverified. The canonical 72-hour automatic-link / ten-day uncertain-link
+policy must be tested explicitly; implementing it alone cannot guarantee merging
+a pair with longer ambiguous gaps. This update is requirements planning only.
+
+## PM/analyst investigation: island labels and repeated trip fragments
+
+Direct local execution reproduced an offline resolver coverage defect: synthetic
+Ubud returns border, Denpasar/Kuta unresolved, Jakarta IDN. The current country
+geometry/edge rule cannot reliably label those island locations and supplies no
+regional names. Prior suggestions that the owner's metadata was defective were
+not verified. The exact private-run split reason is still unknown; the active
+path remains V1 grouping plus a global-base continuity patch, not the canonical
+episode pipeline. The existing [integrated delivery record](../_bmad-output/planning-artifacts/continuous-trips-and-album-experience-2026-10-16.md)
+now includes the reproducible findings, region/country naming separation,
+episode integration requirements, local decision diagnostics and an acceptance
+extension. Investigation only: no new runtime changes or private-device accuracy
+claim. EP-071 records the incident and outstanding verification.
+
+The first engine correction after that investigation now treats a fragment with
+GPS-less associated media as an away fragment when its known geotagged support is
+far from every frequent base. It no longer treats a missing coordinate as a home
+return and can join adjacent supported Bali-city fragments within the existing
+ten-day continuity window. A focused repository regression and TypeScript pass;
+private-device confirmation remains pending. Detailed offline Admin-1 geometry
+for the visible Bali label is blocked until the public boundary archive can be
+acquired through the approval service; no hardcoded location exception was added.
+
+The owner then confirmed that the rebuilt September run still split. A further
+continuity defect was fixed: a frequently observed base now uses coordinate-bearing
+support from that place rather than its deterministic representative, which can be
+GPS-less. This preserves a valid base measurement for automatic multi-city joining;
+the added regression simulates that exact condition. It does not fabricate Bali's
+regional label, and device rebuild remains the required private acceptance check.
+
+## Continuous trips, immediate preview and album grid (2026-10-16)
+
+The owner requires a continuous multi-city holiday to appear as one trip, concise
+location/month summaries (for example Taiwan / October 2025), a preview immediately
+visible from either map or list selection, and a full-screen photo/video grid.
+The BMAD party's [integrated delivery plan](../_bmad-output/planning-artifacts/continuous-trips-and-album-experience-2026-10-16.md)
+specifies episode-first grouping, country naming independent of boundaries,
+viewport-level preview, album/viewer return context, correction-safe persistence
+and 20 acceptance scenarios. Existing V1.1 exact continuity predicates remain
+authoritative; matching country/month alone cannot merge distinct holidays.
+Code inspection confirms inline/off-screen preview and row-based gallery causes.
+The recovery qualification adapter also substitutes global base/photo-count/date
+heuristics for canonical V1.1 predicates; those shortcuts remain to be replaced.
+This turn records the complete recommendation; application changes and private
+Taiwan-example evaluation have not been performed.
+
+## Automatic trip recognition planning (2026-10-16)
+
+The owner's follow-up rejected partial readiness. The party has now derived the
+[canonical V1.1 implementation contract](../_bmad-output/specs/spec-trip-detection-engine-v1-1/SPEC.md)
+with six capabilities, five technical companions and 64 acceptance cases. It
+selects exact temporal base/routine/session and episode rules, the original score
+plus two hard-gated recognition profiles, a local-only native metadata bridge,
+generation-based persistence/correction/query contracts, dry-run activation and
+rollback. The one-session score45 source case is explicitly a nonpublished
+suggestion awaiting corroboration, resolving the source gate contradiction.
+Strict automatic bases require separated residence periods; otherwise one era
+setup question replaces per-trip confirmation. These are visible planning defaults
+and explicit source-policy refinements, not measured quality or a live migration.
+The earlier proposal below is exploratory rationale; implementation consumes the
+canonical contract. No application behavior has changed in this planning task.
+
+The owner reports too many inferred trips in the primary UI and wants trustworthy
+automatic recognition with very few review/confirmation actions. The BMAD party's
+[engine improvement proposal](../_bmad-output/planning-artifacts/trip-detection-engine-improvement-plan-2026-10-16.md)
+identifies draft-to-Atlas publication, absent base/routine qualification and native
+metadata limitations in current code. It proposes temporal bases/routines, episode
+recognition, independent evidence gates, qualified queries shared by Atlas/counts/
+replay, correction-safe identity and recoverable shadow migration. Automatic base
+learning and evidence-profile classification are explicit proposed refinements
+to the pasted V1.1 contract; the exact score policy remains a comparison baseline.
+No UI implementation, legacy reprocessing or product-quality claim is produced by
+this planning record. Next delivery implements the specified native normalization,
+pure engine, persistence and complete automatic-reveal integration, followed by
+owner-authorized local evaluation and separately approved legacy activation.
+
+## Automatic trip recognition guarded delivery (2026-10-16)
+
+The first guarded V1.1 delivery slice adds an additive pure qualification seam,
+private schema v29 qualification rows, and one primary-query predicate shared by
+durable reveal and journey counts. Existing V1 inferred rows are backfilled or
+rebuilt as private suggestions; only exact owner-confirmed rows are primary-visible
+until the complete V1.1 base/routine/native-context pipeline can qualify automatic
+trips. This deliberately removes draft noise rather than falsely promoting it.
+Focused reconstruction, repository, import-migration and Atlas suites passed
+97 tests; mobile TypeScript and root `npm run check` passed. The sandboxed Jest
+cache cannot write atomically; the focused suite was rerun on the host. Native
+metadata bridge, temporal bases/routines, automatic profile publication, all 64
+cases, device checks, and labeled quality evaluation remain unfinished;
+`product_quality: not_measured`.
+
+The first device test exposed zero automatic recall, so the owner-confirmed-only
+bridge was replaced for future rebuilds by a deterministic local-graph adapter.
+It requires a distinct 12-day base, conservative 50 km distance, five eligible
+photos and independent support before an inferred graph journey can pass the
+V1.1 score path. This is a recovery from the empty-map regression, not a claim
+that the full native/context engine or device quality evaluation is complete.
+
+The additive pure gate was further hardened to count only explicitly
+capture-like evidence, require actual normalized 4-hour/24-hour spans for the
+DAY/STAY profiles, and fail closed for critical conflicts, owner vetoes and
+suspected routine context. Focused host reconstruction tests passed 41/41; the
+complete mobile suite passed 29 suites / 254 tests with TypeScript and lint, and
+the root framework/evaluation checks passed. These are synthetic contract checks:
+`product_quality: not_measured`. The canonical date-scoped native normalization,
+base/routine/episode pipeline, generation model, 64-case suite, dry run and
+private labeled/device evidence are still outstanding.
+
+The qualification boundary now also has a pure date-scoped owner-home-area
+normalizer that accepts multiple authoritative local areas (for example, a
+Sa Dec period followed by Ho Chi Minh City). It marks only evidence with a
+valid local date and coordinate inside an active configured area; that evidence
+cannot promote an automatic trip and remains local return context. A synthetic
+regression covers both date ranges and confirms the areas are not averaged.
+Durable owner-home-area storage, owner editing UI, and repository wiring into
+new imports are still not implemented, so this is a tested detector seam rather
+than an owner-operable feature. The focused V1.1 suite passed 4 suites / 107
+tests, the complete mobile suite passed 29 suites / 256 tests with TypeScript
+and lint; Expo Doctor still reports the pre-existing missing iOS icon and nine
+SDK patch-version recommendations. Root checks and whitespace validation passed;
+`product_quality: not_measured`.
+
+The owner-operable slice now persists date-scoped Home bases in the private
+SQLite record and applies them before automatic qualification and continuity
+merging. Home-base evidence is excluded from automatic journey membership,
+while still providing local return context. The persistent Atlas header opens
+Home bases directly. Saving a selected journey now immediately acknowledges
+the action, prevents duplicate taps while its private rebuild runs, and reports
+either that Atlas is ready or that the configuration saved but the rebuild needs
+attention. The focused Home bases/provider regressions (14 tests) and mobile
+TypeScript check passed, and the connected Android app was reloaded. Device
+confirmation of the private library result remains pending; `product_quality:
+not_measured`.
 
 ## Dimensional Atlas development plan (2026-10-15)
 
@@ -9,7 +422,8 @@ perspective, markers, cards and responsive motion, explicitly excluding terrain
 and mountains/valleys. The journey list must be simple, minimal, intuitive and
 uncluttered. [Decision 0012](decisions/0012-dimensional-atlas-and-minimal-list.md)
 records that direction. The [spec and development plan](../_bmad-output/specs/spec-atlas-dimensional-polish/SPEC.md)
-define four capabilities, five ordered work packages and 18 acceptance scenarios.
+now define the Atlas-only Obsidian Horizon / Deep Sea Glass extension, four
+capabilities, five ordered work packages and 20 acceptance scenarios.
 This task changes planning documents only; implementation and device evidence are
 pending. Next work starts with installed MapLibre API/style feasibility, then
 dimensional styling, bounded safe row summaries/list layout, camera/context
@@ -1172,3 +1586,280 @@ privacy-filtered, application-process-only startup check found no fatal, React
 Native, bundle-load, marker, or SQLite-lock error. This confirms only that the
 bundle starts; the owner must still confirm visible photo thumbnails in the
 gallery.
+
+## Continuous trips and album interaction implementation (2026-10-16)
+
+Implemented the first V1.1 continuity pass before persistence for unreviewed
+graphs: it merges only adjacent fragments that are both at least 50 km from a
+frequently observed (12 distinct local days) base and separated by no more
+than ten days. It does not use city or country as a grouping key, and it skips
+owner-corrected graphs rather than silently remapping corrections. This enables
+a continuous multi-city trip while retaining an interruption-safe base check;
+the wider canonical base/routine pipeline remains the outstanding release
+hardening work in the V1.1 spec.
+
+Atlas durable projection now derives offline coarse country labels and month
+ranges entirely on-device. A map-dot or Timeline selection opens one
+viewport-level native preview sheet, preserving the underlying Atlas state.
+The media action opens a full-screen three-column local album grid with
+mixed-media placeholders and returns to the selected journey preview. Gallery
+reads are bounded to 60 items per page. Focused host verification passed 49
+tests plus TypeScript and cache-free lint; root `npm run check` and
+`git diff --check` pass. Android physical confirmation of the sheet position,
+grid scrolling, return path, and the owner library's actual continuity result
+is still required; no private media or precise location was collected.
+
+The first post-change owner screenshot still showed split October Taiwan rows
+and a failed reconstruction state over the prior durable record. The continuity
+limit was expanded from 72 hours to ten days while retaining the frequent-base
+and far-away gates; a seven-day multi-city regression now passes. The connected
+Android client was relaunched against Metro after this correction, and a
+privacy-filtered application-process startup check found no fatal, React Native,
+SQLite-lock, or bundle-load error. The owner must now invoke the local rebuild
+and confirm its actual result; startup success does not prove reconstruction
+recall or quality.
+
+The next correction removed the two generic root causes exposed by the device
+examples: effective corrections now pin only their exact matched journeys, so
+unrelated unreviewed episodes still receive the bounded away-from-base
+continuity pass; and a place country label is now a consensus over all of its
+supported members rather than a single deterministic representative. Border,
+invalid, and conflicting-country evidence abstains rather than inventing a
+location. Synthetic regressions and the complete mobile check (29 suites / 252
+tests, typecheck and lint) pass. This remains unverified against the private
+library until the next local rebuild.
+
+The ready Atlas now also exposes **Rebuild local journey history**. It invokes
+the full reconstruction controller rebuild (not the incremental catch-up
+queue), so an owner can apply an updated local engine to the already imported
+library without waiting for a failure state. Its UI interaction regression and
+physical Android rebuild remain required before this is considered device
+accepted.
+
+While that rebuild runs, Atlas now presents an explicit busy notice: it says
+that saved evidence and trips are being recalculated, retains the last map for
+reference, and tells the owner that the map and journey list refresh
+automatically when the notice disappears. It intentionally reports no invented
+percentage or estimated time because the current local transaction does not
+produce reliable phase counts. The focused Atlas UI suite passes 20 tests and
+TypeScript passes; the connected Android device must be reauthorized to ADB
+before physical confirmation can resume.
+
+## Obsidian Horizon Atlas presentation implementation (2026-10-17)
+
+The private native Atlas now uses its approved Atlas-only Obsidian Horizon /
+Deep Sea Glass presentation: a deep-navy map surface, glass local-search and
+filter region, labelled local zoom/reset controls, and cyan/amber/gold map
+affordances. Search operates exclusively on the currently visible redacted
+journey projection and clears a filtered-out card selection without a network
+or telemetry path. Existing guarded media, correction return, overlap selection,
+coarse MapLibre payload and Timeline fallback remain intact; no provider,
+dependency, schema, reconstruction, route, or browser-map capability changed.
+
+Focused Atlas verification passed 22 tests outside the known sandbox Jest cache
+boundary. The complete mobile check passed 29 suites / 270 tests, TypeScript and
+lint; root `npm run check` and `git diff --check` passed. Expo Doctor remains
+20/21 due to the pre-existing nine Expo SDK patch-version recommendations. Native
+Android/iOS portrait and wide/tablet visual checks, large text, provider-request
+inspection, 1,000-row stress, and production map-provider selection remain
+unverified and are not implied by mocked MapLibre tests.
+
+## Obsidian Horizon Atlas visibility correction (2026-10-18)
+
+The new map treatment is now visibly available in the browser-delivered
+synthetic prototype at `/reveal`: its bundled local geography uses the approved
+Deep Sea Glass palette, cyan/amber selected anchors, gold cartography labels,
+glass controls, and the “EXPLORE THE WORLD” map hierarchy. The native Atlas
+also retains a provider-free local visual canvas whenever web, production, an
+older client, sparse evidence, or a MapLibre style failure makes the optional
+native map unavailable. That canvas plots only existing coarse anchors; it
+does not request tiles or invent locations. Nonfunctional zoom controls are
+hidden on that fallback.
+
+Prototype owner-flow tests (18) and its complete check (27 total Jest tests,
+typecheck, lint) pass. Mobile focused Atlas tests (22), mobile typecheck, and
+whitespace validation also pass. The browser-native mobile app cannot yet be
+visually checked because its existing Expo SQLite worker bundle fails before
+the route mounts; Android confirmation remains blocked because the local ADB
+daemon cannot start. Neither limitation is presented as proof of product UI.
+
+## Reference-faithful map specification (2026-10-18)
+
+The owner clarified that the map visual must match `World Map.jpg`; they
+temporarily deferred the search/utility treatment, left mode dock,
+compass/slider, route arcs and polished persistent card. The existing blue
+fictional geography/grid canvas remains a visual mismatch, despite earlier
+visibility and automated-check claims. It is not an accepted reproduction.
+
+The canonical delivery plan is
+[`spec-atlas-reference-cartography`](../_bmad-output/specs/spec-atlas-reference-cartography/SPEC.md),
+with visual acceptance, cartography architecture and development-plan
+companions. Decision 0013 records scope precedence and permits flat baked
+geographic shading while excluding runtime 3D terrain. The proposed approach
+uses a licensed bundled world base and a common projection for browser/native
+markers; source/renderer suitability remains a measured feasibility gate.
+
+Five gates cover baseline/reference freeze, geographic/rendering proof,
+owner-accepted visual master, browser/native integration and actual platform
+delivery. Twenty acceptance cases cover visual fidelity, geographic alignment,
+state/privacy, offline/release reachability and resources. This turn creates
+planning records only; no new cartography is implemented or visually accepted.
+Planning validation passed capability/acceptance uniqueness, companion/local
+links and template-marker checks. Root `npm run check` passed framework
+integrity, 20 foundation tests and eval smoke; whitespace validation passed.
+
+## Owner-confirmed destination anchor (2026-10-18)
+
+Journey correction now supports a private, offline place search and an explicit
+owner-confirmed destination anchor. The first bundled result supports `Phú
+Quốc, Kiên Giang, Vietnam` (including the unaccented query `Phu Quoc`). Saving
+it preserves inferred Kiên Giang and all observed evidence, while the qualified
+Atlas projection uses the selected place label and a deliberately coarse marker
+anchor. The correction is schema-versioned, remaps only through the existing
+stable-support correction contract, and becomes pending review rather than
+silently moving after an ambiguous rebuild or split/merge.
+
+Focused correction and migration regressions pass (67 tests), and mobile
+TypeScript passes. A fresh arm64 Android debug build was installed over the
+existing development app without clearing local data and cold-launched against
+the current Travel Life Metro process; no filtered fatal-startup error appeared.
+Owner-visible confirmation of the selected marker still remains a manual check.
+Full mobile lint is currently blocked by unrelated concurrent cartography
+ref-in-render errors.
+
+**Interaction follow-up:** The correction screen now keeps place-result taps
+available while the search keyboard is open, and shows the selected place's
+confirmation action directly beneath the result. This fixes the owner-reported
+inability to choose and confirm a place. Focused correction regression passes
+(10/10), mobile TypeScript passes, and the Android development client was
+reloaded against a fresh Android bundle. The owner still needs to complete the
+real-device choice and save interaction.
+
+**Owner UX correction:** The one-place demonstration catalogue was replaced by
+an offline worldwide search over the already-bundled Natural Earth Admin-1
+gazetteer, plus the reviewed Phú Quốc island result. Results such as Bali,
+Tokyo, Hanoi, and Bangkok are now selectable without sending the query or any
+trip data off-device; the marker remains deliberately coarse. The place-save
+outcome now appears directly beside confirmation with a direct return to Atlas.
+The noisy `Correct location` control was removed from every Timeline row;
+owners reach correction through the selected trip preview/detail instead.
+Focused correction/search regressions pass (11/11), Atlas regression passes
+(22/22), and mobile TypeScript passes. Android reload remains the next device
+acceptance check. The Android development client has now received fresh Metro
+bundle `bj` (98 ms) and resumed; owner confirmation of the real save and marker
+movement remains required.
+
+**Correction entry and persistence follow-up:** The selected journey preview
+and detail now name the single contextual action `Correct location`; it saves
+the selected Atlas context before navigating to the correction screen. The
+action remains absent from every Timeline row. A repository-level regression
+now verifies that selecting Phú Quốc persists its offline place ID, display
+name, context, and coarse anchor and writes the remappable correction
+application; the route regression verifies the selected opaque journey and
+Atlas context reach the correction handler. Focused location regressions pass
+(71 tests) and mobile TypeScript passes. The Android development app was then
+cold-relaunched on device `9cb47ed9` against a fresh local Metro server without
+clearing data; its current-process logs contain no bundle or module-loading
+error. Owner confirmation of the tap, private save, and marker movement remains
+the acceptance check rather than claimed from startup alone.
+
+**Final-identity correction:** A real owner save exposed that a `place`
+revision had been applied to a pre-continuity journey ID instead of the final
+canonical journey committed for Atlas. The correction is now remapped again
+after continuity construction and that final mapping drives both correction
+application and owner-confirmed qualification. A regression covers an
+intermediate ID replaced by one final canonical successor. Focused
+correction/Atlas/search/repository checks pass (74 tests), TypeScript and root
+`npm run check` pass, and the existing Android development app was reloaded on
+`9cb47ed9` without clearing data; no current-process startup/module error was
+observed. The owner must confirm the re-saved place visibly moves the marker
+and changes the label; no device data claim is inferred from process startup.
+
+**Owner rejection of final-identity repair (2026-10-18):** The owner re-confirmed
+the selected place on Android and reports that the trip still does not change.
+The prior correction therefore remains unaccepted; the unresolved cause is
+unknown. The correction screen also leaves the old search text after a result
+is chosen and separates confirmation into a second panel. BMAD Party is
+revisiting the one-task UX and the save-to-projection contract. Next work is to
+trace this specific journey through saved revision, application, committed
+qualification and durable reveal; a successful build or fixture alone is not
+evidence of the visible correction.
+
+**Owner Edit-flow direction (2026-10-18):** The selected trip card should show
+`Edit` immediately below `See photos & videos`. `Correct location` is one
+independent task inside that common Edit flow, not a competing top-level CTA.
+The owner asks for a review of all current Edit UI/UX: lean, low-copy,
+intuitive, and self-service. The current all-in-one correction screen remains
+under review; no UI implementation or save repair is claimed by this decision.
+
+**Edit-flow plan:** The owner approved five Edit tasks: Location, Name & dates,
+Destinations, Photos in this trip, and Trip accuracy. The delivery sequence,
+UX states, correction read-back gate, migration needs, tests and
+device acceptance are in
+`_bmad-output/implementation-artifacts/trip-edit-flow-plan-2026-10-18.md`.
+Planning only: the Phú Quốc save failure is still open, and no redesigned
+screen or corrected runtime behavior is claimed yet.
+
+**Trip Edit implementation (2026-10-19):** The approved compact Edit hub is
+implemented: Location, Name & dates, Destinations, Photos in this trip, and
+Trip accuracy open independently from a selected journey. Atlas presents
+`Edit` directly below `See photos & videos`; the legacy correction deep link
+now uses the same focused Location screen. Selecting an offline place writes
+its label back into the field and keeps `Confirm place` in that same panel.
+A place correction returns `applied` only after both the final journey detail
+and durable Atlas projection match its owner-confirmed place, label, and coarse
+anchor. If continuity gives that trip a new opaque ID, the provider accepts
+only one durable successor with the exact selected label/anchor and verifies
+its detail before reporting success. The focused mobile suite passes 53 tests,
+TypeScript and lint pass.
+Physical Android confirmation of a saved choice moving the intended marker,
+including after reopen, remains outstanding and is not inferred from these
+automated checks.
+
+**Device delivery follow-up:** The first post-reload device view revealed a
+Dev Launcher `Unable to load script` screen, so earlier process-only evidence
+was insufficient. The local Metro status endpoint and ADB reverse mapping were
+re-established; cold-launch then visibly rendered Travel Life's Welcome screen
+without clearing device data. The device policy rejects automated touch input,
+so opening the existing private Atlas and completing the re-save remains an
+owner-operated acceptance check.
+
+## Atlas readable cartography implementation (2026-10-18)
+
+**Owner acceptance supersession:** The owner rejected the border appearance.
+The earlier implementation is not visually accepted. Renewed reference review
+and official Google gesture/style/camera research are recorded in
+`_bmad-output/specs/spec-atlas-cartographic-exploration/visual-recovery-plan.md`
+and `google-maps-experience-research.md`. The new plan preserves CAP-1..5 and
+adds AC-25..27, replaces heavy global casing, requires shared topology and
+scale-specific geometry, and makes native visual evidence a delivery gate.
+Source reinspection also disproves the previous projection review: adding a
+second 1.6 factor introduced base/marker versus tile/border misalignment. P0
+must correct and independently validate it before visual tuning. This turn is
+research/planning only; no new application fix or live Google-app test is claimed.
+
+The native offline Atlas now separates cartography from the raster relief:
+Natural Earth Admin0 country paths render as a projection-aligned SVG overlay,
+with screen-stable gold/cyan boundary casing; public country/locality labels
+use deterministic zoom bands, collision avoidance and halos; and co-located
+real journey anchors become a visible count cluster that opens the existing
+chooser. The relief and deep-zoom tile pyramid no longer bake labels or country
+borders, so the overlays remain sharp as camera scale changes. No provider,
+network request, road/POI/routing layer, precise location or reconstruction
+contract was added.
+
+Vietnam's current provincial layer is explicitly unavailable: its existing
+63-region data cannot be presented as the current 34-unit administrative map.
+The map instead shows country/locality context and tells the owner that
+provincial boundaries are being verified. A current layer remains blocked on
+pinned redistributable provenance and topology checks.
+
+Public boundary/relief/tile generators and verifier passed. Focused map tests
+(10) and the complete mobile check (33 suites / 293 tests), TypeScript, lint,
+root `npm run check`, and whitespace validation passed. A fresh Android dev
+build compiled `react-native-svg`, installed the debug APK, and opened on the
+connected `2211133G` device. Expo Doctor remains 20/21 due to nine existing
+Expo patch-version recommendations; `npm install` also reported 67 existing
+dependency audit advisories, deliberately not force-remediated in this visual
+feature. Device visual fidelity, real finger gestures, large text, iOS, and
+the verified Vietnam Admin1 data gate remain open acceptance checks.

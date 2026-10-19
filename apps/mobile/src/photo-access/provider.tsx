@@ -18,6 +18,27 @@ export function canPublishJourneyDetail(readGeneration: number, currentGeneratio
   return readGeneration === currentGeneration && lifecycle === 'connected';
 }
 
+/** A saved place is applied only when both local read models identify this exact trip. */
+export function hasVerifiedOwnerPlace(displayId: string, place: NonNullable<JourneyDetail['ownerPlace']>, detail: JourneyDetail, durable: DurableRevealRecord | null) {
+  const confirmed = detail.ownerPlace;
+  const samePlace = confirmed?.id === place.id && confirmed.name === place.name && confirmed.context === place.context;
+  const projected = durable?.journeys.find((journey) => journey.displayId === displayId);
+  return Boolean(samePlace && projected?.locationKind === 'owner-confirmed' && projected.label === `${place.name}, ${place.context}`
+    && projected.anchor?.latitude === confirmed?.anchor.latitude && projected.anchor?.longitude === confirmed?.anchor.longitude);
+}
+
+/** Find the unique durable successor for a saved place when reconstruction rotates an opaque display id. */
+export function verifiedOwnerPlaceDisplayId(previousDisplayId: string, place: NonNullable<JourneyDetail['ownerPlace']>, durable: DurableRevealRecord | null) {
+  const sameCoarseAnchor = (anchor: NonNullable<DurableRevealRecord['journeys'][number]['anchor']>) =>
+    Math.round(anchor.latitude * 10) === Math.round(place.anchor.latitude * 10)
+    && Math.round(anchor.longitude * 10) === Math.round(place.anchor.longitude * 10);
+  const matches = durable?.journeys.filter((journey) => journey.locationKind === 'owner-confirmed'
+    && journey.label === `${place.name}, ${place.context}`
+    && journey.anchor !== null && sameCoarseAnchor(journey.anchor)) ?? [];
+  if (matches.some((journey) => journey.displayId === previousDisplayId)) return previousDisplayId;
+  return matches.length === 1 ? matches[0].displayId : null;
+}
+
 class DurableRevealGate {
   private generation = 0;
   next() { this.generation += 1; return this.generation; }
@@ -70,10 +91,14 @@ type PhotoAccessContextValue = {
   loadJourneyDetail(displayId: string): Promise<{ detail: JourneyDetail; previews: OwnerPreview[]; snapshotToken: number }>;
   loadJourneyMediaPage?(displayId: string, snapshotToken: number, page: number): Promise<{ page: JourneyMediaPage; previews: OwnerPreview[] }>;
   loadUncertainMemories(displayId: string, snapshotToken: number, query: string, page: number): Promise<{ memories: { id: string; capturedDay: string | null; availability: 'available' | 'unavailable' | 'unknown'; locationState: string; association: string; membershipState: 'suggested' | 'primary' | 'unassigned' | 'rejected' }[]; hasMore: boolean }>;
-  saveJourneyCorrection(displayId: string, action: 'confirm' | 'reject' | 'claim' | 'split' | 'merge' | 'remove-visit', snapshotToken: number, snapshot: JourneyDetail, commandKey: string, payload?: NonNullable<JourneyDetail['ownerClaim']> | { afterVisitId: string } | { withJourneyId: string } | { visitId: string }): Promise<'applied' | 'pending'>;
+  saveJourneyCorrection(displayId: string, action: 'confirm' | 'reject' | 'claim' | 'place' | 'split' | 'merge' | 'remove-visit', snapshotToken: number, snapshot: JourneyDetail, commandKey: string, payload?: NonNullable<JourneyDetail['ownerClaim']> | NonNullable<JourneyDetail['ownerPlace']> | { afterVisitId: string } | { withJourneyId: string } | { visitId: string }): Promise<'applied' | 'pending'>;
   saveJourneyMemoryCorrection(displayId: string, memoryId: string, action: 'assign' | 'move' | 'reject' | 'unassign', snapshotToken: number, commandKey: string): Promise<'applied' | 'pending'>;
   discardJourneyCorrectionPending(displayId: string, snapshotToken: number, commandKey: string): Promise<'applied' | 'pending'>;
   retryJourneyCorrectionProjection(): Promise<boolean>;
+  homeBases: { id: string; label: string | null; origin: 'observed-area' | 'legacy'; effectiveStartDay: string | null; effectiveEndDay: string | null; radiusMeters: number }[];
+  saveConfiguredHomeArea(displayId: string, visitId: string, ownerLabel: string, effectiveStartDay: string | null, effectiveEndDay: string | null): Promise<void>;
+  renameConfiguredHomeArea(id: string, ownerLabel: string): Promise<void>;
+  removeConfiguredHomeArea(id: string): Promise<void>;
   reconstructionController: ReconstructionController;
   aiReview: AiReviewView;
   aiProposalController: AiProposalController;
@@ -89,6 +114,7 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
   const [reconciliation, setReconciliation] = useState<ReconciliationSnapshot>({ status: 'idle', pendingCount: 0, lastCheckedAtMillis: null, lastUpdatedAtMillis: null, newJourneyCount: 0, updatedJourneyCount: 0, message: null });
   const [reconstruction, setReconstruction] = useState<ReconstructionView>({ status: 'idle', graph: null, message: null });
   const [durableReveal, setDurableReveal] = useState<DurableRevealRecord | null>(null);
+  const [homeBases, setHomeBases] = useState<PhotoAccessContextValue['homeBases']>([]);
   const [durableRevealGate] = useState(() => new DurableRevealGate());
   const [aiReview, setAiReview] = useState<AiReviewView>({ status: 'idle', message: 'Optional AI suggestions are not requested.', proposals: [] });
   const [sharedRepository] = useState(() => repository ?? (adapter === nativePhotoAccess ? createNativeImportRepository() : unavailableRepository()));
@@ -160,6 +186,10 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     if (!canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state)) throw new Error('Private record is unavailable.');
     setDurableReveal(record);
   }, [durableRevealGate, nativeReconstructionRepository, privateRecord.state]);
+  const refreshHomeBases = useCallback(async () => {
+    const areas = await sharedRepository.loadConfiguredHomeAreas?.() ?? [];
+    setHomeBases(areas.map(({ id, label, origin, effectiveStartDay, effectiveEndDay, radiusMeters }) => ({ id, label, origin, effectiveStartDay, effectiveEndDay, radiusMeters })));
+  }, [sharedRepository]);
 
   useEffect(() => {
     if (privateRecord.state !== 'connected' || adapter !== nativePhotoAccess) return;
@@ -168,6 +198,17 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
       if (canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state)) setDurableReveal(record);
     }).catch(() => {});
   }, [adapter, durableRevealGate, nativeReconstructionRepository, privateRecord.state]);
+  useEffect(() => {
+    if (privateRecord.state !== 'connected') return;
+    let active = true;
+    void (async () => {
+      try {
+        const areas = await sharedRepository.loadConfiguredHomeAreas?.() ?? [];
+        if (active) setHomeBases(areas.map(({ id, label, origin, effectiveStartDay, effectiveEndDay, radiusMeters }) => ({ id, label, origin, effectiveStartDay, effectiveEndDay, radiusMeters })));
+      } catch { /* Home bases remain unavailable until the next local refresh. */ }
+    })();
+    return () => { active = false; };
+  }, [privateRecord.state, sharedRepository]);
 
   useEffect(() => {
     if (privateRecord.state === 'connected') reconstructionController.resume();
@@ -196,12 +237,12 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     if (!canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state)) throw new Error('Gallery is no longer available.');
     return { page: { items: result.items, hasMore: result.hasMore }, previews };
   }, [adapter, durableRevealGate, nativeReconstructionRepository, privateRecord.state]);
-  const saveJourneyCorrection = useCallback(async (displayId: string, action: 'confirm' | 'reject' | 'claim' | 'split' | 'merge' | 'remove-visit', snapshotToken: number, snapshot: JourneyDetail, commandKey: string, payload?: NonNullable<JourneyDetail['ownerClaim']> | { afterVisitId: string } | { withJourneyId: string } | { visitId: string }) => {
+  const saveJourneyCorrection = useCallback(async (displayId: string, action: 'confirm' | 'reject' | 'claim' | 'place' | 'split' | 'merge' | 'remove-visit', snapshotToken: number, snapshot: JourneyDetail, commandKey: string, payload?: NonNullable<JourneyDetail['ownerClaim']> | NonNullable<JourneyDetail['ownerPlace']> | { afterVisitId: string } | { withJourneyId: string } | { visitId: string }) => {
     if (privateRecord.state !== 'connected') throw new Error('Private record is unavailable.');
     // Preserve the established five-argument call shape for confirm/reject.
     // Test doubles and older adapters intentionally do not receive a claim
     // placeholder; only the new claim action carries its additional payload.
-    const saved = action === 'claim' || action === 'split' || action === 'merge' || action === 'remove-visit'
+    const saved = action === 'claim' || action === 'place' || action === 'split' || action === 'merge' || action === 'remove-visit'
       ? await nativeReconstructionRepository.saveJourneyCorrection(displayId, action, snapshotToken, snapshot, commandKey, payload)
       : await nativeReconstructionRepository.saveJourneyCorrection(displayId, action, snapshotToken, snapshot, commandKey);
     const projection = saved.graph ? reconstructionController.publishCommitted(saved.graph) : { status: 'complete' as const };
@@ -210,6 +251,14 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
       // is refreshed from the run that committed it. This prevents navigation
       // from showing an old cached journey after a successful rejection.
       await refreshDurableReveal();
+      if (action === 'place') {
+        const selectedPlace = payload as NonNullable<JourneyDetail['ownerPlace']> | undefined;
+        const finalDurable = await nativeReconstructionRepository.loadDurableReveal();
+        const finalDisplayId = selectedPlace ? verifiedOwnerPlaceDisplayId(displayId, selectedPlace, finalDurable) : null;
+        if (!finalDisplayId) return 'pending';
+        const finalDetail = await nativeReconstructionRepository.loadJourneyDetail(finalDisplayId);
+        if (!hasVerifiedOwnerPlace(finalDisplayId, selectedPlace!, finalDetail.detail, finalDurable)) return 'pending';
+      }
       return 'applied';
     }
     return 'pending';
@@ -241,7 +290,31 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     await refreshDurableReveal();
     return true;
   }, [privateRecord.state, reconstructionController, refreshDurableReveal]);
-  return <PhotoAccessContext.Provider value={{ snapshot, controller, importCoverage, privateRecord, privateRecordController, maintenance, maintenanceController, reconciliation, catchUpHistory, reconstruction, durableReveal, loadJourneyDetail, loadJourneyMediaPage, loadUncertainMemories, saveJourneyCorrection, saveJourneyMemoryCorrection, discardJourneyCorrectionPending, retryJourneyCorrectionProjection, reconstructionController, aiReview, aiProposalController }}>{children}</PhotoAccessContext.Provider>;
+  const saveConfiguredHomeArea = useCallback(async (displayId: string, visitId: string, ownerLabel: string, effectiveStartDay: string | null, effectiveEndDay: string | null) => {
+    if (privateRecord.state !== 'connected') throw new Error('Private record is unavailable.');
+    await nativeReconstructionRepository.saveConfiguredHomeAreaFromJourney(displayId, `home:${displayId}:${visitId}`, visitId, ownerLabel, effectiveStartDay, effectiveEndDay);
+    const projection = await reconstructionController.rebuild();
+    if (projection.status !== 'complete') throw new Error('Home base saved but local history rebuild did not complete.');
+    await refreshDurableReveal();
+    await refreshHomeBases();
+  }, [nativeReconstructionRepository, privateRecord.state, reconstructionController, refreshDurableReveal, refreshHomeBases]);
+  const renameConfiguredHomeArea = useCallback(async (id: string, ownerLabel: string) => {
+    if (privateRecord.state !== 'connected' || !sharedRepository.renameConfiguredHomeArea) throw new Error('Home base is unavailable.');
+    await sharedRepository.renameConfiguredHomeArea(id, ownerLabel);
+    await refreshHomeBases();
+    const projection = await reconstructionController.rebuild();
+    if (projection.status !== 'complete') throw new Error('Home base name saved but local history rebuild did not complete.');
+    await refreshDurableReveal();
+  }, [privateRecord.state, sharedRepository, refreshHomeBases, reconstructionController, refreshDurableReveal]);
+  const removeConfiguredHomeArea = useCallback(async (id: string) => {
+    if (privateRecord.state !== 'connected' || !sharedRepository.deleteConfiguredHomeArea) throw new Error('Home base is unavailable.');
+    await sharedRepository.deleteConfiguredHomeArea(id);
+    await refreshHomeBases();
+    const projection = await reconstructionController.rebuild();
+    if (projection.status !== 'complete') throw new Error('Home base removed but local history rebuild did not complete.');
+    await refreshDurableReveal();
+  }, [privateRecord.state, sharedRepository, refreshHomeBases, reconstructionController, refreshDurableReveal]);
+  return <PhotoAccessContext.Provider value={{ snapshot, controller, importCoverage, privateRecord, privateRecordController, maintenance, maintenanceController, reconciliation, catchUpHistory, reconstruction, durableReveal, homeBases, loadJourneyDetail, loadJourneyMediaPage, loadUncertainMemories, saveJourneyCorrection, saveJourneyMemoryCorrection, discardJourneyCorrectionPending, retryJourneyCorrectionProjection, saveConfiguredHomeArea, renameConfiguredHomeArea, removeConfiguredHomeArea, reconstructionController, aiReview, aiProposalController }}>{children}</PhotoAccessContext.Provider>;
 }
 
 export function usePhotoAccess() {

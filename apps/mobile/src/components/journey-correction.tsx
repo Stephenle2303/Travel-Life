@@ -5,12 +5,14 @@ import { Image } from 'expo-image';
 import { ActionButton, Body, Eyebrow, InsetPanel, Title } from '@/components/ui';
 import type { JourneyDetail } from '@/reveal/types';
 import type { OwnerPreview } from '@/photo-access/types';
+import { searchOwnerPlaces } from '@/reconstruction/owner-place-search';
 
 type OwnerClaim = NonNullable<JourneyDetail['ownerClaim']>;
+type OwnerJourneyPlace = NonNullable<JourneyDetail['ownerPlace']>;
 type StructuralSplit = { afterVisitId: string };
 type StructuralMerge = { withJourneyId: string };
 type VisitRemoval = { visitId: string };
-type JourneyCorrectionAction = 'confirm' | 'reject' | 'claim' | 'split' | 'merge' | 'remove-visit';
+type JourneyCorrectionAction = 'confirm' | 'reject' | 'claim' | 'place' | 'split' | 'merge' | 'remove-visit';
 type ClaimDraft = { title: string; dateMode: 'exact' | 'approximate'; exactDay: string; startDay: string; endDay: string };
 type MemoryAction = 'assign' | 'move' | 'reject' | 'unassign';
 type UncertainMemory = { id: string; capturedDay: string | null; availability: 'available' | 'unavailable' | 'unknown'; locationState: string; association: string; membershipState: 'suggested' | 'primary' | 'unassigned' | 'rejected' };
@@ -19,29 +21,30 @@ type LoadedCorrection = { detail: JourneyDetail; previews: OwnerPreview[]; snaps
 function claimDraft(detail: JourneyDetail): ClaimDraft {
   const claim = detail.ownerClaim;
   return {
-    title: claim?.title ?? '', dateMode: claim?.date.kind ?? 'exact',
-    exactDay: claim?.date.kind === 'exact' ? claim.date.day : '',
-    startDay: claim?.date.kind === 'approximate' ? claim.date.startDay : '',
-    endDay: claim?.date.kind === 'approximate' ? claim.date.endDay : '',
+    title: claim?.title ?? '', dateMode: claim?.date?.kind ?? 'exact',
+    exactDay: claim?.date?.kind === 'exact' ? claim.date.day : '',
+    startDay: claim?.date?.kind === 'approximate' ? claim.date.startDay : '',
+    endDay: claim?.date?.kind === 'approximate' ? claim.date.endDay : '',
   };
 }
 
 function asClaim(draft: ClaimDraft): OwnerClaim | null {
   const title = draft.title.trim();
-  if (!title || title.length > 120) return null;
-  if (draft.dateMode === 'exact') return draft.exactDay ? { title, date: { kind: 'exact', day: draft.exactDay } } : null;
-  return draft.startDay && draft.endDay ? { title, date: { kind: 'approximate', startDay: draft.startDay, endDay: draft.endDay } } : null;
+  if (title && title.length > 120) return null;
+  if (draft.dateMode === 'exact') return title || draft.exactDay ? { ...(title ? { title } : {}), ...(draft.exactDay ? { date: { kind: 'exact' as const, day: draft.exactDay } } : {}) } : null;
+  return title || (draft.startDay && draft.endDay) ? { ...(title ? { title } : {}), ...(draft.startDay && draft.endDay ? { date: { kind: 'approximate' as const, startDay: draft.startDay, endDay: draft.endDay } } : {}) } : null;
 }
 
 function ownerClaimPreview(claim: OwnerClaim | undefined, observedSpan: string) {
   if (!claim) return `Owner claim details are unavailable. Observed evidence remains: ${observedSpan}.`;
-  const date = claim.date.kind === 'exact' ? claim.date.day : `${claim.date.startDay} to ${claim.date.endDay} (approximate)`;
-  return `Owner title: ${claim.title}. Owner date: ${date}. Observed evidence remains: ${observedSpan}.`;
+  const date = !claim.date ? 'not set' : claim.date.kind === 'exact' ? claim.date.day : `${claim.date.startDay} to ${claim.date.endDay} (approximate)`;
+  return `Owner title: ${claim.title ?? 'not set'}. Owner date: ${date}. Observed evidence remains: ${observedSpan}.`;
 }
 
-export function JourneyCorrectionScreen({ id, load, save, saveMemory, loadUncertainMemories, discardPendingRemap, retryProjection, onBack, onRejected }: { id: string; load(id: string): Promise<{ detail: JourneyDetail; previews: OwnerPreview[]; snapshotToken: number }>; save(id: string, action: JourneyCorrectionAction, snapshotToken: number, snapshot: JourneyDetail, commandKey: string, payload?: OwnerClaim | StructuralSplit | StructuralMerge | VisitRemoval): Promise<'applied' | 'pending'>; saveMemory?(id: string, memoryId: string, action: MemoryAction, snapshotToken: number, commandKey: string): Promise<'applied' | 'pending'>; loadUncertainMemories?(id: string, snapshotToken: number, query: string, page: number): Promise<{ memories: UncertainMemory[]; hasMore: boolean }>; discardPendingRemap?(id: string, snapshotToken: number, commandKey: string): Promise<'applied' | 'pending'>; retryProjection(): Promise<boolean>; onBack(): void; onRejected(): void }) {
+export function JourneyCorrectionScreen({ id, task, load, save, saveMemory, loadUncertainMemories, discardPendingRemap, retryProjection, onBack, onRejected }: { id: string; task?: 'location' | 'name-dates' | 'destinations' | 'photos' | 'accuracy'; load(id: string): Promise<{ detail: JourneyDetail; previews: OwnerPreview[]; snapshotToken: number }>; save(id: string, action: JourneyCorrectionAction, snapshotToken: number, snapshot: JourneyDetail, commandKey: string, payload?: OwnerClaim | OwnerJourneyPlace | StructuralSplit | StructuralMerge | VisitRemoval): Promise<'applied' | 'pending'>; saveMemory?(id: string, memoryId: string, action: MemoryAction, snapshotToken: number, commandKey: string): Promise<'applied' | 'pending'>; loadUncertainMemories?(id: string, snapshotToken: number, query: string, page: number): Promise<{ memories: UncertainMemory[]; hasMore: boolean }>; discardPendingRemap?(id: string, snapshotToken: number, commandKey: string): Promise<'applied' | 'pending'>; retryProjection(): Promise<boolean>; onBack(): void; onRejected(): void }) {
   const [state, setState] = useState<{ id: string; result?: LoadedCorrection; error?: string } | null>(null);
-  const [preview, setPreview] = useState<{ id: string; action: JourneyCorrectionAction; commandKey: string; payload?: OwnerClaim | StructuralSplit | StructuralMerge | VisitRemoval } | null>(null);
+  const [preview, setPreview] = useState<{ id: string; action: JourneyCorrectionAction; commandKey: string; payload?: OwnerClaim | OwnerJourneyPlace | StructuralSplit | StructuralMerge | VisitRemoval } | null>(null);
+  const [placeQuery, setPlaceQuery] = useState('');
   const [selection, setSelection] = useState<{ id: string; action: JourneyCorrectionAction; applied: boolean } | null>(null);
   const [saving, setSaving] = useState(false);
   const [retrying, setRetrying] = useState(false);
@@ -67,10 +70,10 @@ export function JourneyCorrectionScreen({ id, load, save, saveMemory, loadUncert
   const { detail, previews, draft } = current.result;
   const snapshotToken = current.result.snapshotToken;
   const updateDraft = (next: Partial<ClaimDraft>) => setState((previous) => previous?.id === id && previous.result ? { ...previous, result: { ...previous.result, draft: { ...previous.result.draft, ...next } } } : previous);
-  const persist = async (action: JourneyCorrectionAction, commandKey: string, payload?: OwnerClaim | StructuralSplit | StructuralMerge | VisitRemoval) => {
+  const persist = async (action: JourneyCorrectionAction, commandKey: string, payload?: OwnerClaim | OwnerJourneyPlace | StructuralSplit | StructuralMerge | VisitRemoval) => {
     setSaving(true); setSaveError(null);
     try {
-      const projection = action === 'claim' || action === 'split' || action === 'merge' || action === 'remove-visit'
+      const projection = action === 'claim' || action === 'place' || action === 'split' || action === 'merge' || action === 'remove-visit'
         ? await save(id, action, snapshotToken, detail, commandKey, payload)
         : await save(id, action, snapshotToken, detail, commandKey);
       setSelection({ id, action, applied: projection === 'applied' });
@@ -121,25 +124,44 @@ export function JourneyCorrectionScreen({ id, load, save, saveMemory, loadUncert
     } catch { setSaveError('Uncertain memories could not be loaded. Reload this private journey before retrying.'); }
   };
   return (
-    <ScrollView contentContainerStyle={{ gap: 16, paddingBottom: 32 }} accessibilityLabel="Journey correction review">
+    <ScrollView contentContainerStyle={{ gap: 16, paddingBottom: 32 }} accessibilityLabel="Journey correction review" keyboardShouldPersistTaps="always">
       <Eyebrow>Private review</Eyebrow>
       <Title>{detail.title}</Title>
-      <InsetPanel>
+      {(!task || task === 'location') && <InsetPanel>
+        <Title>Confirm a place</Title>
+        <Body>Set the trip&apos;s private display place. This does not alter the inferred destination or observed evidence.</Body>
+        <TextInput accessibilityLabel="Search a place to confirm" value={placeQuery} onChangeText={(query) => { setPlaceQuery(query); setSaveError(null); }} placeholder="Search places, for example Phú Quốc or Tokyo" placeholderTextColor="#B4C6B5" autoCorrect={false} style={{ color: '#F3EEDD', borderColor: '#B4C6B5', borderWidth: 1, borderRadius: 12, minHeight: 48, paddingHorizontal: 12 }} />
+        {searchOwnerPlaces(placeQuery).map((place) => <ActionButton key={place.id} accessibilityLabel={`Preview confirmed place ${place.name}`} onPress={() => { const payload: OwnerJourneyPlace = { id: place.id, name: place.name, context: place.context, anchor: { latitude: place.latitude, longitude: place.longitude } }; setPreview({ id, action: 'place', payload, commandKey: `journey:${id}:${snapshotToken}:place:${place.id}:${Date.now()}` }); setSaveError(null); }} disabled={saving} variant="secondary">{place.name} · {place.context}</ActionButton>)}
+        {!!placeQuery.trim() && !searchOwnerPlaces(placeQuery).length && <Body>No local place result. Try a broader name or an alternate spelling.</Body>}
+      </InsetPanel>}
+      {(!task || task === 'location') && preview?.id === id && preview.action === 'place' && <InsetPanel>
+        <Title>Confirm {String((preview.payload as OwnerJourneyPlace).name)}</Title>
+        <Body>This saves {String((preview.payload as OwnerJourneyPlace).name)} as your private confirmed place. Atlas will move this journey&apos;s coarse marker there; inferred destination and observed evidence remain unchanged.</Body>
+        <ActionButton accessibilityLabel="Save confirmed place" onPress={() => void persist(preview.action, preview.commandKey, preview.payload)} disabled={saving}>{saving ? 'Saving privately…' : 'Confirm place'}</ActionButton>
+        <ActionButton accessibilityLabel="Cancel confirmed place" onPress={() => setPreview(null)} disabled={saving} variant="secondary">Choose another place</ActionButton>
+        {saveError && <Body>{saveError}</Body>}
+      </InsetPanel>}
+      {selection?.id === id && selection.action === 'place' && <InsetPanel>
+        <Title>{selection.applied ? 'Place updated' : 'Place saved'}</Title>
+        <Body>{selection.applied ? 'Your private Atlas now uses this place and its coarse marker.' : 'The place is saved locally. Finish the local update before it can appear on Atlas.'}</Body>
+        {selection.applied ? <ActionButton accessibilityLabel="View confirmed place on Atlas" onPress={onRejected}>View on Atlas</ActionButton> : <ActionButton accessibilityLabel="Retry local correction update" onPress={() => void retry()} disabled={retrying}>{retrying ? 'Retrying local update…' : 'Retry local update'}</ActionButton>}
+      </InsetPanel>}
+      {(!task || task === 'accuracy' || task === 'destinations') && <InsetPanel>
         <Body>Review state: {detail.correctionState === 'confirmed' ? 'Confirmed by you' : detail.correctionState === 'rejected' ? 'Rejected by you' : detail.correctionState === 'pending remap' ? 'Pending your remap review' : detail.correctionState === 'pending scope review' ? 'Pending scope review after a structural correction' : 'Inferred; not yet reviewed'}</Body>
         <Body>{detail.observedSpan}</Body>
         <Body>Owner corrections stay on device. They never upload the source media, and they never turn a photo&apos;s location into proof of presence.</Body>
-      </InsetPanel>
-      {detail.correctionState === 'pending scope review' && <InsetPanel>
+      </InsetPanel>}
+      {(!task || task === 'accuracy' || task === 'destinations') && detail.correctionState === 'pending scope review' && <InsetPanel>
         <Title>Review predecessor claims</Title>
         <Body>A prior journey-wide confirmation or owner title/date is not applied to this successor. Review and save a new scoped claim or confirmation if it belongs here.</Body>
       </InsetPanel>}
-      {detail.correctionState === 'pending remap' && <InsetPanel>
+      {(!task || task === 'accuracy' || task === 'destinations') && detail.correctionState === 'pending remap' && <InsetPanel>
         <Title>Review withheld correction</Title>
         <Body>{detail.pendingRemap?.reason ?? 'The previous correction did not map uniquely to this rebuilt journey.'}</Body>
         <Body>Save a new scoped correction if it belongs to this journey, or preview discarding the withheld correction. It will remain private until you choose.</Body>
         {!!discardPendingRemap && <ActionButton accessibilityLabel="Preview discard pending correction" onPress={() => { setDiscardPreview({ commandKey: `journey:${id}:${snapshotToken}:discard-pending-remap:${Date.now()}` }); setSaveError(null); }} disabled={saving || pendingDiscarded} variant="secondary">Preview discard pending correction</ActionButton>}
       </InsetPanel>}
-      <InsetPanel>
+      {(!task || task === 'name-dates') && <InsetPanel>
         <Title>Owner title and date claim</Title>
         <Body>These are your private claims, separate from the observed evidence shown below. An approximate interval does not describe a route or observed departure and return times.</Body>
         <TextInput accessibilityLabel="Owner journey title" value={draft.title} onChangeText={(title) => updateDraft({ title })} placeholder="Private journey title" placeholderTextColor="#B4C6B5" style={{ color: '#F3EEDD', borderColor: '#B4C6B5', borderWidth: 1, borderRadius: 12, minHeight: 48, paddingHorizontal: 12 }} />
@@ -150,26 +172,26 @@ export function JourneyCorrectionScreen({ id, load, save, saveMemory, loadUncert
           : <><TextInput accessibilityLabel="Owner approximate start date" value={draft.startDay} onChangeText={(startDay) => updateDraft({ startDay })} placeholder="Start YYYY-MM-DD" placeholderTextColor="#B4C6B5" style={{ color: '#F3EEDD', borderColor: '#B4C6B5', borderWidth: 1, borderRadius: 12, minHeight: 48, paddingHorizontal: 12 }} /><TextInput accessibilityLabel="Owner approximate end date" value={draft.endDay} onChangeText={(endDay) => updateDraft({ endDay })} placeholder="End YYYY-MM-DD" placeholderTextColor="#B4C6B5" style={{ color: '#F3EEDD', borderColor: '#B4C6B5', borderWidth: 1, borderRadius: 12, minHeight: 48, paddingHorizontal: 12 }} /></>}
         <ActionButton accessibilityLabel="Preview owner title and date claim" onPress={() => {
           const claim = asClaim(draft);
-          if (!claim) { setSaveError('Enter a private title and a complete owner date before previewing the claim.'); return; }
+          if (!claim) { setSaveError('Enter a private title or a complete owner date before previewing the claim.'); return; }
           setPreview({ id, action: 'claim', payload: claim, commandKey: `journey:${id}:${snapshotToken}:claim:${Date.now()}` }); setSaveError(null);
         }} disabled={saving}>Preview owner claim</ActionButton>
-      </InsetPanel>
-      <InsetPanel>
+      </InsetPanel>}
+      {(!task || task === 'accuracy') && <InsetPanel>
         <Title>Review choices</Title>
         <ActionButton accessibilityLabel="Preview confirmation" onPress={() => { setPreview({ id, action: 'confirm', commandKey: `journey:${id}:${snapshotToken}:confirm:${Date.now()}` }); setSaveError(null); }} disabled={saving}>Preview confirmation</ActionButton>
         <ActionButton accessibilityLabel="Preview rejection" onPress={() => { setPreview({ id, action: 'reject', commandKey: `journey:${id}:${snapshotToken}:reject:${Date.now()}` }); setSaveError(null); }} disabled={saving} variant="secondary">Preview rejection</ActionButton>
-      </InsetPanel>
-      {detail.visits.length > 1 && <InsetPanel>
+      </InsetPanel>}
+      {(!task || task === 'destinations') && detail.visits.length > 1 && <InsetPanel>
         <Title>Separate this journey</Title>
         <Body>Choose a boundary only where both adjacent visits have a strict observed order. This creates two private successor journeys and does not change source evidence.</Body>
         {detail.visits.slice(0, -1).map((visit, index) => <ActionButton key={visit.id} accessibilityLabel={`Preview split after ${visit.label}`} onPress={() => { setPreview({ id, action: 'split', payload: { afterVisitId: visit.id }, commandKey: `journey:${id}:${snapshotToken}:split:${visit.id}:${Date.now()}` }); setSaveError(null); }} disabled={saving} variant="secondary">Separate after visit {index + 1}</ActionButton>)}
       </InsetPanel>}
-      {!!detail.mergeCandidates?.length && <InsetPanel>
+      {(!task || task === 'destinations') && !!detail.mergeCandidates?.length && <InsetPanel>
         <Title>Merge adjacent journey</Title>
         <Body>Choose a nearby private journey to preview. Saving is allowed only when both journeys are adjacent and strictly ordered.</Body>
         {detail.mergeCandidates.map((candidate) => <ActionButton key={candidate.id} accessibilityLabel={`Preview merge with ${candidate.label}`} onPress={() => { setPreview({ id, action: 'merge', payload: { withJourneyId: candidate.id }, commandKey: `journey:${id}:${snapshotToken}:merge:${candidate.id}:${Date.now()}` }); setSaveError(null); }} disabled={saving} variant="secondary">Preview merge with {candidate.label}</ActionButton>)}
       </InsetPanel>}
-      {preview?.id === id && <InsetPanel>
+      {preview?.id === id && preview.action !== 'place' && <InsetPanel>
         <Title>{preview.action === 'confirm' ? 'Preview confirmation' : preview.action === 'reject' ? 'Preview rejection' : preview.action === 'remove-visit' ? 'Preview destination removal' : preview.action === 'split' ? 'Preview journey split' : preview.action === 'merge' ? 'Preview journey merge' : 'Preview owner claim'}</Title>
         <Body>{preview.action === 'confirm'
           ? `This records only the facts currently shown: ${detail.title}, ${detail.visits.length} observed visit${detail.visits.length === 1 ? '' : 's'}, and ${detail.memories.length} visible ${detail.memories.length === 1 ? 'memory' : 'memories'}. New or unseen evidence stays inferred.`
@@ -202,14 +224,14 @@ export function JourneyCorrectionScreen({ id, load, save, saveMemory, loadUncert
         <ActionButton accessibilityLabel="Save memory membership" onPress={() => void persistMemory()} disabled={saving}>{saving ? 'Saving privately…' : 'Save memory membership'}</ActionButton>
         <ActionButton accessibilityLabel="Cancel memory membership preview" onPress={() => setMemoryPreview(null)} disabled={saving} variant="secondary">Cancel</ActionButton>
       </InsetPanel>}
-      {selection?.id === id && <InsetPanel>
+      {selection?.id === id && selection.action !== 'place' && <InsetPanel>
         <Title>{selection.action === 'confirm' ? 'Confirmation saved' : selection.action === 'reject' ? 'Rejection saved' : selection.action === 'remove-visit' ? 'Destination removal saved' : selection.action === 'split' ? 'Journey split saved' : selection.action === 'merge' ? 'Journey merge saved' : 'Owner claim saved'}</Title>
         <Body>{selection.applied
           ? selection.action === 'confirm'
             ? 'Your decision is saved locally and applied to this complete reconstruction. Unseen evidence and later additions remain inferred.'
             : selection.action === 'reject'
               ? 'Your decision is saved locally and this grouping is removed from the updated projection. Source evidence remains available.'
-              : selection.action === 'remove-visit'
+            : selection.action === 'remove-visit'
                 ? 'The destination is removed from this journey projection. Source evidence and support counts remain available.'
               : selection.action === 'split'
                 ? 'Your private boundary is saved locally and the rebuilt successor journeys are ready for review. Source evidence remains unchanged.'
@@ -220,12 +242,12 @@ export function JourneyCorrectionScreen({ id, load, save, saveMemory, loadUncert
         {!selection.applied && <ActionButton accessibilityLabel="Retry local correction update" onPress={() => void retry()} disabled={retrying}>{retrying ? 'Retrying local update…' : 'Retry local update'}</ActionButton>}
         {selection.applied && selection.action === 'reject' && <ActionButton accessibilityLabel="Return to private Atlas" onPress={onRejected}>Return to private Atlas</ActionButton>}
       </InsetPanel>}
-      {saveError && <InsetPanel><Body>{saveError}</Body></InsetPanel>}
-      <InsetPanel>
+      {saveError && preview?.action !== 'place' && <InsetPanel><Body>{saveError}</Body></InsetPanel>}
+      {(!task || task === 'destinations') && <InsetPanel>
         <Title>Observed visits</Title>
         {detail.visits.map((visit, index) => <View key={visit.id} style={{ gap: 8 }}><Body>{visit.label} · {visit.precision}. {visit.support}</Body><ActionButton accessibilityLabel={`Preview removal of visit ${index + 1}`} onPress={() => { setPreview({ id, action: 'remove-visit', payload: { visitId: visit.id }, commandKey: `journey:${id}:${snapshotToken}:remove-visit:${visit.id}:${Date.now()}` }); setSaveError(null); }} disabled={saving} variant="secondary">Remove this destination</ActionButton></View>)}
-      </InsetPanel>
-      <InsetPanel>
+      </InsetPanel>}
+      {(!task || task === 'photos') && <InsetPanel>
         <Title>Memories</Title>
         {detail.memories.map((memory, index) => {
           const preview = previews[index];
@@ -244,8 +266,8 @@ export function JourneyCorrectionScreen({ id, load, save, saveMemory, loadUncert
           </View>;
         })}
         {!!loadUncertainMemories && <ActionButton accessibilityLabel="Review uncertain memories" onPress={() => void loadUncertain('', 0)} disabled={saving} variant="secondary">Review uncertain memories</ActionButton>}
-      </InsetPanel>
-      {uncertain && <InsetPanel>
+      </InsetPanel>}
+      {(!task || task === 'photos') && uncertain && <InsetPanel>
         <Title>Uncertain memories</Title>
         <Body>Review a bounded private page. Search matches the observed date only; it never searches or sends source media.</Body>
         <TextInput accessibilityLabel="Search uncertain memories by observed date" value={uncertain.query} onChangeText={(query) => setUncertain({ ...uncertain, query })} placeholder="YYYY-MM-DD" placeholderTextColor="#B4C6B5" style={{ color: '#F3EEDD', borderColor: '#B4C6B5', borderWidth: 1, borderRadius: 12, minHeight: 48, paddingHorizontal: 12 }} />
@@ -258,9 +280,9 @@ export function JourneyCorrectionScreen({ id, load, save, saveMemory, loadUncert
         </View>)}
         {uncertain.hasMore && <ActionButton accessibilityLabel="Load more uncertain memories" onPress={() => void loadUncertain(uncertain.query, uncertain.page + 1)} disabled={saving} variant="secondary">Load more</ActionButton>}
       </InsetPanel>}
-      {memorySaved && <InsetPanel><Body>{memorySaved}</Body></InsetPanel>}
+      {(!task || task === 'photos') && memorySaved && <InsetPanel><Body>{memorySaved}</Body></InsetPanel>}
       {pendingDiscarded && <InsetPanel><Title>Pending correction discarded</Title><Body>The withheld correction is removed locally. Source evidence and the current complete journey projection remain available.</Body></InsetPanel>}
-      {!!detail.uncertainty.length && <InsetPanel>
+      {(!task || task === 'accuracy' || task === 'destinations') && !!detail.uncertainty.length && <InsetPanel>
         <Title>Uncertainty</Title>
         {detail.uncertainty.map((item) => <Body key={item}>{item}</Body>)}
       </InsetPanel>}

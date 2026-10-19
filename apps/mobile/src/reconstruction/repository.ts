@@ -1,7 +1,9 @@
-import type { ReconstructionEvidence, ReconstructionGraph } from './types';
+import type { OwnerConfiguredHomeArea, ReconstructionEvidence, ReconstructionGraph, TripDetectorEvidence } from './types';
 import { RECONSTRUCTION_RULE_VERSION } from './types';
 import { reconstructV1, type JourneyGroupingConstraint } from './engine';
-import { NATURAL_EARTH_ADMIN_0_DATASET_VERSION, resolveCountry } from './country-resolver';
+import { applyOwnerConfiguredHomeAreas, buildV11Episodes, qualifyTripV11 } from './engine-v1-1';
+import { NATURAL_EARTH_ADMIN_0_DATASET_VERSION, countryDisplayName, resolveCountry } from './country-resolver';
+import { destinationLabel, type DestinationSupport } from './destination-label';
 import type { DurableRevealRecord, JourneyDetail, RevealMapAnchor } from '@/reveal/types';
 import { serializeNativeTransactions } from '@/database/native-transaction';
 
@@ -12,16 +14,260 @@ type Database = {
   getFirstAsync<T>(source: string, ...parameters: (string | number | null)[]): Promise<T | null>;
 };
 
-type EvidenceRow = { evidence_id: string; captured_at_millis: number | null; captured_day: string | null; has_precise_offset: number; availability: ReconstructionEvidence['availability']; latitude: number | null; longitude: number | null; reported_accuracy_meters: number | null; platform_duplicate_family_id?: string | null; source_origin?: string | null; support_eligible?: number | null; duplicate_tuple_version?: number | null; duplicate_tuple_fingerprint?: string | null };
-type JourneyCorrectionAction = 'confirm' | 'reject' | 'claim' | 'split' | 'merge' | 'remove-visit';
+type EvidenceRow = { evidence_id: string; media_type?: 'image' | 'video'; captured_at_millis: number | null; captured_day: string | null; has_precise_offset: number; availability: ReconstructionEvidence['availability']; latitude: number | null; longitude: number | null; reported_accuracy_meters: number | null; platform_duplicate_family_id?: string | null; source_origin?: string | null; support_eligible?: number | null; duplicate_tuple_version?: number | null; duplicate_tuple_fingerprint?: string | null };
+export type JourneyCorrectionAction = 'confirm' | 'reject' | 'claim' | 'place' | 'split' | 'merge' | 'remove-visit';
 type JourneyCorrectionRevision = { revision_id: string; action: JourneyCorrectionAction; reviewed_support_json: string; reviewed_visits_json?: string; reviewed_family_snapshot_json?: string | null; structural_boundary_json?: string | null };
 type MemoryCorrectionAction = 'assign' | 'move' | 'reject' | 'unassign';
 type MemoryCorrectionRevision = { revision_id: string; action: MemoryCorrectionAction; source_evidence_id: string; reviewed_support_json: string; reviewed_family_snapshot_json?: string | null; created_at_millis: number };
 type OwnerJourneyClaim = NonNullable<JourneyDetail['ownerClaim']>;
+type OwnerJourneyPlace = NonNullable<JourneyDetail['ownerPlace']>;
 type StructuralSplit = { afterVisitId: string };
 type StructuralMerge = { withJourneyId: string };
 type VisitRemoval = { visitId: string };
 const RECONCILIATION_LEASE_MILLIS = 5 * 60 * 1000;
+
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+/** Converts retained local days into a deliberately coarse UI period. Exact days never cross the reveal boundary. */
+export function monthRangeLabel(firstDay: string | null, lastDay: string | null, firstYear: number | null, lastYear: number | null) {
+  const monthFor = (day: string | null) => day && /^\d{4}-(0[1-9]|1[0-2])-\d{2}$/.test(day) ? { year: Number(day.slice(0, 4)), month: Number(day.slice(5, 7)) - 1 } : null;
+  const first = monthFor(firstDay); const last = monthFor(lastDay);
+  if (first && last) {
+    const start = `${MONTH_NAMES[first.month]} ${first.year}`;
+    return first.year === last.year && first.month === last.month ? start : `${start}–${MONTH_NAMES[last.month]} ${last.year}`;
+  }
+  return firstYear === null ? 'Date unknown' : firstYear === lastYear ? String(firstYear) : `${firstYear}–${lastYear}`;
+}
+
+function metersBetween(a: ReconstructionEvidence, b: ReconstructionEvidence) {
+  if (!Number.isFinite(a.latitude) || !Number.isFinite(a.longitude) || !Number.isFinite(b.latitude) || !Number.isFinite(b.longitude)) return null;
+  const radians = Math.PI / 180;
+  const latDelta = (b.latitude! - a.latitude!) * radians;
+  const longitudeDelta = ((((b.longitude! - a.longitude!) + 540) % 360) - 180) * radians;
+  const h = Math.sin(latDelta / 2) ** 2 + Math.cos(a.latitude! * radians) * Math.cos(b.latitude! * radians) * Math.sin(longitudeDelta / 2) ** 2;
+  return 6_371_000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
+/**
+ * A place label must reflect its supported evidence, not whichever member won
+ * a deterministic representative tie-break. Border/invalid members abstain;
+ * conflicting resolved countries abstain rather than inventing a location.
+ */
+export function resolvePlaceCountryCode(place: { memberIds: string[] }, evidenceById: ReadonlyMap<string, ReconstructionEvidence>): string | null {
+  const codes = new Set(place.memberIds.map((id) => evidenceById.get(id)).filter((item): item is ReconstructionEvidence => Boolean(item)).map((item) => resolveCountry({ latitude: item.latitude, longitude: item.longitude, reportedAccuracyMeters: item.reportedAccuracyMeters })).flatMap((result) => result.status === 'resolved' ? [result.code] : []));
+  return codes.size === 1 ? [...codes][0] : null;
+}
+
+/** Conservative adapter from the stable V1 graph to V1.1's pure gate. It
+ * derives only a frequently observed, non-candidate place as a provisional
+ * base; absence or weak context stays unconfirmed rather than guessed. */
+export function qualifyGraphJourneyV11(graph: ReconstructionGraph, journeyId: string, evidence: ReconstructionEvidence[], mediaByEvidence: Map<string, 'image' | 'video'>) {
+  const journey = graph.journeys.find((candidate) => candidate.id === journeyId);
+  if (!journey) throw new Error('Unknown reconstructed journey.');
+  const visitById = new Map(graph.visits.map((visit) => [visit.id, visit]));
+  const evidenceById = new Map(evidence.map((item) => [item.id, item]));
+  const candidateVisits = journey.visitIds.map((id) => visitById.get(id)).filter((visit): visit is NonNullable<typeof visit> => Boolean(visit));
+  const candidateIds = new Set(candidateVisits.flatMap((visit) => visit.evidenceIds));
+  const candidatePlaceIds = new Set(candidateVisits.map((visit) => visit.placeId));
+  const baseCandidates = graph.places
+    .filter((place) => !candidatePlaceIds.has(place.id))
+    .map((place) => ({ place, days: new Set(place.memberIds.map((id) => evidenceById.get(id)?.capturedDay).filter((day): day is string => Boolean(day))).size }))
+    .filter((item) => item.days >= 12)
+    .sort((a, b) => b.days - a.days || a.place.id.localeCompare(b.place.id));
+  const base = baseCandidates[0]?.place;
+  const baseEvidence = base ? evidenceById.get(base.representativeId) : undefined;
+  const candidateEvidence = [...candidateIds].map((id) => evidenceById.get(id)).filter((item): item is ReconstructionEvidence => Boolean(item));
+  const detectorEvidence: TripDetectorEvidence[] = candidateEvidence.map((item) => {
+    const visit = candidateVisits.find((candidateVisit) => candidateVisit.evidenceIds.includes(item.id));
+    const distance = baseEvidence ? metersBetween(item, baseEvidence) : null;
+    return {
+      ...item, mediaType: mediaByEvidence.get(item.id) ?? 'image', captureLike: true,
+      reliableLocation: item.reportedAccuracyMeters === null || item.reportedAccuracyMeters <= 1_000,
+      originalLocalDay: item.capturedDay, sessionId: item.capturedDay ?? null,
+      supportPlaceId: visit?.placeId ?? null, origin: 'capture-like',
+      effectiveBaseDistanceMeters: distance, rareDestination: Boolean(base && candidateEvidence.length < base.memberIds.length / 2),
+    };
+  });
+  return qualifyTripV11(journeyId, detectorEvidence, { baseContext: Boolean(base && baseEvidence) });
+}
+
+/**
+ * Joins adjacent V1 fragments only when both are demonstrably away from one
+ * frequently observed base.  A ten-day ceiling permits ordinary multi-day
+ * city stays but does not bridge an unobserved long break. It deliberately does not use country/city as a
+ * grouping key: a city change is normal inside a trip, but location alone is
+ * not proof of a continuous journey. Corrections retain their stable graph and
+ * are therefore never rewritten by this additive migration step.
+ */
+export function mergeContinuousAwayJourneysV11(graph: ReconstructionGraph, evidence: ReconstructionEvidence[], protectedJourneyIds: ReadonlySet<string> = new Set(), configuredHomeAreas: OwnerConfiguredHomeArea[] = []): ReconstructionGraph {
+  const evidenceById = new Map(evidence.map((item) => [item.id, item]));
+  const visitById = new Map(graph.visits.map((visit) => [visit.id, visit]));
+  const learnedBases = graph.places.map((place) => ({ place, days: new Set(place.memberIds.map((id) => evidenceById.get(id)?.capturedDay).filter((day): day is string => Boolean(day))).size }))
+    .filter((item) => item.days >= 12)
+    // A place representative is a stable display/provenance choice, not a
+    // guarantee that it has a coordinate.  Fall back to any coordinate-bearing
+    // support in the same frequent place so GPS-less media cannot turn a known
+    // home base into an invisible continuity boundary.
+    .map((item) => item.place.memberIds
+      .map((id) => evidenceById.get(id))
+      .filter((candidate): candidate is ReconstructionEvidence => Boolean(candidate))
+      .find((candidate) => Number.isFinite(candidate.latitude) && Number.isFinite(candidate.longitude)))
+    .filter((item): item is ReconstructionEvidence => Boolean(item));
+  const configuredBases = configuredHomeAreas.filter((area) => Number.isFinite(area.latitude) && Number.isFinite(area.longitude)
+    && area.latitude >= -90 && area.latitude <= 90 && area.longitude >= -180 && area.longitude <= 180);
+  // An owner-configured home is authoritative. Falling back to all-history
+  // frequent places in that case can turn a photo-heavy holiday into a base
+  // and prevent its city fragments from being joined.
+  if (!configuredBases.length && !learnedBases.length) return graph;
+  const activeConfiguredBases = (day: string | null) => configuredBases.filter((area) => day !== null
+    && (!area.effectiveStartDay || day >= area.effectiveStartDay)
+    && (!area.effectiveEndDay || day <= area.effectiveEndDay));
+  const nearestBaseDistance = (item: ReconstructionEvidence) => {
+    const applicable = configuredBases.length
+      ? activeConfiguredBases(item.capturedDay).map((area) => ({ latitude: area.latitude, longitude: area.longitude } as ReconstructionEvidence))
+      : learnedBases;
+    const distances = applicable.map((base) => metersBetween(item, base)).filter((distance): distance is number => distance !== null);
+    return distances.length ? Math.min(...distances) : null;
+  };
+  const span = (journey: ReconstructionGraph['journeys'][number]) => {
+    const items = journey.visitIds.flatMap((id) => visitById.get(id)?.evidenceIds ?? []).map((id) => evidenceById.get(id)).filter((item): item is ReconstructionEvidence => Boolean(item));
+    const ordered = items.filter((item) => item.capturedAtMillis !== null).sort((a, b) => a.capturedAtMillis! - b.capturedAtMillis!);
+    const days = items.map((item) => item.capturedDay).filter((day): day is string => Boolean(day)).sort();
+    // GPS-less associated media cannot manufacture an away boundary. A supported
+    // away fragment needs at least one known far point; every known point must
+    // remain far from all applicable frequent bases. This keeps a missing
+    // coordinate from splitting a real multi-city holiday while retaining an
+    // observed home return as a boundary.
+    const knownDistances = items.map(nearestBaseDistance).filter((distance): distance is number => distance !== null);
+    const far = knownDistances.length > 0 && knownDistances.every((distance) => distance >= 50_000);
+    return { journey, start: ordered[0]?.capturedAtMillis ?? (days[0] ? Date.parse(`${days[0]}T00:00:00Z`) : null), end: ordered.at(-1)?.capturedAtMillis ?? (days.at(-1) ? Date.parse(`${days.at(-1)}T00:00:00Z`) : null), far };
+  };
+  const ordered = graph.journeys.map(span).sort((a, b) => (a.start ?? Number.MAX_SAFE_INTEGER) - (b.start ?? Number.MAX_SAFE_INTEGER) || a.journey.id.localeCompare(b.journey.id));
+  const groups: ReconstructionGraph['journeys'] = [];
+  for (const candidate of ordered) {
+    const prior = groups.at(-1);
+    const priorSpan = prior && span(prior);
+    const gap = priorSpan && priorSpan.end !== null && candidate.start !== null ? candidate.start - priorSpan.end : Number.POSITIVE_INFINITY;
+    // A correction pins its exact current support projection.  It must never
+    // be absorbed by a heuristic continuity merge, but an unrelated historic
+    // correction must not suppress automatic continuity everywhere else.
+    if (prior && priorSpan?.far && candidate.far
+      && !protectedJourneyIds.has(prior.id) && !protectedJourneyIds.has(candidate.journey.id)
+      && gap >= 0 && gap <= 10 * 24 * 60 * 60 * 1000) prior.visitIds.push(...candidate.journey.visitIds);
+    else groups.push({ ...candidate.journey, visitIds: [...candidate.journey.visitIds] });
+  }
+  const remap = new Map<string, string>();
+  const journeys = groups.map((journey) => {
+    const id = journey.visitIds.length === 1 ? journey.id : `journey:${journey.visitIds.join('|')}`;
+    for (const original of ordered.filter((item) => journey.visitIds.includes(item.journey.visitIds[0])).map((item) => item.journey.id)) remap.set(original, id);
+    return { ...journey, id };
+  });
+  if (!remap.size || journeys.length === graph.journeys.length) return graph;
+  return { ...graph, journeys, memberships: graph.memberships.map((membership) => ({ ...membership, journeyId: remap.get(membership.journeyId) ?? membership.journeyId })), possibleMerges: graph.possibleMerges.filter((merge) => remap.get(merge.fromJourneyId) === undefined && remap.get(merge.toJourneyId) === undefined) };
+}
+
+/**
+ * Makes the canonical V1.1 episode pass the authority for unreviewed journey
+ * membership.  The legacy graph still supplies stable places, visits and all
+ * correction anchors; it no longer decides which away fragments comprise a
+ * persisted/displayed journey.  Reviewed journeys are deliberately kept as
+ * immutable projections until the exact-support remapper has decided them.
+ */
+export function constructCanonicalV11Graph(
+  graph: ReconstructionGraph,
+  evidence: ReconstructionEvidence[],
+  protectedJourneyIds: ReadonlySet<string> = new Set(),
+  configuredHomeAreas: OwnerConfiguredHomeArea[] = [],
+): ReconstructionGraph {
+  const journeyByVisit = new Map<string, string>();
+  for (const journey of graph.journeys) for (const visitId of journey.visitIds) journeyByVisit.set(visitId, journey.id);
+  const placeByVisit = new Map(graph.visits.map((visit) => [visit.id, visit.placeId]));
+  const visitByEvidence = new Map<string, string>();
+  for (const visit of graph.visits) for (const evidenceId of visit.evidenceIds) visitByEvidence.set(evidenceId, visit.id);
+  const unreviewedEvidence = evidence.filter((item) => {
+    const visitId = visitByEvidence.get(item.id);
+    return visitId !== undefined && !protectedJourneyIds.has(journeyByVisit.get(visitId) ?? '');
+  });
+  if (!unreviewedEvidence.length) return graph;
+
+  const explicitHomes = configuredHomeAreas.length > 0;
+  const learnedBaseEvidence = explicitHomes ? [] : graph.places
+    .map((place) => ({ place, days: new Set(place.memberIds.map((id) => evidence.find((item) => item.id === id)?.capturedDay).filter((day): day is string => Boolean(day))).size }))
+    .filter((candidate) => candidate.days >= 12)
+    .map((candidate) => candidate.place.memberIds.map((id) => evidence.find((item) => item.id === id))
+      .filter((item): item is ReconstructionEvidence => item !== undefined)
+      .find((item) => Number.isFinite(item.latitude) && Number.isFinite(item.longitude)))
+    .filter((item): item is ReconstructionEvidence => Boolean(item));
+  const validCapturedDay = (day: string | null) => Boolean(day && /^\d{4}-(0[1-9]|1[0-2])-([0-2]\d|3[01])$/.test(day) && new Date(`${day}T00:00:00.000Z`).toISOString().slice(0, 10) === day);
+  const configuredDistance = (item: ReconstructionEvidence) => validCapturedDay(item.capturedDay) ? configuredHomeAreas
+    .filter((area) => Number.isFinite(area.radiusMeters ?? 50_000) && (area.radiusMeters ?? 50_000) > 0 && (area.radiusMeters ?? 50_000) <= 50_000)
+    .filter((area) => !area.effectiveStartDay || item.capturedDay! >= area.effectiveStartDay)
+    .filter((area) => !area.effectiveEndDay || item.capturedDay! <= area.effectiveEndDay)
+    .map((area) => metersBetween(item, { ...item, latitude: area.latitude, longitude: area.longitude }))
+    .filter((distance): distance is number => distance !== null) : [];
+  const learnedBasePlaceIds = new Set(graph.places.filter((place) => learnedBaseEvidence.some((base) => place.memberIds.includes(base.id))).map((place) => place.id));
+  const candidates = buildV11Episodes(unreviewedEvidence.map((item) => {
+    const visitId = visitByEvidence.get(item.id);
+    const supportPlaceId = visitId ? placeByVisit.get(visitId) ?? null : null;
+    const distances = explicitHomes ? configuredDistance(item) : learnedBaseEvidence.map((base) => metersBetween(item, base)).filter((distance): distance is number => distance !== null);
+    const distance = distances.length ? Math.min(...distances) : null;
+    return {
+    ...item,
+    mediaType: 'image' as const,
+    // Android's local library does not always expose a source classification;
+    // retain that established capture-like fallback, but never overwrite an
+    // explicit non-capture provenance persisted by import.
+    captureLike: item.sourceOrigin !== 'download' && item.sourceOrigin !== 'screenshot' && item.sourceOrigin !== 'unknown',
+    origin: item.sourceOrigin === 'download' || item.sourceOrigin === 'screenshot' || item.sourceOrigin === 'unknown' ? item.sourceOrigin : 'capture-like',
+    originalLocalDay: item.capturedDay,
+    // V1 visit ordering is not a session model.  A dated visit is the most
+    // conservative bridge available until native session normalization exists.
+    sessionId: item.capturedDay,
+    supportPlaceId,
+    usualAreaContext: item.usualAreaContext || (!explicitHomes && Boolean(supportPlaceId && learnedBasePlaceIds.has(supportPlaceId))),
+    effectiveBaseDistanceMeters: distance,
+    foreignToEveryBase: distance === null ? null : distance >= 50_000,
+  };
+  }), { baseContext: explicitHomes || learnedBaseEvidence.length > 0, ownerHomeAreas: configuredHomeAreas });
+
+  const consumedVisits = new Set<string>();
+  const replacementJourneys: ReconstructionGraph['journeys'] = [];
+  const visitToJourney = new Map<string, string>();
+  for (const candidate of candidates.trips) {
+    const visitIds = [...new Set(candidate.supportIds.map((id) => visitByEvidence.get(id)).filter((id): id is string => Boolean(id)))];
+    if (!visitIds.length) continue;
+    // Only a stable representation order is used here; mixed time precision
+    // was already kept in separate canonical episodes above.
+    visitIds.sort((left, right) => left.localeCompare(right));
+    if (visitIds.some((id) => consumedVisits.has(id))) continue;
+    const id = `journey:v1-1:${visitIds.join('|')}`;
+    replacementJourneys.push({ id, visitIds, state: 'inferred' });
+    for (const visitId of visitIds) { consumedVisits.add(visitId); visitToJourney.set(visitId, id); }
+  }
+  // Preserve an invalid/unsupported legacy visit as a private draft rather
+  // than deleting it.  Qualification subsequently fails it closed.
+  for (const journey of graph.journeys) if (!protectedJourneyIds.has(journey.id)) {
+    const remaining = journey.visitIds.filter((visitId) => !consumedVisits.has(visitId));
+    if (remaining.length) {
+      const id = `journey:v1-1:${remaining.slice().sort().join('|')}`;
+      replacementJourneys.push({ ...journey, id, visitIds: remaining });
+      for (const visitId of remaining) visitToJourney.set(visitId, id);
+    }
+  }
+  for (const journey of graph.journeys) if (protectedJourneyIds.has(journey.id)) {
+    replacementJourneys.push({ ...journey, visitIds: [...journey.visitIds] });
+    for (const visitId of journey.visitIds) visitToJourney.set(visitId, journey.id);
+  }
+  return {
+    ...graph,
+    journeys: replacementJourneys.sort((left, right) => left.id.localeCompare(right.id)),
+    memberships: graph.memberships.map((membership) => ({
+      ...membership,
+      journeyId: visitToJourney.get(visitByEvidence.get(membership.evidenceId) ?? '') ?? membership.journeyId,
+    })),
+    possibleMerges: graph.possibleMerges.filter((merge) => protectedJourneyIds.has(merge.fromJourneyId) || protectedJourneyIds.has(merge.toJourneyId)),
+  };
+}
 
 class JourneyCorrectionRemapRequiredError extends Error {
   constructor(readonly revisionId: string) {
@@ -141,7 +387,7 @@ export function applyStructuralBoundaries(evidence: ReconstructionEvidence[], co
 }
 
 export function predecessorWideScopeRevisions(corrections: JourneyCorrectionRevision[]) {
-  return corrections.filter((correction) => correction.action === 'confirm' || correction.action === 'claim').map((correction) => correction.revision_id);
+  return corrections.filter((correction) => correction.action === 'confirm' || correction.action === 'claim' || correction.action === 'place').map((correction) => correction.revision_id);
 }
 
 /** Merge only the two saved, consecutive visit scopes. Generated journey IDs
@@ -250,6 +496,12 @@ export function applyJourneyCorrections(graph: ReconstructionGraph, corrections:
   return { graph: { ...graph, journeys, memberships: graph.memberships.filter((membership) => journeyIds.has(membership.journeyId) && !removedEvidence.has(membership.evidenceId)), possibleMerges: graph.possibleMerges.filter((merge) => journeyIds.has(merge.fromJourneyId) && journeyIds.has(merge.toJourneyId)) }, matches };
 }
 
+/** The durable application target must be the ID in the graph that will be
+ * committed and read by Atlas, not an intermediate pre-continuity graph. */
+export function mapCorrectionsToCommittedJourneys(graph: ReconstructionGraph, corrections: JourneyCorrectionRevision[], families?: FamilyResolver) {
+  return applyJourneyCorrections(graph, corrections, false, families).matches;
+}
+
 function rejectionGroupingConstraints(corrections: JourneyCorrectionRevision[], families?: FamilyResolver): JourneyGroupingConstraint[] {
   const constraints: JourneyGroupingConstraint[] = [];
   for (const correction of corrections) {
@@ -293,9 +545,9 @@ function isCalendarDay(value: string) {
 }
 
 function validatedOwnerClaim(claim: OwnerJourneyClaim | undefined): OwnerJourneyClaim {
-  if (!claim || !claim.title || claim.title !== claim.title.trim() || claim.title.length > 120) {
-    throw new Error('Enter a private journey title before saving.');
-  }
+  if (!claim || (!claim.title && !claim.date)) throw new Error('Enter a private journey title or date before saving.');
+  if (claim.title && (claim.title !== claim.title.trim() || claim.title.length > 120)) throw new Error('Enter a private journey title of 120 characters or fewer.');
+  if (!claim.date) return claim;
   if (claim.date.kind === 'exact') {
     if (!isCalendarDay(claim.date.day)) throw new Error('Enter an exact owner date as YYYY-MM-DD.');
     return claim;
@@ -304,6 +556,16 @@ function validatedOwnerClaim(claim: OwnerJourneyClaim | undefined): OwnerJourney
     throw new Error('Enter an ordered approximate date interval as YYYY-MM-DD.');
   }
   return claim;
+}
+
+function validatedOwnerPlace(place: OwnerJourneyPlace | undefined): OwnerJourneyPlace {
+  if (!place || !place.id || place.id.length > 160 || !place.name || place.name !== place.name.trim() || place.name.length > 120 || !place.context || place.context !== place.context.trim() || place.context.length > 160) {
+    throw new Error('Choose a local place result before saving.');
+  }
+  if (!Number.isFinite(place.anchor.latitude) || !Number.isFinite(place.anchor.longitude) || place.anchor.latitude < -90 || place.anchor.latitude > 90 || place.anchor.longitude < -180 || place.anchor.longitude > 180) {
+    throw new Error('The selected place has an invalid local map anchor.');
+  }
+  return place;
 }
 
 /** A graph rebuild is one local transaction, so readers see the prior complete run or the next one. */
@@ -324,6 +586,34 @@ export function createNativeReconstructionRepository() {
       return db;
     })().catch((error) => { database = null; throw error; });
     return database;
+  }
+
+  async function readDestinationLabels(db: Database, runId: number, journeyId: string | null = null) {
+    const support = await db.getAllAsync<EvidenceRow & { journey_id: string; place_id: string }>(`
+      SELECT DISTINCT journey.parent_id AS journey_id, visit.place_id,
+        evidence.evidence_id, evidence.captured_at_millis, evidence.captured_day,
+        evidence.has_precise_offset, evidence.availability, evidence.latitude, evidence.longitude,
+        evidence.reported_accuracy_meters, evidence.platform_duplicate_family_id,
+        evidence.source_origin, evidence.support_eligible, evidence.duplicate_tuple_version,
+        evidence.duplicate_tuple_fingerprint
+      FROM reconstruction_link journey
+      JOIN reconstruction_visit visit ON visit.run_id = journey.run_id AND visit.visit_id = journey.child_id
+      JOIN reconstruction_link support ON support.run_id = visit.run_id
+        AND support.link_kind = 'visit-support' AND support.parent_id = visit.visit_id
+      JOIN canonical_evidence evidence ON evidence.evidence_id = support.child_id
+      WHERE journey.run_id = ? AND journey.link_kind = 'journey-visit'
+        AND (? IS NULL OR journey.parent_id = ?)
+    `, runId, journeyId, journeyId);
+    const families = resolveVerifiedDuplicateFamilies(support);
+    const grouped = new Map<string, DestinationSupport[]>();
+    for (const row of support) {
+      if (row.availability === 'unavailable' || !families.supportEligible(row.evidence_id) || families.conflictForEvidence(row.evidence_id)) continue;
+      grouped.set(row.journey_id, [...(grouped.get(row.journey_id) ?? []), {
+        placeId: row.place_id, familyId: families.keyForEvidence(row.evidence_id),
+        latitude: row.latitude, longitude: row.longitude, reportedAccuracyMeters: row.reported_accuracy_meters,
+      }]);
+    }
+    return new Map([...grouped].map(([id, items]) => [id, destinationLabel(items)]));
   }
 
   async function acquireLease(nowMillis: number): Promise<number | null> {
@@ -387,6 +677,19 @@ export function createNativeReconstructionRepository() {
   }
 
   return {
+    async saveConfiguredHomeAreaFromJourney(displayId: string, areaId: string, visitId: string, ownerLabel: string, effectiveStartDay: string | null, effectiveEndDay: string | null) {
+      const db = await open();
+      const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
+      const selected = displayedJourneys.get(displayId);
+      if (lifecycle?.state !== 'connected' || !selected || !areaId || !visitId || !ownerLabel.trim()) throw new Error('Private place selection is unavailable.');
+      const validHomeDay = (day: string | null) => day === null || (/^\d{4}-(0[1-9]|1[0-2])-([0-2]\d|3[01])$/.test(day) && new Date(`${day}T00:00:00.000Z`).toISOString().slice(0, 10) === day);
+      if (!validHomeDay(effectiveStartDay) || !validHomeDay(effectiveEndDay) || (effectiveStartDay && effectiveEndDay && effectiveStartDay > effectiveEndDay)) throw new Error('Home-area dates must be valid and ordered.');
+      const place = await db.getFirstAsync<{ latitude: number; longitude: number }>(`SELECT evidence.latitude, evidence.longitude FROM reconstruction_link journey_visit JOIN reconstruction_visit visit ON visit.run_id = journey_visit.run_id AND visit.visit_id = journey_visit.child_id JOIN reconstruction_place reconstruction_place ON reconstruction_place.run_id = visit.run_id AND reconstruction_place.place_id = visit.place_id JOIN canonical_evidence evidence ON evidence.evidence_id = reconstruction_place.representative_evidence_id WHERE journey_visit.run_id = ? AND journey_visit.parent_id = ? AND journey_visit.child_id = ? AND journey_visit.link_kind = 'journey-visit' AND evidence.latitude IS NOT NULL AND evidence.longitude IS NOT NULL LIMIT 1`, selected.runId, selected.journeyId, visitId);
+      if (!place) throw new Error('Choose an observed area in this journey.');
+      await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
+      try { await db.runAsync("INSERT INTO configured_home_area (area_id, owner_label, origin, latitude, longitude, effective_start_day, effective_end_day, radius_meters) VALUES (?, ?, 'observed-area', ?, ?, ?, ?, ?) ON CONFLICT(area_id) DO UPDATE SET owner_label=excluded.owner_label, origin=excluded.origin, latitude=excluded.latitude, longitude=excluded.longitude, effective_start_day=excluded.effective_start_day, effective_end_day=excluded.effective_end_day, radius_meters=excluded.radius_meters", areaId, ownerLabel.trim(), place.latitude, place.longitude, effectiveStartDay, effectiveEndDay, 20_000); await db.execAsync('COMMIT'); }
+      catch (error) { await db.execAsync('ROLLBACK'); throw error; }
+    },
     /** Resolves an opaque Atlas id only inside SQLite and returns owner-readable text. */
     async loadJourneyDetail(displayId: string): Promise<{ detail: JourneyDetail; previewSourceRefs: (string | null)[]; snapshotToken: number }> {
       const db = await open();
@@ -444,7 +747,7 @@ export function createNativeReconstructionRepository() {
         `SELECT scope_review_id FROM journey_correction_scope_review
          WHERE run_id = ? AND journey_id = ? AND state = 'pending_scope_review' LIMIT 1`, selected.runId, selected.journeyId,
       );
-      const ownerClaimRow = await db.getFirstAsync<{ owner_title: string; owner_date_kind: 'exact' | 'approximate'; owner_date_start: string; owner_date_end: string | null }>(
+      const ownerClaimRow = await db.getFirstAsync<{ owner_title: string | null; owner_date_kind: 'exact' | 'approximate' | null; owner_date_start: string | null; owner_date_end: string | null }>(
         `SELECT revision.owner_title, revision.owner_date_kind, revision.owner_date_start, revision.owner_date_end
          FROM journey_correction_application application
          JOIN journey_correction_revision revision ON revision.revision_id = application.revision_id
@@ -452,11 +755,26 @@ export function createNativeReconstructionRepository() {
            AND revision.action = 'claim' AND revision.state = 'effective'
          ORDER BY revision.created_at_millis DESC LIMIT 1`, selected.runId, selected.journeyId,
       );
-      const ownerClaim = ownerClaimRow?.owner_date_kind === 'exact' && ownerClaimRow.owner_date_start
-        ? { title: ownerClaimRow.owner_title, date: { kind: 'exact' as const, day: ownerClaimRow.owner_date_start } }
+      const ownerDate = ownerClaimRow?.owner_date_kind === 'exact' && ownerClaimRow.owner_date_start
+        ? { kind: 'exact' as const, day: ownerClaimRow.owner_date_start }
         : ownerClaimRow?.owner_date_kind === 'approximate' && ownerClaimRow.owner_date_start && ownerClaimRow.owner_date_end
-          ? { title: ownerClaimRow.owner_title, date: { kind: 'approximate' as const, startDay: ownerClaimRow.owner_date_start, endDay: ownerClaimRow.owner_date_end } }
+          ? { kind: 'approximate' as const, startDay: ownerClaimRow.owner_date_start, endDay: ownerClaimRow.owner_date_end }
           : undefined;
+      const ownerClaim = ownerClaimRow && (ownerClaimRow.owner_title || ownerDate)
+        ? { ...(ownerClaimRow.owner_title ? { title: ownerClaimRow.owner_title } : {}), ...(ownerDate ? { date: ownerDate } : {}) }
+        : undefined;
+      const ownerPlaceRow = await db.getFirstAsync<{ owner_place_id: string; owner_place_name: string; owner_place_context: string; owner_latitude: number; owner_longitude: number }>(
+        `SELECT revision.owner_place_id, revision.owner_place_name, revision.owner_place_context, revision.owner_latitude, revision.owner_longitude
+         FROM journey_correction_application application
+         JOIN journey_correction_revision revision ON revision.revision_id = application.revision_id
+         WHERE application.run_id = ? AND application.target_kind = 'journey' AND application.journey_id = ?
+           AND revision.action = 'place' AND revision.state = 'effective'
+         ORDER BY revision.created_at_millis DESC LIMIT 1`, selected.runId, selected.journeyId,
+      );
+      const ownerPlaceAnchor = ownerPlaceRow ? coarseMapAnchor(ownerPlaceRow.owner_latitude, ownerPlaceRow.owner_longitude) : null;
+      const ownerPlace = ownerPlaceRow?.owner_place_id && ownerPlaceRow.owner_place_name && ownerPlaceRow.owner_place_context && ownerPlaceAnchor
+        ? { id: ownerPlaceRow.owner_place_id, name: ownerPlaceRow.owner_place_name, context: ownerPlaceRow.owner_place_context, anchor: ownerPlaceAnchor }
+        : undefined;
       const currentSupportRows = (await db.getAllAsync<{ evidence_id: string }>(`SELECT DISTINCT support.child_id AS evidence_id
         FROM reconstruction_link journey JOIN reconstruction_link support
           ON support.run_id = journey.run_id AND support.link_kind = 'visit-support' AND support.parent_id = journey.child_id
@@ -502,7 +820,8 @@ export function createNativeReconstructionRepository() {
         return { id, availability: memory.availability, membershipState: primary ? 'primary' as const : hasMembership ? 'suggested' as const : 'unassigned' as const, association: [hasVisitSupport ? 'Supports an observed visit; it does not prove owner presence.' : null, hasMembership ? `Associated with this journey as a memory (${memory.association.split(',').find((item) => item.startsWith('membership:'))?.slice('membership:'.length).replaceAll(/[-:]/g, ' ')}); separate from destination support.` : !hasVisitSupport ? 'Unassigned memory; it has no visit or place support.' : null, memory.disposition ? `This source is ${memory.disposition}; it is reviewable without being visit support.` : null].filter(Boolean).join(' ') };
       });
       const uncertainty = [...new Set([...(visits.some((visit) => visit.ordering === 'uncertain') ? ['Visit ordering is uncertain.'] : []), ...(visits.some((visit) => !visit.captured_day || !visit.has_precise_offset) ? ['Date precision is limited for part of this journey.'] : []), ...memories.filter((memory) => memory.disposition === 'unresolved' || memory.disposition === 'unassigned').map((memory) => `A source remains ${memory.disposition} and is not treated as visit support.`), ...memories.filter((memory) => memory.association.startsWith('membership:') && memory.captured_day === null).map(() => 'A GPS-less or date-limited memory is associated with this journey without destination support.')])];
-      return { detail: { id: displayId, title: ownerClaim?.title ?? 'Private journey', observedSpan: span, visits: detailVisits, mergeCandidates, memories: detailMemories, uncertainty, ownerClaim, pendingRemap: pendingRemap ? { reason: pendingRemap.reason } : pendingMemoryRemap ? { reason: pendingMemoryRemap.reason } : undefined, correctionState: pendingScopeReview ? 'pending scope review' : pendingRemap || pendingMemoryRemap || correction?.application_state === 'pending_remap' ? 'pending remap' : correction?.action === 'confirm' ? 'confirmed' : correction?.action === 'reject' ? 'rejected' : 'inferred' },
+      const destinationLabels = await readDestinationLabels(db, selected.runId, selected.journeyId);
+      return { detail: { id: displayId, title: ownerClaim?.title ?? ownerPlace?.name ?? destinationLabels.get(selected.journeyId) ?? 'Private journey', observedSpan: span, visits: detailVisits, mergeCandidates, memories: detailMemories, uncertainty, ownerClaim, ownerPlace, pendingRemap: pendingRemap ? { reason: pendingRemap.reason } : pendingMemoryRemap ? { reason: pendingMemoryRemap.reason } : undefined, correctionState: pendingScopeReview ? 'pending scope review' : pendingRemap || pendingMemoryRemap || correction?.application_state === 'pending_remap' ? 'pending remap' : correction?.action === 'confirm' ? 'confirmed' : correction?.action === 'reject' ? 'rejected' : 'inferred' },
         // Unknown is not unavailable. Resolve this bounded, selected set under
         // current permission so Android imports made before URI probing can
         // become visible; the adapter still fails closed if access is gone.
@@ -510,7 +829,9 @@ export function createNativeReconstructionRepository() {
     },
     /** Reads one stable, local-only associated-media page after an explicit gallery action. */
     async loadJourneyMediaPage(displayId: string, expectedSnapshotToken: number, page: number) {
-      const pageSize = 12;
+      // A gallery opens as a photo grid. Keep fetches bounded while avoiding
+      // the old list-like page-by-page experience.
+      const pageSize = 60;
       if (!Number.isInteger(page) || page < 0) throw new Error('Gallery page is unavailable.');
       const db = await open();
       const selected = displayedJourneys.get(displayId);
@@ -602,13 +923,14 @@ export function createNativeReconstructionRepository() {
     },
     /** Persist a review snapshot against canonical evidence only. A family key
      * is emitted only after its complete persisted tuple has been verified. */
-    async saveJourneyCorrection(displayId: string, action: JourneyCorrectionAction, expectedSnapshotToken: number, reviewedSnapshot: JourneyDetail, commandKey: string, payloadOrNowMillis?: OwnerJourneyClaim | StructuralSplit | StructuralMerge | VisitRemoval | number, suppliedNowMillis = Date.now()) {
+    async saveJourneyCorrection(displayId: string, action: JourneyCorrectionAction, expectedSnapshotToken: number, reviewedSnapshot: JourneyDetail, commandKey: string, payloadOrNowMillis?: OwnerJourneyClaim | OwnerJourneyPlace | StructuralSplit | StructuralMerge | VisitRemoval | number, suppliedNowMillis = Date.now()) {
       const db = await open();
       const selected = displayedJourneys.get(displayId);
       if (!selected) throw new Error('Journey is unavailable.');
       const structuralPredecessorJourneyIds = [selected.journeyId];
       const nowMillis = typeof payloadOrNowMillis === 'number' ? payloadOrNowMillis : suppliedNowMillis;
       const claim = action === 'claim' && typeof payloadOrNowMillis === 'object' ? payloadOrNowMillis as OwnerJourneyClaim : undefined;
+      const place = action === 'place' && typeof payloadOrNowMillis === 'object' ? payloadOrNowMillis as OwnerJourneyPlace : undefined;
       const split = action === 'split' && typeof payloadOrNowMillis === 'object' ? payloadOrNowMillis as StructuralSplit : undefined;
       const merge = action === 'merge' && typeof payloadOrNowMillis === 'object' ? payloadOrNowMillis as StructuralMerge : undefined;
       const removal = action === 'remove-visit' && typeof payloadOrNowMillis === 'object' ? payloadOrNowMillis as VisitRemoval : undefined;
@@ -626,6 +948,7 @@ export function createNativeReconstructionRepository() {
         const completed = await db.getFirstAsync<{ run_id: number }>("SELECT MAX(run_id) AS run_id FROM reconstruction_run WHERE status = 'complete'");
         if (lifecycle?.state !== 'connected' || selected.runId !== expectedSnapshotToken || completed?.run_id !== expectedSnapshotToken || reviewedSnapshot.id !== displayId) throw new Error('Review is stale. Reload the journey before saving.');
         const ownerClaim = action === 'claim' ? validatedOwnerClaim(claim) : undefined;
+        const ownerPlace = action === 'place' ? validatedOwnerPlace(place) : undefined;
         const splitBoundary = action === 'split' ? displayedVisits.get(`${displayId}:${split?.afterVisitId ?? ''}`) : undefined;
         const removedVisit = action === 'remove-visit' ? displayedVisits.get(`${displayId}:${removal?.visitId ?? ''}`) : undefined;
         if (action === 'remove-visit' && !removedVisit) throw new Error('Choose an observed destination from this private journey.');
@@ -695,16 +1018,34 @@ export function createNativeReconstructionRepository() {
         }
         const predecessorWide = action === 'split' || action === 'merge'
           ? await db.getAllAsync<JourneyCorrectionRevision>(`SELECT revision_id, action, reviewed_support_json, reviewed_visits_json
-              FROM journey_correction_revision WHERE state = 'effective' AND action IN ('confirm', 'claim')
+              FROM journey_correction_revision WHERE state = 'effective' AND action IN ('confirm', 'claim', 'place')
                 AND journey_id IN (${structuralPredecessorJourneyIds.map(() => '?').join(', ')})`, ...structuralPredecessorJourneyIds)
           : [];
         const predecessorWideIds = predecessorWideScopeRevisions(predecessorWide);
         for (const predecessorRevisionId of predecessorWideIds) await db.runAsync("UPDATE journey_correction_revision SET state = 'superseded' WHERE revision_id = ?", predecessorRevisionId);
-        if (action === 'confirm' || action === 'claim') {
+        if (action === 'confirm' || action === 'claim' || action === 'place') {
           await db.runAsync("UPDATE journey_correction_scope_review SET state = 'resolved' WHERE run_id = ? AND journey_id = ? AND state = 'pending_scope_review'", selected.runId, selected.journeyId);
         }
         const revisionId = `journey-review-${nowMillis}-${Math.random().toString(36).slice(2)}`;
-        await db.runAsync(`INSERT INTO journey_correction_revision (revision_id, action, source_run_id, journey_id, reviewed_support_json, state, created_at_millis, replaces_revision_id, reviewed_snapshot_json, reviewed_visits_json, reviewed_family_snapshot_json, command_key, owner_title, owner_date_kind, owner_date_start, owner_date_end, structural_boundary_json) VALUES (?, ?, ?, ?, ?, 'effective', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, revisionId, action, selected.runId, selected.journeyId, reviewedSupportJson, nowMillis, prior?.revision_id ?? null, reviewedSnapshotJson, reviewedVisitsJson, reviewedFamilySnapshotsJson, commandKey, ownerClaim?.title ?? null, ownerClaim?.date.kind ?? null, ownerClaim?.date.kind === 'exact' ? ownerClaim.date.day : ownerClaim?.date.startDay ?? null, ownerClaim?.date.kind === 'approximate' ? ownerClaim.date.endDay : null, structuralBoundaryJson);
+        const correctionColumns = ['revision_id', 'action', 'source_run_id', 'journey_id', 'reviewed_support_json', 'state', 'created_at_millis', 'replaces_revision_id', 'reviewed_snapshot_json', 'reviewed_visits_json', 'reviewed_family_snapshot_json', 'command_key', 'owner_title', 'owner_date_kind', 'owner_date_start', 'owner_date_end', 'structural_boundary_json', 'owner_place_id', 'owner_place_name', 'owner_place_context', 'owner_latitude', 'owner_longitude'];
+        const correctionValues = [revisionId, action, selected.runId, selected.journeyId, reviewedSupportJson, 'effective', nowMillis, prior?.revision_id ?? null, reviewedSnapshotJson, reviewedVisitsJson, reviewedFamilySnapshotsJson, commandKey, ownerClaim?.title ?? null, ownerClaim?.date?.kind ?? null, ownerClaim?.date?.kind === 'exact' ? ownerClaim.date.day : ownerClaim?.date?.kind === 'approximate' ? ownerClaim.date.startDay : null, ownerClaim?.date?.kind === 'approximate' ? ownerClaim.date.endDay : null, structuralBoundaryJson, ownerPlace?.id ?? null, ownerPlace?.name ?? null, ownerPlace?.context ?? null, ownerPlace?.anchor.latitude ?? null, ownerPlace?.anchor.longitude ?? null];
+        await db.runAsync(`INSERT INTO journey_correction_revision (${correctionColumns.join(', ')}) VALUES (${correctionColumns.map(() => '?').join(', ')})`, ...correctionValues);
+        // A place is an owner-controlled display override for the exact trip
+        // currently on screen; it does not change its evidence, visits, or
+        // grouping. Rebuilding here can rotate/split generated IDs before the
+        // override is visible, incorrectly turning a valid save into a remap.
+        // A later evidence-driven rebuild still remaps this immutable support
+        // snapshot fail-closed, preserving the correction safety boundary.
+        if (action === 'place') {
+          await db.runAsync(
+            `INSERT INTO journey_correction_application (revision_id, run_id, target_kind, journey_id, application_state) VALUES (?, ?, 'journey', ?, 'effective')`,
+            revisionId, selected.runId, selected.journeyId,
+          );
+          const lifecycleBeforeCommit = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
+          if (lifecycleBeforeCommit?.state !== 'connected') throw new Error('Private record is unavailable.');
+          await db.execAsync('COMMIT');
+          return { revisionId, state: 'claimed' as const, graph: null };
+        }
         const graph = await this.rebuild(nowMillis, false, async () => true, true);
         if (predecessorWideIds.length) {
           const runId = (await db.getFirstAsync<{ run_id: number }>('SELECT MAX(run_id) AS run_id FROM reconstruction_run WHERE status = \'complete\''))?.run_id;
@@ -762,7 +1103,7 @@ export function createNativeReconstructionRepository() {
       if (lifecycle?.state !== 'connected') throw new Error('Private record is not connected.');
       const completed = await db.getFirstAsync<{ run_id: number }>('SELECT MAX(run_id) AS run_id FROM reconstruction_run WHERE status = \'complete\'');
       if (!completed?.run_id) return { journeys: [], statistics: null };
-      const rows = await db.getAllAsync<{ journey_id: string; run_id: number; journey_state: 'inferred' | 'possible-merge'; latitude: number | null; longitude: number | null; display_ordinal: number; year: number | null; ordering: 'chronological' | 'uncertain'; first_year: number | null; last_year: number | null }>(`
+      const rows = await db.getAllAsync<{ journey_id: string; run_id: number; journey_state: 'inferred' | 'possible-merge'; latitude: number | null; longitude: number | null; display_ordinal: number; year: number | null; ordering: 'chronological' | 'uncertain'; first_year: number | null; last_year: number | null; first_day: string | null; last_day: string | null }>(`
         WITH journey_anchor AS (
           SELECT journey_link.parent_id AS journey_id, MIN(visit.visit_id) AS visit_id
           FROM reconstruction_link journey_link
@@ -773,8 +1114,11 @@ export function createNativeReconstructionRepository() {
           SELECT journey.journey_id, journey.run_id, journey.journey_state, evidence.latitude, evidence.longitude,
             MIN(CASE WHEN canonical.captured_day GLOB '????-??-??' THEN CAST(SUBSTR(canonical.captured_day, 1, 4) AS INTEGER) END) AS first_year,
             MAX(CASE WHEN canonical.captured_day GLOB '????-??-??' THEN CAST(SUBSTR(canonical.captured_day, 1, 4) AS INTEGER) END) AS last_year,
+            MIN(CASE WHEN canonical.captured_day GLOB '????-??-??' THEN canonical.captured_day END) AS first_day,
+            MAX(CASE WHEN canonical.captured_day GLOB '????-??-??' THEN canonical.captured_day END) AS last_day,
             CASE WHEN SUM(CASE WHEN journey_visit_row.ordering = 'uncertain' THEN 1 ELSE 0 END) > 0 THEN 'uncertain' ELSE 'chronological' END AS ordering
           FROM reconstruction_journey journey
+          JOIN reconstruction_trip_qualification qualification ON qualification.run_id = journey.run_id AND qualification.journey_id = journey.journey_id
           LEFT JOIN journey_anchor anchor ON anchor.journey_id = journey.journey_id
           LEFT JOIN reconstruction_visit visit ON visit.run_id = journey.run_id AND visit.visit_id = anchor.visit_id
           LEFT JOIN reconstruction_place place ON place.run_id = journey.run_id AND place.place_id = visit.place_id
@@ -783,7 +1127,7 @@ export function createNativeReconstructionRepository() {
           LEFT JOIN reconstruction_visit journey_visit_row ON journey_visit_row.run_id = journey_visit.run_id AND journey_visit_row.visit_id = journey_visit.child_id
           LEFT JOIN reconstruction_link visit_support ON visit_support.run_id = journey.run_id AND visit_support.link_kind = 'visit-support' AND visit_support.parent_id = journey_visit.child_id
           LEFT JOIN canonical_evidence canonical ON canonical.evidence_id = visit_support.child_id
-          WHERE journey.run_id = ?
+          WHERE journey.run_id = ? AND qualification.classification IN ('AUTO_CONFIRMED', 'USER_CONFIRMED')
           GROUP BY journey.journey_id
         ), numbered_journeys AS (
           SELECT *,
@@ -801,16 +1145,54 @@ export function createNativeReconstructionRepository() {
         SELECT numbered_journeys.journey_id, numbered_journeys.run_id, numbered_journeys.journey_state, numbered_journeys.latitude, numbered_journeys.longitude,
           numbered_journeys.display_ordinal, journey_years.year,
           CASE WHEN numbered_journeys.first_year IS NULL OR numbered_journeys.first_year_count > 1 THEN 'uncertain' ELSE numbered_journeys.ordering END AS ordering,
-          numbered_journeys.first_year, numbered_journeys.last_year
+          numbered_journeys.first_year, numbered_journeys.last_year, numbered_journeys.first_day, numbered_journeys.last_day
         FROM numbered_journeys LEFT JOIN journey_years ON journey_years.journey_id = numbered_journeys.journey_id
         ORDER BY numbered_journeys.display_ordinal, journey_years.year
       `, completed.run_id);
+      const countryRows = await db.getAllAsync<{ journey_id: string; country_code: string }>(`
+        SELECT DISTINCT journey_link.parent_id AS journey_id, place.country_code
+        FROM reconstruction_link journey_link
+        JOIN reconstruction_visit visit ON visit.run_id = journey_link.run_id AND visit.visit_id = journey_link.child_id
+        JOIN reconstruction_place place ON place.run_id = visit.run_id AND place.place_id = visit.place_id
+        JOIN reconstruction_trip_qualification qualification ON qualification.run_id = journey_link.run_id AND qualification.journey_id = journey_link.parent_id
+        WHERE journey_link.run_id = ? AND journey_link.link_kind = 'journey-visit'
+          AND qualification.classification IN ('AUTO_CONFIRMED', 'USER_CONFIRMED')
+          AND place.country_dataset_version = ? AND place.country_code IS NOT NULL
+      `, completed.run_id, NATURAL_EARTH_ADMIN_0_DATASET_VERSION);
+      const ownerPlaceRows = await db.getAllAsync<{ journey_id: string; owner_place_name: string; owner_place_context: string; owner_latitude: number; owner_longitude: number }>(`
+        SELECT application.journey_id, revision.owner_place_name, revision.owner_place_context, revision.owner_latitude, revision.owner_longitude
+        FROM journey_correction_application application
+        JOIN journey_correction_revision revision ON revision.revision_id = application.revision_id
+        WHERE application.run_id = ? AND application.target_kind = 'journey'
+          AND revision.action = 'place' AND revision.state = 'effective'
+        ORDER BY revision.created_at_millis DESC`, completed.run_id);
+      const ownerPlaceByJourney = new Map<string, { name: string; context: string; latitude: number; longitude: number }>();
+      for (const row of ownerPlaceRows) {
+        if (!ownerPlaceByJourney.has(row.journey_id) && row.owner_place_name && row.owner_place_context && Number.isFinite(row.owner_latitude) && Number.isFinite(row.owner_longitude)) {
+          ownerPlaceByJourney.set(row.journey_id, { name: row.owner_place_name, context: row.owner_place_context, latitude: row.owner_latitude, longitude: row.owner_longitude });
+        }
+      }
+      const labelsByJourney = new Map<string, string[]>();
+      for (const row of countryRows) {
+        const name = countryDisplayName(row.country_code);
+        if (name) labelsByJourney.set(row.journey_id, [...new Set([...(labelsByJourney.get(row.journey_id) ?? []), name])].sort());
+      }
       const statistics = await db.getFirstAsync<{ journey_count: number; place_count: number; country_count: number; resolved_count: number }>(`
+        WITH qualified_destinations AS (
+          SELECT DISTINCT visit.place_id
+          FROM reconstruction_link journey_visit
+          JOIN reconstruction_trip_qualification qualification
+            ON qualification.run_id = journey_visit.run_id AND qualification.journey_id = journey_visit.parent_id
+          JOIN reconstruction_visit visit
+            ON visit.run_id = journey_visit.run_id AND visit.visit_id = journey_visit.child_id
+          WHERE journey_visit.run_id = ? AND journey_visit.link_kind = 'journey-visit'
+            AND qualification.classification IN ('AUTO_CONFIRMED', 'USER_CONFIRMED')
+        )
         SELECT
-          (SELECT COUNT(*) FROM reconstruction_journey WHERE run_id = ?) AS journey_count,
-          (SELECT COUNT(*) FROM reconstruction_place WHERE run_id = ?) AS place_count,
-          (SELECT COUNT(DISTINCT country_code) FROM reconstruction_place WHERE run_id = ? AND country_code IS NOT NULL AND country_dataset_version = ?) AS country_count,
-          (SELECT COUNT(*) FROM reconstruction_place WHERE run_id = ? AND country_dataset_version = ?) AS resolved_count
+          (SELECT COUNT(*) FROM reconstruction_trip_qualification WHERE run_id = ? AND classification IN ('AUTO_CONFIRMED', 'USER_CONFIRMED')) AS journey_count,
+          (SELECT COUNT(*) FROM qualified_destinations) AS place_count,
+          (SELECT COUNT(DISTINCT place.country_code) FROM qualified_destinations destination JOIN reconstruction_place place ON place.run_id = ? AND place.place_id = destination.place_id WHERE place.country_code IS NOT NULL AND place.country_dataset_version = ?) AS country_count,
+          (SELECT COUNT(*) FROM qualified_destinations destination JOIN reconstruction_place place ON place.run_id = ? AND place.place_id = destination.place_id WHERE place.country_dataset_version = ?) AS resolved_count
       `, completed.run_id, completed.run_id, completed.run_id, NATURAL_EARTH_ADMIN_0_DATASET_VERSION, completed.run_id, NATURAL_EARTH_ADMIN_0_DATASET_VERSION);
       const diagnostics = await db.getFirstAsync<{
         assessed: number; supported: number; places: number; visits: number;
@@ -831,14 +1213,18 @@ export function createNativeReconstructionRepository() {
         FROM reconstruction_disposition WHERE run_id = ?
       `, completed.run_id, completed.run_id, completed.run_id);
       const journeys = new Map<string, DurableRevealRecord['journeys'][number]>();
+      const destinationLabels = await readDestinationLabels(db, completed.run_id);
       displayedJourneys.clear();
       for (const row of rows) {
         const displayId = opaqueJourneyDisplayId(row.journey_id);
         displayedJourneys.set(displayId, { runId: row.run_id, journeyId: row.journey_id });
         const existing = journeys.get(displayId);
         if (existing) { if (row.year !== null) existing.years.push(row.year); continue; }
-        const periodLabel = row.first_year === null ? 'Date unknown' : row.first_year === row.last_year ? String(row.first_year) : `${row.first_year}–${row.last_year}`;
-        journeys.set(displayId, { displayId, state: row.journey_state, anchor: coarseMapAnchor(row.latitude, row.longitude), years: row.year === null ? [] : [row.year], periodLabel, ordering: row.ordering });
+        const names = labelsByJourney.get(row.journey_id) ?? [];
+        const supportedLabel = destinationLabels.get(row.journey_id);
+        const ownerPlace = ownerPlaceByJourney.get(row.journey_id);
+        const label = ownerPlace ? `${ownerPlace.name}, ${ownerPlace.context}` : supportedLabel && supportedLabel !== 'Private journey' ? supportedLabel : names.length === 1 ? names[0] : names.length === 2 ? `${names[0]} & ${names[1]}` : names.length > 2 ? 'Multi-country trip' : 'Private journey';
+        journeys.set(displayId, { displayId, state: row.journey_state, anchor: ownerPlace ? coarseMapAnchor(ownerPlace.latitude, ownerPlace.longitude) : coarseMapAnchor(row.latitude, row.longitude), years: row.year === null ? [] : [row.year], periodLabel: monthRangeLabel(row.first_day, row.last_day, row.first_year, row.last_year), ordering: row.ordering, label, locationKind: ownerPlace ? 'owner-confirmed' : 'inferred' });
       }
       return { journeys: [...journeys.values()], statistics: statistics ? { journeyCount: statistics.journey_count, placeCount: statistics.place_count, supportedCountryCount: statistics.country_count, countryStatus: statistics.resolved_count === statistics.place_count ? 'supported' : 'unavailable' } : null,
         diagnostics: diagnostics ? { assessed: diagnostics.assessed, supported: diagnostics.supported, places: diagnostics.places, visits: diagnostics.visits, missingDay: diagnostics.missing_day, invalidDay: diagnostics.invalid_day, unavailable: diagnostics.unavailable, duplicateConflict: diagnostics.duplicate_conflict, insufficientLocation: diagnostics.insufficient_location, excluded: diagnostics.excluded } : null };
@@ -860,7 +1246,7 @@ export function createNativeReconstructionRepository() {
           await db.runAsync("UPDATE reconciliation_state SET status = 'running', message = 'Reconciling local journey updates.' WHERE record_id = 1");
         }
         const previousJourneyIds = new Set((await db.getAllAsync<{ journey_id: string }>('SELECT journey_id FROM reconstruction_journey')).map((row) => row.journey_id));
-        const rows = await db.getAllAsync<EvidenceRow>('SELECT evidence_id, captured_at_millis, captured_day, has_precise_offset, availability, latitude, longitude, reported_accuracy_meters, platform_duplicate_family_id, source_origin, support_eligible, duplicate_tuple_version, duplicate_tuple_fingerprint FROM canonical_evidence');
+        const rows = await db.getAllAsync<EvidenceRow>('SELECT evidence_id, media_type, captured_at_millis, captured_day, has_precise_offset, availability, latitude, longitude, reported_accuracy_meters, platform_duplicate_family_id, source_origin, support_eligible, duplicate_tuple_version, duplicate_tuple_fingerprint FROM canonical_evidence');
         const excluded = new Set((await db.getAllAsync<{ target_id: string }>(`SELECT current.target_id FROM correction_overlays current
           JOIN (SELECT target_id, MAX(revision) AS revision FROM correction_overlays WHERE target_kind = 'evidence' AND correction_scope = 'inclusion' GROUP BY target_id) latest
           ON latest.target_id = current.target_id AND latest.revision = current.revision
@@ -875,12 +1261,15 @@ export function createNativeReconstructionRepository() {
           if ((protectedHistory?.count ?? 0) > 0) throw new Error('History corrections need owner review before local reconciliation.');
         }
         const families = resolveVerifiedDuplicateFamilies(rows);
-        const evidence = rows.map((row) => ({
+        const configuredHomeAreas = await db.getAllAsync<{ area_id: string; latitude: number; longitude: number; effective_start_day: string | null; effective_end_day: string | null; radius_meters: number }>(
+          'SELECT area_id, latitude, longitude, effective_start_day, effective_end_day, radius_meters FROM configured_home_area ORDER BY area_id',
+        );
+        const evidence = applyOwnerConfiguredHomeAreas(rows.map((row) => ({
           id: row.evidence_id, capturedAtMillis: row.captured_at_millis,
           capturedDay: row.captured_day,
           hasPreciseOffset: row.has_precise_offset === 1, latitude: row.latitude, longitude: row.longitude, reportedAccuracyMeters: row.reported_accuracy_meters,
-          availability: row.availability, duplicateFamilyId: families.keyForEvidence(row.evidence_id).startsWith('F:') ? families.keyForEvidence(row.evidence_id).slice(2) : (row.platform_duplicate_family_id ?? null), duplicateConflict: families.conflictForEvidence(row.evidence_id), supportEligible: families.supportEligible(row.evidence_id), excluded: excluded.has(row.evidence_id),
-        }));
+          availability: row.availability, duplicateFamilyId: families.keyForEvidence(row.evidence_id).startsWith('F:') ? families.keyForEvidence(row.evidence_id).slice(2) : (row.platform_duplicate_family_id ?? null), duplicateConflict: families.conflictForEvidence(row.evidence_id), supportEligible: families.supportEligible(row.evidence_id), sourceOrigin: row.source_origin, excluded: excluded.has(row.evidence_id),
+        })), configuredHomeAreas.map((area) => ({ id: area.area_id, latitude: area.latitude, longitude: area.longitude, effectiveStartDay: area.effective_start_day, effectiveEndDay: area.effective_end_day, radiusMeters: area.radius_meters })));
         const corrections = await db.getAllAsync<JourneyCorrectionRevision>(`SELECT revision_id, action, reviewed_support_json, reviewed_visits_json, reviewed_family_snapshot_json, structural_boundary_json
           FROM journey_correction_revision WHERE state = 'effective'`);
         const memoryCorrections = await db.getAllAsync<MemoryCorrectionRevision>(`SELECT revision_id, action, source_evidence_id, reviewed_support_json, reviewed_family_snapshot_json, created_at_millis
@@ -940,17 +1329,39 @@ export function createNativeReconstructionRepository() {
           }
         }
         const structurallyMerged = applyOwnerJourneyMerges(confirmed.graph, corrections, families);
+        // Do not remap an owner-reviewed graph implicitly.  Exact correction
+        // matches pin only their own journeys; unrelated corrections must not
+        // freeze a later, unreviewed continuous away episode.
+        const protectedJourneyIds = new Set([
+          ...baseline.matches.values(),
+          ...confirmed.matches.values(),
+          ...memoryMatches.values(),
+        ]);
+        const continuityGraph = constructCanonicalV11Graph(structurallyMerged, evidence, protectedJourneyIds, configuredHomeAreas.map((area) => ({
+          id: area.area_id,
+          latitude: area.latitude,
+          longitude: area.longitude,
+          effectiveStartDay: area.effective_start_day,
+          effectiveEndDay: area.effective_end_day,
+          radiusMeters: area.radius_meters,
+        })));
         const graph = {
-          ...structurallyMerged,
+          ...continuityGraph,
           memberships: [
-            ...structurallyMerged.memberships.filter((membership) => {
+            ...continuityGraph.memberships.filter((membership) => {
               const supportUnit = families.keyForEvidence(membership.evidenceId);
               return !ownerPrimary.has(supportUnit) && !rejectedTargets.has(`${supportUnit}:${membership.journeyId}`);
             }),
             ...[...ownerPrimary.entries()].map(([supportUnit, journeyId]) => ({ evidenceId: resolveReviewedSupportKey(supportUnit, 'memory-primary', families.snapshotsFor([supportUnit]), families), journeyId, state: 'owner' as const, reason: 'owner-primary' as const })),
           ],
         };
-        const matches = new Map([...baseline.matches, ...confirmed.matches]);
+        // `baseline` and `confirmed` intentionally run before the continuity
+        // pass so those corrections protect their reviewed support. The final
+        // Atlas projection can then merge otherwise-unreviewed episodes and
+        // generate a different journey ID. Store correction applications
+        // against that final graph, not the pre-continuity ID, or a saved
+        // owner place will have no visible journey to override.
+        const finalMatches = mapCorrectionsToCommittedJourneys(graph, corrections, families);
         const evidenceRevision = (await db.getFirstAsync<{ canonical_evidence_revision: number | null }>('SELECT canonical_evidence_revision FROM private_history_record WHERE record_id = 1'))?.canonical_evidence_revision ?? 0;
         const correctionRevision = (await db.getFirstAsync<{ revision: number | null }>('SELECT MAX(revision) AS revision FROM correction_overlays'))?.revision ?? 0;
         const revision = Math.max(evidenceRevision, correctionRevision);
@@ -959,7 +1370,7 @@ export function createNativeReconstructionRepository() {
         if (runId === undefined) throw new Error('Could not create reconstruction run.');
         for (const correction of corrections) {
           const targetKind = correction.action === 'reject' || correction.action === 'split' || correction.action === 'merge' ? 'grouping-constraint' : 'journey';
-          const journeyId = targetKind === 'journey' ? matches.get(correction.revision_id) : null;
+          const journeyId = targetKind === 'journey' ? finalMatches.get(correction.revision_id) : null;
           if (targetKind === 'journey' && !journeyId) throw new JourneyCorrectionRemapRequiredError(correction.revision_id);
           await db.runAsync(
             `INSERT INTO journey_correction_application (revision_id, run_id, target_kind, journey_id, application_state) VALUES (?, ?, ?, ?, 'effective')`,
@@ -976,15 +1387,29 @@ export function createNativeReconstructionRepository() {
           "UPDATE journey_correction_candidate SET state = 'resolved' WHERE revision_id = ? AND state = 'pending_remap'",
           correction.revision_id,
         );
-        await db.runAsync('DELETE FROM reconstruction_disposition'); await db.runAsync('DELETE FROM reconstruction_link'); await db.runAsync('DELETE FROM reconstruction_journey'); await db.runAsync('DELETE FROM reconstruction_visit'); await db.runAsync('DELETE FROM reconstruction_place');
+        await db.runAsync('DELETE FROM reconstruction_trip_qualification'); await db.runAsync('DELETE FROM reconstruction_disposition'); await db.runAsync('DELETE FROM reconstruction_link'); await db.runAsync('DELETE FROM reconstruction_journey'); await db.runAsync('DELETE FROM reconstruction_visit'); await db.runAsync('DELETE FROM reconstruction_place');
+        const evidenceById = new Map(evidence.map((item) => [item.id, item]));
         for (const place of graph.places) {
-          const representative = rows.find((row) => row.evidence_id === place.representativeId);
-          const country = resolveCountry({ latitude: representative?.latitude ?? null, longitude: representative?.longitude ?? null });
-          await db.runAsync('INSERT INTO reconstruction_place (place_id, run_id, representative_evidence_id, uncertainty_json, country_code, country_dataset_version) VALUES (?, ?, ?, ?, ?, ?)', place.id, runId, place.representativeId, JSON.stringify(place.uncertainty), country.status === 'resolved' ? country.code : null, NATURAL_EARTH_ADMIN_0_DATASET_VERSION);
+          const countryCode = resolvePlaceCountryCode(place, evidenceById);
+          await db.runAsync('INSERT INTO reconstruction_place (place_id, run_id, representative_evidence_id, uncertainty_json, country_code, country_dataset_version) VALUES (?, ?, ?, ?, ?, ?)', place.id, runId, place.representativeId, JSON.stringify(place.uncertainty), countryCode, NATURAL_EARTH_ADMIN_0_DATASET_VERSION);
           for (const evidenceId of place.memberIds) await db.runAsync('INSERT INTO reconstruction_link (run_id, link_kind, parent_id, child_id) VALUES (?, ?, ?, ?)', runId, 'place-support', place.id, evidenceId);
         }
         for (const visit of graph.visits) { await db.runAsync('INSERT INTO reconstruction_visit (visit_id, run_id, place_id, ordering) VALUES (?, ?, ?, ?)', visit.id, runId, visit.placeId, visit.order); for (const evidenceId of visit.evidenceIds) await db.runAsync('INSERT INTO reconstruction_link (run_id, link_kind, parent_id, child_id) VALUES (?, ?, ?, ?)', runId, 'visit-support', visit.id, evidenceId); }
-        for (const journey of graph.journeys) { await db.runAsync('INSERT INTO reconstruction_journey (journey_id, run_id, journey_state) VALUES (?, ?, ?)', journey.id, runId, journey.state); for (const visitId of journey.visitIds) await db.runAsync('INSERT INTO reconstruction_link (run_id, link_kind, parent_id, child_id) VALUES (?, ?, ?, ?)', runId, 'journey-visit', journey.id, visitId); }
+        const confirmedJourneyIds = new Set(corrections.filter((correction) => correction.action === 'confirm').map((correction) => finalMatches.get(correction.revision_id)).filter((id): id is string => Boolean(id)));
+        const mediaByEvidence = new Map(rows.map((row) => [row.evidence_id, row.media_type ?? 'image'] as const));
+        for (const journey of graph.journeys) {
+          await db.runAsync('INSERT INTO reconstruction_journey (journey_id, run_id, journey_state) VALUES (?, ?, ?)', journey.id, runId, journey.state);
+          const ownerConfirmed = confirmedJourneyIds.has(journey.id);
+          const qualification = ownerConfirmed
+            ? { classification: 'USER_CONFIRMED' as const, score: 0, path: null, reasons: ['owner-confirmed'] }
+            : qualifyGraphJourneyV11(graph, journey.id, evidence, mediaByEvidence);
+          await db.runAsync(
+            'INSERT INTO reconstruction_trip_qualification (run_id, journey_id, classification, score, qualification_path, reasons_json) VALUES (?, ?, ?, ?, ?, ?)',
+            runId, journey.id, qualification.classification, qualification.score, qualification.path,
+            JSON.stringify(qualification.reasons),
+          );
+          for (const visitId of journey.visitIds) await db.runAsync('INSERT INTO reconstruction_link (run_id, link_kind, parent_id, child_id) VALUES (?, ?, ?, ?)', runId, 'journey-visit', journey.id, visitId);
+        }
         for (const membership of graph.memberships) await db.runAsync('INSERT INTO reconstruction_link (run_id, link_kind, parent_id, child_id) VALUES (?, ?, ?, ?)', runId, `membership:${membership.state}:${membership.reason}`, membership.journeyId, membership.evidenceId);
         for (const merge of graph.possibleMerges) await db.runAsync('INSERT INTO reconstruction_link (run_id, link_kind, parent_id, child_id) VALUES (?, ?, ?, ?)', runId, `possible-merge:${merge.reason}`, merge.fromJourneyId, merge.toJourneyId);
         for (const disposition of graph.dispositions) await db.runAsync('INSERT INTO reconstruction_disposition (run_id, evidence_id, disposition_state, reasons_json) VALUES (?, ?, ?, ?)', runId, disposition.evidenceId, disposition.state, JSON.stringify(disposition.reasons));

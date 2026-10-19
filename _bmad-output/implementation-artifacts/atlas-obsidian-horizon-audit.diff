@@ -1,0 +1,1157 @@
+diff --git a/apps/mobile/src/components/__tests__/atlas-reveal.test.tsx b/apps/mobile/src/components/__tests__/atlas-reveal.test.tsx
+index ff49044..477e41a 100644
+--- a/apps/mobile/src/components/__tests__/atlas-reveal.test.tsx
++++ b/apps/mobile/src/components/__tests__/atlas-reveal.test.tsx
+@@ -1,6 +1,6 @@
+ import { fireEvent, render, waitFor } from '@testing-library/react-native';
+ 
+-import { AtlasReveal, mapCameraFor, mapLibreDevelopmentStyle } from '@/components/atlas-reveal';
++import { AtlasReveal, atlasMotionPolicy, mapCameraFor, mapLibreDevelopmentStyle } from '@/components/atlas-reveal';
+ import { assertRevealPayload, deriveAtlasExploration, projectReveal } from '@/reveal/projection';
+ import { recordRevealEvent } from '@/reveal/telemetry';
+ 
+@@ -22,7 +22,7 @@ jest.mock('expo-video', () => ({
+   VideoView: () => null,
+ }));
+ 
+-const actions = { onImport: jest.fn(), onRetry: jest.fn(), onCatchUp: jest.fn(), onManualEntry: jest.fn(), onReplay: jest.fn() };
++const actions = { onImport: jest.fn(), onRetry: jest.fn(), onCatchUp: jest.fn(), onManualEntry: jest.fn(), onReplay: jest.fn(), onSettings: jest.fn() };
+ 
+ function modelFor(overrides: Partial<Parameters<typeof projectReveal>[0]>) {
+   return projectReveal({ graph: null, durableRecord: null, reconstructionStatus: 'complete', reconciliationStatus: 'complete', pendingCount: 0, sourceScope: 'full', importedCount: 3, ...overrides });
+@@ -49,11 +49,21 @@ describe('private Atlas reveal', () => {
+     expect(view.getByTestId('private-atlas-map')).toBeOnTheScreen();
+     await fireEvent.press(view.getByRole('button', { name: 'About your Atlas' }));
+     expect(view.getByText(/3 device-visible records/)).toBeOnTheScreen();
+-    expect(view.getByText('Private journey')).toBeOnTheScreen();
++    expect(view.getByText(/Private journey/)).toBeOnTheScreen();
+     await fireEvent.press(view.getByRole('button', { name: 'Check Replay availability' }));
+     expect(actions.onReplay).toHaveBeenCalled();
++    await fireEvent.press(view.getByRole('button', { name: 'Rebuild local journey history' }));
++    expect(actions.onRetry).toHaveBeenCalled();
+     await fireEvent.press(view.getByRole('button', { name: 'Show chronological Timeline' }));
+     expect(view.getByRole('button', { name: 'Show chronological Timeline' }).props.accessibilityState).toMatchObject({ selected: true });
++    await fireEvent.press(view.getByRole('button', { name: 'Open Home bases' }));
++    expect(actions.onSettings).toHaveBeenCalled();
++  });
++
++  it('uses the locally derived coarse trip label and month only in the Atlas list', () => {
++    const model = modelFor({ durableRecord: { journeys: [{ displayId: 'taiwan-october', state: 'inferred', anchor: null, years: [2025], periodLabel: 'October 2025', ordering: 'chronological', label: 'Taiwan' }] } });
++    expect(model.journeys[0]).toMatchObject({ label: 'Taiwan', periodLabel: 'October 2025' });
++    expect(JSON.stringify(model)).not.toMatch(/countryCode|capturedDay|latitude/);
+   });
+ 
+   it('keeps the last durable map projection explorable while local reconciliation is running', async () => {
+@@ -62,7 +72,7 @@ describe('private Atlas reveal', () => {
+       reconstructionStatus: 'complete', reconciliationStatus: 'running', pendingCount: 1,
+     })} {...actions} />);
+ 
+-    expect(view.getByText('Local updates are still being reconciled. This record is not final yet.')).toBeOnTheScreen();
++    expect(view.getByText(/Checking local updates.*will refresh automatically when this finishes/)).toBeOnTheScreen();
+     expect(view.getByTestId('private-atlas-map')).toBeOnTheScreen();
+     expect(view.getByRole('button', { name: 'Show chronological Timeline' })).toBeOnTheScreen();
+     expect(view.getByRole('button', { name: 'Show journeys from 2024' })).toBeOnTheScreen();
+@@ -106,7 +116,9 @@ describe('private Atlas reveal', () => {
+ 
+   it('states processing is not final and offers a local catch-up', async () => {
+     const view = await render(<AtlasReveal model={modelFor({ reconstructionStatus: 'running', reconciliationStatus: 'running', pendingCount: 1 })} {...actions} />);
+-    expect(view.getByText(/not final yet/)).toBeOnTheScreen();
++    expect(view.getByLabelText('Local journey rebuild in progress').props.accessibilityState).toMatchObject({ busy: true });
++    expect(view.getByText(/Rebuilding local journey history/)).toBeOnTheScreen();
++    expect(view.getByText(/will refresh automatically when this finishes/)).toBeOnTheScreen();
+     await fireEvent.press(view.getByRole('button', { name: 'Catch up local journey history' }));
+     expect(actions.onCatchUp).toHaveBeenCalled();
+   });
+@@ -177,6 +189,28 @@ describe('private Atlas reveal', () => {
+     expect(deriveAtlasExploration(model.journeys, { view: 'timeline', year: 2023, selectedJourneyId: 'journey-1' })).toMatchObject({ visibleJourneys: [expect.objectContaining({ id: 'journey-2' })], selectedJourneyId: null });
+   });
+ 
++  it('filters only the current redacted projection, clears an excluded selection, and exposes local map controls', async () => {
++    const model = modelFor({ durableRecord: { journeys: [
++      { displayId: 'journey-one', state: 'inferred', anchor: { latitude: 13.7, longitude: 100.5 }, years: [2024], periodLabel: 'April 2024', ordering: 'chronological', label: 'North coast' },
++      { displayId: 'journey-two', state: 'possible-merge', anchor: { latitude: 35.7, longitude: 139.7 }, years: [2023], periodLabel: 'May 2023', ordering: 'uncertain', label: 'Harbor' },
++    ] } });
++    const view = await render(<AtlasReveal model={model} {...actions} />);
++    await fireEvent.press(view.getByRole('button', { name: /North coast, April 2024/ }));
++    expect(view.getByTestId('journey-preview-sheet')).toBeOnTheScreen();
++    await fireEvent.changeText(view.getByLabelText('Search visible Atlas journeys locally'), 'harbor');
++    expect(view.queryByTestId('journey-preview-sheet')).toBeNull();
++    expect(view.getByRole('button', { name: 'Harbor, May 2023' })).toBeOnTheScreen();
++    expect(view.queryByRole('button', { name: 'North coast, April 2024' })).toBeNull();
++    expect(view.getByTestId('private-atlas-anchors').props.data.features.map((feature: { properties: { journeyId: string } }) => feature.properties.journeyId)).toEqual(['journey-two']);
++    await fireEvent.press(view.getByRole('button', { name: 'Zoom in on local Atlas map' }));
++    await fireEvent.press(view.getByRole('button', { name: 'Reset local Atlas orientation' }));
++  });
++
++  it('uses no decorative map motion and removes the preview fade when reduced motion is enabled', () => {
++    expect(atlasMotionPolicy(false)).toEqual({ cardAnimation: 'fade', hasDecorativeMotion: false });
++    expect(atlasMotionPolicy(true)).toEqual({ cardAnimation: 'none', hasDecorativeMotion: false });
++  });
++
+   it('keeps Timeline selection coherent and clears it when a filter excludes it', async () => {
+     const model = projectReveal({ graph: null, durableRecord: { journeys: [
+       { displayId: 'journey-1', state: 'inferred', anchor: { latitude: 13.7, longitude: 100.5 }, years: [2024], periodLabel: '2024', ordering: 'chronological' },
+@@ -225,8 +259,10 @@ describe('private Atlas reveal', () => {
+     await waitFor(() => expect(view.getByRole('button', { name: 'See photos and videos' })).toBeOnTheScreen());
+     await fireEvent.press(view.getByRole('button', { name: 'See photos and videos' }));
+     await waitFor(() => expect(page).toHaveBeenCalledWith('gallery-safe', 8, 0));
++    expect(view.getByTestId('journey-media-album')).toBeOnTheScreen();
++    expect(view.getByRole('button', { name: 'Close photos and videos' })).toBeOnTheScreen();
+     expect(view.getByLabelText('Associated photo thumbnail')).toBeOnTheScreen();
+-    await fireEvent.press(view.getByRole('button', { name: 'Next media page' }));
++    await fireEvent.press(view.getByRole('button', { name: 'Load more media' }));
+     await waitFor(() => expect(view.getByRole('button', { name: 'Retry media page' })).toBeOnTheScreen());
+     await fireEvent.press(view.getByRole('button', { name: 'Retry media page' }));
+     await waitFor(() => expect(page).toHaveBeenCalledWith('gallery-safe', 8, 1));
+@@ -237,6 +273,7 @@ describe('private Atlas reveal', () => {
+     const model = modelFor({ durableRecord: { journeys: [{ displayId: 'atlas-safe-display', state: 'inferred', anchor: null, years: [2024], periodLabel: '2024', ordering: 'chronological' }] } });
+     const view = await render(<AtlasReveal model={model} {...actions} loadJourneyPreview={load} />);
+     await fireEvent.press(view.getByRole('button', { name: /Private journey, 2024/ }));
++    expect(view.getByTestId('journey-preview-sheet')).toBeOnTheScreen();
+     await waitFor(() => expect(view.getByText('Observed 2024-01-01')).toBeOnTheScreen());
+     expect(view.getByLabelText('Associated photo preview')).toBeOnTheScreen();
+     expect(load).toHaveBeenCalledWith('atlas-safe-display');
+diff --git a/apps/mobile/src/components/atlas-reveal.tsx b/apps/mobile/src/components/atlas-reveal.tsx
+index 70caf08..984352d 100644
+--- a/apps/mobile/src/components/atlas-reveal.tsx
++++ b/apps/mobile/src/components/atlas-reveal.tsx
+@@ -1,8 +1,8 @@
+ import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
+-import { Platform, ScrollView, Text, View } from 'react-native';
++import { ActivityIndicator, Modal, Platform, ScrollView, Text, TextInput, View } from 'react-native';
+ import { Image } from 'expo-image';
+ 
+-import { ActionButton, Body, InsetPanel, palette, Title } from '@/components/ui';
++import { ActionButton, Body, InsetPanel, palette, Title, useReducedMotion } from '@/components/ui';
+ import { JourneyMediaViewer } from '@/components/journey-media-viewer';
+ import type { OwnerPreview } from '@/photo-access/types';
+ import type { AtlasCamera, AtlasExploration, JourneyDetail, RevealJourney, RevealMapAnchor, RevealModel } from '@/reveal/types';
+@@ -30,6 +30,35 @@ try {
+ 
+ const MAPLIBRE_DEMO_STYLE = 'https://demotiles.maplibre.org/style.json';
+ 
++// This is deliberately local to Atlas. It is an approved map-surface extension,
++// not a replacement for the Living Atlas palette used by the rest of the app.
++const atlas = {
++  void: '#0B132B',
++  midnight: '#1C2541',
++  glass: 'rgba(19,27,49,0.75)',
++  luminous: '#1F3159',
++  cyan: '#4EA8DE',
++  cyanBright: '#00B4D8',
++  amber: '#F3722C',
++  gold: '#E9C46A',
++  secondary: '#8D99AE',
++} as const;
++
++function normalizeLocalSearch(value: string) {
++  return value.replace(/\s+/g, ' ').trim().slice(0, 80);
++}
++
++function matchesLocalSearch(journey: RevealJourney, query: string) {
++  if (!query) return true;
++  const searchable = `${journey.label} ${journey.periodLabel} ${journey.status}`.toLocaleLowerCase();
++  return searchable.includes(query.toLocaleLowerCase());
++}
++
++/** Atlas never animates map state automatically. Reduced motion also removes the card fade. */
++export function atlasMotionPolicy(reducedMotion: boolean) {
++  return { cardAnimation: reducedMotion ? 'none' as const : 'fade' as const, hasDecorativeMotion: false };
++}
++
+ export function mapLibreDevelopmentStyle(isDevelopment = __DEV__) {
+   return isDevelopment ? MAPLIBRE_DEMO_STYLE : null;
+ }
+@@ -45,14 +74,14 @@ function NativeMap({ camera: savedCamera, onCameraChange, onChoose, onEmpty, onG
+     features: anchoredJourneys.map((journey) => ({ type: 'Feature', id: journey.id, properties: { journeyId: journey.id, selected: journey.id === selectedJourneyId }, geometry: { type: 'Point', coordinates: [journey.mapAnchor.longitude, journey.mapAnchor.latitude] } })),
+   };
+   const { Map, Camera, GeoJSONSource, Layer } = mapLibre;
+-  return <Map mapStyle={style} style={{ height: 390, borderRadius: 20, overflow: 'hidden' }} androidView="texture" accessibilityLabel="Private Atlas coarse map" testID="private-atlas-map" attribution logo compass={false} preferredFramesPerSecond={60} dragPan touchZoom doubleTapZoom onTouchStart={() => onGestureChange(true)} onTouchEnd={() => onGestureChange(false)} onTouchCancel={() => onGestureChange(false)} onPress={onEmpty} onDidFailLoadingMap={onUnavailable} onRegionWillChange={() => onGestureChange(true)} onRegionDidChange={(event) => { onGestureChange(false); const next = event.nativeEvent; if (Array.isArray(next.center) && next.center.length === 2 && Number.isFinite(next.zoom)) onCameraChange({ center: [next.center[0], next.center[1]], zoom: next.zoom }); }}>
++  return <Map mapStyle={style} style={{ height: 430, borderRadius: 22, overflow: 'hidden', backgroundColor: atlas.void }} androidView="texture" accessibilityLabel="Private Atlas coarse world map" testID="private-atlas-map" attribution logo compass={false} preferredFramesPerSecond={60} dragPan touchZoom doubleTapZoom onTouchStart={() => onGestureChange(true)} onTouchEnd={() => onGestureChange(false)} onTouchCancel={() => onGestureChange(false)} onPress={onEmpty} onDidFailLoadingMap={onUnavailable} onRegionWillChange={() => onGestureChange(true)} onRegionDidChange={(event) => { onGestureChange(false); const next = event.nativeEvent; if (Array.isArray(next.center) && next.center.length === 2 && Number.isFinite(next.zoom)) onCameraChange({ center: [next.center[0], next.center[1]], zoom: next.zoom }); }}>
+     <Camera initialViewState={camera} minZoom={1} maxZoom={10} />
+     <GeoJSONSource id="private-atlas-anchors" hitbox={{ top: 20, right: 20, bottom: 20, left: 20 }} testID="private-atlas-anchors" data={points} onPress={(event) => {
+       event.stopPropagation?.();
+       const journeyIds = [...new Set(event.nativeEvent.features.map((feature) => feature.properties?.journeyId).filter((id): id is string => typeof id === 'string'))];
+       if (journeyIds.length) onChoose(journeyIds);
+     }}>
+-      <Layer id="private-atlas-anchor-points" type="circle" paint={{ 'circle-radius': ['case', ['get', 'selected'], 13, 9], 'circle-color': ['case', ['get', 'selected'], palette.citrus, palette.sage], 'circle-stroke-color': palette.rainforest, 'circle-stroke-width': ['case', ['get', 'selected'], 4, 2] }} />
++      <Layer id="private-atlas-anchor-points" type="circle" paint={{ 'circle-radius': ['case', ['get', 'selected'], 13, 9], 'circle-color': ['case', ['get', 'selected'], atlas.cyanBright, atlas.amber], 'circle-stroke-color': ['case', ['get', 'selected'], atlas.gold, atlas.void], 'circle-stroke-width': ['case', ['get', 'selected'], 4, 2] }} />
+     </GeoJSONSource>
+   </Map>;
+ }
+@@ -75,7 +104,20 @@ function MapUnavailable({ onUnavailable }: { onUnavailable: () => void }) {
+   return null;
+ }
+ 
+-export function AtlasReveal({ model, onImport, onRetry, onCatchUp, onManualEntry, onReplay, onOpenJourney, onCorrectJourney, loadJourneyPreview, loadJourneyMediaPage, initialExploration, mapAvailable = true, onMapGestureChange }: { model: RevealModel; onImport(): void; onRetry(): void; onCatchUp(): void; onManualEntry(): void; onReplay(): void; onOpenJourney?(id: string): void; onCorrectJourney?(id: string, context: AtlasExploration): void; loadJourneyPreview?(id: string): Promise<{ detail: JourneyDetail; previews: OwnerPreview[]; snapshotToken?: number }>; loadJourneyMediaPage?(id: string, snapshotToken: number, page: number): Promise<{ page: import('@/reveal/types').JourneyMediaPage; previews: OwnerPreview[] }>; initialExploration?: AtlasExploration | null; mapAvailable?: boolean; onMapGestureChange?(active: boolean): void }) {
++function JourneyPreviewSheet({ journey, preview, previewError, onClose, onMedia, onCorrect, reducedMotion, children }: { journey: RevealJourney | null; preview: { id: string; detail: JourneyDetail; previews: OwnerPreview[]; snapshotToken?: number } | null; previewError: string | null; onClose(): void; onMedia(): void; onCorrect?(): void; reducedMotion: boolean; children?: ReactNode }) {
++  const cardPhoto = preview && preview.id === journey?.id ? preview.previews.find((item) => item.kind === 'photo' && item.uri) ?? null : null;
++  if (!journey) return null;
++  return <Modal visible transparent animationType={atlasMotionPolicy(reducedMotion).cardAnimation} onRequestClose={onClose}><View testID="journey-preview-sheet" style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.42)', padding: 12 }}><InsetPanel>
++    <Text style={{ color: palette.limestone, fontSize: 20, fontWeight: '800' }}>{preview?.id === journey.id ? preview.detail.ownerClaim?.title ?? journey.label : journey.label}</Text>
++    {preview?.id === journey.id ? <><Body>{preview.detail.ownerClaim ? 'Your title and date are shown separately from observed evidence.' : 'Observed evidence, not a claimed destination.'}</Body><Body>{journey.periodLabel}</Body><Body>{preview.detail.observedSpan}</Body><Body>{preview.detail.correctionState ?? 'inferred'}</Body>{cardPhoto ? <><Image source={{ uri: cardPhoto.uri! }} style={{ height: 112, borderRadius: 12 }} accessibilityLabel="Associated photo preview" cachePolicy="memory" allowDownscaling /><Body>Associated photo.</Body></> : <Body>{preview.previews.some((item) => item.uri) ? 'Associated video available. Open photos and videos to play it.' : 'No accessible associated media yet.'}</Body>}</> : previewError ? <Body>{previewError}</Body> : <Body>Loading local journey preview.</Body>}
++    <ActionButton accessibilityLabel="Close journey preview" onPress={onClose} variant="secondary">Close</ActionButton>
++    {preview?.id === journey.id && <ActionButton accessibilityLabel="See photos and videos" onPress={onMedia} disabled={!preview.detail.memories.length}>See photos and videos</ActionButton>}
++    {onCorrect && <ActionButton accessibilityLabel="Review or correct journey" onPress={onCorrect} variant="secondary">Review or correct journey</ActionButton>}
++    {children}
++  </InsetPanel></View></Modal>;
++}
++
++export function AtlasReveal({ model, onImport, onRetry, onCatchUp, onManualEntry, onReplay, onSettings, onOpenJourney, onCorrectJourney, loadJourneyPreview, loadJourneyMediaPage, initialExploration, mapAvailable = true, onMapGestureChange }: { model: RevealModel; onImport(): void; onRetry(): void; onCatchUp(): void; onManualEntry(): void; onReplay(): void; onSettings?(): void; onOpenJourney?(id: string): void; onCorrectJourney?(id: string, context: AtlasExploration): void; loadJourneyPreview?(id: string): Promise<{ detail: JourneyDetail; previews: OwnerPreview[]; snapshotToken?: number }>; loadJourneyMediaPage?(id: string, snapshotToken: number, page: number): Promise<{ page: import('@/reveal/types').JourneyMediaPage; previews: OwnerPreview[] }>; initialExploration?: AtlasExploration | null; mapAvailable?: boolean; onMapGestureChange?(active: boolean): void }) {
+   const [view, setView] = useState<'map' | 'timeline'>(initialExploration?.view ?? 'map');
+   const [year, setYear] = useState<number | null>(initialExploration?.year ?? null);
+   const [selectedJourneyId, setSelectedJourneyId] = useState<string | null>(initialExploration?.selectedJourneyId ?? null);
+@@ -86,10 +128,13 @@ export function AtlasReveal({ model, onImport, onRetry, onCatchUp, onManualEntry
+   const [showMedia, setShowMedia] = useState(false);
+   const [showAbout, setShowAbout] = useState(false);
+   const [overlapChoices, setOverlapChoices] = useState<string[] | null>(null);
++  const [search, setSearch] = useState('');
+   const requestId = useRef(0);
++  const reducedMotion = useReducedMotion();
+   const effectiveMapUnavailable = !mapAvailable || mapUnavailable;
+-  const exploration = deriveAtlasExploration(model.journeys, { view, year, selectedJourneyId });
+-  const cardPhoto = preview?.id === exploration.selectedJourneyId ? preview.previews.find((item) => item.kind === 'photo' && item.uri) ?? null : null;
++  const unfilteredExploration = deriveAtlasExploration(model.journeys, { view, year, selectedJourneyId });
++  const visibleJourneys = unfilteredExploration.visibleJourneys.filter((journey) => matchesLocalSearch(journey, search));
++  const exploration = { ...unfilteredExploration, visibleJourneys, selectedJourneyId: visibleJourneys.some((journey) => journey.id === selectedJourneyId) ? selectedJourneyId : null };
+   // A running reconciliation retains the previous durable projection. It is
+   // truthful to explore that private, coarse map while its warning makes clear
+   // that local updates may still change the next completed result.
+@@ -98,6 +143,21 @@ export function AtlasReveal({ model, onImport, onRetry, onCatchUp, onManualEntry
+     setYear(nextYear);
+     setSelectedJourneyId((previous) => nextYear === null || model.journeys.some((journey) => journey.id === previous && journey.years.includes(nextYear)) ? previous : null);
+   };
++  const changeSearch = (value: string) => {
++    const nextSearch = normalizeLocalSearch(value);
++    setSearch(nextSearch);
++    setSelectedJourneyId((previous) => model.journeys.some((journey) => journey.id === previous && (year === null || journey.years.includes(year)) && matchesLocalSearch(journey, nextSearch)) ? previous : null);
++    setOverlapChoices(null);
++  };
++  const resetMap = () => {
++    setMapCamera(undefined);
++    setSelectedJourneyId(null);
++  };
++  const changeZoom = (delta: number) => setMapCamera((previous) => {
++    const fallback = mapCameraFor(visibleJourneys.flatMap((journey) => journey.mapAnchor ? [journey.mapAnchor] : []));
++    const current = previous ?? fallback;
++    return current ? { ...current, zoom: Math.max(1, Math.min(10, current.zoom + delta)) } : previous;
++  });
+   const showMap = canExplore && view === 'map' && !effectiveMapUnavailable;
+   const selectJourney = (id: string) => {
+     setShowMedia(false);
+@@ -114,9 +174,16 @@ export function AtlasReveal({ model, onImport, onRetry, onCatchUp, onManualEntry
+     }).catch(() => { if (active && request === requestId.current) setPreviewError('This journey changed; choose it again.'); });
+     return () => { active = false; };
+   }, [exploration.selectedJourneyId, loadJourneyPreview]);
+-  return <View style={{ gap: 14 }}>
+-    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}><Title>Your Atlas</Title><ActionButton accessibilityLabel="About your Atlas" onPress={() => setShowAbout(true)} variant="secondary">About</ActionButton></View>
+-    {model.state !== 'ready' && <Body>{model.message}</Body>}
++  return <View style={{ gap: 14, backgroundColor: atlas.void, marginHorizontal: -20, paddingHorizontal: 20, paddingVertical: 14 }}>
++    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}><View><Text style={{ color: atlas.cyan, fontSize: 12, fontWeight: '900', letterSpacing: 1.4 }}>PRIVATE ATLAS</Text><Title>Your Atlas</Title></View><View style={{ flexDirection: 'row', gap: 8, flexShrink: 0 }}>{onSettings && <ActionButton accessibilityLabel="Open Home bases" onPress={onSettings} variant="secondary">Homes</ActionButton>}<ActionButton accessibilityLabel="About your Atlas" onPress={() => setShowAbout(true)} variant="secondary">About</ActionButton></View></View>
++    {model.state === 'processing' ? <InsetPanel>
++      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }} accessibilityLabel="Local journey rebuild in progress" accessibilityState={{ busy: true }}>
++        <ActivityIndicator color={palette.citrus} />
++        <Text style={{ color: palette.limestone, fontSize: 18, fontWeight: '800' }}>Updating your Atlas</Text>
++      </View>
++      <Body>{model.message}</Body>
++      <Body>You can keep this screen open. Check the map and journeys again when this notice disappears.</Body>
++    </InsetPanel> : model.state !== 'ready' && <Body>{model.message}</Body>}
+     {showAbout && <InsetPanel><Body>{model.coverage} It may be incomplete and is not a lifetime claim.</Body><Body>{model.message}</Body><Body>The development map uses MapLibre demo tiles and may receive map viewport and tile requests. Travel Life does not submit journey records or media to it.</Body><ActionButton accessibilityLabel="Close About your Atlas" onPress={() => setShowAbout(false)} variant="secondary">Close</ActionButton></InsetPanel>}
+     {model.state === 'sparse' && <Text style={{ color: palette.limestone, fontSize: 20, fontWeight: '800' }}>No journey revealed yet.</Text>}
+     {model.state === 'sparse' && <InsetPanel>
+@@ -136,36 +203,38 @@ export function AtlasReveal({ model, onImport, onRetry, onCatchUp, onManualEntry
+       </> : <Body>Inferred totals are unavailable until a completed local reconstruction can be read.</Body>}
+       <Body>Available private record; it may be incomplete.</Body>
+     </View>}
+-    {canExplore && <View style={{ flexDirection: 'row', gap: 8 }}>
++    {canExplore && <View style={{ gap: 8, padding: 12, borderRadius: 18, backgroundColor: atlas.glass, borderWidth: 1, borderColor: 'rgba(78,168,222,0.35)' }}>
++      <TextInput value={search} onChangeText={changeSearch} accessibilityLabel="Search visible Atlas journeys locally" placeholder="Search this private Atlas" placeholderTextColor={atlas.secondary} autoCorrect={false} autoCapitalize="none" style={{ minHeight: 48, color: palette.limestone, borderWidth: 1, borderColor: 'rgba(78,168,222,0.5)', borderRadius: 12, paddingHorizontal: 14, backgroundColor: atlas.midnight }} />
++      <Body style={{ color: atlas.secondary }}>Search stays on this device and only filters the journeys already visible here.</Body>
++      <View style={{ flexDirection: 'row', gap: 8 }}>
+       <ActionButton accessibilityLabel="Show Atlas map" accessibilityState={{ selected: view === 'map' }} onPress={() => setView('map')} variant={view === 'map' ? 'primary' : 'secondary'}>Map</ActionButton>
+       <ActionButton accessibilityLabel="Show chronological Timeline" accessibilityState={{ selected: view === 'timeline' }} onPress={() => setView('timeline')} variant={view === 'timeline' ? 'primary' : 'secondary'}>Timeline</ActionButton>
++      </View>
+     </View>}
+-    {canExplore && <ScrollView horizontal contentContainerStyle={{ gap: 8 }} accessibilityLabel="Filter Atlas by year">
++    {canExplore && <ScrollView horizontal contentContainerStyle={{ gap: 8, paddingVertical: 2 }} accessibilityLabel="Filter Atlas by year">
+       <ActionButton accessibilityLabel="Show all years" accessibilityState={{ selected: year === null }} onPress={() => selectYear(null)} variant={year === null ? 'primary' : 'secondary'}>All years</ActionButton>
+       {exploration.years.map((availableYear) => <ActionButton key={availableYear} accessibilityLabel={`Show journeys from ${availableYear}`} accessibilityState={{ selected: year === availableYear }} onPress={() => selectYear(availableYear)} variant={year === availableYear ? 'primary' : 'secondary'}>{String(availableYear)}</ActionButton>)}
+     </ScrollView>}
+     {showMap && <View style={{ position: 'relative' }}><NativeMap camera={mapCamera} onCameraChange={setMapCamera} journeys={exploration.visibleJourneys} selectedJourneyId={exploration.selectedJourneyId} onChoose={(ids) => ids.length === 1 ? selectJourney(ids[0]) : setOverlapChoices(ids)} onEmpty={() => { if (!overlapChoices) setSelectedJourneyId(null); }} onGestureChange={(active) => onMapGestureChange?.(active)} onUnavailable={() => setMapUnavailable(true)} />
+-      {exploration.selectedJourneyId && <View style={{ position: 'absolute', left: 12, right: 12, bottom: 12 }}><InsetPanel>
+-      <Text style={{ color: palette.limestone, fontSize: 20, fontWeight: '800' }}>{preview?.id === exploration.selectedJourneyId ? preview.detail.ownerClaim?.title ?? 'Private journey' : 'Private journey'}</Text>
+-      {preview?.id === exploration.selectedJourneyId && <><Body>{preview.detail.ownerClaim ? 'Your title and date are shown separately from observed evidence.' : 'Observed evidence, not a claimed destination.'}</Body><Body>{preview.detail.observedSpan}</Body><Body>{preview.detail.correctionState ?? 'inferred'}</Body>{cardPhoto ? <><Image source={{ uri: cardPhoto.uri! }} style={{ height: 112, borderRadius: 12 }} accessibilityLabel="Associated photo preview" cachePolicy="memory" allowDownscaling /><Body>Associated photo.</Body></> : <Body>{preview.previews.some((item) => item.uri) ? 'Associated video available. Open photos and videos to play it.' : 'No accessible associated media yet.'}</Body>}</>}
+-      {previewError && <Body>{previewError}</Body>}
+-      {!preview && !previewError && <Body>Loading local journey preview.</Body>}
+-      <ActionButton accessibilityLabel="Close journey preview" onPress={() => setSelectedJourneyId(null)} variant="secondary">Close</ActionButton>
+-      {preview?.id === exploration.selectedJourneyId && <ActionButton accessibilityLabel="See photos and videos" onPress={() => setShowMedia(true)} disabled={!preview.detail.memories.length}>See photos and videos</ActionButton>}
+-      {onCorrectJourney && <ActionButton accessibilityLabel="Review or correct journey" onPress={() => onCorrectJourney(exploration.selectedJourneyId!, { view, year, selectedJourneyId: exploration.selectedJourneyId, camera: mapCamera })} variant="secondary">Review or correct journey</ActionButton>}
+-      {showMedia && preview?.id === exploration.selectedJourneyId && <JourneyMediaViewer detail={preview.detail} previews={preview.previews} loadPage={loadJourneyMediaPage && preview.snapshotToken !== undefined ? (page) => loadJourneyMediaPage(preview.id, preview.snapshotToken!, page) : undefined} onClose={() => setShowMedia(false)} />}
+-    </InsetPanel></View>}
+-      {overlapChoices && <InsetPanel><Text style={{ color: palette.limestone, fontSize: 18, fontWeight: '800' }}>Choose a journey</Text><Body>Several private journeys share this map area.</Body>{overlapChoices.map((id) => { const choice = exploration.visibleJourneys.find((journey) => journey.id === id); return choice ? <ActionButton key={id} accessibilityLabel={`Choose ${choice.label}`} onPress={() => selectJourney(id)} variant="secondary">{choice.label} · {choice.periodLabel} · {choice.status}</ActionButton> : null; })}<ActionButton accessibilityLabel="Cancel overlapping journey choice" onPress={() => setOverlapChoices(null)} variant="secondary">Cancel</ActionButton></InsetPanel>}
++      <View style={{ position: 'absolute', top: 12, left: 12, gap: 6, padding: 8, borderRadius: 14, backgroundColor: atlas.glass, borderWidth: 1, borderColor: 'rgba(233,196,106,0.45)' }} accessibilityLabel="Atlas map controls">
++        <ActionButton accessibilityLabel="Zoom in on local Atlas map" onPress={() => changeZoom(1)} variant="secondary">+</ActionButton>
++        <ActionButton accessibilityLabel="Zoom out on local Atlas map" onPress={() => changeZoom(-1)} variant="secondary">−</ActionButton>
++        <ActionButton accessibilityLabel="Reset local Atlas orientation" onPress={resetMap} variant="secondary">Reset</ActionButton>
++      </View>
++      {overlapChoices && <View style={{ position: 'absolute', left: 12, right: 12, bottom: 12, padding: 12, borderRadius: 18, backgroundColor: atlas.glass, borderWidth: 1, borderColor: 'rgba(78,168,222,0.35)' }}><Text style={{ color: palette.limestone, fontSize: 18, fontWeight: '800' }}>Choose a journey</Text><Body>Several private journeys share this map area.</Body>{overlapChoices.map((id) => { const choice = exploration.visibleJourneys.find((journey) => journey.id === id); return choice ? <ActionButton key={id} accessibilityLabel={`Choose ${choice.label}`} onPress={() => selectJourney(id)} variant="secondary">{choice.label} · {choice.periodLabel} · {choice.status}</ActionButton> : null; })}<ActionButton accessibilityLabel="Cancel overlapping journey choice" onPress={() => setOverlapChoices(null)} variant="secondary">Cancel</ActionButton></View>}
+     </View>}
+-    {!showMap && exploration.selectedJourneyId && <InsetPanel><Text style={{ color: palette.limestone, fontSize: 20, fontWeight: '800' }}>{preview?.id === exploration.selectedJourneyId ? preview.detail.ownerClaim?.title ?? 'Private journey' : 'Private journey'}</Text>{preview?.id === exploration.selectedJourneyId ? <><Body>{preview.detail.observedSpan}</Body><Body>{preview.detail.correctionState ?? 'inferred'}</Body></> : previewError ? <Body>{previewError}</Body> : <Body>Loading local journey preview.</Body>}<ActionButton accessibilityLabel="Close journey preview" onPress={() => setSelectedJourneyId(null)} variant="secondary">Close</ActionButton>{preview?.id === exploration.selectedJourneyId && <ActionButton accessibilityLabel="See photos and videos" onPress={() => setShowMedia(true)} disabled={!preview.detail.memories.length}>See photos and videos</ActionButton>}{onCorrectJourney && <ActionButton accessibilityLabel="Review or correct journey" onPress={() => onCorrectJourney(exploration.selectedJourneyId!, { view, year, selectedJourneyId: exploration.selectedJourneyId, camera: mapCamera })} variant="secondary">Review or correct journey</ActionButton>}{showMedia && preview?.id === exploration.selectedJourneyId && <JourneyMediaViewer detail={preview.detail} previews={preview.previews} loadPage={loadJourneyMediaPage && preview.snapshotToken !== undefined ? (page) => loadJourneyMediaPage(preview.id, preview.snapshotToken!, page) : undefined} onClose={() => setShowMedia(false)} />}</InsetPanel>}
++    <JourneyPreviewSheet journey={exploration.visibleJourneys.find((journey) => journey.id === exploration.selectedJourneyId) ?? null} preview={preview} previewError={previewError} onClose={() => { setShowMedia(false); setSelectedJourneyId(null); }} onMedia={() => setShowMedia(true)} onCorrect={onCorrectJourney && exploration.selectedJourneyId ? () => onCorrectJourney(exploration.selectedJourneyId!, { view, year, selectedJourneyId: exploration.selectedJourneyId, camera: mapCamera }) : undefined} reducedMotion={reducedMotion} />
++    {showMedia && preview?.id === exploration.selectedJourneyId && <JourneyMediaViewer detail={preview.detail} previews={preview.previews} loadPage={loadJourneyMediaPage && preview.snapshotToken !== undefined ? (page) => loadJourneyMediaPage(preview.id, preview.snapshotToken!, page) : undefined} onClose={() => setShowMedia(false)} />}
+     {(effectiveMapUnavailable || !canExplore) && <InsetPanel><Body>{effectiveMapUnavailable ? 'The map is unavailable. Your local history Timeline is still available.' : 'Your local history Timeline is available below.'}</Body></InsetPanel>}
+     <View style={{ gap: 2 }} accessibilityLabel="Chronological local journey Timeline">
+       <Text style={{ color: palette.limestone, fontSize: 20, fontWeight: '800' }}>Journeys · {exploration.visibleJourneys.length}</Text>
+-      {exploration.visibleJourneys.map((journey) => <ActionButton key={journey.id} accessibilityLabel={`${journey.label}, ${journey.periodLabel}${exploration.selectedJourneyId === journey.id ? ', selected' : ''}`} accessibilityState={{ selected: exploration.selectedJourneyId === journey.id }} onPress={() => selectJourney(journey.id)} variant="secondary"><Text style={{ color: palette.limestone, fontWeight: '700' }}>{journey.label}</Text><Text style={{ color: palette.sage }}>{journey.periodLabel} · {journey.status}{journey.ordering === 'Order uncertain' ? ' · order uncertain' : ''}{journey.hasMapSupport ? '' : ' · location unknown'}</Text></ActionButton>)}
+-        {year !== null && !exploration.visibleJourneys.length && <Body>No journeys have an observed visit in {year}. Choose All years to see the full available record.</Body>}
++      {exploration.visibleJourneys.map((journey) => <ActionButton key={journey.id} accessibilityLabel={`${journey.label}, ${journey.periodLabel}${exploration.selectedJourneyId === journey.id ? ', selected' : ''}`} accessibilityState={{ selected: exploration.selectedJourneyId === journey.id }} onPress={() => selectJourney(journey.id)} variant="secondary"><Text style={{ color: palette.limestone, fontWeight: '700' }}>{journey.label}{'\n'}<Text style={{ color: palette.sage }}>{journey.periodLabel} · {journey.status}{journey.ordering === 'Order uncertain' ? ' · order uncertain' : ''}{journey.hasMapSupport ? '' : ' · location unknown'}</Text></Text></ActionButton>)}
++        {!exploration.visibleJourneys.length && search.length > 0 && <Body>No visible local journeys match “{search}”. Clear or change the local search.</Body>}
++        {year !== null && !exploration.visibleJourneys.length && !search.length && <Body>No journeys have an observed visit in {year}. Choose All years to see the full available record.</Body>}
+         {!model.journeys.length && <Body>No supported journey is available to show.</Body>}
+     </View>
+     {model.replay.eligible ? <ActionButton accessibilityLabel="Check Replay availability" onPress={onReplay}>Explore Replay availability</ActionButton> : <InsetPanel><Body>{model.replay.reason}</Body></InsetPanel>}
++    {model.state === 'ready' && <ActionButton accessibilityLabel="Rebuild local journey history" onPress={onRetry} variant="secondary">Rebuild local journey history</ActionButton>}
+     {model.state === 'processing' && <ActionButton accessibilityLabel="Catch up local journey history" onPress={onCatchUp} variant="secondary">Catch up locally</ActionButton>}
+     {model.state === 'failed' && <ActionButton accessibilityLabel="Retry local reveal" onPress={onRetry} variant="secondary">Retry local reveal</ActionButton>}
+     {model.state === 'sparse' && <ActionButton accessibilityLabel="Recheck local journey history" onPress={onRetry} variant="secondary">Recheck local journey history</ActionButton>}
+diff --git a/docs/development/error-playbook.md b/docs/development/error-playbook.md
+index b536faf..3cd9622 100644
+--- a/docs/development/error-playbook.md
++++ b/docs/development/error-playbook.md
+@@ -42,6 +42,8 @@ area, symptom, command, and rule when an incident occurs.
+ | EP-038 | Expo Video, Atlas unit test, native module import | Mock a newly imported native runtime module before Atlas component tests load | Fixed; regression active |
+ | EP-039 | BMAD memlog, uv cache, Windows sandbox | Distinguish runtime cache denial from spec-log failure and retry within the approved boundary | Fixed; spec log created |
+ | EP-041 | Atlas refinement, focused Jest, compact disclosure | Update focused UI assertions when an intentional progressive-disclosure contract changes | Fixed; regression active |
++| EP-058 | Trip recognition, inferred drafts, Atlas, review burden | Qualify episodes before primary publication; measure recall and review effort as well as precision | Open; improvement planned |
++| EP-059 | Engine planning, readiness, score gates, incomplete contract | Do not describe a plan as complete with unresolved executable policy or conflicting fixtures | Planning corrected; engine unimplemented |
+ | EP-019 | BMAD context, epics anchor, fragment path | Verify a referenced Markdown anchor before extracting a context fragment | Fixed |
+ 
+ ## EP-039: BMAD decision-log initialization hit a sandbox cache denial
+@@ -53,6 +55,7 @@ area, symptom, command, and rule when an incident occurs.
+ - **Correction:** Reran the identical initialization outside the sandbox through the approval mechanism, then used that boundary for log appends.
+ - **Verification:** Initialization returned `ok: true` with zero entries; ten subsequent appends returned sequential counts 1–10.
+ - **Recurrence (2026-10-15, dimensional Atlas planning):** Configuration resolution through sandboxed `uv run` hit the same interpreter-cache denial. The queued read-only script commands also failed before Python ran. Configuration resolution and new spec-log initialization/appends succeeded through approved escalation. No application failure occurred. Strengthened preflight: after this environment's cache denial is known, request the approved execution boundary for subsequent BMAD script invocations in that session instead of re-probing the sandbox.
++- **Recurrence (2026-10-16, Trip Detection Engine V1.1 party):** The initial three read-only BMAD party setup commands again failed at `uv` interpreter-cache persistence inside the Windows sandbox, before configuration or roster resolution. Rerunning them through the approved execution boundary resolved the workflow configuration, project core settings, and installed-party roster. No application failure occurred.
+ - **Prevention:** Check the script result before assuming a spec workspace exists. After a verified runtime-cache denial, retry through the approved boundary rather than repeating the unchanged sandbox call or editing upstream scripts.
+ 
+ ## EP-041: Atlas refinement changed a focused UI contract without updating every assertion
+@@ -67,6 +70,19 @@ area, symptom, command, and rule when an incident occurs.
+ 
+ ## Recording and maintenance
+ 
++### Continuity-party tooling recurrence (2026-10-16; EP-003/EP-004)
++
++A skill read used an unquoted path containing spaces and failed; a subsequent
++search passed a Windows wildcard as a literal path and failed. Both reads were
++corrected with a quoted literal path and `rg` directory plus `-g` filter.
++An attempted playbook update used a nonexistent exact heading and was rejected
++without changing the file. Prevention: read exact anchors before patches and
++use literal quoted paths for PowerShell reads. No application command failed.
++During specification, a source inventory also included nonexistent
++`apps/mobile/app`; the verified route root is `apps/mobile/src/app`. Corrected
++the inventory and development-plan paths. Check proposed source roots before
++passing them to `rg --files`; a spec path is not proof of an existing directory.
++
+ - Add a new ID for a new failure mode; update the existing entry for recurrence.
+ - Capture unexpected output or a concise evidence reference, without private data.
+ - Distinguish verified facts, suspected causes, and unverified behavior.
+@@ -414,6 +430,10 @@ area, symptom, command, and rule when an incident occurs.
+   while renaming its transform-cache map under the sandbox package TEMP
+   directory. Re-run the unchanged focused suite outside the sandbox before
+   interpreting application behavior.
++  2026-10-16 V1.1 trip-continuity focused Jest again failed before test discovery
++  while renaming its transform-cache map under the sandbox package TEMP directory.
++  Re-run the unchanged suite outside the sandbox before interpreting application
++  behavior.
+ 
+ ## EP-011: M4.1 correction tests emitted React act warnings
+ 
+@@ -671,6 +691,7 @@ area, symptom, command, and rule when an incident occurs.
+ - **Correction:** Regenerate the review-only diff beneath the shared workspace implementation-artifacts directory, then re-run every review layer.
+ - **Verification:** Each reviewer receives the same workspace-visible diff path before triage.
+ - **Prevention:** For multi-agent review, place transient review files in the shared workspace, not a sandbox-private Temp directory.
++- **Recurrence (2026-10-17, Atlas Obsidian Horizon diff audit):** The workflow-required diff was created in the invoking sandbox's Temp directory and was unreadable in the next shell. No source changed and no audit conclusion was drawn from that inaccessible file. **Correction:** Regenerate the audit diff under the shared implementation-artifacts directory before reading it. **Prevention strengthened:** Treat any Temp path as single-call scoped unless a second shell has already read it; use a verified workspace path for cross-call artifacts.
+ 
+ ## EP-043: Gallery loader identity could trigger an endless page reload
+ 
+@@ -749,6 +770,7 @@ area, symptom, command, and rule when an incident occurs.
+ - **Correction:** Run the same local verification outside that sandbox cache boundary, then retain the focused and full results.
+ - **Verification:** Outside the sandbox, the focused regression and affected repositories passed 4 suites / 41 tests; the full mobile check passed 29 suites / 238 tests.
+ - **Prevention:** When a sandboxed Jest run reports an atomic Temp-cache rename failure before test execution, record it and use an approved local execution context instead of interpreting it as a code-test failure.
++- **Recurrence:** 2026-10-16 V1.1 focused reconstruction, repository, migration, and Atlas verification again failed before test loading with the same sandbox-private Temp transform-cache `EPERM` rename. The required retry is the identical command outside the sandbox; zero executed tests are not evidence about the implementation.
+ 
+ ## EP-050: Android development client became unresponsive during maintenance validation
+ 
+@@ -785,6 +807,29 @@ area, symptom, command, and rule when an incident occurs.
+ - **Correction:** Inspected the actual `atlas-reveal.tsx`, installed MapLibre declarations, reveal projection, and native photo evidence.
+ - **Verification:** The exact processing-state gate was identified and covered by a focused regression.
+ - **Prevention:** When tracing a UI integration, enumerate its containing feature directory before assuming a wrapper filename.
++- **Recurrence (2026-10-16, V1.1 implementation):** A read command guessed a new `types-v1-1.ts` file although V1.1 types were deliberately added to the existing `reconstruction/types.ts`; PowerShell reported path-not-found. No source changed. Prevention reinforced: after an additive implementation, use `rg --files` to discover the created path before a direct read.
++- **Recurrence (2026-10-16, engine planning):** A repository inventory included `rg --files packages` without checking that the directory existed. It returned a path-not-found error; subsequent inspection used enumerated `apps/mobile/src` paths. No source or device state changed. Strengthen inventory preflight by using root `rg --files` or `Test-Path` before a guessed directory.
++- **Recurrence (2026-10-16, complete engine contract):** A native-source read guessed `ExifExtractor.swift`, which is absent. Enumerating the installed package found the implementation in `Asset.swift` and `UriExtractor.swift`; reads then verified its network-enabled EXIF path. The earlier filename preflight was not applied. Stronger prevention: enumerate the exact source directory and copy an observed path into reads; a plausible implementation class name is never path evidence.
++
++## EP-059: Engine proposal stopped before resolving implementation policy
++
++- **Date / task / area:** 2026-10-16; Trip Detection V1.1 party planning/readiness.
++- **Status:** Planning corrected; engine remains unimplemented and quality unmeasured.
++- **Expected / actual:** The owner wanted a sound complete plan. The first proposal deferred classification, session/base/routine predicates and native fallbacks to a future spike; the handoff overstated completeness. The owner then rejected the half-finished result.
++- **Cause:** Architectural direction was treated as sufficient delivery while load-bearing choices remained open. The earlier claim that source examples were internally coherent overlooked case6: one place/one session cannot satisfy independent location corroboration although its expected suggestion score is45.
++- **Correction:** Derived a canonical BMAD contract with exact rules, selected score/profile policy, native fallback bridge, generation/correction/query/migration behavior, 64 acceptance cases and explicit source-policy differences. Case6 retains SUGGESTED with corroboration-pending and stays off the primary map. The earlier exploratory proposal points to the complete contract.
++- **Verification:** Coherence/source-preservation pass, document link/ID/arithmetic checks and root foundation checks validate planning consistency; none proves implemented engine behavior or product precision. The official Apple documentation fetch was unavailable; installed Expo native code supplied the directly inspected network-policy evidence instead. No unresolved behavior was silently converted into a passing result.
++- **Prevention:** Before calling a plan implementation-ready, require an expected output for each source fixture, exact predicates for every load-bearing adjective, explicit capability/fallback per platform, and source-difference/migration matrices. Distinguish design readiness, code verification and measured product quality in the handoff.
++
++## EP-058: Internal inferred drafts appear as the primary travel record
++
++- **Date / task / area:** 2026-10-16; owner-reported trip quality and review burden; reconstruction/Atlas.
++- **Status:** Open; improvement planned, application behavior unchanged.
++- **Expected / actual:** The owner wants recognizable automatically detected trips with rare correction. The current UI exposes many inferred journeys and does not meet that expectation.
++- **Evidence / cause:** `reconstructV1` seeds journeys from unblocked eligible visits without base-distance/photo-count/routine qualification; `loadDurableReveal` reads all journeys in the completed run; `projectReveal` renders them as Inferred. Native normalization also lacks reliable source/offset/duplicate signals needed by stricter gates. These are confirmed code paths; the number and specific causes of private false trips remain unmeasured. This predates the current planning task.
++- **Next action:** Follow the engine improvement proposal: establish the baseline/native metadata contract, implement temporal context and episode qualification, preserve corrections, and publish one qualified projection to Atlas/counts/replay. Compare locally in shadow before approved legacy switching.
++- **Verification:** Read-only code inspection supports the described pipeline gaps. No engine fix, private-library evaluation or device quality result has occurred.
++- **Prevention:** Regression-test draft exclusion at the repository boundary, eligible-trip recall, false split/merge cases and owner actions per library; high precision from an empty map must not pass the product gate.
+ 
+ ## EP-053: Repository verification command ran from the mobile package directory
+ 
+@@ -840,3 +885,262 @@ area, symptom, command, and rule when an incident occurs.
+ - **Correction:** Preserve the review-patch bytes while marking `*.diff` as exempt from blank-line whitespace errors in `.gitattributes`; remove non-semantic final blank lines from ordinary text artifacts.
+ - **Verification:** Restage the full change set and require a clean `git diff --cached --check` before commit and push.
+ - **Prevention:** Treat archived patches as artifacts, not source: give their file type an explicit whitespace policy before adding them to a repository that enforces `git diff --check`.
++
++## EP-060: Sandboxed Jest cannot atomically write its transform cache
++
++- **Date / task / area:** 2026-10-16; V1.1 trip-detector focused verification.
++- **Status:** Environment limitation handled; host rerun required.
++- **Expected / actual:** The focused mobile Jest suite should execute in the sandbox. Jest failed before collecting tests with `EPERM` while renaming a transform-cache map below the sandbox Temp directory.
++- **Cause:** Known sandbox filesystem restriction, not an application or test failure.
++- **Correction:** Rerun the identical command in the approved host environment; use its test result as verification evidence.
++- **Prevention:** When Jest reports this exact Temp-cache rename failure, record it as an environment limitation and immediately use the bounded host rerun rather than changing product code or treating the suite as executed.
++
++## EP-061: Durable count test retained the legacy inferred-journey predicate
++
++- **Date / task / area:** 2026-10-16; V1.1 qualified primary projection; reconciliation repository test.
++- **Status:** Fixed in code; focused host rerun pending.
++- **Expected / actual:** After moving primary counts to the qualification boundary, the durable-count test still asserted the legacy `reconstruction_journey` table. The host focused run failed exactly on that stale assertion; 96 other focused tests passed.
++- **Cause:** The migration/query implementation changed the primary data invariant but the aggregate regression only checked the old table name.
++- **Correction:** Updated the regression to require `reconstruction_trip_qualification` and its explicit `AUTO_CONFIRMED`/`USER_CONFIRMED` predicate.
++- **Verification:** Rerun the focused host suite after this test update.
++- **Prevention:** When moving a privacy or qualification boundary, assert the new table and predicate—not merely the returned mock aggregate.
++- **Recurrence:** The first migration assertion included SQL quote characters that were escaped inside the stored JSON string, so the focused host suite failed one assertion despite the migration being present. Assert the stable reason token rather than its SQL literal representation.
++
++## EP-062: Device-refresh probe assumed Android platform tools were on PATH
++
++- **Date / task / area:** 2026-10-16; V1.1 device rebuild preparation.
++- **Status:** Open; environment discovery interrupted by the owner clarification.
++- **Expected / actual:** Verify a connected device before attempting a rebuild. The direct `adb devices` probe failed because `adb` is not on this shell's PATH.
++- **Cause:** Assumed the Android SDK platform-tools location instead of resolving the installed executable first.
++- **Correction:** The owner clarified that they want a rebuild and will perform the on-device interaction check. Next action is to use the Expo device build command, which resolves its platform tooling, or locate the configured SDK path before direct ADB use.
++- **Verification:** Pending successful Expo rebuild/device selection.
++- **Prevention:** Use `Get-Command adb.exe` or the Expo device command before direct ADB diagnostics; do not assume PATH configuration.
++- **Recurrence (2026-10-16):** A device-log probe used PowerShell's reserved `$PID` variable and failed before reading logs. Use a task-specific variable such as `$processId`; the corrected, application-process-only probe confirmed Metro bundle startup with no filtered fatal, React Native, SQLite-lock, or bundle-load error.
++- **Recurrence (2026-10-16):** A sandboxed ADB relaunch attempt could not start or connect to the ADB daemon on port 5037. This is an execution-environment limitation, not a device or application failure. Rerun the same bounded reverse/force-stop/launch sequence in the approved host environment before interpreting device state.
++- **Recurrence (2026-10-16):** The approved host relaunch attempt then reported `no devices/emulators found`. The connected Android device is presently unavailable to ADB, so the new JavaScript bundle cannot be device-launched from this workstation. Reconnect/authorize the device and rerun the bounded ADB launch before treating this as an application failure.
++
++## EP-063: Guarded V1.1 projection removed every primary journey on a real device
++
++- **Date / task / area:** 2026-10-16; Android V1.1 device validation; Atlas primary projection.
++- **Status:** Open; product regression confirmed.
++- **Expected / actual:** The owner wanted far fewer false inferred trips while retaining a useful, magical automatic Atlas. After the rebuilt client opened, the supplied device image showed `2,989 records assessed`, `1,756 supported`, `67 inferred places`, `205 inferred visits`, but `Journeys • 0` and `No supported journey is available to show.`
++- **Cause:** Confirmed. The temporary qualification bridge correctly excludes legacy V1 inferred rows from primary Atlas/count/replay but only exact owner confirmations can pass it. The full V1.1 base/routine/native-context classifier that would qualify genuine automatic trips has not been integrated, so the safety gate has zero automatic recall.
++- **Correction:** Do not accept this bridge as the final experience. Implement and validate the complete context/episode qualification pipeline against a private labeled device sample before keeping the primary filter active; retain a reversible dry-run/rollback path.
++- **Correction update:** Replaced the owner-confirmed-only bridge for future rebuilds with a deterministic local-graph V1.1 adapter: a candidate must have a distinct frequently observed non-candidate base (at least 12 dated days), conservative 50 km base distance, five eligible photos, independent day/place support, and a rare/far score path. Exact owner confirmations still bypass automatic gates. The current full native base/routine pipeline remains required before release.
++- **Verification:** Physical Android image confirms the rebuilt bundle rendered and the original guarded query took effect. New pure repository regression passes for a far five-photo, two-place episode with a 12-day base; focused engine/repository suite passed 63 tests. A private device rebuild/re-import is still required to establish recall.
++- **Prevention:** Any primary false-positive suppression change must include a real-library recall floor and a device assertion that qualified automatic trips remain visible; an empty map cannot pass a precision-oriented gate.
++- **Follow-up inspection (2026-10-16, continuity party):** The recovery adapter calls all graph support capture-like, uses civil dates as sessions, computes rarity from photo-count ratio, selects a global 12-day base and omits uncertainty radii in distance. The prior handoff's description of a conservative V1.1 classifier overstated its conformance. Its synthetic positive case proves only that those heuristics can publish a candidate. Replace these shortcuts with the canonical normalization/context/episode pipeline; require threshold, routine, duplicate and false-split/merge coverage before claiming the automatic engine fixed.
++
++## EP-064: Atlas preview opens outside the viewport and media remains a list
++
++- **Date / task / area:** 2026-10-16; owner-reported Atlas and album interaction.
++- **Status:** Open; final delivery plan recorded, application fix pending.
++- **Expected / actual:** Map or list selection should open an immediate preview; the owner must scroll up after a list tap. The owner expects an album grid; the media action opens thumbnail/text rows.
++- **Cause:** Confirmed in `atlas-reveal.tsx`: the preview is nested inside the map section or inline above the list, without viewport-level presentation. `journey-media-viewer.tsx` renders row entries inside an inline panel with explicit page buttons.
++- **Correction:** Follow the continuous-trips-and-album delivery plan: one viewport-level native sheet for both triggers, then a full-screen virtualized mixed-media grid with preserved return context.
++- **Verification:** Code inspection confirms the structural causes. Implementation, automated interaction tests and physical-device scroll/grid/Back acceptance remain pending.
++- **Prevention:** Test selection from a row below the visible map and verify the preview in the current viewport; require the media action to render grid tiles on an album screen, with device confirmation of return position.
++
++**Correction update (2026-10-16):** Replaced both inline preview variants with a single native viewport-level sheet, used by map-dot and Timeline selection. Replaced the media rows/page controls with a full-screen, three-column mixed-media grid and a selected-item viewer that returns to the grid; the repository page is now bounded at 60 items. Focused host UI tests and TypeScript pass. Physical Android confirmation of sheet placement, grid scrolling, and Back context remains pending.
++
++## EP-065: Offline country display names retained dataset padding
++
++- **Date / task / area:** 2026-10-16; coarse journey label projection.
++- **Status:** Fixed in code.
++- **Expected / actual:** A resolved bundled country label should be readable in the Atlas. The first regression exposed trailing NUL padding from the Natural Earth dataset (for example, a name rendered with invisible suffix bytes).
++- **Cause:** The existing resolver returned only fixed-width codes, so dataset name normalization was never previously required.
++- **Correction:** Strip trailing NUL padding and whitespace inside `countryDisplayName` before the reveal boundary receives the coarse label.
++- **Verification:** Focused country-resolver regression passes after the normalization fix.
++- **Prevention:** Any newly exposed bundled dataset display field must have a regression for its human-readable normalized form.
++
++## EP-066: Initial continuity merge used an array-of-array journey type
++
++- **Date / task / area:** 2026-10-16; V1.1 continuous-trip postprocessor.
++- **Status:** Fixed in code.
++- **Expected / actual:** The new multi-city continuity regression should compile and merge adjacent away fragments. The first focused run failed because the accumulator was typed as an array of journey arrays, producing an undefined prior span.
++- **Cause:** Used `ReconstructionGraph['journeys'][]` instead of the element collection type `ReconstructionGraph['journeys']`.
++- **Correction:** Corrected the accumulator type and guarded the prior span before calculating the gap.
++- **Verification:** Focused continuity, Atlas and country tests pass (49 tests); TypeScript and cache-free lint pass.
++- **Prevention:** For indexed collection aliases, type mutable accumulators as the collection type unless deliberately storing nested collections; compile before interpreting runtime test failures.
++
++## EP-067: Device run retained split Taiwan fragments and entered a failed reconstruction state
++
++- **Date / task / area:** 2026-10-16; owner device screenshot after continuous-trip implementation.
++- **Status:** Code correction pending device rerun.
++- **Expected / actual:** The October multi-city Taiwan holiday should become one continuous trip and the Atlas should remain ready after reconstruction. The screenshot instead shows two Taiwan October rows and the failed-local-reveal message with a stale 23-journey record.
++- **Known cause:** The original continuity test covered only a three-day gap, while the owner scenario may include ordinary longer city stays. The screen is a committed prior durable record plus a failed new reconstruction; the exact device exception is not available from the screenshot.
++- **Correction:** Extend the away-from-frequent-base continuity ceiling to ten days, still requiring both adjacent fragments to be far from base and never using country/month as the merge key. Preserve the previous committed record on a failure and rerun the device reconstruction to obtain the actual error if it recurs.
++- **Verification:** New regression covers a seven-day city-stay gap; focused host rerun and physical rebuild remain pending.
++- **Prevention:** Test continuity at the longest permitted city-stay interval and treat a screenshot failure state as a required device regression, not as a successful stale-record fallback.
++- **Root-cause update (2026-10-16):** Static tracing found two additional blockers. Country display is written from one deterministic place representative only; a border/invalid/unresolved representative makes that whole place label-less even when another supported member would resolve. Separately, the continuity pass is disabled whenever *any* effective correction exists, including an unrelated historic correction (`corrections.length ? structurallyMerged : mergeContinuousAwayJourneysV11(...)`). Thus an unrelated correction can preserve all pre-V1.1 fragments. Both require targeted correction-safe changes and regressions; do not merge by country/month as a workaround.
++- **Correction update (2026-10-16):** The continuity pass now receives the exact matched journey IDs protected by effective journey or memory corrections. It preserves those targets but continues adjacent, far-from-base unreviewed fragments. Country resolution now uses all supported members of each place: unresolved/border members abstain, one resolved-country consensus labels the place, and conflicting resolved countries stay unlabeled rather than fabricated. A focused host regression covers an unrelated pinned correction plus a separate seven-day multi-city episode and an unresolved representative with a resolved supported member.
++- **Verification update (2026-10-16):** Focused country/reconciliation tests passed (31 tests); the complete mobile check passed 29 suites / 252 tests with TypeScript and lint. Physical rebuild, private-library recall and the original device error remain pending; this is not a device acceptance result.
++- **Prevention update:** Any future graph-level postprocessor must accept an explicit protected-scope set and have regressions for both a protected target and an unrelated candidate.
++- **Recurrence (2026-10-16):** The owner correctly pointed out that the ready-state screenshot contains neither `Retry local reveal` nor any equivalent rebuild action. The prior guidance assumed the failed-state button existed in the ready view. **Cause:** `Retry local reveal` renders only for `failed`, while the ready Atlas offered no full reconstruction entry point after an engine update. **Correction:** The ready state now exposes `Rebuild local journey history`, bound to the same full `onRetry` controller rebuild rather than the queue-only catch-up path, with an interaction regression. **Verification:** Focused host Atlas UI suite passes; physical rebuild remains required.
++- **Recurrence (2026-10-16):** The rebuild control began an asynchronous job but did not give the owner a meaningful in-progress status beyond a generic reconciliation sentence. **Correction:** The processing projection now distinguishes a full rebuild from incremental updates, and Atlas renders a visible busy panel that explains the recalculation and automatic refresh. **Verification:** Focused host Atlas UI suite passes. **Prevention:** Every owner-started asynchronous local operation must acknowledge start, state what will refresh, and identify the completed state without inventing a percentage or duration.
++
++## EP-069: Search command included a nonexistent source root
++
++- **Date / task / area:** 2026-10-16; ready-state rebuild investigation.
++- **Status:** Fixed.
++- **Expected / actual:** Search only known repository roots. A diagnostic search included the nonexistent `app` root alongside `apps/mobile/src`, producing an avoidable path error.
++- **Cause:** An unverified shorthand path was included in the command.
++- **Correction:** Continued using the confirmed `apps/mobile/src` root only.
++- **Verification:** Subsequent targeted source search completed without a path error.
++- **Prevention:** Resolve source roots with `rg --files` or use the established package path before composing a multi-root search.
++
++## EP-070: Atlas reconciliation test retained superseded progress copy
++
++- **Date / task / area:** 2026-10-16; owner-visible rebuild progress.
++- **Status:** Fixed before final verification.
++- **Expected / actual:** The Atlas UI suite should verify the new, clear progress status. One existing reconciliation test asserted the superseded generic sentence and failed after the intentional copy upgrade.
++- **Cause:** The test asserted literal presentation text instead of the persistent processing contract.
++- **Correction:** Updated it to assert the incremental-update wording and automatic-refresh outcome; the full-rebuild case has its own busy-state regression.
++- **Verification:** Focused host Atlas UI suite passes (20 tests).
++- **Prevention:** When a processing-state message is refined, update all state-specific assertions in the same change and preserve behavior-oriented phrases in tests.
++- **Recurrence (2026-10-16):** The journey-list layout correction deliberately placed label and period on separate lines, but one UI assertion required the label to be an exact standalone text node. The focused suite failed one assertion while TypeScript passed. Updated the assertion to test the visible label rather than its old node boundary and added a gallery-header close-control regression. Run the focused suite again before release.
++
++## EP-068: V1.1 detector used a lint-disallowed generic array form
++
++- **Date / task / area:** 2026-10-16; V1.1 pure qualification engine; mobile lint.
++- **Status:** Fixed before final verification.
++- **Expected / actual:** The complete mobile check should have no new lint diagnostics. The initial `reconstructV11` signature used `Array<T>`, which is disallowed by the repository TypeScript lint rule.
++- **Cause:** The new public function signature did not follow the project array-type convention.
++- **Correction:** Replaced the generic array form with the equivalent `T[]` form.
++- **Verification:** The focused engine suite passed before and after the change; the complete mobile check is rerun after the correction.
++- **Prevention:** Run the package lint/typecheck after adding exported TypeScript signatures, and use the repository's `T[]` convention by default.
++
++## EP-071: Island lookup failure was attributed to owner metadata without evidence
++
++- **Date / task / area:** 2026-10-16; PM/analyst investigation of missing destination and split trips.
++- **Status:** Open; reproduced resolver defect, episode integration incomplete.
++- **Recurrence (2026-10-16, continuity party):** The owner reports four April 2024 rows, two September 2025 rows and two February 2022 rows representing three actual holidays. Static tracing confirms precise and civil-day visits are grouped separately in V1; same-day weak visits and repeated-place stays can split, while the later continuity pass rejects overlapping spans and requires a qualifying base. The canonical candidate pass writes diagnostics only and does not drive published journeys. Which predicate blocked each private group remains unverified. **Next action:** Inspect generation-bound boundary decisions for all three groups, replace active grouping with episode construction, and verify both false-split and false-merge controls on device. **Prevention:** Trip membership uncertainty must not be equated with uncertain within-trip ordering; require evidence for every semantic boundary.
++- **Recurrence (2026-10-16):** The owner could not find Private record settings on device. Static inspection showed the only Atlas entry was after the full journey content, where it could be below the viewport. **Correction:** Add a Home bases action beside About in the persistent Atlas header, while retaining the existing lower settings entry. **Verification:** Add and run an Atlas header interaction regression. **Prevention:** A primary owner control must be reachable from the initial screen without requiring a long scroll.
++- **Recurrence (2026-10-16):** The owner selected a journey and tapped Save usual area, but the app appeared unresponsive. The save handler did not publish any state until its SQLite write and full rebuild both settled, and it permitted repeated taps. Application-process error logs contained no matching exception. **Correction:** Publish an immediate saving message, disable the action while active, use the consistent Home base wording, and distinguish a saved configuration from a failed rebuild. **Verification:** Run the settings/provider regression and TypeScript check, then reload the device. **Prevention:** Any owner-started operation with a rebuild must acknowledge the tap before awaiting storage or reconstruction.
++- **Recurrence (2026-10-16):** The photo-backed Home setup test first mounted a custom provider adapter but never caused its durable projection to publish, so no journey candidate appeared. **Cause:** Custom-adapter test mode deliberately skips the native-only durable-load effect. **Correction:** Publish a completed synthetic graph through the reconstruction controller in the test harness, then assert review journey -> select observed area -> save passes the selected visit into the private repository. **Verification:** Focused Home/provider/engine/repository suite passed 91 tests with TypeScript and lint. **Prevention:** Provider UI tests using non-native adapters must explicitly drive the lifecycle/projection state they intend to render.
++- **Recurrence (2026-10-16):** Renaming the owner setting from “Usual areas” to the user-facing “Home bases” left its focused UI test asserting the old heading. The home/continuity test run failed one assertion while the engine tests and TypeScript passed. **Correction:** Update the assertion and test description to the approved Home bases wording, then rerun the focused settings and reconstruction suite. **Prevention:** A user-facing vocabulary change must update its direct UI assertion in the same edit.
++- **Planning correction (2026-10-16):** Verified that the continuity pass currently uses all twelve-day places, whereas qualification selects the highest-support non-candidate place. The earlier description of one global base for both paths was inaccurate. Candidate destinations can themselves satisfy the merge base heuristic. Also, the GPS-less representative fallback regression used a manually constructed graph; current V1 support places normally require coordinates, so that synthetic case did not establish a likely native-device cause. The private September non-join remains unknown. The delivery requirements now require generation-bound reason diagnostics before attributing another device split to a specific predicate.
++- **Expected / actual:** Supported island destinations should receive familiar names and continuous trips should appear once. The owner reports persistent unlabeled/split results. The preceding response attributed the label to missing/invalid/conflicting metadata without inspecting the current run; it also incorrectly described country consensus at trip level (the code supports multi-country labels).
++- **Verified cause:** The bundled 110m resolver returns border for synthetic Ubud and unresolved for synthetic Denpasar/Kuta, while Jakarta resolves IDN. Its coarse geometry and universal 5 km edge rule cannot reliably label these island samples; it has no regional naming layer. Persistence still groups V1 journeys and applies a global-base merge patch rather than constructing canonical V1.1 episodes. The exact owner-run non-join reason remains unknown.
++- **Correction:** Retracted the unsupported metadata explanation; recorded source-backed engine gaps, offline geometry/region requirements, per-join diagnostics and positive/negative acceptance cases in the existing continuous-trips delivery record. Application correction and private device diagnosis remain pending.
++- **Verification:** Direct local execution of the existing resolver on four public synthetic samples reproduced the three island failures. No private metadata was inspected or exported.
++- **Prevention:** Test island/coastal naming coverage and expose decision reasons before diagnosing an owner-specific failure. Do not describe qualification-only functions as a complete episode engine or a synthetic positive case as private-library acceptance.
++- **Environment note:** BMAD resolver activation through uv encountered interpreter-cache access denial, including a cache-free retry. Read the installed default persona/config and confirmed there are no persona override files; no prepend/append activation steps or persistent facts are configured. This is an environment limitation, unrelated to trip detection.
++- **Recurrence (2026-10-16, Atlas reference-direction intake):** The `bmad-ux` workflow resolver again failed while persisting its Python interpreter cache under the sandbox package directory (`Access is denied`). **Correction:** Used the readable installed workflow defaults and the already resolved project configuration; no UX artifact generation or product code was attempted through the failed resolver. **Verification:** The applicable workflow instructions and default customization were read directly. **Prevention:** Treat this exact `uv` interpreter-cache error as the known sandbox limitation, record it once per affected task, and do not misclassify it as an application or UX-spec failure.
++- **Recurrence (2026-10-16):** Downloading the public-domain detailed Admin-1 boundary archive was blocked before execution because automatic approval review hit its account usage limit. No external file was downloaded and no owner data was involved. Continue the local episode correction; retry the vendored-boundary acquisition only when the approval service is available.
++- **Recurrence (2026-10-16):** The owner reran the current bundle and the September journey was still split. Static tracing found a further generalized continuity defect: the pass used only a frequent place's deterministic representative as the home-base coordinate. A representative may legitimately be GPS-less even while its supported place has many coordinate-bearing records, making the entire continuity pass return without joining any fragments. **Correction:** Select the first coordinate-bearing support from each eligible frequent base; the stable representative remains provenance/display metadata only. **Verification:** A regression makes the home representative GPS-less and verifies the seven-day multi-city episode still becomes one journey. Device rebuild is required to verify the owner run. **Prevention:** Never use a display representative as a required measurement source without a supported-data fallback.
++- **Recurrence (2026-10-16):** The owner reported the September fragments still separate after that fallback. **Confirmed design gap:** The live engine is still a pairwise postprocessor: it joins only immediately adjacent V1 journeys when both are wholly far from one global frequent base, their exact timestamps are non-overlapping, their gap is at most ten days, and neither is correction-protected. It has no episode/session layer, no bounded uncertain adjacency, no evidence-based return test, and no date-scoped multi-base model. Thus an uncertain ordering, overlapping capture windows, an intervening unresolved/local fragment, missing global base, protected target, or a gap over ten days can block a genuine continuous holiday. **Next correction:** Replace this postprocessor with the specified episode pipeline; persist sanitized per-link reason codes so an owner-specific non-join is diagnosable locally without exporting media or precise coordinates. **Verification:** The exact device predicate is intentionally still unknown because no private evidence was inspected. **Prevention:** Do not claim a patch fixes a device split without local decision diagnostics and a physical rebuild result.
++
++## EP-072: V1.1 provenance regression asserted a known negative for unknown evidence
++
++- **Date / task / area:** 2026-10-16; V1.1 pure qualification engine; focused host Jest.
++- **Status:** Fixed before final verification.
++- **Expected / actual:** The new provenance regression initially expected `NOT_TRIP` for unknown-origin media excluded from photo support. The implemented contract correctly produced `UNCONFIRMED`, because absent trustworthy capture provenance is missing evidence rather than a known negative.
++- **Cause:** The test expectation collapsed the contract's distinction between insufficient known support and uncertain metadata.
++- **Correction:** Updated the assertion to require `UNCONFIRMED` and retain the `photo-count-below-five` diagnostic.
++- **Verification:** The focused host reconstruction-engine suite is rerun after the assertion correction.
++- **Prevention:** For every qualification regression, select the expected state from the contract's known-negative versus missing-evidence rule before asserting a status.
++- **Recurrence:** The same fixture initially retained two local days while asserting the AC-41 score of 55; the engine correctly awarded the five-point local-day signal. The fixture now uses one known local day so it exercises the DAY span threshold without silently testing a different score profile.
++
++## EP-073: Qualified aggregate query left its SQL-shape test double stale
++
++- **Date / task / area:** 2026-10-16; V1.1 durable reveal aggregate parity; focused mobile Jest.
++- **Status:** Fixed before final verification.
++- **Expected / actual:** The new qualified-destination aggregate query should keep counts aligned with the primary qualified set. The repository test returned null statistics because its SQL-shape mock still matched the old unqualified `COUNT(DISTINCT country_code)` expression.
++- **Cause:** The test double coupled its response to an outdated SQL fragment while the production query correctly qualified destinations through journey links.
++- **Correction:** Updated the mock and assertion to match `COUNT(DISTINCT place.country_code)` and retain explicit coverage that the aggregate traverses the qualified journey-link boundary.
++- **Verification:** The focused V1.1 repository, engine, migration, and Atlas suites are rerun after the fixture update.
++- **Prevention:** When changing a repository query's aggregation boundary, update SQL-shape mocks in the same patch and rerun the affected repository suite.
++
++## EP-074: Configured-home schema migration initially left repository fixtures stale
++
++- **Date / task / area:** 2026-10-16; V1.1 configured-home persistence; focused mobile verification.
++- **Status:** Fixed before verification.
++- **Expected / actual:** Raising the private schema to v30 for date-scoped owner home areas should preserve migration coverage. The first focused run retained v29 assertions and the typed SQLite shim lacked `getAllAsync`, causing six migration assertion failures and a TypeScript error.
++- **Cause:** The additive read API and schema version were not reflected in the repository test double at the same time as production code.
++- **Correction:** Added typed list-read support to the shim, updated current-version assertions to v30, and added a private multi-area save/deletion regression.
++- **Verification:** Focused engine, reconciliation, and import-repository suites passed 89 tests; TypeScript and lint passed.
++- **Prevention:** Every schema/API extension must update the current-schema mock, all typed database methods, and a migration/deletion regression before the focused run.
++
++## EP-075: V1.1 inspection searched a nonexistent native-modules directory
++
++- **Date / task / area:** 2026-10-16; V1.1 implementation verification; repository inspection.
++- **Status:** Corrected.
++- **Expected / actual:** The completion audit should search only existing source roots. A diagnostic command included `apps/mobile/modules`, which this checkout does not contain, and `rg` returned a path error.
++- **Cause:** The spec code map was treated as proof that the proposed native-module directory had already been created.
++- **Correction:** Continued the inspection against the verified `apps/mobile/src` source root and recorded the absent bridge directory as an implementation gap rather than silently assuming it exists.
++- **Verification:** The subsequent targeted search completed against existing source paths and identified the configured-home implementation.
++- **Prevention:** Resolve each planned source root with `Test-Path` or `rg --files` before including it in a multi-root diagnostic command.
++- **Recurrence (2026-10-16, Atlas Obsidian Horizon feasibility):** A MapLibre research pass guessed the nonexistent `apps/mobile/app.config.js` and a wrong installed `GeoJSONSource` declaration path before enumerating the package. **Correction:** Confirmed `app.json` and `components/sources/geojson-source/GeoJSONSource.d.ts` from the installed package; the existing MapLibre dependency is sufficient. **Verification:** Subsequent source inspection completed against those observed paths. **Prevention:** For project configuration and installed dependency declarations, enumerate the exact package/config directory before direct reads; a conventional filename or namespace is not path evidence.
++
++## EP-076: Sandboxed Jest recurrence during C0/C1 context verification
++
++- **Date / task / area:** 2026-10-16; V1.1 temporal-context regression; mobile Jest.
++- **Status:** Environment limitation handled.
++- **Expected / actual:** The focused reconstruction suite should collect the newly added C0/C1 leave-one-out regression. The sandboxed run failed before collection because Jest could not atomically rename its transform-cache map under the sandbox Temp directory.
++- **Cause:** Same known sandbox filesystem limitation as EP-060, not an application or test failure.
++- **Correction:** Reran the identical focused command in the approved host environment.
++- **Verification:** Host run passed `reconstruction-engine`: 1 suite, 45 tests.
++- **Prevention:** For this exact Jest transform-cache EPERM, record the recurrence and run the same bounded suite outside the sandbox before judging product code.
++
++## EP-077: A single home observation was treated as a trip boundary in a V1.1 fixture
++
++- **Date / task / area:** 2026-10-16; V1.1 canonical episode construction; focused mobile Jest.
++- **Status:** Fixed before verification.
++- **Expected / actual:** A true home return must be corroborated by two ordered sessions spanning at least 60 minutes or two days. An existing fixture expected one configured-home observation to split two away blocks, so it failed after the episode builder correctly stopped treating a lone point as a return.
++- **Cause:** The fixture represented a location observation, not the contract's return predicate.
++- **Correction:** The episode builder requires corroborated home evidence before creating a home boundary; the fixture now includes a second home capture two hours later.
++- **Verification:** The focused reconstruction and reconciliation suites are rerun after this update.
++- **Prevention:** Boundary fixtures must model every supporting observation required by the corresponding automatic predicate.
++
++## EP-078: Canonical V1.1 rebuild still split owner-confirmed continuous holidays
++
++- **Date / task / area:** 2026-10-16; Android device acceptance; canonical episode construction.
++- **Status:** Correction in verification.
++- **Expected / actual:** The owner rebuilt the private record but still saw two September 2025 trips, three April 2024 trips, and two February 2022 trips, each representing one continuous holiday.
++- **Verified cause:** `buildV11Episodes` treated Android creation timestamps as precise instants even when `hasPreciseOffset` was false, then put each actual day-only observation into an isolated episode. It therefore preserved the legacy precision partition instead of using the V1.1 civil-day link contract.
++- **Correction:** Use only offset-qualified timestamps as instants; assemble mixed-precision evidence into civil-day blocks; link short compatible blocks without inventing their internal order; permit a 3-10-day continuation only when both blocks have independent away-from-home context. Carry actual graph place IDs and date-scoped home distances into this decision instead of visit IDs or display representatives.
++- **Verification:** Typecheck passed after the correction. Focused Jest could not collect in the sandbox because of the known transform-cache EPERM; the identical suite must run in the approved host environment, then the physical rebuild must be repeated.
++- **Prevention:** Every canonical-episode regression must use Android-style `hasPreciseOffset: false` records with non-null creation timestamps and assert that mixed precision does not create a trip boundary.
++- **Tooling recurrence:** A project-state patch initially targeted the wrong document heading capitalization and did not apply. The document uses `# Project state`; the follow-up patch anchored on the verified heading and recorded the correction. **Prevention:** Read the target heading before applying a context-sensitive documentation patch.
++
++## EP-079: Device configuration inspection listed local cache filenames
++
++- **Date / task / area:** 2026-10-16; owner-requested Home-base inspection; Android device diagnostics.
++- **Status:** Corrected process; no app mutation.
++- **Expected / actual:** The owner asked which configured Home bases the app can see. The diagnostic should have been restricted to aggregate configured-home state, but an initial sandboxed file-layout listing included private cache filenames.
++- **Cause:** The command enumerated the app-private tree to locate the SQLite database before confirming its narrow target.
++- **Correction:** Do not use recursive/private file listings for this question. The configuration schema stores opaque area identifiers, coordinates, dates and radius but no human-readable place name, so a safe direct database aggregate cannot answer the owner-readable location-name question anyway.
++- **Verification:** The database location and schema were identified without copying media or modifying the device. No raw filenames, media, precise coordinates or database contents will be included in the handoff.
++- **Prevention:** For device-private diagnostics, start from the exact known database path and request only a predeclared aggregate query; never enumerate caches or media directories.
++
++## EP-080: New Home-base effect violated the React state-effect lint rule
++
++- **Date / task / area:** 2026-10-17; named private Home bases; provider verification.
++- **Status:** Fixed before final verification.
++- **Expected / actual:** The full mobile check should lint the new Home-base list refresh. It failed because the lifecycle effect synchronously cleared component state on disconnect.
++- **Cause:** The provider used a direct `setHomeBases([])` in an effect body, which this project correctly flags as a cascading-render risk.
++- **Correction:** The effect now refreshes only while connected; lifecycle/deletion state remains the authority for access and Home-base mutations.
++- **Verification:** Rerun the complete mobile check after this correction.
++- **Prevention:** Do not synchronously mirror lifecycle state into provider state inside an effect; use the authoritative lifecycle guard or an asynchronous repository read.
++
++## EP-081: Required Home-base implementation handoff exhausted its usage allocation
++
++- **Date / task / area:** 2026-10-17; BMAD build dispatch; named private Home bases.
++- **Status:** Process fallback applied.
++- **Expected / actual:** The required implementation subagent should complete the approved spec. Its turn ended before work began because the account usage allocation was exhausted.
++- **Cause:** External account limit, not a repository or application failure.
++- **Correction:** The parent continued directly from the approved, in-progress spec and retained the same scope and verification gates.
++- **Verification:** Parent-owned focused and full checks are recorded with this story.
++- **Prevention:** When a mandated subagent cannot run for an external reason, retain its approved spec as the sole source of truth and use the workflow's direct-implementation fallback.
++
++## EP-082: Atlas local-filter regression asserted nested text instead of its accessible control
++
++- **Date / task / area:** 2026-10-17; Obsidian Horizon Atlas; focused UI regression.
++- **Status:** Fixed before final verification.
++- **Expected / actual:** The new local-search regression should prove that a filtered journey remains available and the excluded selection closes. Its first host run failed because `getByText('Harbor')` does not match that nested React Native text structure reliably, although the rendered accessible journey control was present.
++- **Cause:** The test asserted implementation nesting rather than the owner-reachable button label.
++- **Correction:** Assert the `Harbor, May 2023` button and absence of the excluded `North coast, April 2024` button.
++- **Verification:** The corrected focused Atlas suite is rerun in the approved host environment.
++- **Prevention:** Interaction regressions must prefer role and accessible-name assertions over incidental nested text nodes.
++- **Tooling recurrence:** A combined UI/test patch used a test-suite anchor in the production screen file and correctly failed without changing files. The follow-up patch targeted only the verified `chooseHomeJourney` block. **Prevention:** Do not combine unrelated file contexts in a single `apply_patch` hunk.
+diff --git a/docs/project-state.md b/docs/project-state.md
+index 81357dd..b4e7340 100644
+--- a/docs/project-state.md
++++ b/docs/project-state.md
+@@ -1,6 +1,227 @@
+ # Project state
+ 
+-Updated: 2026-10-14 (Asia/Bangkok).
++Updated: 2026-10-16 (Asia/Bangkok).
++
++## Android civil-day continuity correction awaiting device acceptance
++
++The owner rebuilt the private Android record and still observed two September
++2025 entries, three April 2024 entries and two February 2022 entries for three
++known continuous holidays. The canonical V1.1 builder was still treating
++Android creation timestamps as exact instants despite `hasPreciseOffset: false`,
++then partitioning every civil-day observation into a separate episode.
++
++The correction now groups compatible mixed-precision observations by civil day,
++preserves their uncertain internal order, and uses the existing ten-day
++continuation only when both blocks independently measure away from a learned or
++owner-configured home context. Repository normalization now carries graph place
++IDs (not visit IDs) and computed home distance into that decision. Host
++verification: 265 mobile tests, TypeScript and lint pass; Expo Doctor retains
++the pre-existing missing iOS icon and nine Expo SDK patch-version warnings.
++Physical rebuild acceptance is still required; no private evidence was exported
++or added to the repository.
++
++## Named private Home bases implemented awaiting device acceptance
++
++Schema v31 adds an owner-entered local label and origin to each configured Home
++base. Existing v30 rows remain active with a null label and display as
++`Unnamed home base`; the app does not infer a locality from their coordinates.
++The Home bases screen now requires a label for a new observed-area choice and
++lists independently named bases with date/radius scope, rename and confirmed
++remove actions. These labels never reach reconstruction inputs; only existing
++private coordinate, radius and date context affect trip handling. Focused
++regressions cover v30 migration, private label CRUD and the journey-review save
++flow. Final host and Android checks are pending.
++
++## Atlas reference-direction refinement
++
++The owner supplied a world-map interface reference and clarified that it is the
++direct UI target for Travel Life's map: full-bleed dark world geography, upper
++search/navigation treatment, compact floating controls, side filter stack,
++zoom/orientation control and one selected-place card. The owner then supplied the
++**Obsidian Horizon / Deep Sea Glass** visual brief, which is now the authorized
++Atlas-only palette, glass, typography and motion extension. Decision 0012, the
++Living Atlas design system and the dimensional-Atlas contract require an original
++Travel Life implementation of that interface. Its content remains private and
++evidence-aware: local-only journey/place search, Map/Timeline, year/evidence
++filters, correction and Replay replace public planning, routes, generic map modes
++and unqualified visit claims. Implementation remains pending the delivery work,
++including existing device/provider gates.
++
++## Continuity and photo-backed Home setup specification
++
++The requested BMAD party refinement is recorded in
++[Continuous holidays and Home setup](../_bmad-output/specs/spec-trip-continuity-and-home-setup/SPEC.md),
++with engine, Home experience, development-plan and acceptance companions. It
++requires actual boundary diagnostics for the three reported 4/2/2 fragment
++groups, canonical episodes as the active publication authority, and explicit
++area selection with a scoped photo/video preview before Home save. Home
++management and candidate areas are independent of qualified journeys; durable
++context revisions, queued rebuilds and progress prevent false completion.
++The plan preserves the canonical gap policy; if private diagnosis identifies
++a longer-gap policy mismatch, a tested versioned amendment is required before
++activation. New 20 km home scope and legacy-radius preservation are explicit
++planning defaults. This update changes specifications only. Private diagnosis,
++implementation, regional-data acquisition and device acceptance remain pending;
++`product_quality: not_measured`.
++
++The first implementation slice now makes canonical V1.1 episode grouping the
++active source for unreviewed persisted/displayed journeys, rather than retaining
++it as diagnostics only. It keeps mixed precise/day-only evidence deterministic,
++does not turn a lone configured-home point into a return boundary, and preserves
++reviewed journey projections. A focused synthetic regression covers same-day
++mixed precision/revisits and a corroborated home-return split. Home setup now
++opens the selected journey's local details/photos before saving, requires an
++explicit observed-area choice and saves that choice at a new visible 20 km scope
++instead of selecting the journey's first visit. Focused 91 mobile tests, typecheck
++and lint passed. This is not private-library verification: the April/September/
++February boundaries, complete C0/C1 context, native metadata, generation lineage,
++offline regional naming and device acceptance remain pending.
++
++## Home context and continuity requirements clarified
++
++The integrated continuous-trips delivery record now specifies the current two
++inconsistent home heuristics, shared temporal context, episode boundaries,
++generation-bound diagnostics, naming, migration and an explicit regression/release
++matrix. Qualification selects the most frequent non-candidate twelve-day place;
++merging considers all twelve-day places, including holiday destinations, across
++all history. This can make a trip its own base. The exact private September cause
++remains unverified. The canonical 72-hour automatic-link / ten-day uncertain-link
++policy must be tested explicitly; implementing it alone cannot guarantee merging
++a pair with longer ambiguous gaps. This update is requirements planning only.
++
++## PM/analyst investigation: island labels and repeated trip fragments
++
++Direct local execution reproduced an offline resolver coverage defect: synthetic
++Ubud returns border, Denpasar/Kuta unresolved, Jakarta IDN. The current country
++geometry/edge rule cannot reliably label those island locations and supplies no
++regional names. Prior suggestions that the owner's metadata was defective were
++not verified. The exact private-run split reason is still unknown; the active
++path remains V1 grouping plus a global-base continuity patch, not the canonical
++episode pipeline. The existing [integrated delivery record](../_bmad-output/planning-artifacts/continuous-trips-and-album-experience-2026-10-16.md)
++now includes the reproducible findings, region/country naming separation,
++episode integration requirements, local decision diagnostics and an acceptance
++extension. Investigation only: no new runtime changes or private-device accuracy
++claim. EP-071 records the incident and outstanding verification.
++
++The first engine correction after that investigation now treats a fragment with
++GPS-less associated media as an away fragment when its known geotagged support is
++far from every frequent base. It no longer treats a missing coordinate as a home
++return and can join adjacent supported Bali-city fragments within the existing
++ten-day continuity window. A focused repository regression and TypeScript pass;
++private-device confirmation remains pending. Detailed offline Admin-1 geometry
++for the visible Bali label is blocked until the public boundary archive can be
++acquired through the approval service; no hardcoded location exception was added.
++
++The owner then confirmed that the rebuilt September run still split. A further
++continuity defect was fixed: a frequently observed base now uses coordinate-bearing
++support from that place rather than its deterministic representative, which can be
++GPS-less. This preserves a valid base measurement for automatic multi-city joining;
++the added regression simulates that exact condition. It does not fabricate Bali's
++regional label, and device rebuild remains the required private acceptance check.
++
++## Continuous trips, immediate preview and album grid (2026-10-16)
++
++The owner requires a continuous multi-city holiday to appear as one trip, concise
++location/month summaries (for example Taiwan / October 2025), a preview immediately
++visible from either map or list selection, and a full-screen photo/video grid.
++The BMAD party's [integrated delivery plan](../_bmad-output/planning-artifacts/continuous-trips-and-album-experience-2026-10-16.md)
++specifies episode-first grouping, country naming independent of boundaries,
++viewport-level preview, album/viewer return context, correction-safe persistence
++and 20 acceptance scenarios. Existing V1.1 exact continuity predicates remain
++authoritative; matching country/month alone cannot merge distinct holidays.
++Code inspection confirms inline/off-screen preview and row-based gallery causes.
++The recovery qualification adapter also substitutes global base/photo-count/date
++heuristics for canonical V1.1 predicates; those shortcuts remain to be replaced.
++This turn records the complete recommendation; application changes and private
++Taiwan-example evaluation have not been performed.
++
++## Automatic trip recognition planning (2026-10-16)
++
++The owner's follow-up rejected partial readiness. The party has now derived the
++[canonical V1.1 implementation contract](../_bmad-output/specs/spec-trip-detection-engine-v1-1/SPEC.md)
++with six capabilities, five technical companions and 64 acceptance cases. It
++selects exact temporal base/routine/session and episode rules, the original score
++plus two hard-gated recognition profiles, a local-only native metadata bridge,
++generation-based persistence/correction/query contracts, dry-run activation and
++rollback. The one-session score45 source case is explicitly a nonpublished
++suggestion awaiting corroboration, resolving the source gate contradiction.
++Strict automatic bases require separated residence periods; otherwise one era
++setup question replaces per-trip confirmation. These are visible planning defaults
++and explicit source-policy refinements, not measured quality or a live migration.
++The earlier proposal below is exploratory rationale; implementation consumes the
++canonical contract. No application behavior has changed in this planning task.
++
++The owner reports too many inferred trips in the primary UI and wants trustworthy
++automatic recognition with very few review/confirmation actions. The BMAD party's
++[engine improvement proposal](../_bmad-output/planning-artifacts/trip-detection-engine-improvement-plan-2026-10-16.md)
++identifies draft-to-Atlas publication, absent base/routine qualification and native
++metadata limitations in current code. It proposes temporal bases/routines, episode
++recognition, independent evidence gates, qualified queries shared by Atlas/counts/
++replay, correction-safe identity and recoverable shadow migration. Automatic base
++learning and evidence-profile classification are explicit proposed refinements
++to the pasted V1.1 contract; the exact score policy remains a comparison baseline.
++No UI implementation, legacy reprocessing or product-quality claim is produced by
++this planning record. Next delivery implements the specified native normalization,
++pure engine, persistence and complete automatic-reveal integration, followed by
++owner-authorized local evaluation and separately approved legacy activation.
++
++## Automatic trip recognition guarded delivery (2026-10-16)
++
++The first guarded V1.1 delivery slice adds an additive pure qualification seam,
++private schema v29 qualification rows, and one primary-query predicate shared by
++durable reveal and journey counts. Existing V1 inferred rows are backfilled or
++rebuilt as private suggestions; only exact owner-confirmed rows are primary-visible
++until the complete V1.1 base/routine/native-context pipeline can qualify automatic
++trips. This deliberately removes draft noise rather than falsely promoting it.
++Focused reconstruction, repository, import-migration and Atlas suites passed
++97 tests; mobile TypeScript and root `npm run check` passed. The sandboxed Jest
++cache cannot write atomically; the focused suite was rerun on the host. Native
++metadata bridge, temporal bases/routines, automatic profile publication, all 64
++cases, device checks, and labeled quality evaluation remain unfinished;
++`product_quality: not_measured`.
++
++The first device test exposed zero automatic recall, so the owner-confirmed-only
++bridge was replaced for future rebuilds by a deterministic local-graph adapter.
++It requires a distinct 12-day base, conservative 50 km distance, five eligible
++photos and independent support before an inferred graph journey can pass the
++V1.1 score path. This is a recovery from the empty-map regression, not a claim
++that the full native/context engine or device quality evaluation is complete.
++
++The additive pure gate was further hardened to count only explicitly
++capture-like evidence, require actual normalized 4-hour/24-hour spans for the
++DAY/STAY profiles, and fail closed for critical conflicts, owner vetoes and
++suspected routine context. Focused host reconstruction tests passed 41/41; the
++complete mobile suite passed 29 suites / 254 tests with TypeScript and lint, and
++the root framework/evaluation checks passed. These are synthetic contract checks:
++`product_quality: not_measured`. The canonical date-scoped native normalization,
++base/routine/episode pipeline, generation model, 64-case suite, dry run and
++private labeled/device evidence are still outstanding.
++
++The qualification boundary now also has a pure date-scoped owner-home-area
++normalizer that accepts multiple authoritative local areas (for example, a
++Sa Dec period followed by Ho Chi Minh City). It marks only evidence with a
++valid local date and coordinate inside an active configured area; that evidence
++cannot promote an automatic trip and remains local return context. A synthetic
++regression covers both date ranges and confirms the areas are not averaged.
++Durable owner-home-area storage, owner editing UI, and repository wiring into
++new imports are still not implemented, so this is a tested detector seam rather
++than an owner-operable feature. The focused V1.1 suite passed 4 suites / 107
++tests, the complete mobile suite passed 29 suites / 256 tests with TypeScript
++and lint; Expo Doctor still reports the pre-existing missing iOS icon and nine
++SDK patch-version recommendations. Root checks and whitespace validation passed;
++`product_quality: not_measured`.
++
++The owner-operable slice now persists date-scoped Home bases in the private
++SQLite record and applies them before automatic qualification and continuity
++merging. Home-base evidence is excluded from automatic journey membership,
++while still providing local return context. The persistent Atlas header opens
++Home bases directly. Saving a selected journey now immediately acknowledges
++the action, prevents duplicate taps while its private rebuild runs, and reports
++either that Atlas is ready or that the configuration saved but the rebuild needs
++attention. The focused Home bases/provider regressions (14 tests) and mobile
++TypeScript check passed, and the connected Android app was reloaded. Device
++confirmation of the private library result remains pending; `product_quality:
++not_measured`.
+ 
+ ## Dimensional Atlas development plan (2026-10-15)
+ 
+@@ -9,7 +230,8 @@ perspective, markers, cards and responsive motion, explicitly excluding terrain
+ and mountains/valleys. The journey list must be simple, minimal, intuitive and
+ uncluttered. [Decision 0012](decisions/0012-dimensional-atlas-and-minimal-list.md)
+ records that direction. The [spec and development plan](../_bmad-output/specs/spec-atlas-dimensional-polish/SPEC.md)
+-define four capabilities, five ordered work packages and 18 acceptance scenarios.
++now define the Atlas-only Obsidian Horizon / Deep Sea Glass extension, four
++capabilities, five ordered work packages and 20 acceptance scenarios.
+ This task changes planning documents only; implementation and device evidence are
+ pending. Next work starts with installed MapLibre API/style feasibility, then
+ dimensional styling, bounded safe row summaries/list layout, camera/context
+@@ -1172,3 +1394,80 @@ privacy-filtered, application-process-only startup check found no fatal, React
+ Native, bundle-load, marker, or SQLite-lock error. This confirms only that the
+ bundle starts; the owner must still confirm visible photo thumbnails in the
+ gallery.
++
++## Continuous trips and album interaction implementation (2026-10-16)
++
++Implemented the first V1.1 continuity pass before persistence for unreviewed
++graphs: it merges only adjacent fragments that are both at least 50 km from a
++frequently observed (12 distinct local days) base and separated by no more
++than ten days. It does not use city or country as a grouping key, and it skips
++owner-corrected graphs rather than silently remapping corrections. This enables
++a continuous multi-city trip while retaining an interruption-safe base check;
++the wider canonical base/routine pipeline remains the outstanding release
++hardening work in the V1.1 spec.
++
++Atlas durable projection now derives offline coarse country labels and month
++ranges entirely on-device. A map-dot or Timeline selection opens one
++viewport-level native preview sheet, preserving the underlying Atlas state.
++The media action opens a full-screen three-column local album grid with
++mixed-media placeholders and returns to the selected journey preview. Gallery
++reads are bounded to 60 items per page. Focused host verification passed 49
++tests plus TypeScript and cache-free lint; root `npm run check` and
++`git diff --check` pass. Android physical confirmation of the sheet position,
++grid scrolling, return path, and the owner library's actual continuity result
++is still required; no private media or precise location was collected.
++
++The first post-change owner screenshot still showed split October Taiwan rows
++and a failed reconstruction state over the prior durable record. The continuity
++limit was expanded from 72 hours to ten days while retaining the frequent-base
++and far-away gates; a seven-day multi-city regression now passes. The connected
++Android client was relaunched against Metro after this correction, and a
++privacy-filtered application-process startup check found no fatal, React Native,
++SQLite-lock, or bundle-load error. The owner must now invoke the local rebuild
++and confirm its actual result; startup success does not prove reconstruction
++recall or quality.
++
++The next correction removed the two generic root causes exposed by the device
++examples: effective corrections now pin only their exact matched journeys, so
++unrelated unreviewed episodes still receive the bounded away-from-base
++continuity pass; and a place country label is now a consensus over all of its
++supported members rather than a single deterministic representative. Border,
++invalid, and conflicting-country evidence abstains rather than inventing a
++location. Synthetic regressions and the complete mobile check (29 suites / 252
++tests, typecheck and lint) pass. This remains unverified against the private
++library until the next local rebuild.
++
++The ready Atlas now also exposes **Rebuild local journey history**. It invokes
++the full reconstruction controller rebuild (not the incremental catch-up
++queue), so an owner can apply an updated local engine to the already imported
++library without waiting for a failure state. Its UI interaction regression and
++physical Android rebuild remain required before this is considered device
++accepted.
++
++While that rebuild runs, Atlas now presents an explicit busy notice: it says
++that saved evidence and trips are being recalculated, retains the last map for
++reference, and tells the owner that the map and journey list refresh
++automatically when the notice disappears. It intentionally reports no invented
++percentage or estimated time because the current local transaction does not
++produce reliable phase counts. The focused Atlas UI suite passes 20 tests and
++TypeScript passes; the connected Android device must be reauthorized to ADB
++before physical confirmation can resume.
++
++## Obsidian Horizon Atlas presentation implementation (2026-10-17)
++
++The private native Atlas now uses its approved Atlas-only Obsidian Horizon /
++Deep Sea Glass presentation: a deep-navy map surface, glass local-search and
++filter region, labelled local zoom/reset controls, and cyan/amber/gold map
++affordances. Search operates exclusively on the currently visible redacted
++journey projection and clears a filtered-out card selection without a network
++or telemetry path. Existing guarded media, correction return, overlap selection,
++coarse MapLibre payload and Timeline fallback remain intact; no provider,
++dependency, schema, reconstruction, route, or browser-map capability changed.
++
++Focused Atlas verification passed 22 tests outside the known sandbox Jest cache
++boundary. The complete mobile check passed 29 suites / 270 tests, TypeScript and
++lint; root `npm run check` and `git diff --check` passed. Expo Doctor remains
++20/21 due to the pre-existing nine Expo SDK patch-version recommendations. Native
++Android/iOS portrait and wide/tablet visual checks, large text, provider-request
++inspection, 1,000-row stress, and production map-provider selection remain
++unverified and are not implied by mocked MapLibre tests.
+diff --git a/_bmad-output/implementation-artifacts/spec-atlas-obsidian-horizon-map.md b/_bmad-output/implementation-artifacts/spec-atlas-obsidian-horizon-map.md
+new file mode 100644
+index 0000000..d422b7a
+--- /dev/null
++++ b/_bmad-output/implementation-artifacts/spec-atlas-obsidian-horizon-map.md
+@@ -0,0 +1,150 @@
++---
++title: 'Atlas Obsidian Horizon map interface'
++type: 'feature'
++created: '2026-10-16'
++status: 'in-progress'
++route: 'dispatch'
++review_loop_iteration: 0
++baseline_commit: '00211bdeae7519281c31087e822a5439a08bcd8b'
++context:
++  - '{project-root}/AGENTS.md'
++  - '{project-root}/docs/product/design-system.md'
++  - '{project-root}/docs/decisions/0012-dimensional-atlas-and-minimal-list.md'
++  - '{project-root}/docs/development/error-playbook.md'
++  - '{project-root}/_bmad-output/specs/spec-atlas-dimensional-polish/SPEC.md'
++  - '{project-root}/_bmad-output/specs/spec-atlas-dimensional-polish/acceptance.md'
++---
++
++<frozen-after-approval reason="human-owned intent — do not modify unless human renegotiates">
++
++## Intent
++
++**Problem:** The current private Atlas is functionally connected but does not yet
++express the owner-approved Obsidian Horizon / Deep Sea Glass world-map interface.
++The reference's visual hierarchy needs a real, accessible implementation without
++turning decorative route-planning language into claims about the owner's history.
++
++**Approach:** Reskin and reorganize the existing native MapLibre Atlas as a
++full-bleed, dark world-map surface with glass controls, local-only search,
++filters, zoom/orientation actions, and a selected-journey card. Reuse the current
++opaque projection, local preview/media/correction actions, and Timeline fallback.
++
++## Boundaries & Constraints
++
++**Always:** Use only coarse opaque anchors in map features; retain dev-only demo
++tiles and release fail-closed behavior; keep search local to the already visible
++redacted journey projection; preserve Map/Timeline, year, selection, camera,
++overlap, preview, media and correction-return behavior; use the documented
++Atlas-only navy/glass/cyan/amber/gold tokens and reduced-motion behavior; provide
++labels and non-colour selected/evidence states with reachable native controls.
++Deliver the approved 16:9 composition on wide native/tablet layouts; retain the
++accepted browser Timeline fallback rather than adding a browser map/provider.
++
++**Never:** Add a provider, dependency, route arcs, terrain, public planning,
++fabricated progress/metrics, remote search, private query telemetry, new schema
++or reconstruction behavior; reuse the supplied reference artwork/media/copy; or
++replace unrelated dirty Atlas, Home-base, continuity or gallery work.
++
++## I/O & Edge-Case Matrix
++
++| Scenario | Input / State | Expected Output / Behavior | Error Handling |
++| --- | --- | --- | --- |
++| Ready, anchored record | Redacted visible journeys with coarse anchors | Dark map, local search/filter controls, opaque cyan/amber markers and one selected card | No private fields reach MapLibre |
++| Local search | Visible safe title/place text | Filters only current local projection and clears an excluded selection | Empty result gives a local no-match state; no network request |
++| Map unavailable | Missing module, failed style or offline | Timeline and selected-preview actions stay usable | Explain map failure without fabricating history |
++| Reduced motion | Preference enabled/unknown | No shimmer, pulse or automatic camera motion | Controls remain fully operable |
++
++</frozen-after-approval>
++
++## Code Map
++
++- `apps/mobile/src/components/atlas-reveal.tsx` — retain `NativeMap`, coarse
++  GeoJSON source, camera state, selection/preview/media/overlap handling; add
++  Atlas-scoped visual tokens, local filtering/search and control/card layout.
++- `apps/mobile/src/components/__tests__/atlas-reveal.test.tsx` — extend the
++  MapLibre mock and current privacy, fallback, selection and gesture coverage.
++- `apps/mobile/src/components/ui.tsx` — reuse `useReducedMotion`; do not change
++  global Living Atlas palette or unrelated components.
++- `apps/mobile/src/components/mobile-screens.tsx` and `src/atlas/preview-context.ts`
++  — integration boundaries only; preserve existing gesture ownership and return
++  context without changing their Home-base/correction behavior.
++- `apps/mobile/node_modules/@maplibre/maplibre-react-native/...` — installed
++  API evidence only; use existing Map/Camera/GeoJSON circle-layer capability,
++  with no package change.
++
++## Tasks & Acceptance
++
++**Execution:**
++- [x] `apps/mobile/src/components/atlas-reveal.tsx` — implement the Atlas-only
++  Obsidian Horizon layout, accessible local search/filters, compact controls,
++  camera actions and selected-card presentation while retaining privacy/state
++  contracts.
++- [x] `apps/mobile/src/components/__tests__/atlas-reveal.test.tsx` — add focused
++  red/green coverage for local filtering, card/control actions, visual state
++  tokens, reduced motion and no-private-payload boundaries.
++- [x] `docs/project-state.md`, dimensional Atlas acceptance/development record,
++  and this spec — attach actual verification and remaining device/provider gates.
++
++**Acceptance Criteria:**
++- Given a populated native record, when Atlas opens, then it renders the approved
++  navy/glass full-map hierarchy with labelled controls and opaque coarse markers.
++- Given a local search/filter changes visible journeys, when it excludes selection,
++  then selection/preview clears safely and no request or telemetry is emitted.
++- Given a journey is selected, when its card opens, then it exposes real local
++  media and Review/correct actions rather than plan/save or invented metrics.
++- Given map loading fails or a journey has no anchor, when Atlas is used, then
++  Timeline selection and its guarded preview remain available.
++- Given reduced motion, when Atlas loads or controls are pressed, then decorative
++  shimmer/pulsing and automatic camera animation do not run.
++
++## Implementation Notes
++
++Atlas now owns an Obsidian Horizon map surface without changing the shared
++Living Atlas palette: Deep Navy and glass containers frame the existing
++development-only MapLibre map; cyan/amber/gold distinguish controls and selected
++markers; the card retains the existing local media and correction actions. The
++search input normalizes and compares only the already-redacted visible journey
++projection. It clears a filtered-out selection synchronously and has no request
++or telemetry path. Zoom and reset controls only adjust ephemeral local camera
++state. Map selection, Timeline fallback, overlap choice, media, and correction
++return continue through the existing guarded paths.
++
++`useReducedMotion` removes the preview fade when reduced motion is enabled or
++unknown. Atlas has no shimmer, pulse, or automatic camera motion.
++
++## Spec Change Log
++
++- 2026-10-17: Implemented the approved Atlas-only presentation and focused
++  local-search/control/reduced-motion regressions. No provider, dependency,
++  schema, reconstruction, or browser-map change was made.
++
++## Review Triage Log
++
++## Design Notes
++
++The control composition follows the owner-supplied reference, but information is
++adapted rather than copied: Map/Timeline, years and evidence state replace public
++map modes; card content is an owner-visible title, observed period and committed
++review/evidence state. MapLibre remains Mercator rather than Winkel Tripel; no
++unapproved provider/style will be introduced to imitate the reference.
++
++## Verification
++
++**Commands:**
++- `npm --prefix apps/mobile test -- --runInBand atlas-reveal` — passed outside
++  the sandbox cache boundary: 1 suite, 22 tests.
++- `npm --prefix apps/mobile run typecheck` and `npm --prefix apps/mobile run lint`
++  — passed.
++- `npm --prefix apps/mobile run check` — 29 suites / 270 tests, typecheck and
++  lint passed. Expo Doctor remained 20/21 because of the pre-existing nine Expo
++  SDK patch-version recommendations; no dependency change was authorized.
++- `npm run check` — passed: framework integrity, 20 foundation tests and eval
++  infrastructure smoke. `git diff --check` passed with only line-ending warnings.
++
++**Manual checks:**
++- Native Android/iOS portrait, wide/tablet, large text, selected card, local
++  search no-match, map failure and reduced-motion behavior; inspect map requests
++  to confirm no private query/content leaves the device.
++- The wide native 16:9 composition and physical provider/request inspection
++  remain unverified. MapLibre's release provider is still intentionally absent,
++  so release behavior continues to fail closed.

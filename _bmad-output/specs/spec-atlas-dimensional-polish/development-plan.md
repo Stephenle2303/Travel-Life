@@ -20,12 +20,14 @@ Installed package declaration is `@maplibre/maplibre-react-native` `^11.5.0`; re
 
 ### Map: polished depth without terrain
 
-- Keep the Rainforest interface, Limestone text and Fern panels. Candidate geographic extension: deep teal water with slightly lighter land, subtle boundaries and zoom-appropriate labels. Start by deriving shades from existing tokens; if extra hues are needed, name and document them before implementation. Do not bake an untested color into global UI tokens.
+- Treat the owner's world-map reference as the direct composition target. The native map fills its canvas with the **Obsidian Horizon / Deep Sea Glass** treatment from the design system: Deep Navy/Midnight Blue geography, 75%-opaque Deep Sea Glass cards, Cyber Cyan focus/active affordances, Sunset Amber selected waypoints and Cartography Gold boundaries/labels. Compact controls float above it; on a wide surface the selected-journey card sits on the map's right edge and the filter stack at left. In portrait, move the selected card immediately below the map and collapse controls into labelled groups without dropping their functions. Recreate the layout and visual hierarchy with Travel Life components; do not use the reference's image, destination photography, wording or unqualified statistics.
+- Replace the reference's public destination search with a local-only search field over the currently owner-visible projection. It may match a safe owner title and resolved supported-place label, and must never make a provider request, inspect raw media, or disclose query text to telemetry. The reference filter affordances become explicit Map/Timeline, year and evidence-status controls. The selected card replaces Save/Plan Trip with Open media and Review/correct; it preserves existing selection/camera context.
+- Use the documented Atlas-only Obsidian Horizon palette; do not restyle unrelated Living Atlas surfaces. Implement dark vector cartography, gold boundaries and zoom-appropriate labels where the selected source supports them. Faint cyan current/contour treatment is permissible as non-personal map decoration; it must be static or reduced-motion-safe and must never resemble an owner route. Do not claim raster recolouring, terrain or bathymetric source data without inspecting the actual source.
 - Inspect the actual basemap's vector/raster sources, layer IDs, glyphs, sprites, licenses and attribution first. Recolor supported vector layers through a local style adapter; never invent layer IDs or claim raster tiles were recolored. Avoid remote style mutation.
 - Suppress distracting POIs and minor-road detail at broad zoom. Keep enough labels for orientation. No satellite textures, relief shading, terrain data source, extrusion or route overlay.
 - Draw ordinary points with a crisp light face, dark outline and a subtle offset underlay. Draw selection in Citrus with a distinct outer ring. One restrained underlay creates depth; no glossy spheres, blinking, pulsation or constant glow. Start near existing 9/13-unit radii; touch targets remain independently generous.
 - Preview card: matte Fern surface, fine border, one soft shadow, approximately 16-unit corner radius. Keep attribution and map controls unobstructed. On small screens or large text, place the preview in normal flow rather than cropping it over the map.
-- Proposed depth mode is a north-up pitch around 20 degrees, capped at 30; flat mode is zero. Preserve center and zoom when toggling. A compact labelled `2D / 3D` control and `Reset view` action provide a non-gesture path. Avoid a toolbar of zoom/rotate/layer buttons.
+- Proposed depth mode is a north-up pitch around 20 degrees, capped at 30; flat mode is zero. Preserve center and zoom when toggling. A compact labelled `2D / 3D` control, reset view and clear zoom/orientation controls provide a non-gesture path. Avoid an unbounded toolbar or generic public layer switcher.
 - Initial framing uses visible supported anchors, including safe dateline handling. Filter changes preserve a user-moved camera. Selecting a visible point does not move the camera; selecting an offscreen anchored row may gently center it once, preserving zoom/pitch and allowing card padding. No camera motion for an unknown location. Reset explicitly fits the current filtered supported set, north-up, retaining chosen flat/depth mode.
 - Suggested transitions: 180-300ms, interruptible. New selection supersedes old animation; manual gesture cancels automatic movement. Reduced motion makes transitions immediate. No idle animation or automatic rotation. Default to flat/no animation while motion preference is unknown; apply no surprise camera transition when it resolves.
 
@@ -64,16 +66,16 @@ Exit: concrete supported API/style approach and baseline evidence; no provider p
 3. Add flat/depth and reset controls using verified APIs; preserve source attribution and safe touch areas.
 4. Add reduced-motion handling and interrupted camera transitions. Keep native map fallback if style/module fails.
 
-Exit: synthetic before/after comparison meets D1-D4 and no unsupported native props remain.
+Exit: synthetic before/after comparison meets D1-D4 and D20, and no unsupported native props remain.
 
 ### P2 — Minimal journey summaries and list (CAP-2, CAP-4)
 
 1. Define the smallest local summary needed for safe title, observed period, committed state and uncertainty. Reuse existing committed claim reads; add a bounded summary query only if necessary. Keep summary data out of GeoJSON and telemetry.
 2. Add grouping/presentation helpers and an Atlas-specific row; update every typed fixture if the contract changes (EP-024). Do not change reconstruction or claim semantics.
 3. Replace generic button rows and repeated summary blocks with flat rows and compact header. Choose one vertical scroll owner compatible with virtualization; do not simply nest a FlatList inside existing Screen ScrollView.
-4. Apply portrait/wide-native layouts and scalable text. No new row thumbnails, map provider or dependency is assumed.
+4. Apply portrait/wide-native layouts and scalable text. Implement the accepted reference hierarchy and its private local-search/control translation; no new row thumbnails, map provider or dependency is assumed.
 
-Exit: D5-D8 and D14-D16 pass with 0, 1, mixed-date and 1,000 synthetic journeys; no full-detail/media read per row.
+Exit: D5-D8, D14-D16 and D19 pass with 0, 1, mixed-date and 1,000 synthetic journeys; no full-detail/media read per row or network-visible search data.
 
 ### P3 — Camera, selection and return continuity (CAP-3)
 
@@ -101,3 +103,13 @@ P0 precedes native P1; P2 can progress independently of style feasibility. P3 in
 Highest risks: mismatched native API casts; opaque row IDs becoming private payloads; a pitched map moving under selection; native map swallowing list gestures; large preview obscuring attribution; N+1 title/media reads; restoring obsolete correction identity. Each has a specific acceptance case below rather than a generic visual snapshot.
 
 If a new dependency, schema migration or provider change appears necessary, reassess against this scope before proceeding. Do not expand a presentation change into a reconstruction or backend project. Estimates should follow P0 findings; this plan makes no unsupported calendar promise.
+
+## Delivery note (2026-10-17)
+
+Implemented only the presentation portion authorized by the Obsidian Horizon
+handoff: Atlas-local navy/glass/cyan/amber/gold styling, a bounded local search,
+labelled zoom/reset controls, and reduced-motion-safe preview behavior. Existing
+coarse GeoJSON, Timeline fallback, map gesture ownership, selected local media,
+and correction return contracts remain the integration boundary. Native pitch/3D,
+wide 16:9 layout, style-source recoloring, stress profiling, and physical
+request/privacy inspection were not implemented or claimed.

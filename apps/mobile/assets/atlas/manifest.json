@@ -1,0 +1,23 @@
+{
+  "version": "atlas-ne-winkel-relief-2",
+  "projection": "Winkel Tripel",
+  "width": 2048,
+  "height": 1280,
+  "scale": 374.42094885830875,
+  "sources": [
+    {
+      "file": "NE2_50M_SR.zip",
+      "sha256": "0e9838cb3acb10ce4674b74a8f79bd5aae02e4b715185d54f018afaf4d9451f4"
+    },
+    {
+      "file": "ne_50m_admin_0_countries.zip",
+      "sha256": "5fed433373581fa648920435f937d95f2d3c0200e067409c6478dcdf1b853139"
+    }
+  ],
+  "license": "Natural Earth public domain",
+  "sourceUrl": "https://www.naturalearthdata.com/about/terms-of-use/",
+  "layers": [
+    "relief",
+    "coastal-glow"
+  ]
+}

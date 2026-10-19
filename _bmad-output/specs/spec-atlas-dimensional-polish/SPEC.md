@@ -4,7 +4,8 @@ companions:
   - development-plan.md
   - acceptance.md
   - ../../../docs/product/design-system.md
-sources: []
+sources:
+  - owner-supplied world-map UI reference image (2026-10-16)
 ---
 
 # Dimensional Atlas and minimal journey list
@@ -31,6 +32,28 @@ The owner wants the Atlas to feel vibrant, professional, lively and attractive t
   - **intent:** The owner can explore on small or large screens, with accessibility settings, dense history or map failure.
   - **success:** D14-D18 demonstrate equivalent list access, readable large text, accessible controls, bounded work and honest provider/release behavior on iOS and Android.
 
+## Reference composition refinement
+
+The owner supplied a world-map interface reference on 2026-10-16 and clarified
+that it is the direct UI target for Atlas. Recreate its dominant full-map dark
+world canvas, upper search/navigation treatment, compact floating map controls,
+side filter stack, zoom/orientation controls, and a single focused selected-place
+card as original Travel Life components. Preserve the existing private Atlas
+contract: local-only journey/place search; Map/Timeline, year and evidence-status
+filters; owner title separated from observed period; authorized local media; and
+open-media/review-correct actions. Do not reproduce the reference's artwork,
+destination media, labels or claims, and do not add public itinerary planning,
+routes, generic map modes or unqualified travel totals.
+
+Its authorized Atlas-only design system is **Obsidian Horizon / Deep Sea Glass**:
+Deep Navy Void `#0B132B`, Midnight Blue `#1C2541` → `#0B132B`, 75%-opaque
+Deep Sea Glass `#131B31`, Luminous Blue `#1F3159`, Cyber Cyan
+`#4EA8DE` / `#00B4D8`, Sunset Amber `#F3722C` / `#F8961E`, Cartography Gold
+`#E9C46A`, and Secondary text `#8D99AE`. Use the exact design-system rules for
+glass, typography, active states and reduced motion. Faint current contours are
+decorative geographic context only; journey markers must never be joined into a
+route or pulse as an assertion of owner movement.
+
 ## Constraints
 
 - Preserve Living Atlas's core palette and matte surfaces. The approved extension is dimensional Atlas styling; exact geographic colors and motion values in the plan are working defaults to validate visually.
@@ -43,7 +66,7 @@ The owner wants the Atlas to feel vibrant, professional, lively and attractive t
 ## Non-goals
 
 - Terrain meshes, mountains/valleys, satellite imagery, buildings, globe mode, route arcs or animated travel lines.
-- A new map engine/provider, browser map implementation, row photo loading, search/sort/filter expansion, draggable bottom-sheet framework or a new navigation system.
+- A new map engine/provider, browser map implementation, row photo loading, draggable bottom-sheet framework or a new navigation system. Local-only Atlas search and the specified map controls are in scope.
 - Reconstruction changes, database migrations, new sharing/replay capability or correction-engine redesign.
 
 ## Success signal

@@ -51,10 +51,28 @@ export type ImportCoverage = {
   message: string | null;
 };
 
+/** Private owner-entered local context. Coordinates never leave SQLite and
+ * titles are deliberately absent from automatic detection outputs. */
+export type ConfiguredHomeArea = {
+  id: string;
+  /** Owner-entered local display text. It is never input to reconstruction. */
+  label: string | null;
+  origin: 'observed-area' | 'legacy';
+  latitude: number;
+  longitude: number;
+  effectiveStartDay: string | null;
+  effectiveEndDay: string | null;
+  radiusMeters: number;
+};
+
 export interface ImportRepository extends HistoryRecordRepository {
   getCheckpoint(scope: ImportScope): Promise<ImportCheckpoint | null>;
   commitPage(checkpoint: ImportCheckpoint, candidates: SourceCandidate[]): Promise<void>;
   loadCoverage(scope: ImportScope): Promise<ImportCheckpoint | null>;
+  loadConfiguredHomeAreas?(): Promise<ConfiguredHomeArea[]>;
+  saveConfiguredHomeArea?(area: ConfiguredHomeArea): Promise<void>;
+  renameConfiguredHomeArea?(id: string, label: string): Promise<void>;
+  deleteConfiguredHomeArea?(id: string): Promise<void>;
 }
 
 /**

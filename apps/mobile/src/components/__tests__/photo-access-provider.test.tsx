@@ -2,7 +2,7 @@ import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { AppState, type AppStateStatus } from 'react-native';
 
 import { EmptyAtlasScreen, ImportScreen } from '@/components/mobile-screens';
-import { canPublishJourneyDetail, isCurrentDurableRevealRead, PhotoAccessProvider, usePhotoAccess } from '@/photo-access/provider';
+import { canPublishJourneyDetail, hasVerifiedOwnerPlace, isCurrentDurableRevealRead, PhotoAccessProvider, usePhotoAccess, verifiedOwnerPlaceDisplayId } from '@/photo-access/provider';
 import type { PermissionSnapshot, PhotoAccessAdapter } from '@/photo-access/types';
 import type { ImportRepository } from '@/import-record';
 
@@ -39,6 +39,17 @@ const emptyRepository: ImportRepository = {
 };
 
 describe('photo access provider and Import screen', () => {
+  it('requires both final detail and durable Atlas projection before reporting a place as applied', () => {
+    const place = { id: 'phu-quoc', name: 'Phú Quốc', context: 'Kiên Giang, Vietnam', anchor: { latitude: 10.2, longitude: 103.9 } };
+    const detail = { id: 'trip', title: 'Phú Quốc', observedSpan: 'Observed', visits: [], memories: [], uncertainty: [], ownerPlace: place };
+    expect(hasVerifiedOwnerPlace('trip', place, detail, { journeys: [{ displayId: 'trip', state: 'inferred', anchor: place.anchor, years: [], periodLabel: '2022', ordering: 'chronological', label: 'Phú Quốc, Kiên Giang, Vietnam', locationKind: 'owner-confirmed' }] })).toBe(true);
+    expect(hasVerifiedOwnerPlace('trip', place, detail, { journeys: [{ displayId: 'trip', state: 'inferred', anchor: place.anchor, years: [], periodLabel: '2022', ordering: 'chronological', label: 'Old place', locationKind: 'owner-confirmed' }] })).toBe(false);
+    expect(verifiedOwnerPlaceDisplayId('old-trip', place, { journeys: [{ displayId: 'final-trip', state: 'inferred', anchor: { latitude: 10.2, longitude: 103.9 }, years: [], periodLabel: '2022', ordering: 'chronological', label: 'Phú Quốc, Kiên Giang, Vietnam', locationKind: 'owner-confirmed' }] })).toBe('final-trip');
+    expect(verifiedOwnerPlaceDisplayId('old-trip', place, { journeys: [
+      { displayId: 'final-trip-a', state: 'inferred', anchor: place.anchor, years: [], periodLabel: '2022', ordering: 'chronological', label: 'Phú Quốc, Kiên Giang, Vietnam', locationKind: 'owner-confirmed' },
+      { displayId: 'final-trip-b', state: 'inferred', anchor: place.anchor, years: [], periodLabel: '2023', ordering: 'chronological', label: 'Phú Quốc, Kiên Giang, Vietnam', locationKind: 'owner-confirmed' },
+    ] })).toBeNull();
+  });
   it('shows a recoverable status when the startup reconciliation read is locked', async () => {
     let access!: ReturnType<typeof usePhotoAccess>;
     const repository = {
@@ -66,6 +77,7 @@ describe('photo access provider and Import screen', () => {
       saveJourneyMemoryCorrection: async () => ({ revisionId: 'memory-review', graph: null }),
       discardJourneyCorrectionPending: async () => ({ graph: null }),
       markJourneyCorrectionPending: async () => {},
+      saveConfiguredHomeAreaFromJourney: async () => {},
       rebuild: async () => ({ ruleVersion: 'reconstruction-v1' as const, places: [], visits: [], journeys: [], possibleMerges: [], dispositions: [], memberships: [] }), reconcileQueued: async () => ({ graph: { ruleVersion: 'reconstruction-v1' as const, places: [], visits: [], journeys: [], possibleMerges: [], dispositions: [], memberships: [] }, newJourneyCount: 0, updatedJourneyCount: 0 }),
     };
     const adapter: PhotoAccessAdapter = { ...adapterFor({ scope: 'full', canAskAgain: false }), resolveOwnerPreviews: jest.fn(() => preview) };
@@ -97,6 +109,7 @@ describe('photo access provider and Import screen', () => {
       saveJourneyMemoryCorrection: jest.fn(async () => ({ revisionId: 'memory-review', graph })),
       discardJourneyCorrectionPending: jest.fn(async () => ({ graph })),
       markJourneyCorrectionPending: jest.fn(async () => {}),
+      saveConfiguredHomeAreaFromJourney: async () => {},
       rebuild: jest.fn(async () => graph),
       reconcileQueued: async () => ({ graph, newJourneyCount: 0, updatedJourneyCount: 0 }),
     };
@@ -126,6 +139,7 @@ describe('photo access provider and Import screen', () => {
       saveJourneyMemoryCorrection: jest.fn(async () => ({ revisionId: 'memory-review', graph })),
       discardJourneyCorrectionPending: jest.fn(async () => ({ graph })),
       markJourneyCorrectionPending: jest.fn(async () => {}),
+      saveConfiguredHomeAreaFromJourney: async () => {},
       rebuild: jest.fn().mockRejectedValue(new Error('must not run')),
       reconcileQueued: async () => ({ graph, newJourneyCount: 0, updatedJourneyCount: 0 }),
     };

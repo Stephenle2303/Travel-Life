@@ -76,6 +76,7 @@ describe('owner flow', () => {
     expect(reveal.getByLabelText('Timeline view').props.accessibilityState).toEqual({ selected: false });
     expect(reveal.getByLabelText('Filter all years').props.accessibilityState).toEqual({ selected: true });
     expect(reveal.getByLabelText('Bundled synthetic demo geography')).toBeTruthy();
+    expect(reveal.getByText('EXPLORE\nTHE WORLD')).toBeTruthy();
     expect(reveal.getByText(/Fictional demo geography and anchors only/i)).toBeTruthy();
     expect(reveal.getByLabelText('Zoom in atlas')).toBeTruthy();
     expect(reveal.getByLabelText('Fit synthetic demo geography')).toBeTruthy();

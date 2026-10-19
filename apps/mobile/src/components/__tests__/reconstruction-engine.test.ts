@@ -1,4 +1,4 @@
-import { reconstructV1, type ReconstructionEvidence } from '@/reconstruction';
+import { applyOwnerConfiguredHomeAreas, buildV11Episodes, deriveTemporalContextV11, reconstructV1, reconstructV11, type ReconstructionEvidence, type TripDetectorEvidence } from '@/reconstruction';
 
 const e = (id: string, latitude: number | null, longitude: number | null, overrides: Partial<ReconstructionEvidence> = {}): ReconstructionEvidence => ({
   id, latitude, longitude, reportedAccuracyMeters: 10, capturedAtMillis: Date.UTC(2026, 0, 1), capturedDay: '2026-01-01', hasPreciseOffset: true,
@@ -112,6 +112,115 @@ describe('reconstruction-v1 deterministic baseline', () => {
       e('fourth', 2, 2, { capturedAtMillis: Date.UTC(2026, 0, 6), capturedDay: '2026-01-06' }),
     ]);
     expect(missingDay.possibleMerges).toEqual([]);
+  });
+});
+
+describe('trip-detector-v1.1 qualification boundary', () => {
+  const qualified = (id: string, index: number): TripDetectorEvidence => ({
+    ...e(id, 1 + index, 1 + index, { capturedAtMillis: Date.UTC(2026, 0, 1, 9 + index), capturedDay: '2026-01-01' }),
+    captureLike: true, reliableLocation: true, effectiveBaseDistanceMeters: 90_000,
+    sessionId: `session-${index < 3 ? 'a' : 'b'}`, supportPlaceId: `place-${index < 3 ? 'a' : 'b'}`,
+    originalLocalDay: index < 3 ? '2026-01-01' : '2026-01-02', origin: 'capture-like', mediaType: 'image', rareDestination: true,
+  });
+
+  it('publishes only a fully gated SCORE candidate and is permutation-stable', () => {
+    const episode = { id: 'trip', evidence: Array.from({ length: 5 }, (_, index) => qualified(`photo-${index}`, index)), baseContext: true };
+    const expected = reconstructV11([episode]);
+    expect(expected.trips[0]).toMatchObject({ classification: 'AUTO_CONFIRMED', score: 75, path: 'SCORE' });
+    expect(reconstructV11([{ ...episode, evidence: [...episode.evidence].reverse() }])).toEqual(expected);
+  });
+
+  it('keeps insufficient, routine, and missing-context candidates off the automatic path', () => {
+    const evidence = Array.from({ length: 5 }, (_, index) => qualified(`photo-${index}`, index));
+    expect(reconstructV11([{ id: 'near', evidence: evidence.map((item) => ({ ...item, effectiveBaseDistanceMeters: 49_999.999 })), baseContext: true }]).trips[0].classification).toBe('NOT_TRIP');
+    expect(reconstructV11([{ id: 'routine', evidence: evidence.map((item) => ({ ...item, routine: true })), baseContext: true }]).trips[0].classification).toBe('NOT_TRIP');
+    expect(reconstructV11([{ id: 'unknown', evidence, baseContext: false }]).trips[0].classification).toBe('UNCONFIRMED');
+  });
+
+  it('counts a duplicate family once and refuses to promote a far outlier over the supported main place', () => {
+    const evidence = Array.from({ length: 5 }, (_, index) => qualified(`photo-${index}`, index));
+    const duplicate = evidence.map((item, index) => ({ ...item, duplicateFamilyId: index < 2 ? 'same-capture' : null }));
+    expect(reconstructV11([{ id: 'duplicates', evidence: duplicate, baseContext: true }]).trips[0]).toMatchObject({
+      classification: 'NOT_TRIP', reasons: expect.arrayContaining(['photo-count-below-five']),
+    });
+    const nearMain = evidence.map((item, index) => ({ ...item, supportPlaceId: index === 4 ? 'far-outlier' : 'supported-main', effectiveBaseDistanceMeters: index === 4 ? 2_000_000 : 30_000 }));
+    expect(reconstructV11([{ id: 'outlier', evidence: nearMain, baseContext: true }]).trips[0]).toMatchObject({
+      classification: 'NOT_TRIP', reasons: expect.arrayContaining(['distance-below-50km']),
+    });
+  });
+
+  it('requires trusted capture-like provenance and the canonical DAY/STAY spans', () => {
+    const evidence = Array.from({ length: 5 }, (_, index) => qualified(`photo-${index}`, index));
+    expect(reconstructV11([{ id: 'unknown-origin', evidence: evidence.map((item) => ({ ...item, captureLike: false, origin: 'unknown' })), baseContext: true }]).trips[0])
+      .toMatchObject({ classification: 'UNCONFIRMED', reasons: expect.arrayContaining(['photo-count-below-five']) });
+    const domestic = evidence.map((item) => ({ ...item, rareDestination: false, originalLocalDay: '2026-01-01', episodeSpanMillis: 3 * 60 * 60 * 1000 }));
+    expect(reconstructV11([{ id: 'short-day', evidence: domestic, baseContext: true }]).trips[0]).toMatchObject({ classification: 'NOT_TRIP', score: 55 });
+    expect(reconstructV11([{ id: 'day', evidence: domestic.map((item) => ({ ...item, episodeSpanMillis: 4 * 60 * 60 * 1000 })), baseContext: true }]).trips[0])
+      .toMatchObject({ classification: 'AUTO_CONFIRMED', path: 'DAY', score: 55 });
+  });
+
+  it('fails closed for unresolved conflicts, owner vetoes, and suspected routine context', () => {
+    const evidence = Array.from({ length: 5 }, (_, index) => qualified(`photo-${index}`, index));
+    for (const options of [{ criticalConflict: true }, { ownerVeto: true }, { suspectedRoutine: true }]) {
+      expect(reconstructV11([{ id: JSON.stringify(options), evidence, baseContext: true, ...options }]).trips[0]).toMatchObject({ classification: 'UNCONFIRMED' });
+    }
+  });
+
+  it('keeps each date-scoped owner-configured home authoritative without averaging multiple homes', () => {
+    const evidence = Array.from({ length: 5 }, (_, index) => qualified(`home-${index}`, index)).map((item) => ({ ...item, latitude: 10.0, longitude: 105.9, capturedDay: '2026-01-01' }));
+    const configured = applyOwnerConfiguredHomeAreas(evidence, [
+      { id: 'ho-chi-minh', latitude: 10.8231, longitude: 106.6297, effectiveStartDay: '2026-02-01' },
+      { id: 'sa-dec', latitude: 10.2909, longitude: 105.7564, effectiveEndDay: '2026-01-31' },
+    ]);
+    expect(configured.every((item) => item.usualAreaContext && item.configuredHomeAreaId === 'sa-dec')).toBe(true);
+    expect(reconstructV11([{ id: 'configured-home', evidence: configured, baseContext: true }]).trips[0]).toMatchObject({
+      classification: 'NOT_TRIP', path: null, reasons: expect.arrayContaining(['configured-home-area']),
+    });
+
+    const afterMove = applyOwnerConfiguredHomeAreas([{ ...evidence[0], id: 'after-move', latitude: 10.8231, longitude: 106.6297, capturedDay: '2026-02-01' }], [
+      { id: 'ho-chi-minh', latitude: 10.8231, longitude: 106.6297, effectiveStartDay: '2026-02-01' },
+      { id: 'sa-dec', latitude: 10.2909, longitude: 105.7564, effectiveEndDay: '2026-01-31' },
+    ]);
+    expect(afterMove[0].configuredHomeAreaId).toBe('ho-chi-minh');
+
+    const malformed = applyOwnerConfiguredHomeAreas([{ ...evidence[0], id: 'invalid-day', capturedDay: '2026-02-31' }], [
+      { id: 'sa-dec', latitude: 10.2909, longitude: 105.7564 },
+    ]);
+    expect(malformed[0].configuredHomeAreaId).toBeUndefined();
+  });
+
+  it('keeps locationless evidence unconfirmed rather than asserting a negative trip', () => {
+    const evidence = Array.from({ length: 5 }, (_, index) => ({ ...qualified(`no-location-${index}`, index), latitude: null, longitude: null }));
+    expect(reconstructV11([{ id: 'no-location', evidence, baseContext: true }]).trips[0]).toMatchObject({
+      classification: 'UNCONFIRMED', reasons: expect.arrayContaining(['distance-unknown']),
+    });
+  });
+
+  it('uses active owner homes as local episode boundaries without inventing a return from silence', () => {
+    const before = Array.from({ length: 5 }, (_, index) => ({ ...qualified(`before-${index}`, index), capturedAtMillis: Date.UTC(2026, 0, 1, index), capturedDay: '2026-01-01' }));
+    const local = { ...qualified('home', 9), latitude: 10.2909, longitude: 105.7564, capturedAtMillis: Date.UTC(2026, 0, 2), capturedDay: '2026-01-02' };
+    const laterLocal = { ...qualified('home-later', 10), latitude: 10.2909, longitude: 105.7564, capturedAtMillis: Date.UTC(2026, 0, 2, 2), capturedDay: '2026-01-02' };
+    const after = Array.from({ length: 5 }, (_, index) => ({ ...qualified(`after-${index}`, index), capturedAtMillis: Date.UTC(2026, 0, 3, index), capturedDay: '2026-01-03' }));
+    const result = buildV11Episodes([...after, laterLocal, local, ...before], { baseContext: true, ownerHomeAreas: [{ id: 'sa-dec', latitude: 10.2909, longitude: 105.7564 }] });
+    expect(result.trips).toHaveLength(3);
+    expect(result.trips.find((trip) => trip.supportIds.includes('home'))).toMatchObject({ classification: 'NOT_TRIP', reasons: expect.arrayContaining(['configured-home-area']) });
+    expect(result.trips.filter((trip) => trip.classification === 'AUTO_CONFIRMED')).toHaveLength(2);
+  });
+
+  it('derives deterministic C0/C1-ready context without letting candidate evidence establish its own base', () => {
+    const base = Array.from({ length: 12 }, (_, index) => ({
+      ...qualified(`base-${index}`, index),
+      supportPlaceId: 'base',
+      capturedDay: `2025-${String(index + 1).padStart(2, '0')}-01`,
+      originalLocalDay: `2025-${String(index + 1).padStart(2, '0')}-01`,
+      latitude: 10.2909,
+      longitude: 105.7564,
+    }));
+    const c0 = deriveTemporalContextV11([...base].reverse(), [], true);
+    const c1 = deriveTemporalContextV11(base, [], true, new Set(base.map((item) => item.id)));
+    expect(c0).toMatchObject({ version: 'temporal-context-v1.1', baseIds: ['base'], fullLibrary: true });
+    expect(c1.baseIds).toEqual([]);
+    expect(deriveTemporalContextV11(base, [], false).baseIds).toEqual([]);
   });
 });
 

@@ -147,6 +147,86 @@ layouts; the prototype is a reference, not proof of production accessibility.
 
 ## Applying and extending the system
 
+### Atlas world-map reference target
+
+The owner's 2026-10-18 clarification prioritizes **reference-faithful map
+cartography**. The search pill/utility icons, full left mode dock, compass/zoom
+slider, route arcs and polished persistent destination card are temporarily
+deferred. Real coastline geometry, the curved world silhouette, blue shaded
+land, layered navy oceans, gold borders, restrained labels and coastal light
+must match the supplied image closely; the recolored fictional geography and
+grid fallback do not meet this visual bar. Existing functional exploration
+actions remain available. This refinement takes precedence over the broader
+interface composition below for the current delivery.
+
+Follow [decision 0013](../decisions/0013-reference-faithful-atlas-cartography.md)
+and the [cartography contract](../../_bmad-output/specs/spec-atlas-reference-cartography/SPEC.md).
+Static, pre-rendered 2D relief/bathymetric texture is permitted for this visual
+match; earlier prohibitions of terrain data do not forbid that texture.
+Runtime terrain meshes, elevation APIs and globe mode remain excluded.
+Reference screenshots stay comparison material rather than shipped map assets.
+An equal-size visual comparison and explicit owner acceptance are required;
+automated tests or a restyled placeholder cannot establish visual completion.
+
+The world-map UI supplied by the owner on 2026-10-16 is the direct visual and
+composition target for the private Atlas map. Recreate its dominant full-bleed,
+dark cinematic world canvas; upper navigation/search region; compact floating
+map controls; map-side filter stack; zoom/orientation controls; and a single
+right-side selected-place card. On phone portrait layouts, retain the same visual
+hierarchy by stacking the selected card below the map and collapsing controls
+into reachable compact groups. Recreate the treatment with Travel Life's own
+components, labels, map source and authorized media—never the reference image,
+its destination photo, or its public-trip claims.
+
+Translate the visible controls to Travel Life's actual private capabilities:
+the search field is local-only search for an owner-visible journey or supported
+place; the filter stack provides Map/Timeline, years, and evidence-status views;
+the selected card shows an owner title when present, separately-labelled observed
+period, local authorized cover media, and evidence/review state. It offers
+open-media and review/correct actions instead of Save/Plan Trip. Replace generic
+"countries visited" copy with the existing qualified-record coverage wording.
+No query, selected marker, journey title, date, media URI, source identifier, or
+precise personal coordinate may be submitted to a map provider or telemetry.
+
+#### Obsidian Horizon / Deep Sea Glass
+
+This is the authorized **Atlas-only** visual extension. It supersedes the
+Rainforest/Fern map-surface treatment for this interface; the core Living Atlas
+system continues to govern the rest of the product.
+
+| Token | Value | Atlas use |
+| --- | --- | --- |
+| Deep Navy Void | `#0B132B` | Canvas and deepest ocean |
+| Midnight Blue | `#1C2541` → `#0B132B` | Canvas gradient and depth field |
+| Deep Sea Glass | `#131B31` at 75% | Floating cards and docks, with a 1px inner border |
+| Luminous Blue | `#1F3159` | Active/hover glass state |
+| Cyber Cyan | `#4EA8DE` / `#00B4D8` | Search glow, active controls, primary actions and focus |
+| Sunset Amber | `#F3722C` / `#F8961E` | Selected journey waypoint and high-attention action accent |
+| Cartography Gold | `#E9C46A` | Supported boundaries and regional map labels only |
+| Secondary text | `#8D99AE` | Muted data and contextual copy |
+
+Use Inter or the platform's SF Pro Display equivalent. Map headings are uppercase,
+700 weight, with 1.5px tracking; data text is regular-weight white or Secondary
+text. Glass cards use a 16px radius, 20px backdrop blur where supported, a subtle
+inner border and one restrained shadow. Cyan glow is reserved for active search,
+focus and active controls; amber is reserved for selected destinations or an
+owner-initiated primary action. Do not use colour alone to communicate evidence,
+uncertainty or selection.
+
+The map may use dark cartography, gold boundaries, readable labels and faint
+non-personal ocean-current contours as decorative geographic context. It must not
+use terrain data, simulate owner routes, or animate destination nodes as if they
+are verified movement. A selected Travel Life journey appears as a cyan/amber
+waypoint with a strong non-colour selected state; no path is drawn between
+journeys. The card's image is only an authorized local cover; its metrics are
+owner-relevant period/evidence/review information, never invented "quick facts."
+
+On pointer-capable surfaces, glass components may scale up to `1.02` with a
+restrained intensified shadow on hover. Pressed native controls use the equivalent
+short feedback. Camera and card transitions are interruptible; reduced motion
+removes shimmer, pulsing and camera animation. A shimmer may run once on a newly
+revealed static glass surface, never as constant decoration.
+
 Decision [0012](../decisions/0012-dimensional-atlas-and-minimal-list.md) extends
 the Atlas direction with richer map color, subtle perspective, dimensional
 markers, restrained preview-card depth and responsive motion. The owner explicitly

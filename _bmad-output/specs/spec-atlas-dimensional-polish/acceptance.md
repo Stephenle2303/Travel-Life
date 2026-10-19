@@ -22,11 +22,24 @@ All implementation cases are pending. These are targets, not claimed test result
 | D16 / CAP-4 | 1,000 synthetic journeys use bounded row work; no per-row detail/thumbnail lookup; list selection/filtering remains responsive with observations recorded | Profiler/request counts and real-device stress |
 | D17 / CAP-4 | Missing native module/style/offline leaves same local list and preview/media/correction actions usable; no fabricated empty history | Recovery tests and native failure exercise |
 | D18 / CAP-4 | Map payload stays coarse and opaque; source requests retain correct attribution/disclosure; demo style remains development-only and release fails closed without approved source | Payload tests and synthetic request/config inspection |
+| D19 / CAP-1, CAP-2 | The Atlas reproduces the accepted reference hierarchy: full-bleed dark world map, upper local-only search/navigation region, compact floating controls, side filters, zoom/orientation controls and one selected-journey card. Search and controls work with only local projection data; the card exposes media and review/correct rather than public planning. | Synthetic portrait/wide captures; interaction and no-network-payload tests |
+| D20 / CAP-1, CAP-4 | Atlas visual treatment uses the authorized Obsidian Horizon / Deep Sea Glass map tokens, typographic hierarchy and glass components. Cyan/amber communicate interaction rather than evidence by colour alone; no simulated owner route/progress appears. Reduced motion disables shimmer, pulses and camera animation. | Token/style inspection; selected/uncertain/reduced-motion captures and tests |
 
 ## Planning validation
 
 Coherence: four unique stable CAP IDs, each with intent and success, explicit constraints and non-goals, and concrete demonstration targets. Defaults and unresolved provider dependency are labelled.
 
-Preservation: owner's vibrant/professional/lively 3D effect, explicit no-terrain clarification, minimal intuitive list, reference composition and inherited privacy/context/accessibility requirements are represented in this spec and development plan. Party staging and superseded terrain/globe suggestions are intentionally excluded.
+Preservation: owner's supplied world-map UI as the direct Atlas visual target, vibrant/professional/lively depth, explicit no-terrain clarification, minimal intuitive list, and inherited privacy/context/accessibility requirements are represented in this spec and development plan. Party staging and superseded terrain/globe suggestions are intentionally excluded.
 
 Documentation checks and foundation command results are recorded in the decision log after execution. Application code, mobile behavior, rendering quality and native performance are not verified by this planning task.
+
+## Implementation evidence update (2026-10-17)
+
+The Atlas implementation now applies the approved Obsidian Horizon / Deep Sea
+Glass controls and local-only filter surface on top of the existing redacted
+MapLibre projection. Focused Atlas coverage passed 22 tests, and the full mobile
+check passed 29 suites / 270 tests with typecheck and lint. The tests cover a
+local search clearing an excluded selection, opaque-only feature data, controls,
+card actions, map failure fallback, and reduced-motion policy. This is not
+evidence for the device-only D1/D4/D15/D16/D18-D20 visual, performance, or
+provider-request cases; those remain explicit native/manual gates.

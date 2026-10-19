@@ -1,10 +1,12 @@
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import { Button, Text } from 'react-native';
+import { useEffect } from 'react';
 
 import { PrivacySettingsScreen } from '@/components/privacy-settings-screen';
 import { PhotoAccessProvider, usePhotoAccess } from '@/photo-access/provider';
 import type { PhotoAccessAdapter } from '@/photo-access/types';
 import type { ImportRepository } from '@/import-record';
+import type { ReconstructionGraph } from '@/reconstruction';
 
 jest.mock('expo-video', () => ({
   useVideoPlayer: (_source: unknown, setup: (player: { muted: boolean; volume: number; loop: boolean; play(): void; pause(): void }) => void) => {
@@ -38,6 +40,13 @@ function lifecycleRepository(): ImportRepository {
   };
 }
 
+function namedHomeRepository(): ImportRepository {
+  return {
+    ...lifecycleRepository(),
+    loadConfiguredHomeAreas: async () => [{ id: 'legacy-home', label: null, origin: 'legacy' as const, latitude: 10.2, longitude: 105.7, effectiveStartDay: null, effectiveEndDay: null, radiusMeters: 50_000 }],
+  };
+}
+
 function AiLifecycleHarness() {
   const { aiReview, aiProposalController, privateRecordController } = usePhotoAccess();
   return <>
@@ -48,7 +57,55 @@ function AiLifecycleHarness() {
   </>;
 }
 
+function HomeSetupHarness({ graph }: { graph: ReconstructionGraph }) {
+  const { reconstructionController } = usePhotoAccess();
+  useEffect(() => { reconstructionController.publishCommitted(graph); }, [graph, reconstructionController]);
+  return <PrivacySettingsScreen />;
+}
+
 describe('private record settings', () => {
+  it('offers a private existing-place home-base setup without asking for coordinates', async () => {
+    const view = await render(<PhotoAccessProvider adapter={adapter} repository={lifecycleRepository()}><PrivacySettingsScreen /></PhotoAccessProvider>);
+    await waitFor(() => expect(view.getByText('Home bases')).toBeOnTheScreen());
+    expect(view.getByText(/Choose a private journey, review its photos and videos/)).toBeOnTheScreen();
+    expect(view.queryByLabelText(/latitude|longitude|coordinate/i)).toBeNull();
+  });
+
+  it('shows a migrated Home base as unnamed instead of inventing a locality', async () => {
+    const view = await render(<PhotoAccessProvider adapter={adapter} repository={namedHomeRepository()}><PrivacySettingsScreen /></PhotoAccessProvider>);
+    await waitFor(() => expect(view.getByText('Unnamed home base')).toBeOnTheScreen());
+    expect(view.getByText(/Within 50 km/)).toBeOnTheScreen();
+    expect(view.getByRole('button', { name: 'Rename unnamed Home base' })).toBeOnTheScreen();
+  });
+
+  it('requires reviewing a journey and selecting its observed area before saving a home base', async () => {
+    const graph = { ruleVersion: 'reconstruction-v1' as const, places: [], visits: [], journeys: [], possibleMerges: [], dispositions: [], memberships: [] };
+    const saveConfiguredHomeAreaFromJourney = jest.fn(async () => {});
+    const reconstructionRepository = {
+      loadDurableReveal: async () => ({ journeys: [{ displayId: 'journey-1', state: 'inferred' as const, anchor: { latitude: 10.8, longitude: 106.6 }, years: [2024], periodLabel: 'April 2024', ordering: 'chronological' as const, label: 'Vietnam' }], statistics: null }),
+      loadJourneyDetail: async () => ({ detail: { id: 'journey-1', title: 'Vietnam', observedSpan: 'Observed April 2024', visits: [{ id: 'visit-home', label: 'Observed area', precision: 'Chronological', support: '2 photos' }], memories: [{ id: 'memory-1', availability: 'unavailable' as const, association: 'Associated local media' }], uncertainty: [] }, previewSourceRefs: [null], snapshotToken: 1 }),
+      loadJourneyMediaPage: async () => ({ items: [], previewSourceRefs: [], hasMore: false }),
+      loadUncertainMemories: async () => ({ memories: [], hasMore: false }),
+      saveJourneyCorrection: async () => ({ revisionId: 'review', state: 'confirmed' as const, graph }),
+      saveJourneyMemoryCorrection: async () => ({ revisionId: 'memory', graph: null }),
+      discardJourneyCorrectionPending: async () => ({ graph: null }),
+      markJourneyCorrectionPending: async () => {},
+      saveConfiguredHomeAreaFromJourney,
+      rebuild: async () => graph,
+      reconcileQueued: async () => ({ graph, newJourneyCount: 0, updatedJourneyCount: 0 }),
+    };
+    const view = await render(<PhotoAccessProvider adapter={adapter} repository={lifecycleRepository()} reconstructionRepository={reconstructionRepository}><HomeSetupHarness graph={graph} /></PhotoAccessProvider>);
+    await waitFor(() => expect(view.getByRole('button', { name: 'Review Vietnam for a home base' })).toBeOnTheScreen());
+    await fireEvent.press(view.getByRole('button', { name: 'Review Vietnam for a home base' }));
+    await waitFor(() => expect(view.getByText('Review this journey')).toBeOnTheScreen());
+    expect(view.getByRole('button', { name: 'Save home base' })).toBeDisabled();
+    await fireEvent.press(view.getByRole('button', { name: 'Choose observed area Observed area' }));
+    await fireEvent.changeText(view.getByLabelText('New Home base name'), 'Sa Dec, Dong Thap');
+    await fireEvent.press(view.getByRole('button', { name: 'Save home base' }));
+    await waitFor(() => expect(saveConfiguredHomeAreaFromJourney).toHaveBeenCalledWith('journey-1', 'home:journey-1:visit-home', 'visit-home', 'Sa Dec, Dong Thap', null, null));
+    expect(view.getByText(/Home base saved\. Your updated local history is ready in Atlas/)).toBeOnTheScreen();
+  });
+
   it('keeps local history when the owner cancels the deletion confirmation', async () => {
     const view = await render(
       <PhotoAccessProvider adapter={adapter} repository={lifecycleRepository()}>

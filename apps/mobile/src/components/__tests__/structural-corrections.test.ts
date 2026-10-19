@@ -56,12 +56,13 @@ describe('durable structural journey corrections', () => {
     expect(merged.journeys[0]?.visitIds).toHaveLength(2);
   });
 
-  it('moves only predecessor-wide confirmation and owner claims into scope review', () => {
+  it('moves predecessor-wide confirmations, claims, and confirmed places into scope review', () => {
     expect(predecessorWideScopeRevisions([
       { revision_id: 'confirm', action: 'confirm', reviewed_support_json: '[]' },
       { revision_id: 'claim', action: 'claim', reviewed_support_json: '[]' },
+      { revision_id: 'place', action: 'place', reviewed_support_json: '[]' },
       { revision_id: 'reject', action: 'reject', reviewed_support_json: '[]' },
       { revision_id: 'split', action: 'split', reviewed_support_json: '[]' },
-    ])).toEqual(['confirm', 'claim']);
+    ])).toEqual(['confirm', 'claim', 'place']);
   });
 });

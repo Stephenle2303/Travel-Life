@@ -7,5 +7,5 @@ export default function JourneyRoute() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id?: string }>();
   const { loadJourneyDetail } = usePhotoAccess();
-  return <JourneyDetailScreen id={typeof id === 'string' ? id : ''} load={loadJourneyDetail} onBack={() => openRoute(router, appRoutes.atlas, 'replace')} onCorrect={() => router.push({ pathname: '/journey/[id]/correct' as never, params: { id } })} />;
+  return <JourneyDetailScreen id={typeof id === 'string' ? id : ''} load={loadJourneyDetail} onBack={() => openRoute(router, appRoutes.atlas, 'replace')} onEdit={() => router.push({ pathname: '/journey/[id]/edit' as never, params: { id } })} />;
 }

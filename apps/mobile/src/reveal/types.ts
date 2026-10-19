@@ -10,6 +10,10 @@ export type DurableRevealJourney = {
   years: number[];
   periodLabel: string;
   ordering: 'chronological' | 'uncertain';
+  /** A locally derived, coarse trip label such as a country name. Never a coordinate or raw capture value. */
+  label?: string;
+  /** An owner-confirmed local place is intentionally distinct from inferred evidence. */
+  locationKind?: 'inferred' | 'owner-confirmed';
 };
 export type InferredStatistics = { journeyCount: number; placeCount: number; supportedCountryCount: number; countryStatus: 'supported' | 'unavailable' };
 /** Aggregate counts from one completed local reconstruction; no evidence identifiers or locations. */
@@ -54,7 +58,7 @@ export type RevealModel = {
 
 export type AtlasView = 'map' | 'timeline';
 export type AtlasCamera = { center: [number, number]; zoom: number };
-export type AtlasExploration = { view: AtlasView; year: number | null; selectedJourneyId: string | null; camera?: AtlasCamera };
+export type AtlasExploration = { view: AtlasView; year: number | null; selectedJourneyId: string | null; camera?: AtlasCamera; localViewport?: { scale: number; x: number; y: number } };
 
 /** Owner-readable data for one explicitly selected journey. It is never Atlas state. */
 export type JourneyDetail = {
@@ -70,9 +74,11 @@ export type JourneyDetail = {
   pendingRemap?: { reason: string };
   /** A private statement from the owner. It is intentionally separate from observed evidence. */
   ownerClaim?: {
-    title: string;
-    date: { kind: 'exact'; day: string } | { kind: 'approximate'; startDay: string; endDay: string };
+    title?: string;
+    date?: { kind: 'exact'; day: string } | { kind: 'approximate'; startDay: string; endDay: string };
   };
+  /** Owner-selected local place and coarse map anchor, separate from observed evidence. */
+  ownerPlace?: { id: string; name: string; context: string; anchor: RevealMapAnchor };
 };
 
 /** A bounded gallery page. Its source references stay inside the repository/provider boundary. */

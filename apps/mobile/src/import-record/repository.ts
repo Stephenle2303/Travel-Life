@@ -10,6 +10,7 @@ type SqliteDatabase = {
   execAsync(source: string): Promise<void>;
   runAsync(source: string, ...params: (string | number | null)[]): Promise<unknown>;
   getFirstAsync<T>(source: string, ...params: (string | number | null)[]): Promise<T | null>;
+  getAllAsync<T>(source: string, ...params: (string | number | null)[]): Promise<T[]>;
 };
 
 type CheckpointRow = {
@@ -21,7 +22,9 @@ type CheckpointRow = {
   status: ImportCheckpoint['status'];
 };
 
-const CURRENT_SCHEMA_VERSION = 28;
+const CURRENT_SCHEMA_VERSION = 32;
+const validCivilDay = (day: string | null) => Boolean(day && /^\d{4}-(0[1-9]|1[0-2])-([0-2]\d|3[01])$/.test(day)
+  && new Date(`${day}T00:00:00.000Z`).toISOString().slice(0, 10) === day);
 
 const migrationV1 = `
   CREATE TABLE IF NOT EXISTS import_checkpoint (
@@ -570,6 +573,93 @@ const migrationV28 = `
   UPDATE private_history_record SET schema_version = 28 WHERE record_id = 1;
 `;
 
+// Qualification is a private, versioned projection. Keeping it separate from
+// legacy journey_state prevents a rule change from rewriting correction-safe
+// reconstruction identities or making a draft visible by accident.
+const migrationV29 = `
+  CREATE TABLE IF NOT EXISTS reconstruction_trip_qualification (
+    run_id INTEGER NOT NULL,
+    journey_id TEXT NOT NULL,
+    classification TEXT NOT NULL CHECK (classification IN ('AUTO_CONFIRMED', 'USER_CONFIRMED', 'SUGGESTED', 'NOT_TRIP', 'UNCONFIRMED', 'REJECTED')),
+    score INTEGER NOT NULL,
+    qualification_path TEXT NULL,
+    reasons_json TEXT NOT NULL,
+    PRIMARY KEY (run_id, journey_id)
+  );
+  CREATE INDEX IF NOT EXISTS reconstruction_trip_qualification_primary
+    ON reconstruction_trip_qualification (run_id, classification);
+  -- Existing V1 rows have never passed the V1.1 context gates. Backfill them
+  -- as private suggestions so an app upgrade cannot expose them through a
+  -- missing qualification row or silently call them confirmed.
+  INSERT OR IGNORE INTO reconstruction_trip_qualification
+    (run_id, journey_id, classification, score, qualification_path, reasons_json)
+    SELECT run_id, journey_id, 'SUGGESTED', 0, NULL, '["v1-1-context-not-yet-qualified"]'
+    FROM reconstruction_journey;
+  UPDATE private_history_record SET schema_version = 29 WHERE record_id = 1;
+`;
+
+const migrationV30 = `
+  CREATE TABLE IF NOT EXISTS configured_home_area (
+    area_id TEXT PRIMARY KEY,
+    latitude REAL NOT NULL CHECK (latitude >= -90 AND latitude <= 90),
+    longitude REAL NOT NULL CHECK (longitude >= -180 AND longitude <= 180),
+    effective_start_day TEXT NULL,
+    effective_end_day TEXT NULL,
+    radius_meters REAL NOT NULL CHECK (radius_meters > 0 AND radius_meters <= 50000),
+    CHECK (effective_start_day IS NULL OR effective_end_day IS NULL OR effective_start_day <= effective_end_day)
+  );
+  UPDATE private_history_record SET schema_version = 30 WHERE record_id = 1;
+`;
+
+// Labels are owner-entered local presentation metadata.  Existing areas remain
+// active but deliberately unnamed; no city name is fabricated from coordinates.
+const migrationV31 = `
+  ALTER TABLE configured_home_area ADD COLUMN owner_label TEXT NULL;
+  ALTER TABLE configured_home_area ADD COLUMN origin TEXT NOT NULL DEFAULT 'legacy' CHECK (origin IN ('observed-area', 'legacy'));
+  UPDATE private_history_record SET schema_version = 31 WHERE record_id = 1;
+`;
+
+// Owner-selected place labels/anchors are local corrections, never imported
+// evidence. Recreate this constrained table because SQLite cannot widen the
+// existing action CHECK in place.
+const migrationV32 = `
+  DROP INDEX IF EXISTS journey_correction_target;
+  DROP INDEX IF EXISTS journey_correction_command;
+  ALTER TABLE journey_correction_revision RENAME TO journey_correction_revision_legacy;
+  CREATE TABLE journey_correction_revision (
+    revision_id TEXT PRIMARY KEY NOT NULL,
+    action TEXT NOT NULL CHECK (action IN ('confirm', 'reject', 'claim', 'place', 'split', 'merge', 'remove-visit')),
+    source_run_id INTEGER NOT NULL,
+    journey_id TEXT NOT NULL,
+    reviewed_support_json TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('effective', 'pending_remap', 'superseded')),
+    created_at_millis INTEGER NOT NULL,
+    replaces_revision_id TEXT NULL,
+    reviewed_snapshot_json TEXT NOT NULL DEFAULT '{}',
+    reviewed_visits_json TEXT NOT NULL DEFAULT '[]',
+    command_key TEXT NULL,
+    owner_title TEXT NULL,
+    owner_date_kind TEXT NULL CHECK (owner_date_kind IN ('exact', 'approximate')),
+    owner_date_start TEXT NULL,
+    owner_date_end TEXT NULL,
+    structural_boundary_json TEXT NULL,
+    reviewed_family_snapshot_json TEXT NOT NULL DEFAULT '{}',
+    owner_place_id TEXT NULL,
+    owner_place_name TEXT NULL,
+    owner_place_context TEXT NULL,
+    owner_latitude REAL NULL CHECK (owner_latitude >= -90 AND owner_latitude <= 90),
+    owner_longitude REAL NULL CHECK (owner_longitude >= -180 AND owner_longitude <= 180)
+  );
+  INSERT INTO journey_correction_revision
+    (revision_id, action, source_run_id, journey_id, reviewed_support_json, state, created_at_millis, replaces_revision_id, reviewed_snapshot_json, reviewed_visits_json, command_key, owner_title, owner_date_kind, owner_date_start, owner_date_end, structural_boundary_json, reviewed_family_snapshot_json)
+  SELECT revision_id, action, source_run_id, journey_id, reviewed_support_json, state, created_at_millis, replaces_revision_id, reviewed_snapshot_json, reviewed_visits_json, command_key, owner_title, owner_date_kind, owner_date_start, owner_date_end, structural_boundary_json, reviewed_family_snapshot_json
+  FROM journey_correction_revision_legacy;
+  DROP TABLE journey_correction_revision_legacy;
+  CREATE INDEX journey_correction_target ON journey_correction_revision (journey_id, source_run_id, created_at_millis);
+  CREATE UNIQUE INDEX journey_correction_command ON journey_correction_revision (command_key) WHERE command_key IS NOT NULL;
+  UPDATE private_history_record SET schema_version = 32 WHERE record_id = 1;
+`;
+
 const MAINTENANCE_LEASE_MILLIS = 5 * 60 * 1000;
 
 type SchemaRow = { version: number };
@@ -661,6 +751,10 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
           if (version < 26) await db.execAsync(migrationV26);
           if (version < 27) await db.execAsync(migrationV27);
           if (version < 28) await db.execAsync(migrationV28);
+          if (version < 29) await db.execAsync(migrationV29);
+          if (version < 30) await db.execAsync(migrationV30);
+          if (version < 31) await db.execAsync(migrationV31);
+          if (version < 32) await db.execAsync(migrationV32);
           if (version === 0) await db.runAsync('INSERT INTO import_schema_version (version) VALUES (?)', CURRENT_SCHEMA_VERSION);
           else if (version < CURRENT_SCHEMA_VERSION) await db.runAsync('UPDATE import_schema_version SET version = ?', CURRENT_SCHEMA_VERSION);
           await db.execAsync('COMMIT');
@@ -715,6 +809,42 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
     loadCoverage: read,
     async getPrivateRecordLifecycle() {
       return lifecycle(await open());
+    },
+    async loadConfiguredHomeAreas() {
+      const db = await open();
+      const rows = await db.getAllAsync<{ area_id: string; owner_label: string | null; origin: 'observed-area' | 'legacy'; latitude: number; longitude: number; effective_start_day: string | null; effective_end_day: string | null; radius_meters: number }>(
+        'SELECT area_id, owner_label, origin, latitude, longitude, effective_start_day, effective_end_day, radius_meters FROM configured_home_area ORDER BY effective_start_day, area_id',
+      );
+      return rows.map((row) => ({ id: row.area_id, label: row.owner_label, origin: row.origin, latitude: row.latitude, longitude: row.longitude, effectiveStartDay: row.effective_start_day, effectiveEndDay: row.effective_end_day, radiusMeters: row.radius_meters }));
+    },
+    async saveConfiguredHomeArea(area) {
+      const label = area.label?.trim() || null;
+      if (!area.id || (area.label !== null && !label) || !Number.isFinite(area.latitude) || !Number.isFinite(area.longitude) || !Number.isFinite(area.radiusMeters)
+        || area.latitude < -90 || area.latitude > 90 || area.longitude < -180 || area.longitude > 180 || area.radiusMeters <= 0 || area.radiusMeters > 50_000
+        || (!validCivilDay(area.effectiveStartDay) && area.effectiveStartDay !== null) || (!validCivilDay(area.effectiveEndDay) && area.effectiveEndDay !== null)
+        || (area.effectiveStartDay !== null && area.effectiveEndDay !== null && area.effectiveStartDay > area.effectiveEndDay)) throw new Error('Configured home area is invalid.');
+      const db = await open();
+      await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
+      try {
+        await assertImportActive(db);
+        await db.runAsync('INSERT INTO configured_home_area (area_id, owner_label, origin, latitude, longitude, effective_start_day, effective_end_day, radius_meters) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(area_id) DO UPDATE SET owner_label=excluded.owner_label, origin=excluded.origin, latitude=excluded.latitude, longitude=excluded.longitude, effective_start_day=excluded.effective_start_day, effective_end_day=excluded.effective_end_day, radius_meters=excluded.radius_meters', area.id, label, area.origin, area.latitude, area.longitude, area.effectiveStartDay, area.effectiveEndDay, area.radiusMeters);
+        await db.execAsync('COMMIT');
+      } catch (error) { await db.execAsync('ROLLBACK'); throw error; }
+    },
+    async renameConfiguredHomeArea(id, label) {
+      const trimmed = label.trim();
+      if (!id || !trimmed) throw new Error('Home base name is required.');
+      const db = await open();
+      await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
+      try { await assertImportActive(db); await db.runAsync('UPDATE configured_home_area SET owner_label = ? WHERE area_id = ?', trimmed, id); await db.execAsync('COMMIT'); }
+      catch (error) { await db.execAsync('ROLLBACK'); throw error; }
+    },
+    async deleteConfiguredHomeArea(id) {
+      if (!id) throw new Error('Configured home area requires an identifier.');
+      const db = await open();
+      await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
+      try { await assertImportActive(db); await db.runAsync('DELETE FROM configured_home_area WHERE area_id = ?', id); await db.execAsync('COMMIT'); }
+      catch (error) { await db.execAsync('ROLLBACK'); throw error; }
     },
     async connectPrivateRecord() {
       const db = await open();
@@ -772,6 +902,8 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
           DELETE FROM reconciliation_lease;
           DELETE FROM reconciliation_run_sequence;
           DELETE FROM local_cache_registry;
+          DELETE FROM reconstruction_trip_qualification;
+          DELETE FROM configured_home_area;
           DELETE FROM reconstruction_disposition;
           DELETE FROM reconstruction_link;
           DELETE FROM reconstruction_journey;

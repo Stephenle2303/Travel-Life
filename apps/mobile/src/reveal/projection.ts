@@ -18,10 +18,9 @@ export function projectReveal(input: RevealInput): RevealModel {
   const sourceJourneys = input.durableRecord?.journeys ?? graph?.journeys.map((journey) => ({ state: journey.state, anchor: null })) ?? [];
   const journeys = sourceJourneys.map((journey, index) => ({
     id: 'displayId' in journey ? journey.displayId : `journey-${index + 1}`,
-    // A coarse anchor is never a destination claim. Titles from owner claims
-    // stay in the selected local detail boundary, so this redacted list uses a
-    // truthful neutral fallback.
-    label: 'Private journey',
+    // A bundled offline resolver may provide a coarse, evidence-derived display
+    // label. It is not an owner-presence claim; owner titles stay in detail.
+    label: 'label' in journey && typeof journey.label === 'string' && journey.label.length <= 80 ? journey.label : 'Private journey',
     status: journey.state === 'inferred' ? 'Inferred' as const : 'Needs review' as const,
     years: 'years' in journey ? journey.years : [],
     periodLabel: 'periodLabel' in journey ? journey.periodLabel : 'Date unknown',
@@ -39,7 +38,14 @@ export function projectReveal(input: RevealInput): RevealModel {
     return { state: 'restricted', coverage, journeys, statistics: null, replay: { eligible: false, reason: 'Replay is unavailable until local access is restored.' }, message: 'Access is limited. Your last committed private record stays on this device.' };
   }
   if (input.reconstructionStatus === 'running' || input.reconciliationStatus === 'running' || input.reconciliationStatus === 'pending' || input.pendingCount > 0) {
-    return { state: 'processing', coverage, journeys, statistics: null, replay: { eligible: false, reason: 'Replay will be available after local updates finish.' }, message: 'Local updates are still being reconciled. This record is not final yet.' };
+    const rebuilding = input.reconstructionStatus === 'running';
+    return {
+      state: 'processing', coverage, journeys, statistics: null,
+      replay: { eligible: false, reason: 'Replay will be available after local updates finish.' },
+      message: rebuilding
+        ? 'Rebuilding local journey history. Checking saved evidence and recalculating trips; the map and journeys will refresh automatically when this finishes.'
+        : 'Checking local updates. This record is not final yet; the map and journeys will refresh automatically when this finishes.',
+    };
   }
   if (input.reconstructionStatus === 'error' || input.reconciliationStatus === 'error') {
     return { state: 'failed', coverage, journeys, statistics: null, replay: { eligible: false, reason: 'Replay is unavailable while the local record needs recovery.' }, message: 'The local reveal could not finish. Your last committed record remains available.' };

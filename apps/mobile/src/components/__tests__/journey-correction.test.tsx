@@ -22,6 +22,17 @@ const load = async () => ({ detail: { id: 'atlas-safe', title: 'Private journey'
 const retryProjection = async () => true;
 
 describe('JourneyCorrectionScreen', () => {
+  it('allows an owner title without inventing an owner date', async () => {
+    const save = jest.fn().mockResolvedValue('applied');
+    const view = await render(<JourneyCorrectionScreen id="atlas-safe" load={load} save={save} retryProjection={retryProjection} onBack={jest.fn()} onRejected={jest.fn()} />);
+    await waitFor(() => expect(view.getByLabelText('Owner journey title')).toBeOnTheScreen());
+    fireEvent.changeText(view.getByLabelText('Owner journey title'), 'Family holiday');
+    await waitFor(() => expect(view.getByLabelText('Owner journey title')).toHaveProp('value', 'Family holiday'));
+    await fireEvent.press(view.getByRole('button', { name: 'Preview owner title and date claim' }));
+    await waitFor(() => expect(view.getByRole('button', { name: 'Save owner title and date claim' })).toBeOnTheScreen());
+    await fireEvent.press(view.getByRole('button', { name: 'Save owner title and date claim' }));
+    expect(save).toHaveBeenCalledWith('atlas-safe', 'claim', 7, expect.anything(), expect.stringMatching(/:claim:/), { title: 'Family holiday' });
+  });
   it('previews the selected decision and shows it as applied only after save and projection finish', async () => {
     let resolve!: () => void;
     const save = jest.fn(() => new Promise<'applied' | 'pending'>((done) => { resolve = () => done('applied'); }));
@@ -116,7 +127,22 @@ describe('JourneyCorrectionScreen', () => {
     expect(view.getByText(/Observed evidence remains separate/)).toBeOnTheScreen();
   });
 
-  it('previews an approximate owner interval and refuses incomplete owner claims before saving', async () => {
+  it('searches locally and saves Phú Quốc as a distinct owner-confirmed map anchor', async () => {
+    const save = jest.fn(async () => 'applied' as const);
+    const view = await render(<JourneyCorrectionScreen id="atlas-safe" load={load} save={save} retryProjection={retryProjection} onBack={jest.fn()} onRejected={jest.fn()} />);
+    await waitFor(() => expect(view.getByLabelText('Search a place to confirm')).toBeOnTheScreen());
+    expect(view.getByLabelText('Journey correction review')).toHaveProp('keyboardShouldPersistTaps', 'always');
+    await fireEvent.changeText(view.getByLabelText('Search a place to confirm'), 'Phu Quoc');
+    await waitFor(() => expect(view.getByRole('button', { name: 'Preview confirmed place Phú Quốc' })).toBeOnTheScreen());
+    await fireEvent.press(view.getByRole('button', { name: 'Preview confirmed place Phú Quốc' }));
+    expect(view.getByText(/Atlas will move this journey/i)).toBeOnTheScreen();
+    await fireEvent.press(view.getByRole('button', { name: 'Save confirmed place' }));
+    await waitFor(() => expect(save).toHaveBeenCalledWith('atlas-safe', 'place', 7, expect.any(Object), expect.stringMatching(/^journey:atlas-safe:7:place:wikidata:Q146695:/), {
+      id: 'wikidata:Q146695', name: 'Phú Quốc', context: 'Kiên Giang, Vietnam', anchor: { latitude: 10.233333, longitude: 103.95 },
+    }));
+  });
+
+  it('previews an approximate owner interval and accepts an independent private title', async () => {
     const save = jest.fn(async () => 'applied' as const);
     const view = await render(<JourneyCorrectionScreen id="atlas-safe" load={load} save={save} retryProjection={retryProjection} onBack={jest.fn()} onRejected={jest.fn()} />);
     await waitFor(() => expect(view.getByLabelText('Owner journey title')).toBeOnTheScreen());
@@ -131,7 +157,7 @@ describe('JourneyCorrectionScreen', () => {
     await fireEvent.press(view.getByRole('button', { name: 'Cancel decision preview' }));
     await fireEvent.changeText(view.getByLabelText('Owner approximate end date'), '');
     await fireEvent.press(view.getByRole('button', { name: 'Preview owner title and date claim' }));
-    expect(view.getByText(/Enter a private title and a complete owner date/)).toBeOnTheScreen();
+    await waitFor(() => expect(view.getByRole('button', { name: 'Save owner title and date claim' })).toBeOnTheScreen());
     expect(save).not.toHaveBeenCalled();
   });
 
