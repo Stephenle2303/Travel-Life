@@ -1,12 +1,14 @@
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { AppState, type AppStateStatus } from 'react-native';
 
+import ManualJourneyRoute from '@/app/manual-journey';
 import { EmptyAtlasScreen, ImportScreen } from '@/components/mobile-screens';
 import { canPublishJourneyDetail, hasVerifiedOwnerPlace, isCurrentDurableRevealRead, PhotoAccessProvider, usePhotoAccess, verifiedOwnerPlaceDisplayId } from '@/photo-access/provider';
 import type { PermissionSnapshot, PhotoAccessAdapter } from '@/photo-access/types';
 import type { ImportRepository } from '@/import-record';
 
-jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn(), replace: jest.fn() }) }));
+const mockRouterPush = jest.fn();
+jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockRouterPush, replace: jest.fn() }) }));
 jest.mock('expo-video', () => ({
   useVideoPlayer: (_source: unknown, setup: (player: { muted: boolean; volume: number; loop: boolean; play(): void; pause(): void }) => void) => {
     const player = { muted: true, volume: 0, loop: false, play: jest.fn(), pause: jest.fn() };
@@ -220,5 +222,53 @@ describe('photo access provider and Import screen', () => {
     await importView.unmount();
     const atlasView = await render(<PhotoAccessProvider adapter={adapterFor({ scope: 'full', canAskAgain: false })} repository={emptyRepository}><EmptyAtlasScreen /></PhotoAccessProvider>);
     await waitFor(() => expect(atlasView.getByRole('button', { name: 'Import or reconnect photos' })).toBeOnTheScreen());
+  });
+
+  it('gates manual entry on a disconnected private record, then restores Atlas context after reconnecting', async () => {
+    let lifecycle: 'connected' | 'disconnected' | 'deleted' = 'disconnected';
+    const repository: ImportRepository = {
+      ...emptyRepository,
+      getPrivateRecordLifecycle: async () => ({ state: lifecycle }),
+      connectPrivateRecord: async () => { lifecycle = 'connected'; },
+    };
+    mockRouterPush.mockClear();
+    const view = await render(<PhotoAccessProvider adapter={adapterFor({ scope: 'full', canAskAgain: false })} repository={repository}><EmptyAtlasScreen /></PhotoAccessProvider>);
+    await waitFor(() => expect(view.getByRole('button', { name: 'Add a journey manually' })).toBeOnTheScreen());
+    await fireEvent.press(view.getByRole('button', { name: 'Add a journey manually' }));
+    expect(view.getByText('Reconnect your private record first')).toBeOnTheScreen();
+    expect(view.queryByLabelText('Destination label')).toBeNull();
+    await fireEvent.press(view.getByRole('button', { name: 'Reconnect private record and add journey' }));
+    await waitFor(() => expect(mockRouterPush).toHaveBeenCalledWith('/manual-journey'));
+  });
+
+  it('keeps recovery open on failure and cancellation prevents a late reconnect navigation', async () => {
+    let lifecycle: 'connected' | 'disconnected' | 'deleted' = 'disconnected';
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => { release = resolve; });
+    const repository: ImportRepository = { ...emptyRepository, getPrivateRecordLifecycle: async () => ({ state: lifecycle }), connectPrivateRecord: jest.fn().mockRejectedValueOnce(new Error('sqlite')).mockImplementationOnce(async () => { await pending; lifecycle = 'connected'; }) };
+    mockRouterPush.mockClear();
+    const view = await render(<PhotoAccessProvider adapter={adapterFor({ scope: 'full', canAskAgain: false })} repository={repository}><EmptyAtlasScreen /></PhotoAccessProvider>);
+    await waitFor(() => expect(view.getByRole('button', { name: 'Add a journey manually' })).toBeOnTheScreen());
+    await fireEvent.press(view.getByRole('button', { name: 'Add a journey manually' }));
+    await fireEvent.press(view.getByRole('button', { name: 'Reconnect private record and add journey' }));
+    await waitFor(() => expect(view.getByText(/could not be opened.*Retry/)).toBeOnTheScreen());
+    expect(mockRouterPush).not.toHaveBeenCalled();
+    await fireEvent.press(view.getByRole('button', { name: 'Reconnect private record and add journey' }));
+    await fireEvent.press(view.getByRole('button', { name: 'Cancel private record recovery' }));
+    await act(async () => { release(); await Promise.resolve(); });
+    expect(mockRouterPush).not.toHaveBeenCalled();
+  });
+
+  it('guards a direct manual-journey route before the owner can enter a destination', async () => {
+    const repository: ImportRepository = {
+      ...emptyRepository,
+      getPrivateRecordLifecycle: async () => ({ state: 'deleted' }),
+      connectPrivateRecord: async () => { throw new Error('private'); },
+    };
+    const view = await render(<PhotoAccessProvider adapter={adapterFor({ scope: 'full', canAskAgain: false })} repository={repository}><ManualJourneyRoute /></PhotoAccessProvider>);
+    await waitFor(() => expect(view.getByText('Create a private record first')).toBeOnTheScreen());
+    expect(view.queryByLabelText('Destination label')).toBeNull();
+    await fireEvent.press(view.getByRole('button', { name: 'Prepare private record for manual journey' }));
+    await waitFor(() => expect(view.getByText(/could not be opened.*Retry/)).toBeOnTheScreen());
   });
 });

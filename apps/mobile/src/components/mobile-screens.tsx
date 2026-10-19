@@ -9,7 +9,7 @@ import { AtlasReveal } from '@/components/atlas-reveal';
 import { usePhotoAccess } from '@/photo-access/provider';
 import { projectReveal } from '@/reveal/projection';
 import { consumeAtlasPreviewContext, saveAtlasPreviewContext } from '@/atlas/preview-context';
-import type { JourneyDetail } from '@/reveal/types';
+import type { AtlasExploration, JourneyDetail } from '@/reveal/types';
 import type { OwnerPreview } from '@/photo-access/types';
 
 export function TrustScreen() {
@@ -76,9 +76,11 @@ export function ImportScreen() {
 
 export function EmptyAtlasScreen() {
   const router = useRouter();
-  const { snapshot, importCoverage, reconciliation, catchUpHistory, reconstruction, reconstructionController, durableReveal, loadJourneyDetail, loadJourneyMediaPage } = usePhotoAccess();
+  const { snapshot, importCoverage, reconciliation, catchUpHistory, reconstruction, reconstructionController, durableReveal, loadJourneyDetail, loadJourneyMediaPage, privateRecord, privateRecordController } = usePhotoAccess();
   const [initialAtlasContext] = useState(() => consumeAtlasPreviewContext());
   const [atlasGestureActive, setAtlasGestureActive] = useState(false);
+  const [manualEntryRecovery, setManualEntryRecovery] = useState<AtlasExploration | null>(null);
+  const manualRecoveryRequest = useRef(0);
   const reveal = projectReveal({
     graph: reconstruction.graph,
     durableRecord: durableReveal,
@@ -101,7 +103,10 @@ export function EmptyAtlasScreen() {
         onImport={() => openRoute(router, appRoutes.import)}
         onRetry={() => void reconstructionController.rebuild()}
         onCatchUp={() => void catchUpHistory()}
-        onManualEntry={(context) => { saveAtlasPreviewContext(context); openRoute(router, appRoutes.manualJourney); }}
+        onManualEntry={(context) => {
+          if (privateRecord.state === 'connected') { saveAtlasPreviewContext(context); openRoute(router, appRoutes.manualJourney); }
+          else { manualRecoveryRequest.current += 1; setManualEntryRecovery(context); }
+        }}
         onReplay={() => openRoute(router, appRoutes.replay)}
         onSettings={() => openRoute(router, appRoutes.settings)}
         onOpenJourney={(id) => router.push({ pathname: appRoutes.journey as never, params: { id } })}
@@ -113,6 +118,18 @@ export function EmptyAtlasScreen() {
           router.push({ pathname: '/journey/[id]/edit' as never, params: { id, fromAtlas: '1' } });
         }}
       />
+      {manualEntryRecovery && <InsetPanel>
+        <Title>{privateRecord.state === 'deleted' ? 'Create a private record first' : 'Reconnect your private record first'}</Title>
+        <Body>{privateRecord.state === 'deleted' ? 'A private record is needed before adding a journey. Creating it establishes local storage only; it does not scan or change your photos.' : 'Reconnect the private record on this device before adding a journey. Your Atlas view will stay here.'}</Body>
+        {privateRecord.message && <Body>{privateRecord.message}</Body>}
+        {privateRecord.state === 'connected' ? <ActionButton accessibilityLabel="Continue to manual journey" onPress={() => { saveAtlasPreviewContext(manualEntryRecovery); setManualEntryRecovery(null); openRoute(router, appRoutes.manualJourney); }}>Continue to add journey</ActionButton> : <ActionButton accessibilityLabel={privateRecord.state === 'deleted' ? 'Create private record and add journey' : 'Reconnect private record and add journey'} disabled={privateRecord.pendingAction === 'reconnect'} onPress={() => void (async () => {
+          const request = manualRecoveryRequest.current + 1;
+          manualRecoveryRequest.current = request;
+          const connected = await privateRecordController.reconnect();
+          if (connected && request === manualRecoveryRequest.current) { saveAtlasPreviewContext(manualEntryRecovery); setManualEntryRecovery(null); openRoute(router, appRoutes.manualJourney); }
+        })()}>{privateRecord.pendingAction === 'reconnect' ? 'Preparing private record…' : privateRecord.state === 'deleted' ? 'Create private record' : 'Reconnect private record'}</ActionButton>}
+        <ActionButton accessibilityLabel="Cancel private record recovery" onPress={() => { manualRecoveryRequest.current += 1; setManualEntryRecovery(null); }} variant="secondary">Stay in Atlas</ActionButton>
+      </InsetPanel>}
       <ActionButton accessibilityLabel="Open private record settings" onPress={() => openRoute(router, appRoutes.settings)} variant="secondary">Private record settings</ActionButton>
       <ActionButton accessibilityLabel="Return to Trust" onPress={() => openRoute(router, appRoutes.trust, 'replace')} variant="secondary">Back</ActionButton>
     </Screen>
@@ -211,7 +228,6 @@ export function PrivacySettingsScreen() {
       <InsetPanel>
         <Body>Normal device backups may restore this private record under the protections of your device and backup account. This app does not claim SQLite encryption.</Body>
         <Body>{privateRecord.state === 'connected' ? 'Photo-source reads are available when you choose to import.' : privateRecord.state === 'disconnected' ? 'Photo-source reads and maintenance are stopped. Your private local record remains on this device.' : 'No local private record is available. Original photos remain in their source.'}</Body>
-        {privateRecord.message && <Body>{privateRecord.message}</Body>}
       </InsetPanel>
       <InsetPanel>
         <Title>Home bases</Title>
@@ -265,16 +281,18 @@ export function PrivacySettingsScreen() {
           {maintenance.enabled ? 'Turn off automatic maintenance' : 'Turn on automatic maintenance'}
         </ActionButton>
       </InsetPanel>
-      {privateRecord.state === 'connected' && <ActionButton accessibilityLabel="Disconnect photo source" onPress={() => void privateRecordController.disconnect()} variant="secondary">Disconnect photo source</ActionButton>}
-      {privateRecord.state === 'disconnected' && <ActionButton accessibilityLabel="Reconnect private record" onPress={() => void privateRecordController.reconnect()} variant="secondary">Reconnect private record</ActionButton>}
-      {privateRecord.state === 'deleted' && <ActionButton accessibilityLabel="Start a new private record" onPress={() => void privateRecordController.reconnect()}>Start a new private record</ActionButton>}
-      {!confirmingDelete && privateRecord.state !== 'deleted' && <ActionButton accessibilityLabel="Delete local history" onPress={() => setConfirmingDelete(true)} variant="secondary">Delete local history</ActionButton>}
+      {privateRecord.state === 'connected' && <ActionButton accessibilityLabel="Disconnect photo source" disabled={privateRecord.pendingAction !== null} onPress={() => void privateRecordController.disconnect()} variant="secondary">{privateRecord.pendingAction === 'disconnect' ? 'Disconnecting photo source…' : 'Disconnect photo source'}</ActionButton>}
+      {privateRecord.state === 'disconnected' && <ActionButton accessibilityLabel="Reconnect private record" disabled={privateRecord.pendingAction !== null} onPress={() => void privateRecordController.reconnect()} variant="secondary">{privateRecord.pendingAction === 'reconnect' ? 'Reconnecting private record…' : 'Reconnect private record'}</ActionButton>}
+      {privateRecord.state === 'deleted' && <ActionButton accessibilityLabel="Start a new private record" disabled={privateRecord.pendingAction !== null} onPress={() => void privateRecordController.reconnect()}>{privateRecord.pendingAction === 'reconnect' ? 'Creating private record…' : 'Start a new private record'}</ActionButton>}
+      {!confirmingDelete && privateRecord.state !== 'deleted' && <ActionButton accessibilityLabel="Delete local history" disabled={privateRecord.pendingAction !== null} onPress={() => setConfirmingDelete(true)} variant="secondary">Delete local history</ActionButton>}
       {confirmingDelete && <InsetPanel>
         <Title>Delete private history from this device?</Title>
         <Body>This removes the local record, source references, checkpoints, correction overlays, and covered caches. It does not delete original photos or remote copies.</Body>
-        <ActionButton accessibilityLabel="Confirm delete local history" onPress={() => { setConfirmingDelete(false); void privateRecordController.delete(); }}>Delete local history</ActionButton>
-        <ActionButton accessibilityLabel="Cancel delete local history" onPress={() => setConfirmingDelete(false)} variant="secondary">Cancel</ActionButton>
+        <ActionButton accessibilityLabel="Confirm delete local history" disabled={privateRecord.pendingAction !== null} onPress={() => { setConfirmingDelete(false); void privateRecordController.delete(); }}>Delete local history</ActionButton>
+        <ActionButton accessibilityLabel="Cancel delete local history" disabled={privateRecord.pendingAction === 'delete'} onPress={() => setConfirmingDelete(false)} variant="secondary">Cancel</ActionButton>
       </InsetPanel>}
+      {privateRecord.pendingAction === 'delete' && <Body>Deleting local history from this device…</Body>}
+      {privateRecord.message && <InsetPanel><Body>{privateRecord.message}</Body></InsetPanel>}
       <ActionButton accessibilityLabel="Return to Atlas" onPress={() => openRoute(router, appRoutes.atlas, 'replace')} variant="secondary">Back</ActionButton>
     </Screen>
   );

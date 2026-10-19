@@ -1,6 +1,6 @@
 import type { HistoryRecordRepository, LifecycleSnapshot } from './types';
 
-const initialLifecycle: LifecycleSnapshot = { state: 'deleted', message: null };
+const initialLifecycle: LifecycleSnapshot = { state: 'deleted', message: null, pendingAction: null };
 
 /** Coordinates owner lifecycle choices with an import coordinator's write barrier. */
 export class HistoryRecordController {
@@ -14,6 +14,7 @@ export class HistoryRecordController {
   ) {}
 
   private lifecycleChangePending = false;
+  private lifecycleGeneration = 0;
 
   get snapshot() { return this.current; }
 
@@ -23,21 +24,29 @@ export class HistoryRecordController {
   }
 
   async refresh() {
+    const generation = this.lifecycleGeneration;
     try {
-      this.set({ ...(await this.repository.getPrivateRecordLifecycle()), message: null });
+      const lifecycle = await this.repository.getPrivateRecordLifecycle();
+      if (generation !== this.lifecycleGeneration) return;
+      this.set({ ...lifecycle, message: null, pendingAction: null });
     } catch {
+      if (generation !== this.lifecycleGeneration) return;
       this.set({ ...this.current, message: 'Private record status could not be read. Retry when ready.' });
     }
   }
 
-  async reconnect() {
-    if (this.lifecycleChangePending) return;
+  async reconnect(): Promise<boolean> {
+    if (this.lifecycleChangePending) return false;
     this.lifecycleChangePending = true;
+    this.lifecycleGeneration += 1;
+    this.set({ ...this.current, message: null, pendingAction: 'reconnect' });
     try {
       await this.repository.connectPrivateRecord();
-      this.set({ state: 'connected', message: null });
+      this.set({ state: 'connected', message: null, pendingAction: null });
+      return true;
     } catch {
-      this.set({ ...this.current, message: 'The private record could not be reconnected. Retry when ready.' });
+      this.set({ ...this.current, message: 'The private record could not be opened. Retry when ready.', pendingAction: null });
+      return false;
     } finally {
       this.lifecycleChangePending = false;
     }
@@ -46,12 +55,14 @@ export class HistoryRecordController {
   async disconnect() {
     if (this.lifecycleChangePending) return;
     this.lifecycleChangePending = true;
+    this.lifecycleGeneration += 1;
+    this.set({ ...this.current, message: null, pendingAction: 'disconnect' });
     try {
       await this.stopImports();
       await this.repository.disconnectPrivateRecord();
-      this.set({ state: 'disconnected', message: null });
+      this.set({ state: 'disconnected', message: null, pendingAction: null });
     } catch {
-      this.set({ ...this.current, message: 'The photo source could not be disconnected. Your local record was kept; retry when ready.' });
+      this.set({ ...this.current, message: 'The photo source could not be disconnected. Your local record was kept; retry when ready.', pendingAction: null });
     } finally {
       this.lifecycleChangePending = false;
     }
@@ -60,13 +71,15 @@ export class HistoryRecordController {
   async delete() {
     if (this.lifecycleChangePending) return;
     this.lifecycleChangePending = true;
+    this.lifecycleGeneration += 1;
+    this.set({ ...this.current, message: null, pendingAction: 'delete' });
     try {
       await this.stopImports();
       await this.repository.deleteLocalHistory();
       this.clearDeletedState();
-      this.set({ state: 'deleted', message: 'Local history was deleted from this device. Original photos and remote copies were not changed.' });
+      this.set({ state: 'deleted', message: 'Local history was deleted from this device. Original photos and remote copies were not changed.', pendingAction: null });
     } catch {
-      this.set({ ...this.current, message: 'Local history could not be deleted. Nothing was reported as removed; retry when ready.' });
+      this.set({ ...this.current, message: 'Local history could not be deleted. Nothing was reported as removed; retry when ready.', pendingAction: null });
     } finally {
       this.lifecycleChangePending = false;
     }

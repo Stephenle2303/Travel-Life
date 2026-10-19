@@ -22,6 +22,7 @@ export type CorrectionOverlay = {
 
 export type LifecycleSnapshot = PrivateRecordLifecycle & {
   message: string | null;
+  pendingAction: 'reconnect' | 'disconnect' | 'delete' | null;
 };
 
 export interface HistoryRecordRepository {

@@ -155,6 +155,27 @@ describe('private record settings', () => {
     expect(view.getByRole('button', { name: 'Start a new private record' })).toBeOnTheScreen();
   });
 
+  it('keeps private-record failures and deletion progress beside the lifecycle controls', async () => {
+    let releaseDelete!: () => void;
+    const pendingDelete = new Promise<void>((resolve) => { releaseDelete = resolve; });
+    const repository: ImportRepository = {
+      ...lifecycleRepository(),
+      connectPrivateRecord: async () => { throw new Error('sqlite'); },
+      deleteLocalHistory: async () => pendingDelete,
+    };
+    const view = await render(<PhotoAccessProvider adapter={adapter} repository={repository}><PrivacySettingsScreen /></PhotoAccessProvider>);
+    await waitFor(() => expect(view.getByRole('button', { name: 'Disconnect photo source' })).toBeOnTheScreen());
+    await fireEvent.press(view.getByRole('button', { name: 'Disconnect photo source' }));
+    await waitFor(() => expect(view.getByRole('button', { name: 'Reconnect private record' })).toBeOnTheScreen());
+    await fireEvent.press(view.getByRole('button', { name: 'Reconnect private record' }));
+    await waitFor(() => expect(view.getByText(/could not be opened.*Retry/)).toBeOnTheScreen());
+    await fireEvent.press(view.getByRole('button', { name: 'Delete local history' }));
+    await fireEvent.press(view.getByRole('button', { name: 'Confirm delete local history' }));
+    await waitFor(() => expect(view.getByText('Deleting local history from this device…')).toBeOnTheScreen());
+    releaseDelete();
+    await waitFor(() => expect(view.getByRole('button', { name: 'Start a new private record' })).toBeOnTheScreen());
+  });
+
   it('clears transient AI review state for disconnect and deletion', async () => {
     const view = await render(<PhotoAccessProvider adapter={adapter} repository={lifecycleRepository()}><AiLifecycleHarness /></PhotoAccessProvider>);
     await fireEvent.press(view.getByRole('button', { name: 'set AI review' }));

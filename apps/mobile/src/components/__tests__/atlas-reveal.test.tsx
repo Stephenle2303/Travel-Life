@@ -157,6 +157,8 @@ describe('private Atlas reveal', () => {
     expect(restricted.getByText(/Access is limited/)).toBeOnTheScreen();
     await fireEvent.press(restricted.getByRole('button', { name: 'Import or reconnect photos' }));
     expect(actions.onImport).toHaveBeenCalled();
+    await fireEvent.press(restricted.getByRole('button', { name: 'Add a journey manually' }));
+    expect(actions.onManualEntry).toHaveBeenLastCalledWith(expect.objectContaining({ view: 'map', year: null, selectedJourneyId: null, camera: undefined, localViewport: undefined }));
     await restricted.unmount();
     const failed = await render(<AtlasReveal model={modelFor({ reconstructionStatus: 'error', reconciliationStatus: 'error', durableRecord: { journeys: [{ displayId: 'recovery-gallery', state: 'inferred', anchor: null, years: [2025], periodLabel: 'September 2025', ordering: 'uncertain' }] } })} {...actions} loadJourneyPreview={async (id) => ({ detail: { id, title: 'Private journey', observedSpan: 'Observed September 2025', visits: [], memories: [{ id: 'memory-1', availability: 'available', association: 'Associated locally.' }], uncertainty: [] }, previews: [{ uri: 'file:///photo.jpg', availability: 'available', kind: 'photo' }], snapshotToken: 3 })} />);
     expect(failed.getByText(/could not finish/)).toBeOnTheScreen();

@@ -187,6 +187,6 @@ export function AtlasReveal({ model, onImport, onRetry, onCatchUp, onManualEntry
     {model.state === 'failed' && <ActionButton accessibilityLabel="Retry local reveal" onPress={onRetry} variant="secondary">Retry local reveal</ActionButton>}
     {model.state === 'sparse' && <ActionButton accessibilityLabel="Recheck local journey history" onPress={onRetry} variant="secondary">Recheck local journey history</ActionButton>}
     {(model.state === 'sparse' || model.state === 'restricted') && <ActionButton accessibilityLabel="Import or reconnect photos" onPress={onImport}>Import or reconnect photos</ActionButton>}
-    {(model.state === 'ready' || model.state === 'sparse' || model.state === 'failed') && <ActionButton accessibilityLabel="Add a journey manually" onPress={() => onManualEntry({ view, year, selectedJourneyId, camera: mapCamera, localViewport })} variant="secondary">Add a journey manually</ActionButton>}
+    {(model.state === 'ready' || model.state === 'sparse' || model.state === 'failed' || model.state === 'restricted') && <ActionButton accessibilityLabel="Add a journey manually" onPress={() => onManualEntry({ view, year, selectedJourneyId, camera: mapCamera, localViewport })} variant="secondary">Add a journey manually</ActionButton>}
   </View>;
 }

@@ -1920,3 +1920,23 @@ read-back, the stale-result lifecycle guard, and last-committed Atlas/media
 browsing. No private-library/device timing, frame-rate, battery, or reconstruction
 accuracy was measured. The full rationale and acceptance checks are in
 `_bmad-output/planning-artifacts/reviews/2026-10-19-performance-and-responsiveness-architecture-review.md`.
+
+## Private-record manual-entry recovery (2026-10-19)
+
+Atlas now checks private-record availability before opening the manual-journey
+form. A deleted record offers an explicit local-storage creation path; a
+disconnected record offers reconnect. Both retain the Atlas navigation context,
+show in-place progress, disable duplicate lifecycle actions, and show only a
+safe retry message on failure. Creating a record is explicitly described as
+local storage only: it does not scan, import, or alter photos. The existing
+provider and repository save boundary remains the final lifecycle-race guard.
+
+The native repository already cleared a rejected open promise; a regression now
+proves a later successful open is not poisoned by the first failed attempt.
+Focused host verification passed 7 suites / 80 tests, including lifecycle
+pending/failure/retry and the disconnected Atlas preflight. Full mobile
+verification passed 37 suites / 320 tests, TypeScript, and lint; Expo Doctor
+remains 20/21 due to the existing nine Expo SDK patch-version recommendations.
+Root `npm run check` also passed. Android/iOS device confirmation of the
+create/reconnect-to-manual-entry flow, including visual pending/error feedback,
+remains required.

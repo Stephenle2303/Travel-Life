@@ -19,20 +19,20 @@ describe('private record lifecycle controller', () => {
     const controller = new HistoryRecordController(repository(), stopImports, (snapshot) => snapshots.push(snapshot), clearDeletedState);
 
     await controller.refresh();
-    expect(controller.snapshot).toEqual({ state: 'connected', message: null });
+    expect(controller.snapshot).toEqual({ state: 'connected', message: null, pendingAction: null });
 
     await controller.disconnect();
     expect(stopImports).toHaveBeenCalledTimes(1);
-    expect(controller.snapshot).toEqual({ state: 'disconnected', message: null });
+    expect(controller.snapshot).toEqual({ state: 'disconnected', message: null, pendingAction: null });
 
     await controller.reconnect();
-    expect(controller.snapshot).toEqual({ state: 'connected', message: null });
+    expect(controller.snapshot).toEqual({ state: 'connected', message: null, pendingAction: null });
 
     await controller.delete();
     expect(stopImports).toHaveBeenCalledTimes(2);
-    expect(controller.snapshot).toEqual({ state: 'deleted', message: 'Local history was deleted from this device. Original photos and remote copies were not changed.' });
+    expect(controller.snapshot).toEqual({ state: 'deleted', message: 'Local history was deleted from this device. Original photos and remote copies were not changed.', pendingAction: null });
     expect(clearDeletedState).toHaveBeenCalledTimes(1);
-    expect(snapshots).toHaveLength(4);
+    expect(snapshots).toHaveLength(7);
   });
 
   it('reports lifecycle failures without claiming a successful deletion', async () => {
@@ -67,5 +67,42 @@ describe('private record lifecycle controller', () => {
 
     expect(controller.snapshot.state).toBe('deleted');
     expect(deleteLocalHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it('publishes pending reconnect state, reports a safe failure, and lets a later retry connect', async () => {
+    let rejectFirst = true;
+    const connectPrivateRecord = jest.fn(async () => {
+      if (rejectFirst) { rejectFirst = false; throw new Error('sqlite details stay private'); }
+    });
+    const snapshots: LifecycleSnapshot[] = [];
+    const controller = new HistoryRecordController({ ...repository('deleted'), connectPrivateRecord }, async () => {}, (snapshot) => snapshots.push(snapshot));
+
+    await expect(controller.reconnect()).resolves.toBe(false);
+    expect(snapshots[0]).toMatchObject({ state: 'deleted', pendingAction: 'reconnect', message: null });
+    expect(controller.snapshot).toEqual({ state: 'deleted', pendingAction: null, message: 'The private record could not be opened. Retry when ready.' });
+
+    await expect(controller.reconnect()).resolves.toBe(true);
+    expect(connectPrivateRecord).toHaveBeenCalledTimes(2);
+    expect(controller.snapshot).toEqual({ state: 'connected', pendingAction: null, message: null });
+  });
+
+  it('does not let a stale refresh overwrite a lifecycle action and publishes every pending action', async () => {
+    let resolveRefresh!: (value: { state: 'connected' }) => void;
+    const snapshots: LifecycleSnapshot[] = [];
+    const repo = repository();
+    repo.getPrivateRecordLifecycle = () => new Promise((resolve) => { resolveRefresh = resolve; });
+    const controller = new HistoryRecordController(repo, async () => {}, (snapshot) => snapshots.push(snapshot));
+    const refresh = controller.refresh();
+    await controller.disconnect();
+    resolveRefresh({ state: 'connected' });
+    await refresh;
+    expect(controller.snapshot.state).toBe('disconnected');
+    expect(snapshots).toContainEqual(expect.objectContaining({ pendingAction: 'disconnect' }));
+
+    await controller.reconnect();
+    const deleting = controller.delete();
+    expect(controller.snapshot.pendingAction).toBe('delete');
+    await deleting;
+    expect(snapshots).toContainEqual(expect.objectContaining({ pendingAction: 'delete' }));
   });
 });

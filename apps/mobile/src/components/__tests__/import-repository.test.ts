@@ -271,6 +271,17 @@ describe('native import SQLite repository', () => {
     expect(mockExecAsync).toHaveBeenCalledWith('ROLLBACK');
   });
 
+  it('does not cache a rejected first database open across a later retry', async () => {
+    const repository = createNativeImportRepository();
+    mockOpenDatabaseAsync.mockRejectedValueOnce(new Error('temporary open failure'));
+
+    await expect(repository.getPrivateRecordLifecycle()).rejects.toThrow('temporary open failure');
+    readyDatabase();
+
+    await expect(repository.getPrivateRecordLifecycle()).resolves.toEqual({ state: 'connected' });
+    expect(mockOpenDatabaseAsync).toHaveBeenCalledTimes(2);
+  });
+
   it('rolls back a failed metadata/checkpoint commit', async () => {
     const repository = createNativeImportRepository();
     mockRunAsync.mockImplementation(async (sql: string) => {
