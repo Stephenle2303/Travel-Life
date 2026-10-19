@@ -5,6 +5,7 @@ export const appRoutes = {
   trust: '/trust',
   import: '/import',
   atlas: '/history',
+  manualJourney: '/manual-journey',
   journey: '/journey/[id]',
   replay: '/replay',
   settings: '/settings',

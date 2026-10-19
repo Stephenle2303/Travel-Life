@@ -5,6 +5,7 @@ import { applyOwnerConfiguredHomeAreas, buildV11Episodes, qualifyTripV11 } from 
 import { NATURAL_EARTH_ADMIN_0_DATASET_VERSION, countryDisplayName, resolveCountry } from './country-resolver';
 import { destinationLabel, type DestinationSupport } from './destination-label';
 import type { DurableRevealRecord, JourneyDetail, RevealMapAnchor } from '@/reveal/types';
+import type { ManualJourneyInput } from '@/import-record/types';
 import { serializeNativeTransactions } from '@/database/native-transaction';
 
 type Database = {
@@ -568,6 +569,24 @@ function validatedOwnerPlace(place: OwnerJourneyPlace | undefined): OwnerJourney
   return place;
 }
 
+type ManualRow = { manual_id: string; command_key: string; owner_label: string; owner_context: string; latitude: number; longitude: number; date_kind: 'exact' | 'approximate'; date_start: string; date_end: string };
+
+function validateManualJourney(input: ManualJourneyInput) {
+  if (!input.commandKey || input.commandKey.length > 160) throw new Error('A stable private save key is required.');
+  if (!input.label || input.label !== input.label.trim() || input.label.length > 120) throw new Error('Enter a destination label of 120 characters or fewer.');
+  if (!input.context || input.context !== input.context.trim() || input.context.length > 160) throw new Error('Enter a destination area of 160 characters or fewer.');
+  if (!Number.isFinite(input.anchor.latitude) || !Number.isFinite(input.anchor.longitude) || input.anchor.latitude < -90 || input.anchor.latitude > 90 || input.anchor.longitude < -180 || input.anchor.longitude > 180) throw new Error('Choose a valid coarse map area.');
+  if (input.date.kind === 'exact') {
+    if (!isCalendarDay(input.date.day)) throw new Error('Enter an exact date as YYYY-MM-DD.');
+  } else if (!isCalendarDay(input.date.startDay) || !isCalendarDay(input.date.endDay) || input.date.startDay > input.date.endDay) {
+    throw new Error('Enter an ordered approximate date interval as YYYY-MM-DD.');
+  }
+}
+
+function manualRange(input: ManualJourneyInput | ManualRow) {
+  return 'date' in input ? (input.date.kind === 'exact' ? [input.date.day, input.date.day] as const : [input.date.startDay, input.date.endDay] as const) : [input.date_start, input.date_end] as const;
+}
+
 /** A graph rebuild is one local transaction, so readers see the prior complete run or the next one. */
 export function createNativeReconstructionRepository() {
   let database: Promise<Database> | null = null;
@@ -677,6 +696,63 @@ export function createNativeReconstructionRepository() {
   }
 
   return {
+    async findManualJourneyOverlaps(input: ManualJourneyInput) {
+      validateManualJourney(input);
+      const db = await open();
+      const [start, end] = manualRange(input);
+      const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
+      if (lifecycle?.state !== 'connected') throw new Error('Private record is not connected.');
+      const manual = await db.getAllAsync<ManualRow>(`SELECT manual_id, command_key, owner_label, owner_context, latitude, longitude, date_kind, date_start, date_end
+        FROM manual_journey WHERE date_start <= ? AND date_end >= ? ORDER BY date_start, manual_id`, end, start);
+      const completed = await db.getFirstAsync<{ run_id: number }>("SELECT MAX(run_id) AS run_id FROM reconstruction_run WHERE status = 'complete'");
+      const inferred = completed?.run_id ? await db.getAllAsync<{ journey_id: string; first_day: string; last_day: string }>(`
+        SELECT journey_visit.parent_id AS journey_id, MIN(evidence.captured_day) AS first_day, MAX(evidence.captured_day) AS last_day
+        FROM reconstruction_link journey_visit
+        JOIN reconstruction_trip_qualification qualification ON qualification.run_id = journey_visit.run_id AND qualification.journey_id = journey_visit.parent_id
+        JOIN reconstruction_link support ON support.run_id = journey_visit.run_id AND support.link_kind = 'visit-support' AND support.parent_id = journey_visit.child_id
+        JOIN canonical_evidence evidence ON evidence.evidence_id = support.child_id
+        WHERE journey_visit.run_id = ? AND journey_visit.link_kind = 'journey-visit'
+          AND qualification.classification IN ('AUTO_CONFIRMED', 'USER_CONFIRMED')
+        GROUP BY journey_visit.parent_id HAVING MIN(evidence.captured_day) <= ? AND MAX(evidence.captured_day) >= ?`, completed.run_id, end, start) : [];
+      return [
+        ...manual.map((row) => ({ id: `manual:${row.manual_id}`, label: `${row.owner_label} · owner-entered`, editable: false })),
+        ...inferred.map((row) => ({ id: opaqueJourneyDisplayId(row.journey_id), label: row.first_day === row.last_day ? `Inferred journey near ${row.first_day}` : `Inferred journey ${row.first_day} to ${row.last_day}`, editable: true })),
+      ];
+    },
+    async createManualJourney(input: ManualJourneyInput) {
+      validateManualJourney(input);
+      const db = await open();
+      const [start, end] = manualRange(input);
+      await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
+      try {
+        const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
+        if (lifecycle?.state !== 'connected') throw new Error('Private record is not connected.');
+        const existing = await db.getFirstAsync<ManualRow>('SELECT manual_id, command_key, owner_label, owner_context, latitude, longitude, date_kind, date_start, date_end FROM manual_journey WHERE command_key = ?', input.commandKey);
+        if (existing) { await db.execAsync('COMMIT'); return `manual:${existing.manual_id}`; }
+        const overlapRows = await db.getAllAsync<{ manual_id: string }>('SELECT manual_id FROM manual_journey WHERE date_start <= ? AND date_end >= ?', end, start);
+        const completed = await db.getFirstAsync<{ run_id: number }>("SELECT MAX(run_id) AS run_id FROM reconstruction_run WHERE status = 'complete'");
+        const inferredRows = completed?.run_id ? await db.getAllAsync<{ journey_id: string }>(`
+          SELECT journey_visit.parent_id AS journey_id
+          FROM reconstruction_link journey_visit
+          JOIN reconstruction_trip_qualification qualification ON qualification.run_id = journey_visit.run_id AND qualification.journey_id = journey_visit.parent_id
+          JOIN reconstruction_link support ON support.run_id = journey_visit.run_id AND support.link_kind = 'visit-support' AND support.parent_id = journey_visit.child_id
+          JOIN canonical_evidence evidence ON evidence.evidence_id = support.child_id
+          WHERE journey_visit.run_id = ? AND journey_visit.link_kind = 'journey-visit'
+            AND qualification.classification IN ('AUTO_CONFIRMED', 'USER_CONFIRMED')
+          GROUP BY journey_visit.parent_id HAVING MIN(evidence.captured_day) <= ? AND MAX(evidence.captured_day) >= ?`, completed.run_id, end, start) : [];
+        const overlapIds = [...overlapRows.map((row) => `manual:${row.manual_id}`), ...inferredRows.map((row) => opaqueJourneyDisplayId(row.journey_id))].sort();
+        const reviewed = [...new Set(input.reviewedOverlapIds)].sort();
+        if (overlapIds.join('|') !== reviewed.join('|')) throw new Error('The private record changed after overlap review. Review overlaps again before saving.');
+        const id = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+        const anchor = coarseMapAnchor(input.anchor.latitude, input.anchor.longitude)!;
+        await db.runAsync(`INSERT INTO manual_journey (manual_id, command_key, owner_label, owner_context, latitude, longitude, date_kind, date_start, date_end, created_at_millis)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, id, input.commandKey, input.label, input.context, anchor.latitude, anchor.longitude, input.date.kind, start, end, Date.now());
+        const readBack = await db.getFirstAsync<{ manual_id: string }>('SELECT manual_id FROM manual_journey WHERE manual_id = ?', id);
+        if (!readBack) throw new Error('The owner-entered journey could not be read back.');
+        await db.execAsync('COMMIT');
+        return `manual:${id}`;
+      } catch (error) { await db.execAsync('ROLLBACK'); throw error; }
+    },
     async saveConfiguredHomeAreaFromJourney(displayId: string, areaId: string, visitId: string, ownerLabel: string, effectiveStartDay: string | null, effectiveEndDay: string | null) {
       const db = await open();
       const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
@@ -695,6 +771,15 @@ export function createNativeReconstructionRepository() {
       const db = await open();
       const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
       if (lifecycle?.state !== 'connected') throw new Error('Private record is not connected.');
+      if (displayId.startsWith('manual:')) {
+        const manualId = displayId.slice('manual:'.length);
+        const manual = await db.getFirstAsync<ManualRow>('SELECT manual_id, command_key, owner_label, owner_context, latitude, longitude, date_kind, date_start, date_end FROM manual_journey WHERE manual_id = ?', manualId);
+        if (!manual) throw new Error('Journey is unavailable.');
+        const ownerClaim: OwnerJourneyClaim = manual.date_kind === 'exact'
+          ? { title: manual.owner_label, date: { kind: 'exact', day: manual.date_start } }
+          : { title: manual.owner_label, date: { kind: 'approximate', startDay: manual.date_start, endDay: manual.date_end } };
+        return { detail: { id: displayId, title: manual.owner_label, observedSpan: 'Owner-entered date claim; no observed evidence is attached.', visits: [], memories: [], uncertainty: ['This is an owner-entered private assertion. It does not prove presence or create visit support.'], ownerClaim, ownerPlace: { id: `manual-place:${manual.manual_id}`, name: manual.owner_label, context: manual.owner_context, anchor: coarseMapAnchor(manual.latitude, manual.longitude)! }, ownerEntered: true }, previewSourceRefs: [], snapshotToken: 0 };
+      }
       const selected = displayedJourneys.get(displayId);
       if (!selected) throw new Error('Journey is unavailable.');
       const visits = await db.getAllAsync<{ visit_id: string; captured_day: string | null; captured_at_millis: number | null; has_precise_offset: number; ordering: 'chronological' | 'uncertain' }>(`WITH visit_summary AS (
@@ -1102,7 +1187,11 @@ export function createNativeReconstructionRepository() {
       const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
       if (lifecycle?.state !== 'connected') throw new Error('Private record is not connected.');
       const completed = await db.getFirstAsync<{ run_id: number }>('SELECT MAX(run_id) AS run_id FROM reconstruction_run WHERE status = \'complete\'');
-      if (!completed?.run_id) return { journeys: [], statistics: null };
+      if (!completed?.run_id) {
+        const manualRows = await db.getAllAsync<ManualRow>('SELECT manual_id, command_key, owner_label, owner_context, latitude, longitude, date_kind, date_start, date_end FROM manual_journey ORDER BY date_start DESC, manual_id DESC');
+        const manualJourneys = manualRows.filter((row) => typeof row.manual_id === 'string' && typeof row.owner_label === 'string' && typeof row.owner_context === 'string' && typeof row.date_start === 'string' && typeof row.date_end === 'string' && (row.date_kind === 'exact' || row.date_kind === 'approximate')).map((row) => ({ displayId: `manual:${row.manual_id}`, state: 'owner-entered' as const, anchor: coarseMapAnchor(row.latitude, row.longitude), years: [Number(row.date_start.slice(0, 4))], periodLabel: row.date_kind === 'exact' ? row.date_start : `${row.date_start} to ${row.date_end} (approximate)`, ordering: 'chronological' as const, label: `${row.owner_label} · ${row.owner_context}`, locationKind: 'owner-entered' as const }));
+        return { journeys: manualJourneys, statistics: null };
+      }
       const rows = await db.getAllAsync<{ journey_id: string; run_id: number; journey_state: 'inferred' | 'possible-merge'; latitude: number | null; longitude: number | null; display_ordinal: number; year: number | null; ordering: 'chronological' | 'uncertain'; first_year: number | null; last_year: number | null; first_day: string | null; last_day: string | null }>(`
         WITH journey_anchor AS (
           SELECT journey_link.parent_id AS journey_id, MIN(visit.visit_id) AS visit_id
@@ -1149,6 +1238,8 @@ export function createNativeReconstructionRepository() {
         FROM numbered_journeys LEFT JOIN journey_years ON journey_years.journey_id = numbered_journeys.journey_id
         ORDER BY numbered_journeys.display_ordinal, journey_years.year
       `, completed.run_id);
+      const manualRows = await db.getAllAsync<ManualRow>('SELECT manual_id, command_key, owner_label, owner_context, latitude, longitude, date_kind, date_start, date_end FROM manual_journey ORDER BY date_start DESC, manual_id DESC');
+      const manualJourneys = manualRows.filter((row) => typeof row.manual_id === 'string' && typeof row.owner_label === 'string' && typeof row.owner_context === 'string' && typeof row.date_start === 'string' && typeof row.date_end === 'string' && (row.date_kind === 'exact' || row.date_kind === 'approximate')).map((row) => ({ displayId: `manual:${row.manual_id}`, state: 'owner-entered' as const, anchor: coarseMapAnchor(row.latitude, row.longitude), years: [Number(row.date_start.slice(0, 4))], periodLabel: row.date_kind === 'exact' ? row.date_start : `${row.date_start} to ${row.date_end} (approximate)`, ordering: 'chronological' as const, label: `${row.owner_label} · ${row.owner_context}`, locationKind: 'owner-entered' as const }));
       const countryRows = await db.getAllAsync<{ journey_id: string; country_code: string }>(`
         SELECT DISTINCT journey_link.parent_id AS journey_id, place.country_code
         FROM reconstruction_link journey_link
@@ -1226,7 +1317,7 @@ export function createNativeReconstructionRepository() {
         const label = ownerPlace ? `${ownerPlace.name}, ${ownerPlace.context}` : supportedLabel && supportedLabel !== 'Private journey' ? supportedLabel : names.length === 1 ? names[0] : names.length === 2 ? `${names[0]} & ${names[1]}` : names.length > 2 ? 'Multi-country trip' : 'Private journey';
         journeys.set(displayId, { displayId, state: row.journey_state, anchor: ownerPlace ? coarseMapAnchor(ownerPlace.latitude, ownerPlace.longitude) : coarseMapAnchor(row.latitude, row.longitude), years: row.year === null ? [] : [row.year], periodLabel: monthRangeLabel(row.first_day, row.last_day, row.first_year, row.last_year), ordering: row.ordering, label, locationKind: ownerPlace ? 'owner-confirmed' : 'inferred' });
       }
-      return { journeys: [...journeys.values()], statistics: statistics ? { journeyCount: statistics.journey_count, placeCount: statistics.place_count, supportedCountryCount: statistics.country_count, countryStatus: statistics.resolved_count === statistics.place_count ? 'supported' : 'unavailable' } : null,
+      return { journeys: [...journeys.values(), ...manualJourneys], statistics: statistics ? { journeyCount: statistics.journey_count, placeCount: statistics.place_count, supportedCountryCount: statistics.country_count, countryStatus: statistics.resolved_count === statistics.place_count ? 'supported' : 'unavailable' } : null,
         diagnostics: diagnostics ? { assessed: diagnostics.assessed, supported: diagnostics.supported, places: diagnostics.places, visits: diagnostics.visits, missingDay: diagnostics.missing_day, invalidDay: diagnostics.invalid_day, unavailable: diagnostics.unavailable, duplicateConflict: diagnostics.duplicate_conflict, insufficientLocation: diagnostics.insufficient_location, excluded: diagnostics.excluded } : null };
     },
     async rebuild(nowMillis = Date.now(), consumeQueuedChanges = false, canUseSource: () => Promise<boolean> = async () => true, transactionAlreadyOpen = false): Promise<ReconstructionGraph> {

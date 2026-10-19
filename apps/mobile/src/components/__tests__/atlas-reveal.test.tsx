@@ -4,6 +4,7 @@ import { AtlasReveal, atlasMotionPolicy, mapCameraFor, mapLibreDevelopmentStyle 
 import { parseAtlasBasemapStyle } from '@/atlas/basemap-config';
 import { assertRevealPayload, deriveAtlasExploration, projectReveal } from '@/reveal/projection';
 import { recordRevealEvent } from '@/reveal/telemetry';
+import { consumeAtlasPreviewContext, saveAtlasPreviewContext } from '@/atlas/preview-context';
 
 const mockCameraJumpTo = jest.fn();
 const configuredStyle = 'https://api.maptiler.com/maps/streets-v2/style.json?key=published';
@@ -63,6 +64,20 @@ describe('private Atlas reveal', () => {
     expect(unavailable.getByTestId('atlas-map-recovery')).toBeOnTheScreen();
     await unavailable.rerender(<AtlasReveal model={model} {...actions} mapAvailable />);
     expect(unavailable.getByTestId('maplibre-atlas-map')).toBeOnTheScreen();
+  });
+
+  it('keeps Replay ineligible when Atlas has only owner-entered journeys', () => {
+    const model = modelFor({ durableRecord: { journeys: [{ displayId: 'manual:kyoto', state: 'owner-entered', anchor: { latitude: 35.7, longitude: 139.7 }, years: [2024], periodLabel: '2024-04-01', ordering: 'chronological', label: 'Kyoto · Japan', locationKind: 'owner-entered' }] } });
+    expect(model.replay).toEqual({ eligible: false, reason: 'Replay needs observed destinations; owner-entered journeys are not evidence.' });
+  });
+
+  it('emits and restores the exact Atlas context for manual entry', async () => {
+    const onManualEntry = jest.fn();
+    const view = await render(<AtlasReveal model={modelFor({ durableRecord: { journeys: [{ displayId: 'journey-1', state: 'inferred', anchor: { latitude: 13.7, longitude: 100.5 }, years: [2024], periodLabel: '2024', ordering: 'chronological' }] } })} {...actions} onManualEntry={onManualEntry} initialExploration={{ view: 'timeline', year: 2024, selectedJourneyId: 'journey-1', camera: { center: [100.5, 13.7], zoom: 4 } }} />);
+    await fireEvent.press(view.getByRole('button', { name: 'Add a journey manually' }));
+    const context = onManualEntry.mock.calls[0][0];
+    expect(context).toMatchObject({ view: 'timeline', year: 2024, selectedJourneyId: 'journey-1', camera: { center: [100.5, 13.7], zoom: 4 } });
+    saveAtlasPreviewContext(context); expect(consumeAtlasPreviewContext()).toEqual(context); expect(consumeAtlasPreviewContext()).toBeNull();
   });
 
   it('keeps the ready map, local list, coverage and Replay action available', async () => {

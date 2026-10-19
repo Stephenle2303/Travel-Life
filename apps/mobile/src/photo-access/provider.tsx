@@ -5,7 +5,7 @@ import { HistoryRecordController, type LifecycleSnapshot } from '@/history-recor
 import { PhotoAccessController, initialPhotoAccess } from './controller';
 import { nativePhotoAccess } from './native-adapter';
 import type { OwnerPreview, PhotoAccessAdapter, PhotoAccessSnapshot } from './types';
-import { createNativeImportRepository, type ImportCoverage, type ImportRepository, type MaintenanceRepository, type ReconciliationSnapshot } from '@/import-record';
+import { createNativeImportRepository, type ImportCoverage, type ImportRepository, type MaintenanceRepository, type ReconciliationSnapshot, type ManualJourneyInput } from '@/import-record';
 import { MaintenanceController, createExpoScheduler, type MaintenanceView } from '@/maintenance';
 import { createNativeReconstructionRepository, ReconstructionController, type ReconstructionView } from '@/reconstruction';
 import { AiProposalController, type AiReviewView } from '@/ai';
@@ -88,6 +88,8 @@ type PhotoAccessContextValue = {
   catchUpHistory(): Promise<void>;
   reconstruction: ReconstructionView;
   durableReveal: DurableRevealRecord | null;
+  findManualJourneyOverlaps(input: ManualJourneyInput): Promise<{ id: string; label: string; editable: boolean }[]>;
+  createManualJourney(input: ManualJourneyInput): Promise<string>;
   loadJourneyDetail(displayId: string): Promise<{ detail: JourneyDetail; previews: OwnerPreview[]; snapshotToken: number }>;
   loadJourneyMediaPage?(displayId: string, snapshotToken: number, page: number): Promise<{ page: JourneyMediaPage; previews: OwnerPreview[] }>;
   loadUncertainMemories(displayId: string, snapshotToken: number, query: string, page: number): Promise<{ memories: { id: string; capturedDay: string | null; availability: 'available' | 'unavailable' | 'unknown'; locationState: string; association: string; membershipState: 'suggested' | 'primary' | 'unassigned' | 'rejected' }[]; hasMore: boolean }>;
@@ -104,9 +106,12 @@ type PhotoAccessContextValue = {
   aiProposalController: AiProposalController;
 };
 
+type ReconstructionRepositoryProp = Omit<ReturnType<typeof createNativeReconstructionRepository>, 'findManualJourneyOverlaps' | 'createManualJourney'>
+  & Partial<Pick<ReturnType<typeof createNativeReconstructionRepository>, 'findManualJourneyOverlaps' | 'createManualJourney'>>;
+
 const PhotoAccessContext = createContext<PhotoAccessContextValue | null>(null);
 
-export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, repository, reconstructionRepository }: PropsWithChildren<{ adapter?: PhotoAccessAdapter; repository?: ImportRepository; reconstructionRepository?: ReturnType<typeof createNativeReconstructionRepository> }>) {
+export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, repository, reconstructionRepository }: PropsWithChildren<{ adapter?: PhotoAccessAdapter; repository?: ImportRepository; reconstructionRepository?: ReconstructionRepositoryProp }>) {
   const [snapshot, setSnapshot] = useState(initialPhotoAccess);
   const [importCoverage, setImportCoverage] = useState<ImportCoverage>({ scope: null, accessible: null, scanned: 0, geotagged: 0, unavailable: 0, status: 'idle', message: null });
   const [privateRecord, setPrivateRecord] = useState<LifecycleSnapshot>({ state: 'deleted', message: null });
@@ -119,7 +124,11 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
   const [aiReview, setAiReview] = useState<AiReviewView>({ status: 'idle', message: 'Optional AI suggestions are not requested.', proposals: [] });
   const [sharedRepository] = useState(() => repository ?? (adapter === nativePhotoAccess ? createNativeImportRepository() : unavailableRepository()));
   const [durableMaintenanceRepository] = useState(() => maintenanceRepository(sharedRepository));
-  const [nativeReconstructionRepository] = useState(() => reconstructionRepository ?? createNativeReconstructionRepository());
+  const [nativeReconstructionRepository] = useState(() => reconstructionRepository ? {
+    ...reconstructionRepository,
+    findManualJourneyOverlaps: reconstructionRepository.findManualJourneyOverlaps ?? (async () => []),
+    createManualJourney: reconstructionRepository.createManualJourney ?? (async () => { throw new Error('Manual journeys are unavailable in this runtime.'); }),
+  } : createNativeReconstructionRepository());
   const [reconstructionController] = useState(() => new ReconstructionController(nativeReconstructionRepository, (view) => {
     setReconstruction(view);
     if (view.status === 'complete') {
@@ -229,6 +238,18 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     if (!canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state)) throw new Error('Journey is no longer available.');
     return { detail: result.detail, previews, snapshotToken: result.snapshotToken };
   }, [adapter, durableRevealGate, nativeReconstructionRepository, privateRecord.state]);
+  const findManualJourneyOverlaps = useCallback(async (input: ManualJourneyInput) => {
+    if (privateRecord.state !== 'connected') throw new Error('Private record is unavailable. Reconnect before adding a journey.');
+    return nativeReconstructionRepository.findManualJourneyOverlaps(input);
+  }, [nativeReconstructionRepository, privateRecord.state]);
+  const createManualJourney = useCallback(async (input: ManualJourneyInput) => {
+    if (privateRecord.state !== 'connected') throw new Error('Private record is unavailable. Reconnect before adding a journey.');
+    const displayId = await nativeReconstructionRepository.createManualJourney(input);
+    await refreshDurableReveal();
+    const readBack = await nativeReconstructionRepository.loadJourneyDetail(displayId);
+    if (!readBack.detail.ownerEntered) throw new Error('The owner-entered journey could not be verified.');
+    return displayId;
+  }, [nativeReconstructionRepository, privateRecord.state, refreshDurableReveal]);
   const loadJourneyMediaPage = useCallback(async (displayId: string, snapshotToken: number, page: number) => {
     const generation = durableRevealGate.next();
     const result = await nativeReconstructionRepository.loadJourneyMediaPage(displayId, snapshotToken, page);
@@ -314,7 +335,7 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     if (projection.status !== 'complete') throw new Error('Home base removed but local history rebuild did not complete.');
     await refreshDurableReveal();
   }, [privateRecord.state, sharedRepository, refreshHomeBases, reconstructionController, refreshDurableReveal]);
-  return <PhotoAccessContext.Provider value={{ snapshot, controller, importCoverage, privateRecord, privateRecordController, maintenance, maintenanceController, reconciliation, catchUpHistory, reconstruction, durableReveal, homeBases, loadJourneyDetail, loadJourneyMediaPage, loadUncertainMemories, saveJourneyCorrection, saveJourneyMemoryCorrection, discardJourneyCorrectionPending, retryJourneyCorrectionProjection, saveConfiguredHomeArea, renameConfiguredHomeArea, removeConfiguredHomeArea, reconstructionController, aiReview, aiProposalController }}>{children}</PhotoAccessContext.Provider>;
+  return <PhotoAccessContext.Provider value={{ snapshot, controller, importCoverage, privateRecord, privateRecordController, maintenance, maintenanceController, reconciliation, catchUpHistory, reconstruction, durableReveal, findManualJourneyOverlaps, createManualJourney, homeBases, loadJourneyDetail, loadJourneyMediaPage, loadUncertainMemories, saveJourneyCorrection, saveJourneyMemoryCorrection, discardJourneyCorrectionPending, retryJourneyCorrectionProjection, saveConfiguredHomeArea, renameConfiguredHomeArea, removeConfiguredHomeArea, reconstructionController, aiReview, aiProposalController }}>{children}</PhotoAccessContext.Provider>;
 }
 
 export function usePhotoAccess() {

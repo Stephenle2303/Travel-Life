@@ -106,6 +106,19 @@ describe('private record settings', () => {
     expect(view.getByText(/Home base saved\. Your updated local history is ready in Atlas/)).toBeOnTheScreen();
   });
 
+  it('does not offer an owner-entered coarse anchor as an observed Home-base area', async () => {
+    const graph = { ruleVersion: 'reconstruction-v1' as const, places: [], visits: [], journeys: [], possibleMerges: [], dispositions: [], memberships: [] };
+    const reconstructionRepository = {
+      loadDurableReveal: async () => ({ journeys: [{ displayId: 'journey-observed', state: 'inferred' as const, anchor: { latitude: 13.7, longitude: 100.5 }, years: [2023], periodLabel: '2023', ordering: 'chronological' as const, label: 'Observed trip' }, { displayId: 'manual:kyoto', state: 'owner-entered' as const, anchor: { latitude: 35.7, longitude: 139.7 }, years: [2024], periodLabel: '2024-04-01', ordering: 'chronological' as const, label: 'Kyoto · Japan', locationKind: 'owner-entered' as const }], statistics: null }),
+      loadJourneyDetail: async () => ({ detail: { id: 'manual:kyoto', title: 'Kyoto', observedSpan: 'Owner-entered', visits: [], memories: [], uncertainty: [], ownerEntered: true }, previewSourceRefs: [], snapshotToken: 0 }),
+      loadJourneyMediaPage: async () => ({ items: [], previewSourceRefs: [], hasMore: false }), loadUncertainMemories: async () => ({ memories: [], hasMore: false }),
+      saveJourneyCorrection: async () => ({ revisionId: 'review', state: 'confirmed' as const, graph }), saveJourneyMemoryCorrection: async () => ({ revisionId: 'memory', graph: null }), discardJourneyCorrectionPending: async () => ({ graph: null }), markJourneyCorrectionPending: async () => {}, saveConfiguredHomeAreaFromJourney: async () => {}, rebuild: async () => graph, reconcileQueued: async () => ({ graph, newJourneyCount: 0, updatedJourneyCount: 0 }),
+    };
+    const view = await render(<PhotoAccessProvider adapter={adapter} repository={lifecycleRepository()} reconstructionRepository={reconstructionRepository}><HomeSetupHarness graph={graph} /></PhotoAccessProvider>);
+    await waitFor(() => expect(view.getByRole('button', { name: 'Review Observed trip for a home base' })).toBeOnTheScreen());
+    expect(view.queryByRole('button', { name: /Review Kyoto/ })).toBeNull();
+  });
+
   it('keeps local history when the owner cancels the deletion confirmation', async () => {
     const view = await render(
       <PhotoAccessProvider adapter={adapter} repository={lifecycleRepository()}>

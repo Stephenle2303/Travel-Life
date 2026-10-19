@@ -1,5 +1,23 @@
 # Project state
 
+## M4.2 manual journey entry (2026-10-19)
+
+Owners can now add a private, explicitly owner-entered journey through a local
+offline route. Schema v33 keeps it in `manual_journey`, separate from
+reconstruction, evidence, visit-support, and qualification tables. The durable
+Atlas/Timeline/detail projection labels it owner-entered, returns no media or
+fabricated support, survives rebuild reads, and does not alter recovery counts or
+diagnostics. Creation validates the durable read-back before reporting success.
+
+The form supports an offline place result or owner label plus deliberate coarse
+point, exact/approximate dates, and an explicit date-range overlap decision. Keep
+separate creates a distinct assertion; Edit abandons the draft and opens the
+overlapping trip's existing edit route. Atlas exposes the entry from ready,
+sparse, and failed states. The full mobile suite passed 37 suites / 313 tests,
+TypeScript and lint. Root `npm run check` passed. Expo Doctor remains 20/21 due to the pre-existing
+nine Expo SDK patch-version recommendations. Android and iOS create/cancel/
+overlap/reopen/rescan/context-return checks remain required device acceptance.
+
 ## MapLibre vector-basemap integration (2026-10-18)
 
 Atlas now has an opt-in MapLibre v11 surface backed by a configured MapTiler
@@ -1866,3 +1884,39 @@ Expo patch-version recommendations; `npm install` also reported 67 existing
 dependency audit advisories, deliberately not force-remediated in this visual
 feature. Device visual fidelity, real finger gestures, large text, iOS, and
 the verified Vietnam Admin1 data gate remain open acceptance checks.
+
+## M4.2 manual journey rerun (2026-10-19)
+
+The private SQLite record now has an additive v33 `manual_journey` store for a
+separate owner-entered journey assertion. It stores a one-decimal coarse anchor
+and exact or ordered approximate date claim, is deleted with local history, is
+read back before reporting success, and is unioned into the redacted Atlas and
+detail projection without evidence, visit support, media, inferred totals, or
+recovery metrics. The Atlas offers the entry flow from ready, sparse, and
+failed states, preserves its context, labels owner-entered records separately,
+excludes them from Home-base and correction Edit, and requires overlap review
+again inside the write transaction. The full mobile suite passes 37 suites / 313
+tests, TypeScript and lint pass, and root `npm run check` passes. Expo Doctor
+remains 20/21 because of the existing nine Expo SDK patch-version
+recommendations. Android/iOS manual-flow acceptance remains unrun.
+
+## Performance and responsiveness architecture review (2026-10-19)
+
+An architecture review of post-build startup, reconstruction, catch-up, and
+owner-save paths finds credible responsiveness risk but no measured device
+latency yet. One serialized SQLite transaction reads all evidence, runs
+synchronous JavaScript derivation, and persists a complete derived graph through
+many awaited writes. This correctly preserves the last committed private Atlas
+and prevents overlapping transactions, but it can make a rebuild feel frozen.
+The current UI has only a generic running state; in particular, a visible
+`Catch up locally` action can be tapped during a running operation even though
+the controller intentionally returns without acknowledgement.
+
+The approved architecture direction is a dedicated local-operation
+responsiveness story: phase-aware truthful busy state, one-frame acknowledgement,
+duplicate-action feedback/coalescing, correction save phases, and local-safe
+aggregate timing records. It must retain atomic publication, durable correction
+read-back, the stale-result lifecycle guard, and last-committed Atlas/media
+browsing. No private-library/device timing, frame-rate, battery, or reconstruction
+accuracy was measured. The full rationale and acceptance checks are in
+`_bmad-output/planning-artifacts/reviews/2026-10-19-performance-and-responsiveness-architecture-review.md`.

@@ -65,6 +65,18 @@ export type ConfiguredHomeArea = {
   radiusMeters: number;
 };
 
+export type ManualJourneyDate = { kind: 'exact'; day: string } | { kind: 'approximate'; startDay: string; endDay: string };
+/** An owner assertion stored outside all reconstruction and evidence tables. */
+export type ManualJourneyInput = {
+  commandKey: string;
+  label: string;
+  context: string;
+  anchor: { latitude: number; longitude: number };
+  date: ManualJourneyDate;
+  /** Every overlap visible at review time; the repository rechecks this set atomically. */
+  reviewedOverlapIds: string[];
+};
+
 export interface ImportRepository extends HistoryRecordRepository {
   getCheckpoint(scope: ImportScope): Promise<ImportCheckpoint | null>;
   commitPage(checkpoint: ImportCheckpoint, candidates: SourceCandidate[]): Promise<void>;

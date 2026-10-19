@@ -3,4 +3,5 @@ export { createNativeImportRepository } from './repository';
 export type {
   ImportCoverage, ImportRepository, SourceCandidate, MaintenanceRepository,
   MaintenanceSnapshot, MaintenanceCheckpoint, MaintenanceStatus, ReconciliationSnapshot, ReconciliationStatus,
+  ManualJourneyInput, ManualJourneyDate,
 } from './types';

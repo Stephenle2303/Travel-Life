@@ -21,7 +21,7 @@ export function projectReveal(input: RevealInput): RevealModel {
     // A bundled offline resolver may provide a coarse, evidence-derived display
     // label. It is not an owner-presence claim; owner titles stay in detail.
     label: 'label' in journey && typeof journey.label === 'string' && journey.label.length <= 80 ? journey.label : 'Private journey',
-    status: journey.state === 'inferred' ? 'Inferred' as const : 'Needs review' as const,
+    status: journey.state === 'owner-entered' ? 'Owner-entered' as const : journey.state === 'inferred' ? 'Inferred' as const : 'Needs review' as const,
     years: 'years' in journey ? journey.years : [],
     periodLabel: 'periodLabel' in journey ? journey.periodLabel : 'Date unknown',
     ordering: 'ordering' in journey && journey.ordering === 'uncertain' ? 'Order uncertain' as const : 'Chronological' as const,
@@ -53,7 +53,8 @@ export function projectReveal(input: RevealInput): RevealModel {
   if (!journeys.length) {
     return { state: 'sparse', coverage, journeys, statistics: null, diagnostics: input.durableRecord?.diagnostics ?? null, replay: { eligible: false, reason: 'Replay needs at least one supported revealed journey.' }, message: input.durableRecord?.diagnostics ? 'There is not enough supported local evidence to reveal a journey yet.' : 'No completed local reconstruction diagnostics are available yet.' };
   }
-  return { state: 'ready', coverage, journeys, statistics: input.durableRecord?.statistics ?? null, replay: { eligible: true, reason: 'Replay can use only the observed destinations in this private reveal.' }, message: 'Available reconstructed journeys are shown as inferred local records. Photo location does not verify your presence.' };
+  const inferredCount = journeys.filter((journey) => journey.status !== 'Owner-entered').length;
+  return { state: 'ready', coverage, journeys, statistics: input.durableRecord?.statistics ?? null, replay: { eligible: inferredCount > 0, reason: inferredCount > 0 ? 'Replay can use only the observed destinations in this private reveal.' : 'Replay needs observed destinations; owner-entered journeys are not evidence.' }, message: 'Available reconstructed journeys are shown as inferred local records. Photo location does not verify your presence.' };
 }
 
 /** Derives the one safe Atlas state shared by Map and Timeline. */

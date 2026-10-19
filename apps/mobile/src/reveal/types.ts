@@ -5,7 +5,7 @@ export type RevealMapAnchor = { latitude: number; longitude: number };
 export type DurableRevealJourney = {
   /** A local display ordinal, never a reconstruction or source identifier. */
   displayId: string;
-  state: 'inferred' | 'possible-merge';
+  state: 'inferred' | 'possible-merge' | 'owner-entered';
   anchor: RevealMapAnchor | null;
   years: number[];
   periodLabel: string;
@@ -13,7 +13,7 @@ export type DurableRevealJourney = {
   /** A locally derived, coarse trip label such as a country name. Never a coordinate or raw capture value. */
   label?: string;
   /** An owner-confirmed local place is intentionally distinct from inferred evidence. */
-  locationKind?: 'inferred' | 'owner-confirmed';
+  locationKind?: 'inferred' | 'owner-confirmed' | 'owner-entered';
 };
 export type InferredStatistics = { journeyCount: number; placeCount: number; supportedCountryCount: number; countryStatus: 'supported' | 'unavailable' };
 /** Aggregate counts from one completed local reconstruction; no evidence identifiers or locations. */
@@ -38,7 +38,7 @@ export type RevealInput = {
 export type RevealJourney = {
   id: string;
   label: string;
-  status: 'Inferred' | 'Needs review';
+  status: 'Inferred' | 'Needs review' | 'Owner-entered';
   years: number[];
   periodLabel: string;
   ordering: 'Chronological' | 'Order uncertain';
@@ -79,6 +79,8 @@ export type JourneyDetail = {
   };
   /** Owner-selected local place and coarse map anchor, separate from observed evidence. */
   ownerPlace?: { id: string; name: string; context: string; anchor: RevealMapAnchor };
+  /** A separate private assertion. It has no evidence, visit support or media. */
+  ownerEntered?: boolean;
 };
 
 /** A bounded gallery page. Its source references stay inside the repository/provider boundary. */

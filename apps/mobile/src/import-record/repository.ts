@@ -22,7 +22,7 @@ type CheckpointRow = {
   status: ImportCheckpoint['status'];
 };
 
-const CURRENT_SCHEMA_VERSION = 32;
+const CURRENT_SCHEMA_VERSION = 33;
 const validCivilDay = (day: string | null) => Boolean(day && /^\d{4}-(0[1-9]|1[0-2])-([0-2]\d|3[01])$/.test(day)
   && new Date(`${day}T00:00:00.000Z`).toISOString().slice(0, 10) === day);
 
@@ -660,6 +660,26 @@ const migrationV32 = `
   UPDATE private_history_record SET schema_version = 32 WHERE record_id = 1;
 `;
 
+// Manual assertions deliberately do not reuse reconstruction_journey, visit,
+// evidence, qualification, or correction rows.  They can therefore survive a
+// replacement reconstruction without acquiring fabricated support.
+const migrationV33 = `
+  CREATE TABLE IF NOT EXISTS manual_journey (
+    manual_id TEXT PRIMARY KEY NOT NULL,
+    command_key TEXT NOT NULL UNIQUE,
+    owner_label TEXT NOT NULL,
+    owner_context TEXT NOT NULL,
+    latitude REAL NOT NULL CHECK (latitude >= -90 AND latitude <= 90),
+    longitude REAL NOT NULL CHECK (longitude >= -180 AND longitude <= 180),
+    date_kind TEXT NOT NULL CHECK (date_kind IN ('exact', 'approximate')),
+    date_start TEXT NOT NULL,
+    date_end TEXT NOT NULL,
+    created_at_millis INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS manual_journey_dates ON manual_journey (date_start, date_end);
+  UPDATE private_history_record SET schema_version = 33 WHERE record_id = 1;
+`;
+
 const MAINTENANCE_LEASE_MILLIS = 5 * 60 * 1000;
 
 type SchemaRow = { version: number };
@@ -755,6 +775,7 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
           if (version < 30) await db.execAsync(migrationV30);
           if (version < 31) await db.execAsync(migrationV31);
           if (version < 32) await db.execAsync(migrationV32);
+          if (version < 33) await db.execAsync(migrationV33);
           if (version === 0) await db.runAsync('INSERT INTO import_schema_version (version) VALUES (?)', CURRENT_SCHEMA_VERSION);
           else if (version < CURRENT_SCHEMA_VERSION) await db.runAsync('UPDATE import_schema_version SET version = ?', CURRENT_SCHEMA_VERSION);
           await db.execAsync('COMMIT');
@@ -904,6 +925,7 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
           DELETE FROM local_cache_registry;
           DELETE FROM reconstruction_trip_qualification;
           DELETE FROM configured_home_area;
+          DELETE FROM manual_journey;
           DELETE FROM reconstruction_disposition;
           DELETE FROM reconstruction_link;
           DELETE FROM reconstruction_journey;

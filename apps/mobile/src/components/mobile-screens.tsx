@@ -101,7 +101,7 @@ export function EmptyAtlasScreen() {
         onImport={() => openRoute(router, appRoutes.import)}
         onRetry={() => void reconstructionController.rebuild()}
         onCatchUp={() => void catchUpHistory()}
-        onManualEntry={() => openRoute(router, appRoutes.settings)}
+        onManualEntry={(context) => { saveAtlasPreviewContext(context); openRoute(router, appRoutes.manualJourney); }}
         onReplay={() => openRoute(router, appRoutes.replay)}
         onSettings={() => openRoute(router, appRoutes.settings)}
         onOpenJourney={(id) => router.push({ pathname: appRoutes.journey as never, params: { id } })}
@@ -228,7 +228,7 @@ export function PrivacySettingsScreen() {
             {pendingHomeRemoval === home.id ? <><Body>Remove this Home base? Original photos and your private history remain.</Body><ActionButton accessibilityLabel="Confirm remove Home base" onPress={() => void confirmHomeRemoval(home.id)} disabled={savingHome}>Remove Home base</ActionButton><ActionButton accessibilityLabel="Cancel remove Home base" onPress={() => setPendingHomeRemoval(null)} variant="secondary">Cancel</ActionButton></> : <View style={{ flexDirection: 'row', gap: 8 }}><ActionButton accessibilityLabel={`Rename ${home.label ?? 'unnamed Home base'}`} onPress={() => { setEditingHomeId(home.id); setHomeLabel(home.label ?? ''); }} variant="secondary">Rename</ActionButton><ActionButton accessibilityLabel={`Remove ${home.label ?? 'unnamed Home base'}`} onPress={() => setPendingHomeRemoval(home.id)} variant="secondary">Remove</ActionButton></View>}
           </>}
         </InsetPanel>)}
-        {(durableReveal?.journeys ?? []).filter((journey) => journey.anchor !== null).map((journey) => <ActionButton key={journey.displayId} accessibilityLabel={`Review ${journey.label ?? journey.periodLabel} for a home base`} onPress={() => void chooseHomeJourney(journey.displayId)} variant={selectedHome === journey.displayId ? 'primary' : 'secondary'}>{journey.label ?? 'Private journey'} · {journey.periodLabel}</ActionButton>)}
+        {(durableReveal?.journeys ?? []).filter((journey) => journey.anchor !== null && journey.state !== 'owner-entered').map((journey) => <ActionButton key={journey.displayId} accessibilityLabel={`Review ${journey.label ?? journey.periodLabel} for a home base`} onPress={() => void chooseHomeJourney(journey.displayId)} variant={selectedHome === journey.displayId ? 'primary' : 'secondary'}>{journey.label ?? 'Private journey'} · {journey.periodLabel}</ActionButton>)}
         {!durableReveal?.journeys.some((journey) => journey.anchor !== null) && <Body>Import or rebuild an observed private journey before choosing a home base.</Body>}
         {selectedHome && !homePreview && <Body>Opening local journey details…</Body>}
         {homePreview && <View style={{ gap: 10 }}>

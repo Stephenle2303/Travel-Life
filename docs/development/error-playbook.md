@@ -1481,3 +1481,178 @@ passing them to `rg --files`; a spec path is not proof of an existing directory.
 - **Cause:** The pending generated implementation artifact ended with an extra blank line.
 - **Correction / verification:** Removed the extra line and reran the staged whitespace check before committing.
 - **Prevention:** Run `git diff --check` against the staged set immediately before every delivery commit, including generated documentation artifacts.
+
+## M4.2 planning glob lookup (2026-10-19)
+
+- **Date / task / area:** 2026-10-19; M4.2 build workflow; prior-story discovery.
+- **Status:** Corrected before planning.
+- **Symptom/evidence:** A PowerShell `rg` invocation passed `spec-m4-*.md` as a literal path, and ripgrep returned Windows error 123 before reading any files.
+- **Cause:** The wildcard was supplied as a path argument instead of using file enumeration or an `rg --glob` filter.
+- **Correction / verification:** Use `rg --files _bmad-output/implementation-artifacts` to enumerate actual M4 specs, then read exact literal paths.
+- **Prevention:** On Windows, enumerate the search root before opening grouped files; do not pass wildcard patterns as literal path operands.
+
+## M4.2 planning test-root lookup (2026-10-19)
+
+- **Date / task / area:** 2026-10-19; M4.2 build workflow; repository test discovery.
+- **Status:** Corrected before code inspection.
+- **Symptom/evidence:** A read-only reconnaissance search included nonexistent `apps/mobile/__tests__` and `apps/mobile/test` roots, producing path errors without reading tests.
+- **Cause:** The test layout was guessed instead of enumerated.
+- **Correction / verification:** Resolve test files under `apps/mobile/src/components/__tests__` with `rg --files` before targeted reads.
+- **Prevention:** Never include presumed test roots in a multi-root search; enumerate the mobile source tree first.
+
+## M4.2 planning PowerShell discovery syntax (2026-10-19)
+
+- **Date / task / area:** 2026-10-19; M4.2 build workflow; UI reconnaissance.
+- **Status:** Corrected before source inspection.
+- **Symptom/evidence:** Two read-only searches failed before opening source: an `apps/mobile/src/reconstruction/*.ts` wildcard was treated as a literal Windows path, and a Bash-style brace-expanded path list was invalid in PowerShell.
+- **Cause:** POSIX shell shorthand was used in PowerShell path arguments.
+- **Correction / verification:** Enumerate candidate files with `rg --files`, then pass explicit literal paths to the follow-up search.
+- **Prevention:** Use PowerShell arrays or `rg --glob` for grouped paths; never rely on Bash brace expansion or literal wildcard path operands.
+
+## M4.2 workflow frontmatter patch (2026-10-19)
+
+- **Date / task / area:** 2026-10-19; M4.2 build workflow; spec state transition.
+- **Status:** Corrected before dispatch.
+- **Symptom/evidence:** An `apply_patch` request attempted two separate updates to the same specification file and was rejected as an invalid patch before modifying files.
+- **Cause:** The status and baseline-frontmatter updates were unnecessarily split.
+- **Correction / verification:** Apply both frontmatter changes in one verified hunk, then reread the specification before implementation dispatch.
+- **Prevention:** Combine same-file state transitions into one patch operation; use separate operations only for distinct files.
+
+## M4.2 baseline revision capture (2026-10-19)
+
+- **Date / task / area:** 2026-10-19; M4.2 build workflow; post-implementation diff audit.
+- **Status:** Corrected before audit.
+- **Symptom/evidence:** The workflow specification recorded an unverified expanded SHA for baseline `4bf25ee`; `git diff --cached --binary <baseline>` failed with `bad object` and left the required temporary diff empty.
+- **Cause:** A short revision was expanded by assumption instead of obtaining its canonical identifier from Git.
+- **Correction / verification:** Read `git rev-parse 4bf25ee`, store its exact result in the spec, then regenerate and read the staged diff.
+- **Prevention:** Whenever a workflow requires a full revision, use `git rev-parse` directly; never manually expand an abbreviated hash.
+
+## M4.2 manual-entry audit gaps (2026-10-19)
+
+- **Date / task / area:** 2026-10-19; M4.2 post-implementation diff audit; manual route and form.
+- **Status:** Open; correction dispatched before review.
+- **Symptom/evidence:** The initial implementation routed back to `/history` without saving/restoring the current Atlas exploration context, generated a new command key per submit rather than retaining it for a retry, and exposed raw latitude/longitude fields where the approved manual fallback requires an owner-chosen coarse map point.
+- **Cause:** Focused tests asserted a successful form save but did not exercise the required context return, retry identity, or human-usable coarse-point interaction.
+- **Correction / next action:** Preserve the Atlas context before entering manual creation and restore it after cancel/success; retain one draft-scoped command key across retry; use a constrained coarse-point picker/selection flow that stores only coarsened coordinates.
+- **Prevention:** Audit every matrix row against the rendered route and form, not only repository/provider success cases; require tests for navigation context, retry idempotency, and the owner-facing fallback interaction.
+- **Recurrence (2026-10-19, final acceptance audit):** The repaired flow still showed Add a journey manually while the private record was restricted, even though the command cannot save there; it also lacked an explicit owner-entered count beside the inferred counts. **Cause:** the affordance condition was broadened without preserving the record-availability boundary, and the union projection was not traced through the Atlas aggregate copy. **Correction / verification:** limit the entry point to ready, sparse, and failed projections; add a separately labelled owner-entered count that never changes inferred totals, with Atlas regressions for both. **Prevention:** For every unioned owner record, audit the action availability and each user-visible aggregate separately from recovery/engine metrics.
+
+## M4.2 focused Jest sandbox cache EPERM (2026-10-19)
+
+- **Date / task / area:** 2026-10-19; M4.2 manual-entry focused Jest verification.
+- **Status:** Open environment blocker; host retry required.
+- **Symptom/evidence:** `npm --prefix apps/mobile test -- --runInBand manual-journey.test.tsx` stopped before executing tests because Jest could not atomically rename its transform-cache map file in the sandbox temporary directory (`EPERM`).
+- **Cause:** Sandboxed Windows temporary-cache permissions, not a test or application assertion failure.
+- **Correction / next action:** Rerun the same focused command through approved host execution, retaining the repository-local test command and reporting its actual result.
+- **Prevention:** Treat Jest transform-cache `EPERM` as an environment failure; do not call an unexecuted suite passing or retry the identical sandbox path.
+- **Recurrence (2026-10-19, audit-fix focused run):** The same sandbox cache rename failure again stopped all three focused suites before test execution. TypeScript passed independently. Use the approved host boundary directly for all subsequent Jest verification in this task; do not interpret this as an assertion failure.
+
+## M4.2 manual-entry test render contract (2026-10-19)
+
+- **Date / task / area:** 2026-10-19; M4.2 focused UI regression.
+- **Status:** Corrected; verification pending rerun.
+- **Symptom/evidence:** The first host-focused run reached the test but failed before assertions because this repository's test renderer returns an awaitable render result and the new test used it synchronously, leaving query helpers undefined.
+- **Cause:** The new suite did not follow the existing async-render convention.
+- **Correction / next action:** Await `render(...)` in both cases, then rerun the focused suite.
+- **Prevention:** Copy the established async render shape from neighboring mobile component tests before using screen queries.
+
+## M4.2 repository test mock-factory scope (2026-10-19)
+
+- **Date / task / area:** 2026-10-19; M4.2 manual repository regressions.
+- **Status:** Corrected and rerun.
+- **Symptom/evidence:** The initial new SQLite regression suite failed before execution because its `jest.mock` factory captured a variable not prefixed `mock`, which Jest disallows as potentially uninitialized.
+- **Cause:** The test did not follow Jest factory scope naming rules.
+- **Correction / verification:** Renamed the factory-captured doubles to `mock*`; the manual repository, form, and provider suites passed 18 tests.
+- **Prevention:** In a hoisted Jest factory, only capture names prefixed `mock` or create the double inside the factory.
+
+## M4.2 PowerShell test-file glob lookup (2026-10-19)
+
+- **Date / task / area:** 2026-10-19; M4.2 implementation review; test discovery.
+- **Status:** Corrected before reading test results.
+- **Symptom/evidence:** A read-only `rg` invocation passed `apps/mobile/src/components/__tests__/*.tsx` and `*.ts` as literal Windows path operands, and returned error 123 without reading those test files.
+- **Cause:** POSIX-style globs were used as path arguments in PowerShell.
+- **Correction / verification:** Use `rg --files apps/mobile/src/components/__tests__` to enumerate the test files, then pass explicit paths or `--glob` filters.
+- **Prevention:** On Windows, do not pass shell globs as literal path operands; enumerate first or use ripgrep's own glob option.
+
+## M4.2 coarse-picker label regression (2026-10-19)
+
+- **Date / task / area:** 2026-10-19; M4.2 audit-fix manual entry.
+- **Status:** Corrected before full verification.
+- **Symptom/evidence:** The first focused host run showed that choosing a broad map area overwrote the owner's typed destination label and context with the area's generic copy.
+- **Cause:** The fallback picker object was incorrectly reused as both the coarse anchor and the owner-entered destination fields.
+- **Correction / verification:** Keep the typed label/context while taking only latitude/longitude from the selected coarse area; rerun the focused manual-entry suite.
+- **Prevention:** Tests for fallback location selection must assert both deliberately coarsened coordinates and preservation of the owner-entered place claim.
+
+## M4.2 provider create test act warning (2026-10-19)
+
+- **Date / task / area:** 2026-10-19; M4.2 focused provider verification.
+- **Status:** Corrected and verified in the focused suite.
+- **Symptom/evidence:** The focused host run passed all assertions but printed React's `act(...)` warning when the manual-create test refreshed the durable Atlas projection.
+- **Cause:** The test invoked the state-changing provider command outside the renderer's async `act` boundary.
+- **Correction / verification:** Wrap the command and result capture in `act`; the focused manual suites reran with 65 tests passing and no warnings. The full suite still has a separate pre-existing `journey-edit.test.tsx` renderer-environment warning, which this manual-flow test does not trigger.
+- **Prevention:** Every provider command that can refresh React state must be awaited inside `act`, even when assertions use a captured context value.
+
+## M4.2 review-state redundant patch (2026-10-19)
+
+- **Date / task / area:** 2026-10-19; M4.2 review workflow transition.
+- **Status:** Corrected before review launch.
+- **Symptom/evidence:** An `apply_patch` request to change the specification status from `in-progress` to `in-review` failed because the implementing agent had already correctly made that transition.
+- **Cause:** The current frontmatter was not reread immediately before repeating the workflow transition.
+- **Correction / verification:** Read the specification frontmatter and confirmed `status: 'in-review'` with `review_loop_iteration: 0`; no content change was needed.
+- **Prevention:** Before repeating an idempotent workflow-state patch after delegated work, read the exact frontmatter block first.
+
+## M4.2 independent review findings (2026-10-19)
+
+- **Date / task / area:** 2026-10-19; M4.2 independent review; owner-entered journey boundaries.
+- **Status:** Open; product clarification required before re-derivation.
+- **Symptom/evidence:** Three required review lenses found that local-history deletion omits `manual_journey`, owner-entered details expose generic correction Edit, Home-base selection accepts owner-entered coarse anchors as though they were observed areas, and multiple overlaps route Edit to the first result with no owner selection. A late overlap can also appear between review and persistence without a specified durable-review protocol.
+- **Cause:** The initial story contract established separation from evidence but did not specify deletion, manual-edit policy, multi-overlap target choice, or a stale-overlap write protocol; implementation then reused inferred-journey affordances at those seams.
+- **Correction / next action:** Preserve the verified review triage in the M4.2 spec; obtain the owner’s manual-edit/multiple-overlap decision, then re-derive the affected flow and deletion/observed-area safeguards with regressions.
+- **Prevention:** For a new durable owner-record type, explicitly trace every existing consumer (deletion, correction, Home-base, and aggregate UI) before calling the story implementation-ready.
+
+## M4.2 audit staging scope (2026-10-19)
+
+- **Date / task / area:** 2026-10-19; M4.2 baseline-diff audit.
+- **Status:** Corrected before the M4.2 whitespace result was used.
+- **Symptom/evidence:** Staging the entire worktree for the required all-files diff also staged an unrelated untracked planning review containing pre-existing trailing whitespace.
+- **Cause:** The audit command was broader than the M4.2 file set in a shared worktree.
+- **Correction / verification:** Restore only that file’s index entry, preserving its untracked working-tree content; rerun the staged whitespace gate on the M4.2 set.
+- **Prevention:** In a shared worktree, use an explicit story file list for Git staging even when an audit requires untracked coverage.
+
+## M4.2 final review coverage and fallback defects (2026-10-19)
+
+- **Date / task / area:** 2026-10-19; M4.2 final independent review.
+- **Status:** Open; correction dispatched before acceptance.
+- **Symptom/evidence:** Final review showed that the re-derived form used only three hard-coded anchors instead of local place search plus a no-result coarse fallback; stale-overlap recovery could not reopen review; and regression tests did not execute the repository transaction, owner-entered-only Replay, actual Home-base publication, or Atlas-context restoration.
+- **Cause:** The re-derivation focused on review-time safety seams but did not trace the accepted offline-search fallback through the rendered form and provider lifecycle.
+- **Correction / next action:** Reuse the existing local place index, expose coarse fallback only on no-result state, make stale reviews retryable, and add executable boundary regressions before full verification.
+- **Prevention:** For a frozen UX fallback, assert both the normal path and the fallback activation condition in rendered tests; never count a mocked provider call as coverage for a database or publication boundary.
+
+## M4.2 diff staging sandbox index lock (2026-10-19)
+
+- **Date / task / area:** 2026-10-19; M4.2 final diff audit.
+- **Status:** Open environment limitation; a read-only diff was still generated for tracked files.
+- **Symptom/evidence:** `git add -N` could not create `.git/index.lock` in the sandbox (`Permission denied`) before the audit diff, so the requested intent-to-add staging of untracked M4.2 files did not occur.
+- **Cause:** The sandbox disallows the Git index write for this checkout; application source was not changed by the failed command.
+- **Correction / next action:** Audit tracked changes from the baseline and inspect untracked files directly; use an approved host Git boundary if an index-backed all-files diff is required.
+- **Prevention:** Distinguish an index-lock sandbox refusal from a content or whitespace failure, and do not claim untracked files were staged when the lock could not be created.
+
+## Architect performance review UV cache inspection failure (2026-10-19)
+
+- **Date / task / area:** 2026-10-19; performance/responsiveness architecture review; BMAD customization/config resolver.
+- **Status:** Open sandbox environment limitation; manual configuration fallback used.
+- **Symptom/evidence:** Both `uv run _bmad/scripts/resolve_customization.py` and `resolve_config.py` stopped before invoking their project scripts because the sandbox could not persist `uv`'s interpreter-cache message pack under the Windows package cache (`Access is denied`).
+- **Cause:** Sandbox cache permissions; this did not read or change application source.
+- **Correction / verification:** Read the architect skill customization and project config directly. The resolved identity is Winston, System Architect, with English communication; no persistent facts or activation steps were configured.
+- **Prevention:** For this known `uv` cache boundary, use an approved host execution boundary if script execution is required; otherwise read the small TOML inputs directly and state the fallback. Do not repeatedly retry the same sandbox cache path.
+
+## M4.2 rerun repository-contract regressions (2026-10-19)
+
+- **Date / task / area:** 2026-10-19; M4.2 implementation rerun; manual projection and UI command identity.
+- **Status:** Corrected; complete-suite rerun pending.
+- **Symptom/evidence:** The first lint rejected a render-time command-key generator, and the first host suite found manual projection reads shifted existing SQL-mock ordering and stale schema-v32 assertions.
+- **Cause:** A retry key was created during render instead of in the owner action, and the additive repository query was inserted before established read contracts without updating migration expectations.
+- **Correction / verification:** Generate and retain the command key only from the review action; move the manual projection query after the committed journey read, fail closed on incomplete rows, and update migration assertions to v33. TypeScript, lint, and the affected repository suites pass (54 tests).
+- **Prevention:** Treat command identity as event state, never render state; when adding an additive repository query, run all existing repository suites and update explicit schema-version assertions together.
+- **Recurrence:** A documentation patch that combined the spec result and project-state update was rejected because the project-state anchor had changed. No file changed; the corrected patch used the exact current tail. **Prevention strengthened:** Before a multi-file documentation patch, reread every target anchor and retry only the minimal verified hunk.
+- **Further recurrence:** The first focused-test typecheck inferred zero-argument Jest mocks, so indexed mock-call assertions failed static typing despite passing at runtime. The mocks now declare their `ManualJourneyInput` argument tuple; the focused suites, TypeScript, and lint pass. **Prevention strengthened:** Type every Jest mock whose call arguments are inspected before relying on `mock.calls`.
