@@ -59,6 +59,10 @@ accepted product decisions and owned stories. New product surfaces, including
 the browser viewer, extend this screen language without inventing evidence or
 publishing private data by default.
 
+### Reference-faithful Atlas world base
+
+For the 2026-10-18 Atlas refinement, the owner supplied an Obsidian Horizon world-map reference and requested that its cartographic visual be matched before its peripheral controls. Atlas may use the supplied reference as a bundled local visual master while the production geographic source/renderer is completed. It must remain offline and non-personal; journey anchors, routes, and destination claims are separate data layers. The search pill, utility controls, mode dock, compass/zoom slider, route arcs, and persistent destination card are deferred rather than simulated as functional controls.
+
 ## Visual foundation
 
 Living Atlas is a private, precise, cinematic personal atlas. The map and memories

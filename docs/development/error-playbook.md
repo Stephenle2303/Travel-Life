@@ -840,3 +840,12 @@ area, symptom, command, and rule when an incident occurs.
 - **Correction:** Preserve the review-patch bytes while marking `*.diff` as exempt from blank-line whitespace errors in `.gitattributes`; remove non-semantic final blank lines from ordinary text artifacts.
 - **Verification:** Restage the full change set and require a clean `git diff --cached --check` before commit and push.
 - **Prevention:** Treat archived patches as artifacts, not source: give their file type an explicit whitespace policy before adding them to a repository that enforces `git diff --check`.
+
+## EP-090: New-worktree Jest invocation did not transform TypeScript tests
+
+- **Date / task / area:** 2026-10-18; reference-faithful Atlas cartography; isolated worktree verification.
+- **Status:** Open; test-runner repair required.
+- **Expected / actual:** Focused Atlas tests should execute after the bundled map conversion. The app-local Jest invocation instead stopped in parsing before any test ran, treating TypeScript annotations as JavaScript.
+- **Cause:** Unknown. The worktree's app-local Jest/preset resolution needs investigation; this is not evidence of an application assertion failure.
+- **Correction / next action:** Keep TypeScript checks as the only completed static verification. Reproduce against the established project test command, inspect preset/transform resolution, then run the focused Atlas and prototype owner-flow suites before accepting the implementation.
+- **Prevention:** Distinguish a test runner boot/transform failure from failing product behavior and record the exact command context.

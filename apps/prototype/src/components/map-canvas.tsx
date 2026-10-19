@@ -1,7 +1,8 @@
 import { Component, type ReactNode, useMemo, useState } from 'react';
-import { PanResponder, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { ImageBackground, PanResponder, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { palette, tactileFeedback } from '@/components/ui';
 import type { AtlasCamera, SyntheticJourney } from '@/types/prototype';
+import { projectAtlasAnchor } from '../../../../shared/atlas-cartography/projection';
 
 export class MapErrorBoundary extends Component<{ children: ReactNode; fallback: ReactNode }, { failed: boolean }> {
   state = { failed: false };
@@ -11,13 +12,14 @@ export class MapErrorBoundary extends Component<{ children: ReactNode; fallback:
 
 export interface AtlasMarkerGroup { key: string; journeys: SyntheticJourney[]; x: number; y: number; }
 
-/** Groups nearby fictional anchors so a dense demo can still be selected without pretending it is a route. */
+/** Groups nearby public demo anchors so a dense demo can still be selected without pretending it is a route. */
 export function groupAtlasJourneys(journeys: SyntheticJourney[]): AtlasMarkerGroup[] {
   const groups = new Map<string, AtlasMarkerGroup>();
   for (const journey of journeys) {
     if (!journey.atlasAnchor) continue;
-    const x = 50 + journey.atlasAnchor.longitude / 2;
-    const y = 50 - journey.atlasAnchor.latitude / 1.35;
+    const point = projectAtlasAnchor(journey.atlasAnchor);
+    if (!point) continue;
+    const { x, y } = point;
     const key = `${Math.round(x / 9)}-${Math.round(y / 9)}`;
     const group = groups.get(key);
     if (group) group.journeys.push(journey);
@@ -27,16 +29,10 @@ export function groupAtlasJourneys(journeys: SyntheticJourney[]): AtlasMarkerGro
 }
 
 function Geography() {
-  return <>
-    <View pointerEvents="none" style={[styles.graticule, styles.latitudeOne]} /><View pointerEvents="none" style={[styles.graticule, styles.latitudeTwo]} />
-    <View pointerEvents="none" style={[styles.meridian, styles.meridianOne]} /><View pointerEvents="none" style={[styles.meridian, styles.meridianTwo]} />
-    <View pointerEvents="none" style={[styles.land, styles.westernLand]} /><View pointerEvents="none" style={[styles.land, styles.centralLand]} /><View pointerEvents="none" style={[styles.land, styles.easternLand]} />
-    <View pointerEvents="none" style={[styles.isle, styles.isleOne]} /><View pointerEvents="none" style={[styles.isle, styles.isleTwo]} />
-    <Text pointerEvents="none" style={[styles.geoLabel, styles.westernLabel]}>VERDANT REACH</Text><Text pointerEvents="none" style={[styles.geoLabel, styles.centralLabel]}>LANTERN SEA</Text><Text pointerEvents="none" style={[styles.geoLabel, styles.easternLabel]}>CEDAR COAST</Text>
-  </>;
+  return <ImageBackground source={require('../../assets/atlas/world-map-reference.jpg')} style={styles.referenceBase} imageStyle={styles.referenceImage} />;
 }
 
-/** Dependency-free, bundled fictional geography. It deliberately never requests a map tile or provider. */
+/** Bundled owner-supplied visual master. It deliberately never requests a tile or provider. */
 export function MapCanvas({ journeys, selectedJourneyId, camera, onCameraChange, onFit, onSelect, onOpenTimeline }: {
   journeys: SyntheticJourney[]; selectedJourneyId: string; camera: AtlasCamera; onCameraChange: (camera: AtlasCamera) => void; onFit: () => void; onSelect: (journeyId: string) => void; onOpenTimeline: () => void;
 }) {
@@ -51,15 +47,13 @@ export function MapCanvas({ journeys, selectedJourneyId, camera, onCameraChange,
     onPanResponderMove: (_, gesture) => onCameraChange({ ...panStart, offsetX: panStart.offsetX + gesture.dx, offsetY: panStart.offsetY + gesture.dy }),
   }), [camera, onCameraChange, panStart]);
   const zoom = (delta: number) => { tactileFeedback.selection(); onCameraChange({ ...camera, zoom: camera.zoom + delta }); };
-  return <View accessibilityLabel="Bundled synthetic demo geography" style={styles.canvas}>
-    <View style={styles.heading}><View><Text style={styles.kicker}>PRIVATE ATLAS · SYNTHETIC DEMO</Text><Text style={styles.label}>Available travel record</Text></View><Text style={styles.count}>{journeys.length.toString().padStart(2, '0')}</Text></View>
-    <Text style={styles.caption}>Fictional demo geography and anchors only—not a device location, real visit, route, or map service.</Text>
-    <View accessibilityLabel="Offline fictional atlas map" style={[styles.field, width >= 900 && styles.fieldWide]} {...panResponder.panHandlers}>
+  return <View accessibilityLabel="Bundled reference-faithful world geography" style={styles.canvas}>
+    <View accessibilityLabel="Offline reference Atlas map" style={[styles.field, width >= 900 && styles.fieldWide]} {...panResponder.panHandlers}>
       <View style={[styles.mapPlane, { transform: [{ translateX: camera.offsetX }, { translateY: camera.offsetY }, { scale: camera.zoom }] }]}><Geography />
         {groups.map((group) => {
           const selected = group.journeys.some((journey) => journey.id === selectedJourneyId);
           const overlap = group.journeys.length > 1;
-          const label = overlap ? `${group.journeys.length} overlapping synthetic demo anchors` : `Select ${group.journeys[0].title}, fictional demo anchor`;
+          const label = overlap ? `${group.journeys.length} overlapping synthetic demo anchors` : `Select ${group.journeys[0].title}, synthetic demo anchor`;
           return <View key={group.key} style={[styles.marker, { left: `${group.x}%`, top: `${group.y}%` }, selected && styles.selectedMarker]}><Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ selected, expanded: overlap ? openGroupKey === group.key : undefined }} onPress={() => { tactileFeedback.selection(); if (overlap) setOpenGroupKey(openGroupKey === group.key ? undefined : group.key); else onSelect(group.journeys[0].id); }} style={({ pressed }) => [styles.markerTrigger, pressed && styles.pressed]}>
             <View style={[styles.markerDot, selected && styles.markerDotSelected]}><Text style={styles.markerNumber}>{overlap ? group.journeys.length : '•'}</Text></View><Text numberOfLines={1} style={[styles.markerText, selected && styles.markerTextSelected]}>{overlap ? `${group.journeys.length} demo anchors` : group.journeys[0].title}</Text>{selected ? <Text style={styles.status}>{overlap ? 'choose a demo chapter' : `${group.journeys[0].year} · ${group.journeys[0].status}`}</Text> : null}
           </Pressable>{overlap && openGroupKey === group.key ? <View style={styles.overlapChoices}>{group.journeys.map((journey) => <Pressable key={journey.id} accessibilityRole="button" accessibilityLabel={`Choose ${journey.title} from overlapping anchors`} onPress={() => { tactileFeedback.selection(); setOpenGroupKey(undefined); onSelect(journey.id); }} style={styles.overlapChoice}><Text numberOfLines={1} style={styles.overlapChoiceText}>{journey.title}</Text></Pressable>)}</View> : null}</View>;
@@ -72,9 +66,9 @@ export function MapCanvas({ journeys, selectedJourneyId, camera, onCameraChange,
 }
 
 const styles = StyleSheet.create({
-  canvas: { backgroundColor: palette.fern, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(243,238,221,0.18)', padding: 16, gap: 8, overflow: 'hidden' },
+  canvas: { backgroundColor: '#071726', borderRadius: 20, borderWidth: 1, borderColor: 'rgba(78,168,222,0.42)', padding: 10, gap: 8, overflow: 'hidden' },
   heading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }, kicker: { color: palette.citrus, fontSize: 10, fontWeight: '900', letterSpacing: 1.25 }, label: { color: palette.limestone, fontSize: 21, fontWeight: '900', marginTop: 3 }, count: { color: palette.sage, fontSize: 34, lineHeight: 36, fontWeight: '300' }, caption: { color: palette.sage, fontSize: 12, lineHeight: 18, maxWidth: 650 },
-  field: { height: 370, marginTop: 6, borderRadius: 14, backgroundColor: palette.rainforest, borderWidth: 1, borderColor: 'rgba(180,198,181,0.22)', position: 'relative', overflow: 'hidden' }, fieldWide: { height: 540 }, mapPlane: { width: '100%', height: '100%' },
+  field: { height: 370, marginTop: 6, borderRadius: 14, backgroundColor: '#071726', borderWidth: 1, borderColor: 'rgba(78,168,222,0.42)', position: 'relative', overflow: 'hidden' }, fieldWide: { height: 540 }, mapPlane: { width: '100%', height: '100%' }, referenceBase: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }, referenceImage: { resizeMode: 'cover', opacity: 0.98 },
   graticule: { position: 'absolute', width: '120%', height: 1, left: '-10%', backgroundColor: 'rgba(180,198,181,0.13)' }, latitudeOne: { top: '33%' }, latitudeTwo: { top: '66%' }, meridian: { position: 'absolute', height: '120%', width: 1, top: '-10%', backgroundColor: 'rgba(180,198,181,0.12)' }, meridianOne: { left: '34%', transform: [{ rotate: '12deg' }] }, meridianTwo: { left: '70%', transform: [{ rotate: '-9deg' }] },
   land: { position: 'absolute', backgroundColor: '#315B4A', borderWidth: 1, borderColor: 'rgba(243,238,221,0.18)' }, westernLand: { width: '38%', height: '55%', left: '-8%', top: '34%', borderRadius: 96, transform: [{ rotate: '-18deg' }] }, centralLand: { width: '34%', height: '40%', left: '35%', top: '18%', borderRadius: 80, transform: [{ rotate: '28deg' }] }, easternLand: { width: '30%', height: '62%', right: '-7%', top: '31%', borderRadius: 88, transform: [{ rotate: '14deg' }] }, isle: { position: 'absolute', backgroundColor: '#315B4A', borderColor: 'rgba(243,238,221,0.18)', borderWidth: 1, borderRadius: 999 }, isleOne: { width: 26, height: 16, left: '63%', top: '62%' }, isleTwo: { width: 18, height: 12, left: '56%', top: '71%' },
   geoLabel: { position: 'absolute', color: 'rgba(243,238,221,0.48)', fontSize: 9, fontWeight: '900', letterSpacing: 1.3 }, westernLabel: { left: '8%', top: '81%' }, centralLabel: { left: '41%', top: '13%' }, easternLabel: { right: '4%', top: '82%' },

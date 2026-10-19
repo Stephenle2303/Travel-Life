@@ -39,7 +39,7 @@ describe('private Atlas reveal', () => {
     expect(view.getByRole('button', { name: 'Check Replay availability' })).toBeOnTheScreen();
     await view.unmount();
     const unavailable = await render(<AtlasReveal model={model} {...actions} mapAvailable={false} />);
-    expect(unavailable.getByText(/The map is unavailable. Your local history Timeline is still available/)).toBeOnTheScreen();
+    expect(unavailable.getByTestId('private-atlas-map')).toBeOnTheScreen();
     await unavailable.rerender(<AtlasReveal model={model} {...actions} mapAvailable />);
     expect(unavailable.getByTestId('private-atlas-map')).toBeOnTheScreen();
   });
@@ -69,18 +69,11 @@ describe('private Atlas reveal', () => {
     expect(view.getByText('Replay will be available after local updates finish.')).toBeOnTheScreen();
   });
 
-  it('uses a texture-backed map with native gestures and falls back to Timeline if its style cannot load', async () => {
+  it('uses a bundled offline map without a native tile renderer', async () => {
     const view = await render(<AtlasReveal model={modelFor({ durableRecord: { journeys: [{ displayId: 'journey-1', state: 'inferred', anchor: { latitude: 13.7, longitude: 100.5 }, years: [2024], periodLabel: '2024', ordering: 'chronological' }] } })} {...actions} />);
     const map = view.getByTestId('private-atlas-map');
-    expect(map.props.androidView).toBe('texture');
-    expect(map.props.preferredFramesPerSecond).toBe(60);
-    expect(map.props.dragPan).toBe(true);
-    expect(map.props.touchZoom).toBe(true);
-    expect(map.props.doubleTapZoom).toBe(true);
-    expect(typeof map.props.onTouchStart).toBe('function');
-    expect(view.getByTestId('private-atlas-anchors').props.hitbox).toEqual({ top: 20, right: 20, bottom: 20, left: 20 });
-    fireEvent(map, 'didFailLoadingMap');
-    await waitFor(() => expect(view.getByText('The map is unavailable. Your local history Timeline is still available.')).toBeOnTheScreen());
+    expect(map.props.source).toBeDefined();
+    expect(view.getByTestId('private-atlas-anchors')).toBeOnTheScreen();
   });
 
   it('offers import and manual entry for sparse evidence', async () => {
@@ -162,8 +155,8 @@ describe('private Atlas reveal', () => {
     expect(mapCameraFor([{ latitude: 0, longitude: 0 }, { latitude: 10, longitude: 20 }])).toEqual({ center: [10, 5], zoom: 4 });
   });
 
-  it('uses MapLibre demo tiles only in a development build', () => {
-    expect(mapLibreDevelopmentStyle(true)).toBe('https://demotiles.maplibre.org/style.json');
+  it('never selects a MapLibre demo style', () => {
+    expect(mapLibreDevelopmentStyle(true)).toBeNull();
     expect(mapLibreDevelopmentStyle(false)).toBeNull();
   });
 
@@ -198,9 +191,7 @@ describe('private Atlas reveal', () => {
       { displayId: 'map-two', state: 'inferred', anchor: { latitude: 13.7, longitude: 100.5 }, years: [2024], periodLabel: '2024', ordering: 'chronological' },
     ] } });
     const view = await render(<AtlasReveal model={model} {...actions} loadJourneyPreview={load} />);
-    const stopPropagation = jest.fn();
-    await fireEvent.press(view.getByTestId('private-atlas-anchors'), { nativeEvent: { features: [{ properties: { journeyId: 'map-one' } }, { properties: { journeyId: 'map-two' } }] }, stopPropagation });
-    expect(stopPropagation).toHaveBeenCalledTimes(1);
+    await fireEvent.press(view.getByTestId('private-atlas-anchors'));
     expect(view.getByText('Choose a journey')).toBeOnTheScreen();
     await fireEvent.press(view.getAllByRole('button', { name: 'Choose Private journey' })[0]);
     await waitFor(() => expect(load).toHaveBeenCalledWith('map-one'));
@@ -210,8 +201,8 @@ describe('private Atlas reveal', () => {
     const onMapGestureChange = jest.fn();
     const view = await render(<AtlasReveal model={modelFor({ durableRecord: { journeys: [{ displayId: 'journey-1', state: 'inferred', anchor: { latitude: 13.7, longitude: 100.5 }, years: [2024], periodLabel: '2024', ordering: 'chronological' }] } })} {...actions} onMapGestureChange={onMapGestureChange} />);
     const map = view.getByTestId('private-atlas-map');
-    await fireEvent(map, 'touchStart');
-    await fireEvent(map, 'touchEnd');
+    await fireEvent(map, 'pressIn');
+    await fireEvent(map, 'pressOut');
     expect(onMapGestureChange).toHaveBeenNthCalledWith(1, true);
     expect(onMapGestureChange).toHaveBeenLastCalledWith(false);
   });

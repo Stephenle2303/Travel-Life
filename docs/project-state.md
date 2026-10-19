@@ -1,5 +1,9 @@
 # Project state
 
+## Reference-faithful Atlas cartography (2026-10-18)
+
+The Atlas map base now uses the owner-supplied Obsidian Horizon reference image as a bundled, offline visual master in both the prototype and native adapter. The remote MapLibre demonstration style is no longer selected for the Atlas base. Existing private selection, Timeline, and preview paths remain separate from the public base; prototype points use explicitly labelled public projection fixtures. TypeScript passes in both apps and the root check passes. App-local Jest transform resolution is currently blocked before test execution (EP-090), and browser/Android/iOS visual acceptance remains pending.
+
 Updated: 2026-10-14 (Asia/Bangkok).
 
 ## Dimensional Atlas development plan (2026-10-15)
