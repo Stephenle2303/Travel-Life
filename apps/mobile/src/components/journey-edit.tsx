@@ -6,7 +6,7 @@ import type { JourneyDetail } from '@/reveal/types';
 import { searchOwnerPlaces } from '@/reconstruction/owner-place-search';
 import { createDiagnosticCorrelationId, recordAppDiagnostic } from '@/diagnostics/app-diagnostics';
 
-export type JourneyEditTask = 'location' | 'name-dates' | 'destinations' | 'photos' | 'accuracy';
+export type JourneyEditTask = 'location' | 'name-dates' | 'destinations' | 'photos' | 'accuracy' | 'privacy';
 type CorrectionAction = 'confirm' | 'reject' | 'claim' | 'place' | 'split' | 'merge' | 'remove-visit';
 type OwnerPlace = NonNullable<JourneyDetail['ownerPlace']>;
 
@@ -16,6 +16,7 @@ const taskCopy: Record<JourneyEditTask, { label: string; description: string }> 
   destinations: { label: 'Destinations', description: 'Journey places and boundaries' },
   photos: { label: 'Photos in this trip', description: 'Private memory membership' },
   accuracy: { label: 'Trip accuracy', description: 'Review this inferred journey' },
+  privacy: { label: 'Visibility & evidence', description: 'Hide or exclude reviewed travel evidence' },
 };
 
 export function JourneyEditHub({ id, load, onBack, onTask }: { id: string; load(id: string): Promise<{ detail: JourneyDetail }>; onBack(): void; onTask(task: JourneyEditTask): void }) {
@@ -27,7 +28,7 @@ export function JourneyEditHub({ id, load, onBack, onTask }: { id: string; load(
   const detail = current.detail;
   return <ScrollView contentContainerStyle={{ gap: 12, paddingBottom: 32 }} accessibilityLabel="Edit private journey">
     <Eyebrow>Private journey</Eyebrow><Title>Edit</Title><Body>{detail.title}</Body>
-    {(Object.keys(taskCopy) as JourneyEditTask[]).map((task) => <InsetPanel key={task}><Title>{taskCopy[task].label}</Title><Body>{task === 'location' && detail.ownerPlace ? `${detail.ownerPlace.name} · ${detail.ownerPlace.context}` : taskCopy[task].description}</Body><ActionButton accessibilityLabel={`Edit ${taskCopy[task].label}`} onPress={() => onTask(task)} variant="secondary">Open</ActionButton></InsetPanel>)}
+    {(Object.keys(taskCopy) as JourneyEditTask[]).filter((task) => !detail.ownerEntered || task === 'privacy').map((task) => <InsetPanel key={task}><Title>{taskCopy[task].label}</Title><Body>{task === 'location' && detail.ownerPlace ? `${detail.ownerPlace.name} · ${detail.ownerPlace.context}` : taskCopy[task].description}</Body><ActionButton accessibilityLabel={`Edit ${taskCopy[task].label}`} onPress={() => onTask(task)} variant="secondary">Open</ActionButton></InsetPanel>)}
     <ActionButton accessibilityLabel="Return to selected journey" onPress={onBack} variant="secondary">Back</ActionButton>
   </ScrollView>;
 }

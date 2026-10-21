@@ -12,6 +12,19 @@ import { durableRevealFailureStage } from '@/reconstruction/repository';
 import { AiProposalController, type AiReviewView } from '@/ai';
 import { classifyAppDiagnosticError, createDiagnosticCorrelationId, recordAppDiagnostic } from '@/diagnostics/app-diagnostics';
 import type { DurableRevealRecord, JourneyDetail, JourneyMediaPage } from '@/reveal/types';
+import type { JourneyPrivacyReview, JourneyPrivacyPolicy } from '@/history-record/privacy';
+
+class PrivacyCommandRuntime {
+  private tail: Promise<unknown> = Promise.resolve();
+  mutating = false;
+  run<T>(command: () => Promise<T>): Promise<T> {
+    const result = this.tail.then(command);
+    this.tail = result.catch(() => undefined);
+    return result;
+  }
+}
+
+class PrivacyReadCancelledError extends Error {}
 
 export function isCurrentDurableRevealRead(readGeneration: number, currentGeneration: number) {
   return readGeneration === currentGeneration;
@@ -90,6 +103,11 @@ type PhotoAccessContextValue = {
   catchUpHistory(): Promise<void>;
   reconstruction: ReconstructionView;
   durableReveal: DurableRevealRecord | null;
+  reviewJourneyPrivacy(displayId: string): Promise<JourneyPrivacyReview>;
+  saveJourneyPrivacy(reviewId: string, action: 'hide' | 'exclude', commandKey: string, displayId: string): Promise<void>;
+  loadJourneyPrivacyPolicies(): Promise<JourneyPrivacyPolicy[]>;
+  restoreJourneyPrivacy(policyId: string, revision: number, commandKey: string): Promise<void>;
+  loadJourneyEligibility(displayId: string, snapshotToken: number, purpose: import('@/reveal/types').PrivateSelectionPurpose, privacyRevision?: number): Promise<import('@/reveal/types').JourneyEligibility>;
   findManualJourneyOverlaps(input: ManualJourneyInput): Promise<{ id: string; label: string; editable: boolean }[]>;
   createManualJourney(input: ManualJourneyInput): Promise<string>;
   loadJourneyDetail(displayId: string): Promise<{ detail: JourneyDetail; previews: OwnerPreview[]; snapshotToken: number }>;
@@ -108,8 +126,9 @@ type PhotoAccessContextValue = {
   aiProposalController: AiProposalController;
 };
 
-type ReconstructionRepositoryProp = Omit<ReturnType<typeof createNativeReconstructionRepository>, 'findManualJourneyOverlaps' | 'createManualJourney'>
-  & Partial<Pick<ReturnType<typeof createNativeReconstructionRepository>, 'findManualJourneyOverlaps' | 'createManualJourney'>>;
+type OptionalRepositoryMethods = 'findManualJourneyOverlaps' | 'createManualJourney' | 'reviewJourneyPrivacy' | 'saveJourneyPrivacy' | 'loadJourneyPrivacyPolicies' | 'restoreJourneyPrivacy' | 'loadJourneyEligibility' | 'applyJourneyPrivacyToRecord';
+type ReconstructionRepositoryProp = Omit<ReturnType<typeof createNativeReconstructionRepository>, OptionalRepositoryMethods>
+  & Partial<Pick<ReturnType<typeof createNativeReconstructionRepository>, OptionalRepositoryMethods>>;
 
 function durableRevealFailureMessage(error: unknown) {
   switch (classifyAppDiagnosticError(error)) {
@@ -139,6 +158,7 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
   const [durableReveal, setDurableReveal] = useState<DurableRevealRecord | null>(null);
   const [homeBases, setHomeBases] = useState<PhotoAccessContextValue['homeBases']>([]);
   const [durableRevealGate] = useState(() => new DurableRevealGate());
+  const [privacyRuntime] = useState(() => new PrivacyCommandRuntime());
   const [aiReview, setAiReview] = useState<AiReviewView>({ status: 'idle', message: 'Optional AI suggestions are not requested.', proposals: [] });
   const [sharedRepository] = useState(() => repository ?? (adapter === nativePhotoAccess ? createNativeImportRepository() : unavailableRepository()));
   const [durableMaintenanceRepository] = useState(() => maintenanceRepository(sharedRepository));
@@ -149,12 +169,12 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
   } : createNativeReconstructionRepository());
   const [durablePublicationRuntime] = useState(() => new DurablePublicationRuntime());
   const refreshDurableReveal = useCallback(async () => {
-    if (!durablePublicationRuntime.isConnected) throw new Error('Private record is unavailable.');
+    if (!durablePublicationRuntime.isConnected || privacyRuntime.mutating) throw new Error('Private record is unavailable.');
     const generation = durableRevealGate.next();
     const record = await nativeReconstructionRepository.loadDurableReveal();
-    if (!durablePublicationRuntime.isConnected || !canPublishJourneyDetail(generation, durableRevealGate.current(), 'connected')) throw new Error('Private record is unavailable.');
+    if (!durablePublicationRuntime.isConnected || privacyRuntime.mutating || !canPublishJourneyDetail(generation, durableRevealGate.current(), 'connected')) throw new Error('Private record is unavailable.');
     setDurableReveal(record);
-  }, [durablePublicationRuntime, durableRevealGate, nativeReconstructionRepository]);
+  }, [durablePublicationRuntime, durableRevealGate, nativeReconstructionRepository, privacyRuntime]);
   useEffect(() => {
     durablePublicationRuntime.setLifecycle(privateRecord.state);
   }, [durablePublicationRuntime, privateRecord.state]);
@@ -225,14 +245,14 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     if (privateRecord.state !== 'connected') return;
     const generation = durableRevealGate.next();
     void nativeReconstructionRepository.loadDurableReveal().then((record) => {
-      if (canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state)) setDurableReveal(record);
+      if (!privacyRuntime.mutating && canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state)) setDurableReveal(record);
     }).catch((error) => {
-      if (canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state)) {
+      if (!privacyRuntime.mutating && canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state)) {
         recordAppDiagnostic({ operation: 'ATLAS_DURABLE_READ', reasonCode: classifyAppDiagnosticError(error), stage: durableRevealFailureStage(error), retryable: true, durableOutcome: 'unchanged', correlationId: createDiagnosticCorrelationId() });
         setReconstruction((current) => ({ ...current, status: 'error', message: 'The local Atlas could not be read. Try again when ready.' }));
       }
     });
-  }, [durableRevealGate, nativeReconstructionRepository, privateRecord.state]);
+  }, [durableRevealGate, nativeReconstructionRepository, privateRecord.state, privacyRuntime]);
   useEffect(() => {
     if (privateRecord.state !== 'connected') return;
     let active = true;
@@ -282,13 +302,13 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
   const loadJourneyDetail = useCallback(async (displayId: string) => {
     const generation = durableRevealGate.next();
     const result = await nativeReconstructionRepository.loadJourneyDetail(displayId);
-    if (!canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state)) throw new Error('Journey is no longer available.');
+    if (privacyRuntime.mutating || !canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state)) throw new Error('Journey is no longer available.');
     // Preserve placeholder slots: JourneyDetailScreen pairs previews with memories
     // by index, and a missing first asset must not shift a later preview upward.
     const previews = adapter.resolveOwnerPreviews ? await adapter.resolveOwnerPreviews(result.previewSourceRefs, 4) : [];
-    if (!canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state)) throw new Error('Journey is no longer available.');
+    if (privacyRuntime.mutating || !canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state)) throw new Error('Journey is no longer available.');
     return { detail: result.detail, previews, snapshotToken: result.snapshotToken };
-  }, [adapter, durableRevealGate, nativeReconstructionRepository, privateRecord.state]);
+  }, [adapter, durableRevealGate, nativeReconstructionRepository, privateRecord.state, privacyRuntime]);
   const findManualJourneyOverlaps = useCallback(async (input: ManualJourneyInput) => {
     if (privateRecord.state !== 'connected') throw new Error('Private record is unavailable. Reconnect before adding a journey.');
     return nativeReconstructionRepository.findManualJourneyOverlaps(input);
@@ -304,11 +324,11 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
   const loadJourneyMediaPage = useCallback(async (displayId: string, snapshotToken: number, page: number) => {
     const generation = durableRevealGate.next();
     const result = await nativeReconstructionRepository.loadJourneyMediaPage(displayId, snapshotToken, page);
-    if (!canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state)) throw new Error('Gallery is no longer available.');
+    if (privacyRuntime.mutating || !canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state)) throw new Error('Gallery is no longer available.');
     const previews = adapter.resolveOwnerPreviews ? await adapter.resolveOwnerPreviews(result.previewSourceRefs, result.previewSourceRefs.length) : [];
-    if (!canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state)) throw new Error('Gallery is no longer available.');
+    if (privacyRuntime.mutating || !canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state)) throw new Error('Gallery is no longer available.');
     return { page: { items: result.items, hasMore: result.hasMore }, previews };
-  }, [adapter, durableRevealGate, nativeReconstructionRepository, privateRecord.state]);
+  }, [adapter, durableRevealGate, nativeReconstructionRepository, privateRecord.state, privacyRuntime]);
   const saveJourneyCorrection = useCallback(async (displayId: string, action: 'confirm' | 'reject' | 'claim' | 'place' | 'split' | 'merge' | 'remove-visit', snapshotToken: number, snapshot: JourneyDetail, commandKey: string, payload?: NonNullable<JourneyDetail['ownerClaim']> | NonNullable<JourneyDetail['ownerPlace']> | { afterVisitId: string } | { withJourneyId: string } | { visitId: string }) => {
     if (privateRecord.state !== 'connected') throw new Error('Private record is unavailable.');
     // Preserve the established five-argument call shape for confirm/reject.
@@ -336,9 +356,12 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     return 'pending';
   }, [nativeReconstructionRepository, privateRecord.state, reconstructionController, refreshDurableReveal]);
   const loadUncertainMemories = useCallback(async (displayId: string, snapshotToken: number, query: string, page: number) => {
-    if (privateRecord.state !== 'connected') throw new Error('Private record is unavailable.');
-    return nativeReconstructionRepository.loadUncertainMemories(displayId, snapshotToken, query, page);
-  }, [nativeReconstructionRepository, privateRecord.state]);
+    if (privacyRuntime.mutating || privateRecord.state !== 'connected') throw new Error('Private record is unavailable.');
+    const generation = durableRevealGate.current();
+    const result = await nativeReconstructionRepository.loadUncertainMemories(displayId, snapshotToken, query, page);
+    if (privacyRuntime.mutating || !canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state)) throw new Error('Memory review is no longer available.');
+    return result;
+  }, [durableRevealGate, nativeReconstructionRepository, privateRecord.state, privacyRuntime]);
   const saveJourneyMemoryCorrection = useCallback(async (displayId: string, memoryId: string, action: 'assign' | 'move' | 'reject' | 'unassign', snapshotToken: number, commandKey: string) => {
     if (privateRecord.state !== 'connected') throw new Error('Private record is unavailable.');
     const saved = await nativeReconstructionRepository.saveJourneyMemoryCorrection(displayId, memoryId, action, snapshotToken, commandKey);
@@ -395,6 +418,88 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
       return false;
     }
   }, [controller, durablePublicationRuntime, maintenanceController, reconstructionController, refreshDurableReveal, sharedRepository]);
+  const reviewJourneyPrivacy = useCallback(async (displayId: string) => {
+    let stage: 'PRIVACY_REVIEW_DETAIL' | 'PRIVACY_REVIEW_SCOPE' = 'PRIVACY_REVIEW_DETAIL';
+    const generation = durableRevealGate.current();
+    try {
+      if (privacyRuntime.mutating || privateRecord.state !== 'connected' || !nativeReconstructionRepository.reviewJourneyPrivacy) throw new PrivacyReadCancelledError();
+      const loaded = await nativeReconstructionRepository.loadJourneyDetail(displayId);
+      if (privacyRuntime.mutating || !canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state)) throw new PrivacyReadCancelledError();
+      stage = 'PRIVACY_REVIEW_SCOPE';
+      const review = await nativeReconstructionRepository.reviewJourneyPrivacy(displayId, loaded.snapshotToken);
+      if (privacyRuntime.mutating || !canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state)) throw new PrivacyReadCancelledError();
+      return review;
+    } catch (error) {
+      const cancelled = error instanceof PrivacyReadCancelledError || privacyRuntime.mutating || !canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state);
+      recordAppDiagnostic({ operation: 'JOURNEY_PRIVACY_READ', reasonCode: cancelled ? 'LIFECYCLE' : classifyAppDiagnosticError(error), stage, retryable: !cancelled, durableOutcome: cancelled ? 'skipped' : 'failed', correlationId: createDiagnosticCorrelationId() });
+      throw new Error(cancelled ? 'Privacy review changed. Reopen the journey.' : 'Privacy review could not load. Reopen the journey and try again.');
+    }
+  }, [durableRevealGate, nativeReconstructionRepository, privateRecord.state, privacyRuntime]);
+  const loadJourneyPrivacyPolicies = useCallback(async () => {
+    const generation = durableRevealGate.current();
+    try {
+      if (privacyRuntime.mutating || privateRecord.state !== 'connected' || !nativeReconstructionRepository.loadJourneyPrivacyPolicies) throw new PrivacyReadCancelledError();
+      const policies = await nativeReconstructionRepository.loadJourneyPrivacyPolicies();
+      if (privacyRuntime.mutating || !canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state)) throw new PrivacyReadCancelledError();
+      return policies;
+    } catch (error) {
+      const cancelled = error instanceof PrivacyReadCancelledError || privacyRuntime.mutating || !canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state);
+      recordAppDiagnostic({ operation: 'JOURNEY_PRIVACY_READ', reasonCode: cancelled ? 'LIFECYCLE' : classifyAppDiagnosticError(error), stage: 'PRIVACY_POLICY_LIST', retryable: !cancelled, durableOutcome: cancelled ? 'skipped' : 'failed', correlationId: createDiagnosticCorrelationId() });
+      throw new Error('Private visibility controls could not load. Reopen Privacy Settings and try again.');
+    }
+  }, [durableRevealGate, nativeReconstructionRepository, privateRecord.state, privacyRuntime]);
+  const runPrivacyCommand = useCallback(async (command: () => Promise<void>, hiddenDisplayId?: string) => privacyRuntime.run(async () => {
+    try {
+      await controller.whenImportIdle();
+      await maintenanceController.whenIdle();
+      const lifecycle = await sharedRepository.getPrivateRecordLifecycle();
+      if (lifecycle.state !== 'connected') throw new Error('Private record is unavailable.');
+    } catch (error) {
+      recordAppDiagnostic({ operation: 'JOURNEY_PRIVACY_SAVE', reasonCode: classifyAppDiagnosticError(error), stage: null, retryable: true, durableOutcome: 'restricted', correlationId: createDiagnosticCorrelationId() });
+      throw new Error('Reconnect the private record before changing a privacy choice.');
+    }
+    durableRevealGate.invalidate(); privacyRuntime.mutating = true;
+    try {
+      await command();
+      // Keep unrelated committed journeys browseable if the next read fails.
+      // The reviewed target belongs to this exact committed run (checked in SQL).
+      if (hiddenDisplayId) {
+        if (nativeReconstructionRepository.applyJourneyPrivacyToRecord) {
+          const prior = durableReveal ?? { journeys: [] };
+          try {
+            const filtered = await nativeReconstructionRepository.applyJourneyPrivacyToRecord(prior);
+            setDurableReveal({ ...filtered, journeys: filtered.journeys.filter((journey) => journey.displayId !== hiddenDisplayId) });
+          } catch (error) {
+            setDurableReveal({ journeys: [] });
+            recordAppDiagnostic({ operation: 'JOURNEY_PRIVACY_SAVE', reasonCode: classifyAppDiagnosticError(error), stage: null, retryable: true, durableOutcome: 'restricted', correlationId: createDiagnosticCorrelationId() });
+          }
+        } else setDurableReveal((current) => current ? { ...current, journeys: current.journeys.filter((journey) => journey.displayId !== hiddenDisplayId), statistics: null, diagnostics: null } : { journeys: [] });
+      }
+    } catch (error) {
+      recordAppDiagnostic({ operation: 'JOURNEY_PRIVACY_SAVE', reasonCode: classifyAppDiagnosticError(error), stage: null, retryable: true, durableOutcome: 'unchanged', correlationId: createDiagnosticCorrelationId() });
+      throw new Error('Privacy action could not be saved. Reopen the journey or Privacy Settings and review again.');
+    } finally { privacyRuntime.mutating = false; durableRevealGate.invalidate(); }
+    try { await refreshDurableReveal(); }
+    catch (error) {
+      recordAppDiagnostic({ operation: 'JOURNEY_PRIVACY_SAVE', reasonCode: classifyAppDiagnosticError(error), stage: durableRevealFailureStage(error), retryable: true, durableOutcome: 'failed', correlationId: createDiagnosticCorrelationId() });
+      throw new Error('Privacy action was saved. The local Atlas refresh needs a retry; protected content remains withheld.');
+    }
+  }), [controller, durableReveal, durableRevealGate, maintenanceController, nativeReconstructionRepository, privacyRuntime, refreshDurableReveal, sharedRepository]);
+  const saveJourneyPrivacy = useCallback(async (reviewId: string, action: 'hide' | 'exclude', commandKey: string, displayId: string) => {
+    if (!nativeReconstructionRepository.saveJourneyPrivacy) throw new Error('Privacy controls are unavailable.');
+    await runPrivacyCommand(() => nativeReconstructionRepository.saveJourneyPrivacy!(reviewId, action, commandKey), displayId);
+  }, [nativeReconstructionRepository, runPrivacyCommand]);
+  const restoreJourneyPrivacy = useCallback(async (policyId: string, revision: number, commandKey: string) => {
+    if (!nativeReconstructionRepository.restoreJourneyPrivacy) throw new Error('Privacy controls are unavailable.');
+    await runPrivacyCommand(() => nativeReconstructionRepository.restoreJourneyPrivacy!(policyId, revision, commandKey));
+  }, [nativeReconstructionRepository, runPrivacyCommand]);
+  const loadJourneyEligibility = useCallback(async (displayId: string, snapshotToken: number, purpose: import('@/reveal/types').PrivateSelectionPurpose, privacyRevision?: number) => {
+    if (privacyRuntime.mutating || !nativeReconstructionRepository.loadJourneyEligibility) return { eligible: false, reason: 'private' as const, privacyRevision: 0 };
+    const generation = durableRevealGate.current();
+    const result = await nativeReconstructionRepository.loadJourneyEligibility(displayId, snapshotToken, purpose, privacyRevision);
+    if (privacyRuntime.mutating || !canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state)) return { ...result, eligible: false, reason: 'stale' as const };
+    return result;
+  }, [durableRevealGate, nativeReconstructionRepository, privateRecord.state, privacyRuntime]);
   const saveConfiguredHomeArea = useCallback(async (displayId: string, visitId: string, ownerLabel: string, effectiveStartDay: string | null, effectiveEndDay: string | null) => {
     if (privateRecord.state !== 'connected') throw new Error('Private record is unavailable.');
     await nativeReconstructionRepository.saveConfiguredHomeAreaFromJourney(displayId, `home:${displayId}:${visitId}`, visitId, ownerLabel, effectiveStartDay, effectiveEndDay);
@@ -419,7 +524,7 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     if (projection.status !== 'complete') throw new Error('Home base removed but local history rebuild did not complete.');
     await refreshDurableReveal();
   }, [privateRecord.state, sharedRepository, refreshHomeBases, reconstructionController, refreshDurableReveal]);
-  return <PhotoAccessContext.Provider value={{ snapshot, controller, importCoverage, privateRecord, privateRecordController, maintenance, maintenanceController, reconciliation, catchUpHistory, reconstruction, durableReveal, findManualJourneyOverlaps, createManualJourney, homeBases, loadJourneyDetail, loadJourneyMediaPage, loadUncertainMemories, saveJourneyCorrection, saveJourneyMemoryCorrection, discardJourneyCorrectionPending, retryJourneyCorrectionProjection, saveConfiguredHomeArea, renameConfiguredHomeArea, removeConfiguredHomeArea, reconstructionController, aiReview, aiProposalController }}>{children}</PhotoAccessContext.Provider>;
+  return <PhotoAccessContext.Provider value={{ snapshot, controller, importCoverage, privateRecord, privateRecordController, maintenance, maintenanceController, reconciliation, catchUpHistory, reconstruction, durableReveal, reviewJourneyPrivacy, saveJourneyPrivacy, loadJourneyPrivacyPolicies, restoreJourneyPrivacy, loadJourneyEligibility, findManualJourneyOverlaps, createManualJourney, homeBases, loadJourneyDetail, loadJourneyMediaPage, loadUncertainMemories, saveJourneyCorrection, saveJourneyMemoryCorrection, discardJourneyCorrectionPending, retryJourneyCorrectionProjection, saveConfiguredHomeArea, renameConfiguredHomeArea, removeConfiguredHomeArea, reconstructionController, aiReview, aiProposalController }}>{children}</PhotoAccessContext.Provider>;
 }
 
 export function usePhotoAccess() {

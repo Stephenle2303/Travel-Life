@@ -132,3 +132,72 @@ working-tree checkpoint provide rollback without rewriting any existing branch.
 
 **Manual checks:**
 - Build/serve the exact candidate bundle and record its branch/SHA. The owner performs Atlas load/recheck, metadata import, correction review and manual-journey flows that are affected by the final combined state; records only safe outcomes. Device acceptance remains pending until this is done.
+
+## Post-consolidation scope inventory (2026-10-21)
+
+Current branch: `codex/worktree-consolidation-2026-10-21`. Inspected HEAD:
+`cd889c98946b067cefd8af303a36b09d8fdeedd7`. The checkout was clean before this
+documentation-only audit. The cached `origin/main` equals HEAD; no fetch or
+remote publication check was performed here. The earlier candidate `a994c9`
+differs only in this record, project state, and the error playbook. Application
+source is identical to that recorded verification candidate.
+
+| Scope | Included behavior and source | Evidence and remaining limit |
+| --- | --- | --- |
+| Recovery | Physical manual-schema validation/empty-layout recovery in `import-record/repository.ts`; serialized rebuild and durable reveal publication in reconstruction/provider paths | Original recovery had owner-confirmed Atlas load/recheck; final combined bundle has additional changes and needs acceptance |
+| Diagnostics | `diagnostics/app-diagnostics.ts`, ESLint console boundary, import/maintenance/reconstruction/provider/owner-save callers | Closed fixed fields and redaction tests are included; final background diagnostic behavior still needs applicable runtime evidence |
+| Correction behavior | Nonblocking reviewable remaps, structural protections, per-revision pending-candidate reuse, owner place projection in `reconstruction/repository.ts` and reveal/UI paths | Synthetic correction, remap, label/application and rollback coverage exists; no reconstruction-quality claim |
+| Existing performance | Engine minimax-score caching; streamed SQLite writes capped at 800 parameters and 256,000 value characters; queue/running distinction and import-idle coordination; synthetic benchmark | Already integrated code, not an outstanding loose patch. Historical synthetic engine speed evidence exists; end-to-end Android/iOS speed remains unmeasured. No optimization resumed |
+| Local/history preservation | Named main-WIP, dimensional Atlas and responsiveness refs; secondary worktrees kept; generated caches ignored | Existing ledger accounts for unique history. Retirement remains a separate explicitly authorized action |
+
+The final source differs from the preserved recovery source in these production
+areas: import-open now invokes physical-layout validation; local-history deletion
+also clears abandoned continuity rows; pending correction candidate creation is
+idempotent; empty queued reconciliation persists completion; OS maintenance keeps
+the fixed error category and stage. The benchmark also rejects an absent revision
+argument. These changes are part of the consolidated delivery, not newly applied
+by this audit. Captured untracked source must be compared with its untracked-only
+ref, and tracked source with the tracked WIP ref; they are complementary trees.
+
+Recorded combined checks: 38 Jest suites / 377 tests, 50 real-SQLite tests,
+TypeScript/lint pass; Expo Doctor 20/21 with nine existing patch recommendations.
+Final independent workers did not return findings because of quota, as recorded
+above; direct audit is not equivalent evidence. This pass reran only root
+`npm run check` (PASS: framework integrity, 20 tests, eval smoke) and documentation
+whitespace checks. No source, device, staging, commit, push or retirement action.
+
+Next gate before fresh optimization: validate the exact consolidated bundle's
+Atlas load/recheck, metadata import, correction review and manual entry as
+applicable; close final-review limitations, then establish separate device timing
+baselines for Atlas loading, import and reconstruction. No additional recovery
+checkpoint commit is needed: it is already included in `cd889c9`. This inventory
+does not authorize another commit or a performance-rule change.
+
+Final-bundle preflight in this inventory pass: mobile files exactly match HEAD
+and Metro reports `packager-status:running`, but host ADB lists no connected
+device. The existing reverse-mapping query reports device unavailable; no app
+operation was attempted. Owner reconnection is the specific remaining input
+before final affected-flow acceptance. The three audit-document edits remain
+uncommitted; no application source changed.
+
+Owner reconnection follow-up: ADB now enumerates the authorized Android device.
+Restored the Metro USB route, verified source remains exactly `cd889c9`, verified
+the served modules contain the consolidated repair/deletion/no-queue completion,
+and opened a fresh app process. Owner metadata-import plus Atlas-check result
+is pending. No storage reset/reinstall or source change was performed. Logcat's
+monotonic-format probe required unavailable kernel access; supported epoch-format
+fixed-event reads succeed but have not yet supplied operation timing evidence.
+
+Final Android owner acceptance: the owner confirmed `Import and Atlas check both
+complete` on the verified `cd889c98946b067cefd8af303a36b09d8fdeedd7` source. Fresh
+fixed events corroborate completed metadata import, its durable Atlas update,
+and the separate Atlas recheck, with matching per-operation correlation IDs.
+The connection blocker is resolved. Manual-entry/correction UI, OS background
+execution and iOS were not re-exercised; the final independent-review quota
+limitation remains accurately recorded above.
+
+Epoch timestamps supplied the first observed device intervals: import 41.6 s,
+import through Atlas update 104.6 s, separate recheck 65.7 s. This is a single
+functional-acceptance sample, not a comparative performance result. The detailed
+boundaries and limits are recorded in `spec-local-operation-responsiveness.md`.
+No source edit, Git mutation, private row capture, or optimization was performed.

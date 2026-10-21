@@ -1,4 +1,5 @@
 import { createNativeReconstructionRepository } from '@/reconstruction';
+import { journeyPrivacyTableDefinition } from '@/import-record/repository';
 import type { ManualJourneyInput } from '@/import-record';
 
 const mockExecAsync = jest.fn(); const mockRunAsync = jest.fn(); const mockGetFirstAsync = jest.fn(); const mockGetAllAsync = jest.fn(); const mockOpenDatabaseAsync = jest.fn();
@@ -9,7 +10,7 @@ const input: ManualJourneyInput = { commandKey: 'manual:retry-key', label: 'Kyot
 describe('manual journey repository boundary', () => {
   beforeEach(() => {
     jest.clearAllMocks(); mockExecAsync.mockResolvedValue(undefined); mockRunAsync.mockResolvedValue(undefined); mockGetAllAsync.mockResolvedValue([]);
-    mockOpenDatabaseAsync.mockResolvedValue({ execAsync: mockExecAsync, runAsync: mockRunAsync, getFirstAsync: mockGetFirstAsync, getAllAsync: mockGetAllAsync });
+    mockOpenDatabaseAsync.mockResolvedValue({ execAsync: mockExecAsync, runAsync: mockRunAsync, getFirstAsync: (sql: string, ...args: unknown[]) => sql.includes("name = 'journey_privacy_revision'") ? Promise.resolve({ sql: journeyPrivacyTableDefinition }) : mockGetFirstAsync(sql, ...args), getAllAsync: mockGetAllAsync });
   });
   it('coarsens, inserts, reads back, and retries one command idempotently', async () => {
     mockGetFirstAsync.mockImplementation(async (sql: string) => {
@@ -40,7 +41,7 @@ describe('manual journey repository boundary', () => {
 
     expect(mockExecAsync.mock.calls.flat().join('\n')).toContain('CREATE TABLE IF NOT EXISTS manual_journey');
     expect(mockExecAsync.mock.calls.flat().join('\n')).toContain('date_start TEXT NOT NULL');
-    expect(mockRunAsync).toHaveBeenCalledWith('UPDATE import_schema_version SET version = ?', 33);
+    expect(mockRunAsync).toHaveBeenCalledWith('UPDATE import_schema_version SET version = ?', 34);
   });
 
   it('opens a fresh native connection for the manually entered journey path after an Android runtime restart', async () => {
@@ -58,7 +59,7 @@ describe('manual journey repository boundary', () => {
 
   it('rolls back and never inserts when overlap state changes after review', async () => {
     mockGetFirstAsync.mockImplementation(async (sql: string) => sql.includes('private_record_lifecycle') ? { state: 'connected' } : sql.includes('WHERE command_key') ? null : sql.includes('MAX(run_id)') ? null : null);
-    mockGetAllAsync.mockResolvedValue([{ manual_id: 'late' }]);
+    mockGetAllAsync.mockImplementation(async (sql: string) => sql.includes('FROM manual_journey WHERE date_start') ? [{ manual_id: 'late' }] : []);
     await expect(createNativeReconstructionRepository().createManualJourney(input)).rejects.toThrow(/changed after overlap review/);
     expect(mockExecAsync).toHaveBeenCalledWith('ROLLBACK');
     expect(mockRunAsync.mock.calls.some(([sql]) => String(sql).includes('INSERT INTO manual_journey'))).toBe(false);

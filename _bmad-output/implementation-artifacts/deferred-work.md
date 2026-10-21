@@ -34,3 +34,6 @@
 - source_spec: `C:\Users\vothi\Desktop\Travel Life\_bmad-output\implementation-artifacts\spec-atlas-readable-cartography.md`
   summary: Prove that all generated offline atlas assets are included by the eventual delivery commit/clean checkout.
   evidence: The active renderer and focused test resolve the generated registry/assets in this explicitly preserved dirty worktree, but this implementation task is not authorized to stage or commit concurrent untracked work; a delivery review must check the complete generated asset set in a clean checkout.
+- source_spec: `C:\Users\vothi\Desktop\Travel Life\_bmad-output\implementation-artifacts\spec-m4-3-private-visibility-and-exclusion.md`
+  summary: Normalize native visit ordering at the split-command adapter and verify an owner split end to end.
+  evidence: M4.3 fixture setup exposed persisted reconstruction_visit ordering `ordered` being passed into a split check expecting `chronological`. M4.3 did not change that pre-existing adapter; seeded persisted-split tests prove privacy exclusion/restoration only, not native split acceptance.

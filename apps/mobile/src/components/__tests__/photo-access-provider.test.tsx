@@ -60,6 +60,126 @@ function stagedFailureRepository(loadDurableReveal: () => Promise<DurableRevealR
 }
 
 describe('photo access provider and Import screen', () => {
+  for (const failure of ['detail', 'scope', 'list'] as const) it(`classifies privacy ${failure} read failure without exposing native details`, async () => {
+    let access!: ReturnType<typeof usePhotoAccess>;
+    const sentinel = 'synthetic-private-read-sentinel';
+    const native = {
+      ...stagedFailureRepository(async () => ({ journeys: [] })),
+      loadJourneyDetail: async () => {
+        if (failure === 'detail') throw new Error(`database is locked ${sentinel}`);
+        return { detail: null as never, previewSourceRefs: [], snapshotToken: 7 };
+      },
+      reviewJourneyPrivacy: async () => { throw new Error(`database is locked ${sentinel}`); },
+      loadJourneyPrivacyPolicies: async () => { throw new Error(`database is locked ${sentinel}`); },
+    };
+    const Harness = () => { access = usePhotoAccess(); return null; };
+    const diagnostic = jest.spyOn(console, 'info').mockImplementation(() => {});
+    try {
+      await render(<PhotoAccessProvider adapter={adapterFor({ scope: 'full', canAskAgain: false })} repository={emptyRepository} reconstructionRepository={native}><Harness /></PhotoAccessProvider>);
+      await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
+      await expect(failure === 'list' ? access.loadJourneyPrivacyPolicies() : access.reviewJourneyPrivacy('trip')).rejects.not.toThrow(sentinel);
+      expect(diagnostic).toHaveBeenCalledWith('[Travel Life diagnostic]', expect.objectContaining({ operation: 'JOURNEY_PRIVACY_READ', reasonCode: 'DATABASE_BUSY', stage: failure === 'detail' ? 'PRIVACY_REVIEW_DETAIL' : failure === 'scope' ? 'PRIVACY_REVIEW_SCOPE' : 'PRIVACY_POLICY_LIST', durableOutcome: 'failed' }));
+      expect(JSON.stringify(diagnostic.mock.calls)).not.toContain(sentinel);
+    } finally { diagnostic.mockRestore(); }
+  });
+
+  it('represents stale privacy list completion as a fixed lifecycle outcome', async () => {
+    let access!: ReturnType<typeof usePhotoAccess>;
+    let release!: (policies: []) => void;
+    const pending = new Promise<[]>((resolve) => { release = resolve; });
+    const native = { ...stagedFailureRepository(async () => ({ journeys: [] })), loadJourneyPrivacyPolicies: () => pending, saveJourneyPrivacy: async () => {} };
+    const Harness = () => { access = usePhotoAccess(); return null; };
+    const diagnostic = jest.spyOn(console, 'info').mockImplementation(() => {});
+    try {
+      await render(<PhotoAccessProvider adapter={adapterFor({ scope: 'full', canAskAgain: false })} repository={emptyRepository} reconstructionRepository={native}><Harness /></PhotoAccessProvider>);
+      await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
+      const read = expect(access.loadJourneyPrivacyPolicies()).rejects.toThrow('Private visibility controls could not load');
+      await act(async () => { await access.saveJourneyPrivacy('review', 'hide', 'hide-stale-list', 'trip'); release([]); });
+      await read;
+      expect(diagnostic).toHaveBeenCalledWith('[Travel Life diagnostic]', expect.objectContaining({ operation: 'JOURNEY_PRIVACY_READ', reasonCode: 'LIFECYCLE', stage: 'PRIVACY_POLICY_LIST', durableOutcome: 'skipped', retryable: false }));
+    } finally { diagnostic.mockRestore(); }
+  });
+
+  it('represents a cancelled privacy review rejection as a fixed lifecycle outcome', async () => {
+    let access!: ReturnType<typeof usePhotoAccess>;
+    let rejectDetail!: (error: Error) => void;
+    const pending = new Promise<{ detail: never; previewSourceRefs: []; snapshotToken: number }>((_, reject) => { rejectDetail = reject; });
+    const review = jest.fn(async () => ({ reviewId: 'review', title: 'Synthetic', ownerEntered: false, supportingPhotoCount: 1, duplicatePhotoCount: 0, duplicateFamilyCount: 0 }));
+    const native = { ...stagedFailureRepository(async () => ({ journeys: [] })), loadJourneyDetail: () => pending, reviewJourneyPrivacy: review, saveJourneyPrivacy: async () => {} };
+    const Harness = () => { access = usePhotoAccess(); return null; };
+    const diagnostic = jest.spyOn(console, 'info').mockImplementation(() => {});
+    try {
+      await render(<PhotoAccessProvider adapter={adapterFor({ scope: 'full', canAskAgain: false })} repository={emptyRepository} reconstructionRepository={native}><Harness /></PhotoAccessProvider>);
+      await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
+      const result = access.reviewJourneyPrivacy('trip');
+      const rejected = expect(result).rejects.toThrow('Privacy review changed');
+      await act(async () => { await access.saveJourneyPrivacy('review', 'hide', 'cancel-privacy-review', 'trip'); rejectDetail(new Error('synthetic-private-cancel-sentinel')); });
+      await rejected;
+      expect(review).not.toHaveBeenCalled();
+      expect(diagnostic).toHaveBeenCalledWith('[Travel Life diagnostic]', expect.objectContaining({ operation: 'JOURNEY_PRIVACY_READ', reasonCode: 'LIFECYCLE', stage: 'PRIVACY_REVIEW_DETAIL', durableOutcome: 'skipped', retryable: false }));
+      expect(JSON.stringify(diagnostic.mock.calls)).not.toContain('synthetic-private-cancel-sentinel');
+    } finally { diagnostic.mockRestore(); }
+  });
+
+  for (const filterFails of [false, true]) it(`keeps post-commit fallback privacy-safe when refresh fails and filtering ${filterFails ? 'fails' : 'succeeds'}`, async () => {
+    let access!: ReturnType<typeof usePhotoAccess>;
+    const prior: DurableRevealRecord = { journeys: ['target', 'overlapping', 'unrelated'].map((displayId) => ({ displayId, state: 'inferred', anchor: null, years: [2020], periodLabel: '2020', ordering: 'chronological' })), statistics: { journeyCount: 3, placeCount: 3, supportedCountryCount: 1, countryStatus: 'supported' } };
+    let committed = false;
+    const native = {
+      ...stagedFailureRepository(async () => { if (committed) throw new Error('database is locked synthetic-refresh'); return prior; }),
+      saveJourneyPrivacy: async () => { committed = true; },
+      applyJourneyPrivacyToRecord: async () => {
+        if (filterFails) throw new Error('database is locked synthetic-filter');
+        return { journeys: prior.journeys.filter((journey) => journey.displayId === 'unrelated'), statistics: null };
+      },
+    };
+    const Harness = () => { access = usePhotoAccess(); return null; };
+    const diagnostic = jest.spyOn(console, 'info').mockImplementation(() => {});
+    try {
+      await render(<PhotoAccessProvider adapter={adapterFor({ scope: 'full', canAskAgain: false })} repository={emptyRepository} reconstructionRepository={native}><Harness /></PhotoAccessProvider>);
+      await waitFor(() => expect(access.durableReveal).toEqual(prior));
+      await act(async () => { await expect(access.saveJourneyPrivacy('review', 'hide', 'hide-fallback', 'target')).rejects.toThrow('Privacy action was saved'); });
+      expect(access.durableReveal?.journeys.map((journey) => journey.displayId)).toEqual(filterFails ? [] : ['unrelated']);
+      expect(access.durableReveal?.statistics ?? null).toBeNull();
+    } finally { diagnostic.mockRestore(); }
+  });
+  it('invalidates pending resolved media previews when a privacy command commits', async () => {
+    let access!: ReturnType<typeof usePhotoAccess>;
+    let resolvePreview!: (value: []) => void;
+    const previews = new Promise<[]>((resolve) => { resolvePreview = resolve; });
+    const prior: DurableRevealRecord = { journeys: [{ displayId: 'trip', state: 'inferred', anchor: null, years: [2020], periodLabel: '2020', ordering: 'chronological' }] };
+    let hidden = false;
+    const native = {
+      ...stagedFailureRepository(async () => hidden ? { journeys: [] } : prior),
+      loadJourneyDetail: async () => ({ detail: { id: 'trip', title: 'Synthetic trip', observedSpan: 'Observed', visits: [], memories: [], uncertainty: [] }, previewSourceRefs: ['synthetic-local-ref'], snapshotToken: 7 }),
+      saveJourneyPrivacy: jest.fn(async () => { hidden = true; }),
+    };
+    const adapter = { ...adapterFor({ scope: 'full' as const, canAskAgain: false }), resolveOwnerPreviews: jest.fn(() => previews) };
+    const Harness = () => { access = usePhotoAccess(); return null; };
+    await render(<PhotoAccessProvider adapter={adapter} repository={emptyRepository} reconstructionRepository={native}><Harness /></PhotoAccessProvider>);
+    await waitFor(() => expect(access.durableReveal?.journeys).toHaveLength(1));
+    const pending = access.loadJourneyDetail('trip');
+    const rejected = expect(pending).rejects.toThrow('no longer available');
+    await waitFor(() => expect(adapter.resolveOwnerPreviews).toHaveBeenCalled());
+    await act(async () => { await access.saveJourneyPrivacy('review', 'hide', 'synthetic-hide', 'trip'); resolvePreview([]); });
+    await rejected;
+    expect(access.durableReveal?.journeys).toEqual([]);
+  });
+  it('invalidates an in-flight uncertain-memory page when privacy scope changes', async () => {
+    let access!: ReturnType<typeof usePhotoAccess>;
+    let resolvePage!: (value: { memories: []; hasMore: boolean }) => void;
+    const page = new Promise<{ memories: []; hasMore: boolean }>((resolve) => { resolvePage = resolve; });
+    const load = jest.fn(() => page);
+    const native = { ...stagedFailureRepository(async () => ({ journeys: [] })), loadUncertainMemories: load, saveJourneyPrivacy: jest.fn(async () => {}) };
+    const Harness = () => { access = usePhotoAccess(); return null; };
+    await render(<PhotoAccessProvider adapter={adapterFor({ scope: 'full', canAskAgain: false })} repository={emptyRepository} reconstructionRepository={native}><Harness /></PhotoAccessProvider>);
+    await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
+    const pending = access.loadUncertainMemories('trip', 7, '', 0);
+    const rejected = expect(pending).rejects.toThrow('no longer available');
+    await waitFor(() => expect(load).toHaveBeenCalled());
+    await act(async () => { await access.saveJourneyPrivacy('review', 'hide', 'synthetic-hide', 'trip'); resolvePage({ memories: [], hasMore: false }); });
+    await rejected;
+  });
   for (const action of ['startup', 'catch-up', 'retry'] as const) {
     it(`keeps the prior Atlas and emits only fixed durable-read diagnostics after ${action} failure`, async () => {
       let access!: ReturnType<typeof usePhotoAccess>;

@@ -1,5 +1,8 @@
 import type { AtlasExploration, InferredStatistics, RevealInput, RevealJourney, RevealModel } from './types';
 
+/** New previews always start empty; callers must freshly validate each selection. */
+export function createPrivateSelection(): import('./types').PrivateJourneySelection[] { return []; }
+
 const forbiddenKeys = /(?:source|filename|media|latitude|longitude|coordinate|capturedAt|capturedDay|duration|route|country(?:Code|Name|Label)?|date)/i;
 
 function coarsenAnchor(anchor: { latitude: number; longitude: number } | null) {
@@ -15,7 +18,7 @@ function coarsenAnchor(anchor: { latitude: number; longitude: number } | null) {
  */
 export function projectReveal(input: RevealInput): RevealModel {
   const graph = input.graph;
-  const sourceJourneys = input.durableRecord?.journeys ?? graph?.journeys.map((journey) => ({ state: journey.state, anchor: null })) ?? [];
+  const sourceJourneys = input.privacyReady === false ? [] : input.durableRecord?.journeys ?? graph?.journeys.map((journey) => ({ state: journey.state, anchor: null })) ?? [];
   const journeys = sourceJourneys.map((journey, index) => ({
     id: 'displayId' in journey ? journey.displayId : `journey-${index + 1}`,
     // A bundled offline resolver may provide a coarse, evidence-derived display

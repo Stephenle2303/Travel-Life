@@ -45,18 +45,19 @@ function valid(point: Coordinate) {
 }
 function unwrap(x: number, around: number) { return x + Math.round((around - x) / 360) * 360; }
 function contains(area: Area, x: number, y: number, margin: number): 'inside' | 'outside' | 'border' {
+  // These depend only on the query point, not on a ring or polygon edge.
+  const latitudeMargin = margin / 110574;
+  const scaleX = 111320 * Math.cos(y * Math.PI / 180);
+  const longitudeMargin = Math.min(180, margin / Math.max(1, scaleX));
   let inside = false;
   for (let r = 0; r < area.rings.length; r += 1) {
     const bounds = area.bounds[r];
-    const latitudeMargin = margin / 110574;
-    const longitudeMargin = Math.min(180, margin / Math.max(1, 111320 * Math.cos(y * Math.PI / 180)));
     if (y < bounds[1] - latitudeMargin || y > bounds[3] + latitudeMargin || (bounds[2] - bounds[0] < 180 && (x < bounds[0] - longitudeMargin || x > bounds[2] + longitudeMargin))) continue;
     const ring = decodeRing(area.rings[r]);
     let ringInside = false;
     for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
       const ax = unwrap(ring[j][0], x); const ay = ring[j][1];
       const bx = unwrap(ring[i][0], ax); const by = ring[i][1];
-      const scaleX = 111320 * Math.cos(y * Math.PI / 180);
       const dx = (bx - ax) * scaleX; const dy = (by - ay) * 110574;
       const length = dx * dx + dy * dy;
       const t = length ? Math.max(0, Math.min(1, ((x - ax) * scaleX * dx + (y - ay) * 110574 * dy) / length)) : 0;

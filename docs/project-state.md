@@ -1,19 +1,226 @@
 # Project state
 
+## Accepted-work GitHub main delivery (2026-10-21)
+
+The owner requested scanning and publishing all agreed/completed work before
+starting anything new. A fresh origin fetch confirms local main and origin/main
+share the consolidation baseline `cd889c9`. All four secondary worktrees are
+clean; the consolidation delivery ledger already accounts for their integrated,
+superseded and preserved history. The current delivery includes the completed
+Atlas phase probes, destination computation optimization, empty-constraint graph
+reuse, M4.3 Hide/Exclude/Restore, regressions and their acceptance records.
+
+Fresh verification passes root `npm run check` (20 tests and eval smoke), all
+40 mobile Jest suites / 402 tests, 85 real-SQLite tests, TypeScript and cache-free
+lint. Expo Doctor reaches the registry and reports 20/21: the same nine existing
+SDK patch recommendations remain. No dependency/native build changes are part
+of this delivery; no new device or iOS acceptance is claimed. Private data,
+credentials and generated caches stay ignored. Publish this recorded snapshot
+to main, verify remote equality and a clean checkout, then await new build scope.
+
+## M4.3 private visibility/exclusion accepted on Android (2026-10-21)
+
+Owner-approved whole-journey privacy controls are implemented on the existing dirty
+checkout. Schema v34 retains immutable reviewed Hide/Exclude/Restore revisions,
+with physical-layout validation for retained current/newer markers. Hide covers
+ordinary Atlas/Timeline, visible inferred totals, detail/media and new eligibility;
+manual entries support Hide. Exclusion freezes reviewed supporting inputs and
+duplicate members for the next reconstruction, while withholding the journey
+immediately. Ambiguous successors and new family scope stay protected without
+silently broadening excluded inputs; Privacy Settings retains the restore path.
+
+Journey Edit includes accessible consequence/scope confirmation and Settings
+includes restore confirmation. Provider serialization and generation guards prevent
+stale detail/media/uncertain-memory callbacks from returning after a privacy change.
+Native Atlas/Replay withholds raw-graph fallback before durable policy projection.
+New future preview selection starts empty and eligibility must be checked afresh.
+Existing snapshots and source originals stay unchanged; no sharing service or
+Replay exporter was added.
+
+Final parent verification passes 40 Jest suites / 402 tests, 85 real-SQLite
+tests, typecheck, lint, root `npm run check` and whitespace checks. Independent
+reviews found privacy boundary, storage validation, correction-precedence and
+UI gaps; fixes have regressions. A final cancelled list read now reaches the
+retry state instead of masquerading as an empty successful result. The checked
+Android bundle was served and the installed app reopened without a reset. The
+owner confirmed both Hide/Restore and Exclude/Recheck/Restore completed correctly;
+the M4.3 delivery record is done. The pre-existing native
+split-order adapter mismatch is deferred separately; iOS validation is unavailable.
+Synthetic checks do not measure reconstruction accuracy. Next delivery work is
+the MLP Replay/selected-sharing flow gated by these privacy controls; static
+cards remain P1. Delivery record:
+`_bmad-output/implementation-artifacts/spec-m4-3-private-visibility-and-exclusion.md`.
+No reset, original deletion, upload, staging, commit or push.
+
+## M4.3 visibility/exclusion audit and draft (2026-10-21)
+
+The owner reports correction/manual-entry device walkthroughs already completed
+and authorized moving to M4.3. Read-only audit finds durable evidence-inclusion
+overlays consumed during rebuild and existing delete-all, but no complete hide
+policy, restore management or common visibility enforcement across detail/media,
+Atlas/counts and future preview eligibility. Replay/sharing remain placeholders;
+no live share-preview acceptance can be claimed. Epic 4 context refreshed.
+
+Draft delivery record:
+`_bmad-output/implementation-artifacts/spec-m4-3-private-visibility-and-exclusion.md`.
+Whole-journey scope, hidden-count behavior, reviewed evidence exclusion and
+delete-all versus item deletion are explicit owner choices before source changes.
+Recommended semantics and alternatives are in the draft. No app/schema/device
+changes, commit or push. Performance work remains complete and preserved.
+
+## Rebuild processing cost investigation (2026-10-21)
+
+Authorized Build continues on the retained dirty checkout. Fixed opt-in profile
+stages now separate structural preparation, baseline/constrained graph passes,
+intermediate/final correction maps, memory overlay, owner merge, continuity and
+membership overlay. No graph, correction, SQL/schema or transaction rules change.
+Qualification stays within persistence; memory-overlay timing includes awaited
+SQL. Detailed phase totals include diagnostic overhead and are not directly
+comparable to a prior run's single coarse interval.
+
+52 real-SQLite tests pass, including enabled/disabled call/result parity and a
+populated memory-overlay interruption preserving rollback/error identity. Full
+mobile Jest 39 suites / 386 tests, typecheck/lint, root check and diff checks
+pass. Blind review gaps were addressed and follow-up found no profile blocker.
+Owner completed the profile recheck with unchanged journeys. Baseline and
+constrained graph passes took 16.772 s and 16.832 s; continuity 0.275 s and
+intermediate/final mapping were small. The bounded optimization now computes
+rejection constraints at the same point and reuses the baseline only when they
+are empty. Nonempty constraints retain a second engine pass. 63 real-SQLite tests
+pass, including 11 isolated reference/candidate comparisons of graph, SQL,
+applications and failure behavior. Full mobile Jest 39/387, typecheck/lint and
+review pass. Successful merge acceptance is not established by the fail-closed
+merge parity fixture. Owner confirmed the final optimized Android recheck
+completed with journeys/labels unchanged. Paired events measure retry 35.890 s
+versus the preceding 54.068 s; rebuild 28.671 s versus 46.375 s, with the
+constrained-graph phase falling from 16.832 s to 0.001 s. Baseline graph remains
+16.928 s, persistence 10.861 s, durable read 7.186 s. The observed 18.178 s
+reduction is one before/after pair, not a representative latency or accuracy
+claim. Profiling disabled after capture; normal app reopened. No install/reset,
+commit or push. Delivery record:
+`_bmad-output/implementation-artifacts/spec-rebuild-processing-costs.md`.
+
+## Destination-label computation optimization (2026-10-21)
+
+The owner authorized a new bounded Build on the existing dirty checkout.
+Delivery record: `_bmad-output/implementation-artifacts/spec-destination-label-computation.md`.
+The geometry resolver now reuses point-invariant latitude math within each area;
+destination support grouping appends rows instead of repeatedly copying growing
+arrays. Dataset, geometry decisions, accuracy margins, duplicate-family rules,
+SQL/schema/transactions, corrections, diagnostics and UI remain unchanged.
+
+Exact isolated baseline/candidate comparison passed 499 public coordinate and
+45 label cases, including region/later-ring and border-threshold transitions.
+The work-count regression failed at 4,758 cosine calls before the hoist and
+passes the 291-area upper bound afterward. Full mobile Jest passed 39 suites /
+385 tests, real SQLite 51, typecheck/lint, root check and whitespace checks.
+An additional repository regression passes within its 50-test suite and verifies
+512 interleaved support rows preserve per-journey order, independent arrays and
+labels. Four blind review verification gaps were patched; follow-up review found
+no remaining blockers. Host timings remain noisy and establish no reliable speed
+improvement. Product/reconstruction accuracy is unmeasured.
+
+The owner completed the fresh Android click-and-wait recheck and confirmed labels
+look unchanged. Matching fixed events measure 53.420 s parent retry, 45.749 s
+rebuild and 7.642 s durable read; destination query is 0.867 s and computation
+6.624 s, versus 10.422 s in the earlier sample. This 3.798 s observed reduction
+is one-run evidence with uncontrolled device/cache conditions, not representative
+latency or proof every phase improvement comes from this patch. Temporary
+profiling was disabled after capture through the same Metro 8085 development
+server. No reinstall, data reset, schema change, staging, commit or push.
+
+## Bounded Atlas phase profiling (2026-10-21)
+
+Following owner-confirmed import/Atlas completion on `cd889c9`, an isolated
+opt-in development probe now measures fixed rebuild and durable-read phases.
+Delivery record: `_bmad-output/implementation-artifacts/spec-atlas-phase-profiling.md`.
+Schema, SQL, transaction ownership, graph rules, corrections and UI are unchanged.
+Enabled/disabled real-SQLite comparisons preserve calls, parameters, results,
+queued acknowledgement, caller-owned transaction behavior and error identities,
+including the manual-layout failure probe. Mobile Jest passes 39 suites / 383
+tests; the new helper has 100% statement/branch/function/line coverage. All 51
+real-SQLite tests, mobile typecheck/lint, root check and diff checks pass.
+Independent review findings were addressed with parity coverage and an explicit
+capture procedure; failed phase intervals include rollback/diagnostic cleanup.
+Native rebuild/Doctor were not repeated for this dependency-free JS-only probe;
+the previously recorded SDK patch mismatches remain. Metro serves the probe with
+`EXPO_PUBLIC_ATLAS_PHASE_PROFILE=1` for a fresh-process owner recheck. The owner
+confirmed completion, corroborated by fully paired fixed phase events. Parent
+retry took 69.292 s: rebuild 57.749 s (processing 40.326 s, persistence 16.916 s)
+and durable read 11.478 s. Destination query/label computation accounts for
+11.276 s (98.2%) of that read; the rebuild-to-read gap is 0.003 s. This localizes
+the earlier post-rebuild tail to `readDestinationLabels`, whose native query and
+JavaScript calculation costs remain combined. One instrumented run establishes
+neither an improvement nor a representative latency distribution. The profiling
+record is complete; next scoped investigation separates those destination costs
+before optimizing with unchanged output/evidence semantics. No commit, push,
+storage reset or reinstall.
+
+**Destination phase split (2026-10-21):** The next fresh Android recheck
+separated `readDestinationLabels` without changing its query, labels, duplicate
+validation, SQL calls or error stage. The support query took 1.096 s; subsequent
+family validation, grouping and offline destination-label computation took
+10.422 s. This isolates the durable-read tail to computation, not a demonstrated
+missing SQLite index. The exact computation sub-cost remains unmeasured. Real
+SQLite (51), focused Jest (10), typecheck, lint and whitespace checks pass;
+two blind reviewers did not return findings before interruption; direct diff
+review found only fixed profile-stage transitions and no new payload. No
+commit/push/reset/install.
+
 ## Consolidated worktree candidate (2026-10-21)
 
-The single candidate branch `codex/worktree-consolidation-2026-10-21` combines
+The branch `codex/worktree-consolidation-2026-10-21` combines
 the existing main WIP and delivery records with explicit dispositions for unique
 worktree history. It preserves named local refs for the original main snapshot,
-dimensional Atlas commit, and detached responsiveness history. Commit
-`a994c9717c1978fe7754d9cd253acd60846e0272` is the locally verified candidate;
-it has not been pushed, merged, or used to retire any worktree. Root checks,
+dimensional Atlas commit, and detached responsiveness history. The current
+inspected commit is `cd889c98946b067cefd8af303a36b09d8fdeedd7`; local
+`origin/main` resolves to the same commit (no network freshness check in this
+inventory pass). The prior candidate `a994c9717c1978fe7754d9cd253acd60846e0272`
+differs only in three documentation files, so the recorded application-source
+checks still apply. No worktree was retired. Recorded checks include root checks,
 38 mobile Jest suites / 377 tests, 50 real-SQLite tests, TypeScript, lint, and
 whitespace checks pass. Expo Doctor is 20/21 because of nine pre-existing Expo
 SDK patch mismatches. Independent review workers exhausted their account quota
 before returning findings; direct full-diff audit found no tracked cache/private
-paths or direct production console calls outside the diagnostics boundary. Device
-acceptance for the final bundle remains pending.
+paths or direct production console calls outside the diagnostics boundary. Android
+metadata-import and Atlas-recheck acceptance is now owner-confirmed on the final
+bundle and corroborated by matching structured completion events. Correction UI,
+manual entry, background execution, and iOS were not re-exercised in this pass.
+
+**Post-consolidation inventory:** The checkout was clean at audit start; a new
+recovery-only commit would duplicate the already consolidated checkpoint and is
+not proposed. Recovery, diagnostics, correction handling, and existing minimax/
+bounded-write performance work are all accounted for in the existing delivery
+record. Compared with the preserved accepted recovery source, consolidation
+also changes import-open schema validation, abandoned-continuity deletion,
+pending-candidate idempotency, empty-queue completion, and background diagnostic
+classification. Earlier owner acceptance remains valid for that earlier bundle;
+the final combined bundle now has Android import/Atlas acceptance as recorded
+below. Further performance optimization remains paused. Root `npm run check` passed
+again in this documentation-only inventory; mobile checks were not rerun because
+application source was unchanged. No Git staging/commit/push, device operation,
+or source edit occurred in this pass. The detailed inventory is appended to
+`_bmad-output/implementation-artifacts/spec-consolidate-travel-life-worktrees.md`.
+
+**Final-bundle device acceptance:** The owner reconnected/unlocked Android.
+Preflight confirms mobile files match `cd889c9` and Metro is running. The USB
+route was restored and a fresh app process opened on the verified consolidated
+modules (physical-layout recovery, continuity deletion, empty-queue completion).
+The owner confirmed `Import and Atlas check both complete`. Matching fixed
+diagnostics show `METADATA_IMPORT START -> COMPLETE -> ATLAS_UPDATED` and
+`ATLAS_REVEAL_RETRY START -> COMPLETE` in the fresh process. Only documentation
+is uncommitted; no new application source, reset, reinstall, commit, or push was
+introduced.
+
+**First device timing sample:** Matched correlation IDs and epoch log timestamps
+give 41.6 s for metadata import, 104.6 s from import start through its automatic
+durable Atlas update, and 65.7 s for the separate owner recheck. The post-import
+Atlas interval is 63.0 s; rebuild-complete to parent completion is 11.5 s for the
+automatic update and 11.7 s for recheck. These are one-run diagnostic intervals,
+not isolated engine/SQL/UI-paint timings, a speed improvement, or a representative
+benchmark. The next bounded profiling target is rebuild versus durable-read/
+publication cost; keep schema, inference and correction behavior fixed. Evidence
+is attached to `spec-local-operation-responsiveness.md`.
 
 ## Multi-worktree cleanup planning (2026-10-21)
 

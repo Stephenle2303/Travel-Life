@@ -1,13 +1,18 @@
 import type { DurableRevealDiagnosticStage, ReconciliationStage } from '@/reconstruction/repository';
+import type { AtlasProfileStage } from './atlas-phase-profile';
 
 export type AppDiagnosticOperation =
   | 'ATLAS_REBUILD'
   | 'ATLAS_CATCH_UP'
   | 'ATLAS_DURABLE_READ'
+  | 'ATLAS_REBUILD_PROFILE'
+  | 'ATLAS_DURABLE_READ_PROFILE'
   | 'ATLAS_REVEAL_RETRY'
   | 'METADATA_IMPORT'
   | 'MAINTENANCE_RECONCILIATION'
-  | 'JOURNEY_PLACE_SAVE';
+  | 'JOURNEY_PLACE_SAVE'
+  | 'JOURNEY_PRIVACY_SAVE'
+  | 'JOURNEY_PRIVACY_READ';
 
 export type AppDiagnosticReasonCode =
   | 'START'
@@ -38,7 +43,7 @@ export type AppDiagnosticOutcome = 'complete' | 'unchanged' | 'paused' | 'blocke
 export type AppDiagnosticEvent = Readonly<{
   operation: AppDiagnosticOperation;
   reasonCode: AppDiagnosticReasonCode;
-  stage: ReconciliationStage | DurableRevealDiagnosticStage | null;
+  stage: ReconciliationStage | DurableRevealDiagnosticStage | AtlasProfileStage | 'PRIVACY_REVIEW_DETAIL' | 'PRIVACY_REVIEW_SCOPE' | 'PRIVACY_POLICY_LIST' | null;
   retryable: boolean;
   durableOutcome: AppDiagnosticOutcome;
   correlationId: string;
@@ -68,6 +73,7 @@ export function classifyAppDiagnosticError(error: unknown): AppDiagnosticReasonC
   if (message.includes('history corrections need owner review')) return 'HISTORY_REVIEW';
   if (message.includes('needs owner remap')) return 'JOURNEY_REMAP';
   if (message.includes('need owner review')) return 'OWNER_REVIEW';
+  if (message.includes('privacy review') || message.includes('privacy scope') || message.includes('privacy command') || message.includes('privacy restore is stale')) return 'OWNER_REVIEW';
   if (message.includes('not connected') || message.includes('not permitted') || message.includes('private record')) return 'ACCESS';
   if (message.includes('constraint failed')) return 'CONSTRAINT';
   return 'UNKNOWN';

@@ -3,6 +3,8 @@ import { ensureNativeImportSchema } from '@/import-record/repository';
 import { applyJourneyCorrections, constructCanonicalV11Graph, mapCorrectionsToCommittedJourneys, mapFinalCorrectionApplications, mergeContinuousAwayJourneysV11, qualifyGraphJourneyV11, resolvePlaceCountryCode, resolveVerifiedDuplicateFamilies } from '@/reconstruction/repository';
 import type { ReconstructionGraph } from '@/reconstruction';
 import { projectReveal, assertRevealPayload } from '@/reveal/projection';
+import * as destinationLabels from '@/reconstruction/destination-label';
+import * as reconstructionEngine from '@/reconstruction/engine';
 
 const mockExecAsync = jest.fn();
 const mockRunAsync = jest.fn();
@@ -64,6 +66,66 @@ describe('durable local reconciliation repository', () => {
     expect(labelQuery).not.toContain('source_ref');
     expect(JSON.stringify(model)).not.toContain('private:bali');
     expect(JSON.stringify(model)).not.toContain('115.2625');
+  });
+
+  it('keeps interleaved destination support ordered and isolated per journey', async () => {
+    const places = [
+      { journey_id: 'synthetic:bali', latitude: -8.5069, longitude: 115.2625, label: 'Bali, Indonesia' },
+      { journey_id: 'synthetic:paris', latitude: 48.8566, longitude: 2.3522, label: 'Paris, France' },
+    ];
+    const support = Array.from({ length: 256 }, (_, index) => places.map((place) => ({
+      journey_id: place.journey_id, place_id: `place:${place.journey_id}`,
+      evidence_id: `${place.journey_id}:${index}`, latitude: place.latitude, longitude: place.longitude,
+      captured_day: '2025-09-10', availability: 'available', support_eligible: 1,
+    }))).flat();
+    mockGetAllAsync.mockImplementation(async (sql: string) => {
+      if (sql.includes('WITH journey_anchor AS')) return places.map((place) => ({
+        ...place, run_id: 7, journey_state: 'inferred', year: 2025, first_year: 2025, last_year: 2025, ordering: 'uncertain',
+      }));
+      if (sql.includes('AS journey_id, visit.place_id')) return support;
+      return [];
+    });
+    const label = jest.spyOn(destinationLabels, 'destinationLabel');
+    try {
+      const record = await createNativeReconstructionRepository().loadDurableReveal();
+      expect(record.journeys.map((journey) => journey.label)).toEqual(places.map((place) => place.label));
+      expect(label).toHaveBeenCalledTimes(2);
+      const groups = label.mock.calls.map(([items]) => items);
+      expect(groups[0]).not.toBe(groups[1]);
+      for (const [index, place] of places.entries()) {
+        expect(groups[index].map((item) => item.familyId)).toEqual(
+          support.filter((row) => row.journey_id === place.journey_id).map((row) => `E:${row.evidence_id}`),
+        );
+      }
+    } finally {
+      label.mockRestore();
+    }
+  });
+
+  it('reuses the baseline engine pass only when computed rejection constraints are empty', async () => {
+    const engine = jest.spyOn(reconstructionEngine, 'reconstructV1');
+    try {
+      await createNativeReconstructionRepository().rebuild(1000);
+      expect(engine).toHaveBeenCalledTimes(1);
+      engine.mockClear();
+      engine.mockReturnValue({
+        ruleVersion: 'reconstruction-v1', places: [],
+        visits: [{ id: 'synthetic-visit', placeId: 'synthetic-place', evidenceIds: ['synthetic-absent'], order: 'ordered' }],
+        journeys: [{ id: 'synthetic-journey', visitIds: ['synthetic-visit'], state: 'inferred' }],
+        memberships: [], possibleMerges: [], dispositions: [],
+      });
+      const previousQuery = mockGetAllAsync.getMockImplementation()!;
+      mockGetAllAsync.mockImplementation(async (sql: string) => sql.includes("FROM journey_correction_revision WHERE state = 'effective'")
+        ? [{ revision_id: 'synthetic-reject', action: 'reject', reviewed_support_json: '["E:synthetic-absent"]' }]
+        : previousQuery(sql));
+      await createNativeReconstructionRepository().rebuild(2000);
+      expect(engine).toHaveBeenCalledTimes(2);
+      expect(engine.mock.calls[1][1]).toEqual({ journeyGroupingConstraints: [
+        { kind: 'forbid-automatic-journey-membership', support: ['synthetic-absent'] },
+      ] });
+    } finally {
+      engine.mockRestore();
+    }
   });
 
   it('snapshots and acknowledges only covered queue rows after the complete local projection is written', async () => {
@@ -205,7 +267,7 @@ describe('durable local reconciliation repository', () => {
   });
 
   it('reads only redacted chronology, coarsened anchors, and journey states from the committed graph', async () => {
-    mockGetAllAsync.mockResolvedValueOnce([{ journey_id: 'private:alpha', journey_state: 'inferred', latitude: 13.75632, longitude: 100.501765, display_ordinal: 1, year: 2024, first_year: 2024, last_year: 2025, ordering: 'chronological' }, { journey_id: 'private:beta', journey_state: 'possible-merge', latitude: null, longitude: null, display_ordinal: 2, year: null, first_year: null, last_year: null, ordering: 'uncertain' }]);
+    mockGetAllAsync.mockResolvedValueOnce([]).mockResolvedValueOnce([{ run_id: 7, journey_id: 'private:alpha', journey_state: 'inferred', latitude: 13.75632, longitude: 100.501765, display_ordinal: 1, year: 2024, first_year: 2024, last_year: 2025, ordering: 'chronological' }, { journey_id: 'private:beta', journey_state: 'possible-merge', latitude: null, longitude: null, display_ordinal: 2, year: null, first_year: null, last_year: null, ordering: 'uncertain' }]);
 
     const display = await createNativeReconstructionRepository().loadDurableReveal();
 
@@ -215,7 +277,7 @@ describe('durable local reconciliation repository', () => {
     ]);
     expect(display.journeys.map((journey) => journey.displayId)).toEqual(expect.arrayContaining([expect.stringMatching(/^atlas-/)]));
     expect(JSON.stringify(display)).not.toContain('private:');
-    const read = mockGetAllAsync.mock.calls[0][0] as string;
+    const read = mockGetAllAsync.mock.calls.find(([sql]) => sql.includes('WITH journey_anchor AS'))![0] as string;
     expect(read).toContain('WITH journey_anchor AS');
     expect(read).toContain('MIN(visit.visit_id) AS visit_id');
     expect(read).toContain('WHERE journey.run_id = ?');
@@ -404,11 +466,12 @@ describe('durable local reconciliation repository', () => {
   });
 
   it('resolves an opaque journey locally with separate visit support and membership-only memories', async () => {
-    mockGetAllAsync.mockResolvedValueOnce([{ journey_id: 'private:alpha', journey_state: 'inferred', latitude: null, longitude: null, year: null, first_year: null, last_year: null, ordering: 'uncertain' }]);
+    mockGetAllAsync.mockResolvedValueOnce([]).mockResolvedValueOnce([{ run_id: 7, journey_id: 'private:alpha', journey_state: 'inferred', latitude: null, longitude: null, year: null, first_year: null, last_year: null, ordering: 'uncertain' }]);
     const repository = createNativeReconstructionRepository();
     const displayId = (await repository.loadDurableReveal()).journeys[0]?.displayId;
     mockGetAllAsync.mockReset(); mockGetAllAsync.mockResolvedValue([]);
     mockGetAllAsync
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ captured_day: '2024-01-01', has_precise_offset: 0, ordering: 'uncertain' }])
       .mockResolvedValueOnce([
         { captured_day: '2024-01-01', availability: 'available', source_ref: 'private:source-a', association: 'visit-support', disposition: null },
@@ -424,16 +487,17 @@ describe('durable local reconciliation repository', () => {
     expect(result.detail.uncertainty).toEqual(expect.arrayContaining(['Visit ordering is uncertain.', 'Date precision is limited for part of this journey.', 'A source remains unresolved and is not treated as visit support.', 'A GPS-less or date-limited memory is associated with this journey without destination support.']));
     expect(result.previewSourceRefs).toEqual(['private:source-a', null]);
     expect(JSON.stringify(result.detail)).not.toContain('private:');
-    expect(mockGetAllAsync.mock.calls[1][0]).toContain("link_kind LIKE 'membership:%'");
-    expect(mockGetAllAsync.mock.calls[1][0]).toContain("'visit-support' AS association");
+    expect(mockGetAllAsync.mock.calls.find(([sql]) => sql.includes('WITH journey_evidence AS'))![0]).toContain("link_kind LIKE 'membership:%'");
+    expect(mockGetAllAsync.mock.calls.find(([sql]) => sql.includes('WITH journey_evidence AS'))![0]).toContain("'visit-support' AS association");
   });
 
   it('keeps an unknown associated-media reference available for bounded local resolution', async () => {
-    mockGetAllAsync.mockResolvedValueOnce([{ journey_id: 'private:alpha', journey_state: 'inferred', latitude: null, longitude: null, year: null, first_year: null, last_year: null, ordering: 'uncertain' }]);
+    mockGetAllAsync.mockResolvedValueOnce([]).mockResolvedValueOnce([{ run_id: 7, journey_id: 'private:alpha', journey_state: 'inferred', latitude: null, longitude: null, year: null, first_year: null, last_year: null, ordering: 'uncertain' }]);
     const repository = createNativeReconstructionRepository();
     const displayId = (await repository.loadDurableReveal()).journeys[0]?.displayId;
     mockGetAllAsync.mockReset(); mockGetAllAsync.mockResolvedValue([]);
     mockGetAllAsync
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ captured_day: '2024-01-01', has_precise_offset: 0, ordering: 'uncertain' }])
       .mockResolvedValueOnce([
         { captured_day: '2024-01-01', availability: 'available', source_ref: 'private:source-a', association: 'visit-support', disposition: null },
@@ -642,11 +706,13 @@ describe('durable local reconciliation repository', () => {
   });
 
   it('rolls back when the private record disconnects before correction commit', async () => {
-    let lifecycleReads = 0;
+    let projectionInserted = false;
+    mockRunAsync.mockImplementation(async (sql: string) => {
+      if (sql.includes('INSERT INTO reconstruction_run')) projectionInserted = true;
+    });
     mockGetFirstAsync.mockImplementation(async (sql: string) => {
       if (sql.includes('private_record_lifecycle')) {
-        lifecycleReads += 1;
-        return { state: lifecycleReads >= 5 ? 'disconnected' : 'connected' };
+        return { state: projectionInserted ? 'disconnected' : 'connected' };
       }
       if (sql.includes('MAX(run_id)')) return { run_id: 7 };
       return null;

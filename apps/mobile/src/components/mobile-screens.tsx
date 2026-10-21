@@ -1,3 +1,4 @@
+import { JourneyPrivacyManager } from './journey-privacy';
 import { useCallback, useRef, useState } from 'react';
 import { TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -85,6 +86,7 @@ export function EmptyAtlasScreen() {
   const reveal = projectReveal({
     graph: reconstruction.graph,
     durableRecord: durableReveal,
+    privacyReady: durableReveal !== null,
     reconstructionStatus: reconstruction.status,
     reconstructionMessage: reconstruction.message,
     reconciliationStatus: reconciliation.status,
@@ -112,7 +114,7 @@ export function EmptyAtlasScreen() {
           else { manualRecoveryRequest.current += 1; setManualEntryRecovery(context); }
         }}
         onReplay={() => openRoute(router, appRoutes.replay)}
-        onSettings={() => openRoute(router, appRoutes.settings)}
+        onSettings={(context) => { saveAtlasPreviewContext(context); openRoute(router, appRoutes.settings); }}
         onOpenJourney={(id) => router.push({ pathname: appRoutes.journey as never, params: { id } })}
         loadJourneyPreview={loadPreview}
         loadJourneyMediaPage={loadJourneyMediaPage}
@@ -143,7 +145,7 @@ export function EmptyAtlasScreen() {
 export function ReplayAvailabilityScreen() {
   const router = useRouter();
   const { snapshot, importCoverage, reconciliation, reconstruction, durableReveal } = usePhotoAccess();
-  const reveal = projectReveal({ graph: reconstruction.graph, durableRecord: durableReveal, reconstructionStatus: reconstruction.status, reconstructionMessage: reconstruction.message, reconciliationStatus: reconciliation.status, pendingCount: reconciliation.pendingCount, queuedChangeCount: reconciliation.queuedChangeCount, unresolvedRemapCount: reconciliation.unresolvedRemapCount, sourceScope: snapshot.scope, importedCount: importCoverage.scanned });
+  const reveal = projectReveal({ graph: reconstruction.graph, privacyReady: durableReveal !== null, durableRecord: durableReveal, reconstructionStatus: reconstruction.status, reconstructionMessage: reconstruction.message, reconciliationStatus: reconciliation.status, pendingCount: reconciliation.pendingCount, queuedChangeCount: reconciliation.queuedChangeCount, unresolvedRemapCount: reconciliation.unresolvedRemapCount, sourceScope: snapshot.scope, importedCount: importCoverage.scanned });
   if (!reveal.replay.eligible) return <Screen>
     <Eyebrow>Private Replay</Eyebrow>
     <Title>Replay is unavailable.</Title>
@@ -163,7 +165,7 @@ export function ReplayAvailabilityScreen() {
 
 export function PrivacySettingsScreen() {
   const router = useRouter();
-  const { privateRecord, privateRecordController, maintenance, maintenanceController, reconciliation, durableReveal, homeBases, loadJourneyDetail, saveConfiguredHomeArea, renameConfiguredHomeArea, removeConfiguredHomeArea } = usePhotoAccess();
+  const { privateRecord, privateRecordController, maintenance, maintenanceController, reconciliation, durableReveal, homeBases, loadJourneyPrivacyPolicies, restoreJourneyPrivacy, loadJourneyDetail, saveConfiguredHomeArea, renameConfiguredHomeArea, removeConfiguredHomeArea } = usePhotoAccess();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [selectedHome, setSelectedHome] = useState<string | null>(null);
   const [selectedHomeVisit, setSelectedHomeVisit] = useState<string | null>(null);
@@ -233,6 +235,7 @@ export function PrivacySettingsScreen() {
         <Body>Normal device backups may restore this private record under the protections of your device and backup account. This app does not claim SQLite encryption.</Body>
         <Body>{privateRecord.state === 'connected' ? 'Photo-source reads are available when you choose to import.' : privateRecord.state === 'disconnected' ? 'Photo-source reads and maintenance are stopped. Your private local record remains on this device.' : 'No local private record is available. Original photos remain in their source.'}</Body>
       </InsetPanel>
+      <JourneyPrivacyManager load={loadJourneyPrivacyPolicies} restore={restoreJourneyPrivacy} />
       <InsetPanel>
         <Title>Home bases</Title>
         <Body>Choose a private journey, review its photos and videos, then select the observed area you want to use. Home photos remain local return context and never create automatic journeys.</Body>

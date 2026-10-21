@@ -22,7 +22,7 @@ type CheckpointRow = {
   status: ImportCheckpoint['status'];
 };
 
-const CURRENT_SCHEMA_VERSION = 33;
+const CURRENT_SCHEMA_VERSION = 34;
 const validCivilDay = (day: string | null) => Boolean(day && /^\d{4}-(0[1-9]|1[0-2])-([0-2]\d|3[01])$/.test(day)
   && new Date(`${day}T00:00:00.000Z`).toISOString().slice(0, 10) === day);
 
@@ -684,6 +684,50 @@ const migrationV33 = `
   UPDATE private_history_record SET schema_version = 33 WHERE record_id = 1;
 `;
 
+const migrationV34 = `
+  CREATE TABLE IF NOT EXISTS journey_privacy_revision (
+    revision INTEGER PRIMARY KEY AUTOINCREMENT,
+    policy_id TEXT NOT NULL,
+    command_key TEXT NOT NULL UNIQUE,
+    action TEXT NOT NULL CHECK (action IN ('hide', 'exclude', 'restore')),
+    target_kind TEXT NOT NULL CHECK (target_kind IN ('manual', 'inferred')),
+    manual_id TEXT,
+    source_run_id INTEGER NOT NULL,
+    reviewed_evidence_json TEXT NOT NULL CHECK (json_valid(reviewed_evidence_json) AND json_type(reviewed_evidence_json) = 'array'),
+    reviewed_family_json TEXT NOT NULL CHECK (json_valid(reviewed_family_json) AND json_type(reviewed_family_json) = 'array'),
+    reviewed_label TEXT NOT NULL,
+    created_at_millis INTEGER NOT NULL,
+    CHECK ((target_kind = 'manual' AND manual_id IS NOT NULL AND action <> 'exclude') OR (target_kind = 'inferred' AND manual_id IS NULL))
+  );
+  CREATE INDEX IF NOT EXISTS journey_privacy_policy_revision ON journey_privacy_revision (policy_id, revision);
+  UPDATE private_history_record SET schema_version = MAX(schema_version, 34) WHERE record_id = 1;
+`;
+
+/** Canonical constraints are required for immutable revisions and command identity. */
+export const journeyPrivacyTableDefinition = migrationV34.slice(0, migrationV34.indexOf(';') + 1).trim();
+function normalizePrivacyDefinition(sql: string) {
+  return sql.replace(/IF NOT EXISTS/gi, '').replace(/\s+/g, '').replace(/;$/, '').toLowerCase();
+}
+
+/** Validate physical policy constraints even when an abandoned newer marker survives. */
+async function ensureJourneyPrivacyLayout(db: SqliteDatabase) {
+  try {
+    await db.getAllAsync('SELECT revision, policy_id, command_key, action, target_kind, manual_id, source_run_id, reviewed_evidence_json, reviewed_family_json, reviewed_label, created_at_millis FROM journey_privacy_revision LIMIT 0');
+  } catch (error) {
+    if (!(error instanceof Error)) throw error;
+    if (/no such table:\s*journey_privacy_revision\b/i.test(error.message)) {
+      await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
+      try { await db.execAsync(migrationV34); await db.execAsync('COMMIT'); }
+      catch (failure) { await db.execAsync('ROLLBACK'); throw failure; }
+      // Continue below: successful creation is not a substitute for read-back.
+    }
+    else if (error.message.toLowerCase().includes('no such column')) throw new LocalAtlasSchemaRecoveryError();
+    else throw error;
+  }
+  const table = await db.getFirstAsync<{ sql: string }>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'journey_privacy_revision'");
+  if (typeof table?.sql !== 'string' || normalizePrivacyDefinition(table.sql) !== normalizePrivacyDefinition(journeyPrivacyTableDefinition)) throw new LocalAtlasSchemaRecoveryError();
+}
+
 const MAINTENANCE_LEASE_MILLIS = 5 * 60 * 1000;
 
 type SchemaRow = { version: number };
@@ -766,6 +810,7 @@ export async function ensureNativeImportSchema(db: SqliteDatabase) {
   // rerun the full migration chain during a normal Atlas/import entry.
   if ((currentSchema?.version ?? 0) >= CURRENT_SCHEMA_VERSION) {
     await ensureManualJourneyLayout(db);
+    await ensureJourneyPrivacyLayout(db);
     return;
   }
   await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
@@ -806,6 +851,7 @@ export async function ensureNativeImportSchema(db: SqliteDatabase) {
     if (version < 31) await db.execAsync(migrationV31);
     if (version < 32) await db.execAsync(migrationV32);
     if (version < 33) await db.execAsync(migrationV33);
+    if (version < 34) await db.execAsync(migrationV34);
     if (version === 0) await db.runAsync('INSERT INTO import_schema_version (version) VALUES (?)', CURRENT_SCHEMA_VERSION);
     else if (version < CURRENT_SCHEMA_VERSION) await db.runAsync('UPDATE import_schema_version SET version = ?', CURRENT_SCHEMA_VERSION);
     await db.execAsync('COMMIT');
@@ -814,6 +860,7 @@ export async function ensureNativeImportSchema(db: SqliteDatabase) {
     throw error;
   }
   await ensureManualJourneyLayout(db);
+  await ensureJourneyPrivacyLayout(db);
 }
 
 const DUPLICATE_TUPLE_VERSION = 1;
@@ -905,6 +952,7 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
           if (version < 31) await db.execAsync(migrationV31);
           if (version < 32) await db.execAsync(migrationV32);
           if (version < 33) await db.execAsync(migrationV33);
+    if (version < 34) await db.execAsync(migrationV34);
           if (version === 0) await db.runAsync('INSERT INTO import_schema_version (version) VALUES (?)', CURRENT_SCHEMA_VERSION);
           else if (version < CURRENT_SCHEMA_VERSION) await db.runAsync('UPDATE import_schema_version SET version = ?', CURRENT_SCHEMA_VERSION);
           await db.execAsync('COMMIT');
@@ -1060,6 +1108,7 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
           DELETE FROM reconstruction_trip_qualification;
           DELETE FROM configured_home_area;
           DELETE FROM manual_journey;
+          DELETE FROM journey_privacy_revision;
           DELETE FROM reconstruction_disposition;
           DELETE FROM reconstruction_link;
           DELETE FROM reconstruction_journey;

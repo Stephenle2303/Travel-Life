@@ -111,3 +111,34 @@ Pending queue state must not use an in-progress spinner. A compact waiting panel
 - After independent review, affected suites passed 97 tests; a full approved-host rerun passed 37 suites / 332 tests. Mobile typecheck, lint and `git diff --check` passed. A next-day Doctor retry again stopped before diagnostics at registry DNS `ENOTFOUND`. Root `npm run check` passed. The review triage above records every finding; the incorrect stale-persisted-running claim was rejected after tracing its uncommitted SQLite transaction.
 - The final writer streams bounded batches, tests every inserted link/disposition tuple against the returned graph, and rolls back when one row exceeds the bridge cap. Atlas now distinguishes queued work from unresolved correction review, with separate owner-facing actions.
 - Physical Android/iOS timings and browse checks remain open. The current Android ADB inventory has no connected device; no iOS device is available in this environment.
+
+**Android baseline follow-up (2026-10-21):** This supersedes the earlier
+no-connected-device limitation for this one Android run. After a verified fresh
+launch on consolidation source `cd889c98946b067cefd8af303a36b09d8fdeedd7`, the owner
+performed metadata import followed by Atlas recheck and confirmed both complete.
+Only closed structured events were read; no library rows, media, location data,
+source identifiers, or raw native errors were copied.
+
+| Observed interval | Fixed event boundaries | Seconds, rounded |
+| --- | --- | --- |
+| Metadata import | Same-correlation `METADATA_IMPORT START -> COMPLETE` | 41.6 |
+| Import through automatic durable Atlas update | Same-correlation `METADATA_IMPORT START -> ATLAS_UPDATED` | 104.6 |
+| Automatic Atlas work after import completion | Same-correlation `METADATA_IMPORT COMPLETE -> ATLAS_UPDATED` | 63.0 |
+| Separate owner recheck | Same-correlation `ATLAS_REVEAL_RETRY START -> COMPLETE` | 65.7 |
+| Post-rebuild completion interval, automatic update | Its `ATLAS_REBUILD COMPLETE` to parent `METADATA_IMPORT ATLAS_UPDATED` | 11.5 |
+| Post-rebuild completion interval, owner recheck | Its `ATLAS_REBUILD COMPLETE` to parent `ATLAS_REVEAL_RETRY COMPLETE` | 11.7 |
+
+The parent correlations distinguish import and owner retry. The rebuild events
+have separate locally generated correlations and occur within their sequential
+parent operations. Epoch-log deltas are a single-run observation; monotonic
+log formatting was unavailable on this device. There was no controlled before/
+after comparison, characterized library snapshot, repeated distribution, pure
+engine/SQL timing, or precise rendered-UI timing. Do not compare these values to
+the historical developer-machine synthetic engine benchmark or claim an improvement.
+
+Next bounded profiling target: separate rebuild work from durable Atlas read/
+publication cost, starting with the observed 11.5–11.7 s post-rebuild interval.
+That interval alone does not establish which query or rendering step is slow.
+Preserve schema, graph/qualification rules, corrections, serialized publication,
+and private-data boundaries. Further optimization remains paused pending that
+focused evidence; no new runtime instrumentation was added in this pass.

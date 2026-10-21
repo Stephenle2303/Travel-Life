@@ -1,5 +1,296 @@
 # Error and improvement playbook
 
+## Accepted-work publication verification (2026-10-21)
+
+- **External/pre-existing check limitation:** Fresh Expo Doctor ran successfully
+  against the registry but exited 1 with 20/21 checks: the same nine Expo SDK
+  patch-version recommendations recorded earlier. No dependency changed during
+  publication. This remains an open compatibility check; a separate dependency
+  update must include native/map validation. Root checks, mobile Jest 402/402,
+  SQLite 85/85, TypeScript and lint passed independently.
+- **Output-sizing recurrence:** Initial context and large repository-diff reads
+  exceeded the response limit. No source was changed by those reads. Continued
+  with bounded file/section inspection, explicit suite summaries and path-only
+  delivery audits. Prevention: inspect diff hunk ranges before requesting a
+  large repository file; keep each output within its allocated budget.
+
+## M4.3 parent review verification and tooling (2026-10-21)
+
+- **Evidence/cause:** Initial implementation passed its checks but independent
+  review exposed stale cached memory/Home-base writes, cross-policy fallback
+  scope contamination, incomplete policy-table/row validation, misleading list
+  loading copy, missing read diagnostics and untested refresh/overlap paths.
+  Exclusion with effective memory or persisted split corrections also reproduced
+  a remap failure blocking rebuild. These are implementation gaps, not acceptance.
+- **Correction:** Revalidate transaction inputs against current privacy; isolate
+  fallback cache per policy; validate canonical physical constraints and complete
+  rows; distinguish pending/failed/empty UI and provide reload; disclose reviewed
+  Hide scope; index rows once. Suspend only applications depending on explicitly
+  excluded evidence, retain immutable revisions, and reactivate after restoration.
+- **Verification:** Parent all 85 real-SQLite cases pass, with stale-write,
+  overlap, refresh-failure, malformed-storage and correction-reactivation cases.
+  UI loading/scope tests executed RED before their fix and all six then passed.
+  Final full mobile/review/device outcomes are in the delivery record: mobile
+  402/402 and SQLite 85/85 pass, and the owner confirmed Android Hide/Restore and
+  Exclude/Recheck/Restore completed correctly. iOS remains untested.
+- **Parent tooling incident:** A nested `node -e` edit was misquoted by
+  PowerShell and stopped before any write. Replaced with explicit apply_patch;
+  import/manual fixture suites then passed 26 tests. A parent schema hardening
+  edit preceded its new targeted regression; its later passing compatibility
+  test is GREEN evidence only, not a valid RED claim. Prevention: write regression
+  first and prefer patch tools or saved scripts over nested inline quoting.
+- **Reviewer tooling:** One literal Windows wildcard search and assumed
+  instruction-reference paths failed without code/test execution. Corrected
+  searches and read embedded instructions. Two reviewers hit account limits;
+  resumed reviews returned findings, never treat interrupted workers as clean.
+- **Prevention:** For privacy work cover every cached read/write boundary,
+  multi-policy restore, failed publication, retained storage constraints, explicit
+  exclusion precedence and reactivation. Preserve existing unrelated remap guards.
+- **Final review recurrence:** A cancelled provider policy-list read still returned
+  an empty array, bypassing the new UI failed state. The overlapping-command
+  regression reproduced this RED; cancellation now rejects with fixed safe copy,
+  retaining the skipped LIFECYCLE diagnostic. Provider/UI tests pass 35/35.
+  Prevention: cancellation must never impersonate a successful empty domain read.
+  A parent lookup guessed `docs/deferred-work.md` and omitted ignored rendered
+  workflow files; discovered the actual paths with bounded `rg --files` before
+  continuing. A later optional sprint-status read also found no file at the
+  conventional path; there is no sprint tracking file to synchronize for this
+  standalone spec. Check existence before optional reads. No source changes
+  resulted from those failed lookups.
+
+## M4.3 privacy review fixes: independent policies and stale write gates (2026-10-21)
+
+- **Evidence/cause:** Independent review found each fallback policy cache retained
+  the union of all blocked journeys, preventing an unrelated restore from showing
+  its prior record. Cached memory and Home-base selections also lacked fresh
+  privacy checks inside their writer transaction. Review scope used repeated
+  linear lookups and provider review/list failures had no fixed diagnostic.
+  Effective memory corrections could then abort every rebuild after their
+  supporting evidence was deliberately excluded.
+- **Correction:** Resolve each policy's own cached protection; verify current
+  lifecycle/run/privacy and selected memory scope before insert. Index reviewed
+  evidence once. Privacy-read diagnostics use fixed review/list stages, classify
+  native failures only in memory, and represent invalidated reads as skipped
+  lifecycle outcomes. Temporarily omit activation only for immutable memory
+  corrections whose source or reviewed support demonstrably intersects current
+  privacy-excluded inputs; restoration reactivates the original revision.
+  Consume persisted policies only after full closed-row validation.
+- **Verification:** Regression RED reproduced fallback restore loss, stale Home
+  save, and all four effective memory actions aborting exclusion rebuild. Focused
+  privacy SQLite tests now pass 21/21, including support-only dependency, restored
+  activation, protected cross-journey cached memory, overlapping fallback,
+  visible overlap/create/restore and malformed row/constraint preservation.
+  Provider tests cover native failure redaction, invalidated reads and post-save
+  fallback refresh/filter failure. Parent runs final broad checks and review.
+- **Prevention:** Pair each independent policy with its own fallback state; every
+  cached source/target mutation revalidates inside the writer lock. Include
+  existing owner overlays in exclusion tests and preserve unrelated fail-closed
+  guards. A search during this fix used the root-relative path from mobile CWD;
+  it made no change and was corrected to the root CWD. Use verified absolute
+  paths for cross-directory commands.
+- **Status:** Targeted defects corrected; final parent acceptance still pending.
+- **Structural follow-up:** A seeded persisted split revision rebuilt normally
+  before exclusion but failed its remap afterward. The same exact reviewed-support
+  predicate now suspends only dependent split/merge/remove-visit/reject activation,
+  retaining immutable revisions for restoration. Privacy SQLite **22/22** passes;
+  provider/repository/diagnostic focused Jest **3 suites / 88 tests** passed before
+  this final helper extraction. Parent reruns final checks.
+- **Deferred pre-existing adapter finding:** Native split fixture setup first
+  used one visit, then multiple actual ordered visits exposed that persisted
+  `reconstruction_visit.ordering` is `ordered` while the detail cache passes it
+  into a split check expecting `chronological`. No native adapter change was
+  made in M4.3. The seeded split fixture proves exclusion precedence and restore
+  parity only; its continuity output does not prove a successful native split or
+  multiple published successors. Parent owns the separate deferred follow-up.
+
+## M4.3 implementation discovery and output sizing (2026-10-21)
+
+- **Evidence/cause:** A context batch exceeded the tool output limit; subsequent
+  reads use bounded sections and the playbook index. A route read guessed
+  `journey/[id]/edit/index.tsx`; actual route is `journey/[id]/edit.tsx`.
+- **Correction/prevention:** Discover routes with `rg --files` before reading,
+  and size reads per file rather than concatenating the entire large playbook.
+  No check or source change ran against the missing route.
+- **Status:** Discovery corrected. Expected privacy TDD RED is recorded in the
+  delivery spec rather than as a product incident.
+- **Implementation tooling recurrence:** One edit used a root-relative path
+  from the mobile working directory and made no change; a guarded replacement
+  then stopped on CRLF before writing. A broad `return {` patch placed methods
+  in the batch inserter; moved them to the repository before GREEN. A UI patch
+  used a partial JSX line and was rejected atomically. First typecheck found
+  the guessed `whenIdle` method; corrected to existing `whenImportIdle`.
+  Prevention: use absolute paths, normalize line endings in guarded scripts,
+  anchor repository methods by adjacent method names, and discover coordination
+  interfaces before invoking them. Core SQLite privacy tests pass 4/4.
+- **Verification fixture recurrence:** First broad verification passed the new
+  privacy cases but found three positional repository mocks consuming the new
+  policy query as journey rows, and three retained-v33 snapshot tests expecting
+  version markers not to advance. Corrected fixtures to include the policy read,
+  current run identity, and legitimate v34 marker transition, preserving all
+  owner-data expectations. Prefer SQL-dispatched mocks and explicit migration
+  expectations whenever introducing an additive schema/read boundary.
+- **Broader fixture follow-up:** Full Jest exposed remaining v33 assertions,
+  an overlap mock returning manual rows for every query, and a lifecycle-race
+  fixture keyed to the fifth read. Update schema expectations to v34, dispatch
+  overlap rows by SQL, and trigger disconnection on projection insertion rather
+  than on the read count. A later guessed context-helper path was corrected to
+  the actual import `atlas/preview-context.ts`. Prevention: use call-purpose
+  triggers for races; read current imports before guessing helper locations.
+- **Verified result:** Corrected broad run passes 40 Jest suites / 392 tests,
+  70 real-SQLite cases, typecheck/lint. Further focused UI/provider 26 tests and
+  eight privacy SQLite cases pass, including cross-target idempotency rejection.
+  Final root/review/device acceptance is still owned by the parent workflow.
+
+## M4.3 audit path discovery recurrence (2026-10-21)
+
+- **Evidence/cause:** Read-only audit searches used guessed route/provider paths
+  (`navigation/routes.ts`, `apps/mobile/app`, `photo-access-provider.tsx`) and a
+  shell-style component wildcard. Actual paths are discoverable under `src/app`,
+  `navigation/app-contract.ts` and `photo-access/provider.tsx`. Searches against
+  missing paths returned errors; no application check or source edit ran there.
+- **Correction:** Used `rg --files` to resolve the current routes/provider and
+  inspected those exact files. Recorded the actual paths in the M4.3 draft.
+- **Prevention:** Treat filenames from memory as hints. Discover exact paths
+  first; use `rg -g` for globs instead of passing a Windows wildcard as a path.
+- **Status:** Audit corrected; product decisions remain open in the draft spec.
+
+## Empty-constraint graph reuse verification fixtures (2026-10-21)
+
+- **Evidence/cause:** A test discovery command guessed the nonexistent
+  `reconstruction-repository.test.ts` filename. No test ran at that path.
+  A reviewer also supplied a literal Windows `*.ts` path, then corrected the
+  search to `rg -g`; no source changed from the failed discovery attempt.
+  An initial parity fixture expected a separated, same-place owner merge to
+  survive canonical continuity; the unchanged reference instead rejected its
+  final reviewed-support mapping with the existing fixed remap error.
+- **Correction:** Locate tests with `rg --files`. Keep that merge fixture as a
+  fail-closed parity case, comparing its reference/candidate error, rollback,
+  stored graph and durable reveal. Do not weaken production remap validation
+  or alter synthetic review metadata to manufacture a successful merge.
+- **Verification:** Eleven real-SQLite reuse parity slices pass, including
+  successful split, nonempty rejection constraints and memory-write failure.
+  This harness does not establish successful owner-merge acceptance.
+- **Prevention:** Verify reference fixture outcomes before declaring a new
+  expected success. Compare the one changed branch against a reference built
+  from the same working source, preserving unrelated uncommitted changes.
+- **Status:** Tooling and fixture expectation corrected; no production defect
+  was attributed to the graph reuse optimization from these failures.
+- **Final acceptance:** Parent ran all 63 real-SQLite tests, full mobile Jest
+  39 suites / 387 tests and static/root checks. Owner confirmed the optimized
+  recheck completes with unchanged journeys/labels. Paired fixed timings show
+  the second-pass phase at 0.001 s versus 16.832 s before reuse; retry 35.890 s
+  versus 54.068 s. Preserve the one-pair measurement limit and keep rejection
+  constraints on the two-pass path. Profiling disabled after capture.
+
+## Rebuild processing profile patch envelope (2026-10-21)
+
+- **Evidence/cause:** The first combined patch omitted its required terminal
+  `End Patch` marker. The tool rejected it before writing any file or running
+  a check.
+- **Correction/prevention:** Resubmitted the exact scoped changes with a complete
+  patch envelope; verify patch closure before execution. No source loss or
+  runtime incident. Expected regression RED is recorded in the delivery spec.
+- **Status:** Resolved: patch applied; 52 real-SQLite tests, full mobile Jest
+  39 suites / 386 tests, typecheck/lint, root check and whitespace checks pass.
+- **Capture tooling:** One long inline host capture returned exit 1 without
+  output; its cause is unknown and no device result can be inferred. PID and
+  transport checks passed afterward. Moved the parser into an ignored local
+  PowerShell file, retained raw logs only in memory, and successfully returned
+  fully paired fixed events for the owner-confirmed completed recheck. Prefer
+  inspectable local scripts over long inline capture commands.
+- **Reuse-test fixture:** The first post-change branch test seeded a rejection
+  against absent support; correct baseline mapping rejected it before the second
+  engine pass. Replaced the isolated call-count branch fixture with a graph whose
+  support actually matches. Focused test now passes for one unconstrained pass
+  and two constrained passes; real SQLite correction parity is independently
+  required. Never weaken remap validation to satisfy a malformed fixture.
+
+## Destination computation test cache path (2026-10-21)
+
+- **Evidence/cause:** The first focused Jest invocation selected a cache outside
+  the authorized workspace and failed with mkdir `EPERM` before test collection.
+  No assertion or production behavior was evaluated.
+- **Correction:** Use the existing ignored repository-local `.jest-cache-codex`
+  path with the complete absolute path quoted for its space.
+- **Prevention:** Resolve cache paths within workspace write roots before running
+  Jest; this tooling failure is not valid TDD RED evidence.
+- **Status:** Resolved: repository-local cache ran the intended regression RED
+  (4,758 cosine calls exceeded the 291-area bound), then GREEN after hoisting.
+  Full mobile Jest also completed with 39 suites / 385 tests passing.
+- **Verification follow-up:** A repository grouping fixture guessed a wider
+  region name for the Paris point; the bundled public dataset resolves it to
+  `Paris, France`. Corrected the fixture expectation, preserving the production
+  label/dataset. Verify exact bundled labels before authoring golden assertions;
+  this setup failure is not a production regression or intended TDD RED.
+- **Metro preflight recurrence:** Sandboxed netstat did not show the host Metro
+  listener. A new server attempt therefore failed on occupied port 8085 before
+  starting. Host inspection identified the existing Travel Life Expo process.
+  Use host listener/process/status preflight before starting or replacing Metro;
+  do not assume an empty sandbox network inventory means the port is free.
+- **Verified follow-up:** Corrected grouping fixture passes in its 50-test
+  repository suite; typecheck/lint also pass. Host Metro restart succeeded after
+  process identity was checked, and the served resolver/probe were verified.
+- **Reviewer tooling recurrence:** Blind reviewer first searched an assumed
+  nonexistent test directory, then located the file with `rg --files`. No source
+  changed or check ran at the bad path. Prevention: discover actual paths before
+  narrowing searches, including during review.
+- **Capture-parser correction:** The first safe epoch-event parser assumed
+  timestamps start in column one and returned no events despite available
+  diagnostic markers. Android logcat prefixes them with whitespace. Accept
+  leading whitespace, retain only closed operation/reason/stage/correlation
+  fields and timestamps, then pair phases in correlation/occurrence order.
+  Corrected capture found the completed retry and fully paired profile events;
+  owner independently confirmed completion and unchanged labels. Raw logs stay
+  in memory and are never persisted.
+
+## Atlas phase profiling implementation checks (2026-10-21)
+
+- **Evidence/cause:** The profiling workflow read step 2 before step 1; returned
+  to step 1 before writing source. The first TDD run imported a nonexistent helper
+  and collected zero tests; added its no-op interface and captured two real RED
+  assertions before implementation. An edit command invoked the unavailable
+  Windows Store Python alias; no repository edit ran. Used the verified bundled
+  interpreter instead. A sandbox CIM process read was denied; it supplied no
+  process evidence. No private data was accessed by these failures.
+- **Correction:** A stage-transition closure initially defeated TypeScript control
+  flow narrowing in the durable-read catch. Preserve explicit stage assignments
+  and add profiling calls beside them, leaving error classification intact.
+- **Prevention:** Follow rendered workflow order; establish an importable TDD
+  interface before RED; resolve runtime executables first; use host process
+  inspection only when needed. Keep diagnostic stage assignments visible to
+  TypeScript and verify both early-return and error branches.
+- **Status:** Tooling/typing incidents resolved; owner-operated profiling complete.
+- **Verified correction:** Full mobile Jest 39 suites / 383 tests, helper coverage
+  100%, real SQLite 51 tests, TypeScript/lint, root check and diff checks pass.
+  Review coverage additions also pass. Owner confirmed recheck completion and
+  paired fixed events localize destination work to 11.276 s of an 11.478 s durable
+  read. This is phase attribution, not evidence of a speed improvement.
+- **Review/tooling follow-up:** Reviewer tried a nonexistent root SQLite-script
+  path before locating `apps/mobile/scripts/atlas-sqlite.test.cjs`; no check ran
+  at the wrong path. A lazy entry-bundle scan omitted probe and recovery module
+  bodies; direct module requests verified code presence. Expo rewrites public
+  environment references through its virtual environment, so a literal inlining
+  regex is not proof the flag is disabled. Require actual fixed profile events
+  from the fresh device process before interpreting durations.
+- **Phase-split result:** Fresh owner recheck completed. Fixed paired events put
+  1.096 s in the unchanged support query and 10.422 s in unchanged destination
+  computation. This prevents an unproven SQLite-index change; profile the
+  computation substeps before altering evidence or label semantics. One review
+  worker was interrupted without a result; replacement review is pending.
+- **Verification harness incident:** A first hidden full-Jest launch reused one
+  file for stdout and stderr and PowerShell rejected it before the runner began.
+  Two corrected hidden launches then exited without a child process or any output
+  under this host. The direct full-Jest invocation reached passing suites but the
+  host returned at its 30-second limit without a final summary. **Correction:**
+  Do not count these as full-suite passes; retain focused Jest, real-SQLite,
+  typecheck, lint and root-check evidence. **Prevention:** Use the configured
+  interactive runner or an approved host process boundary that returns an exit
+  code before claiming a long Windows Jest run passed.
+- **Review-worker incident:** Two blind reviewers were interrupted after no
+  response. **Correction:** Performed direct diff review and recorded the lack
+  of independent findings honestly. **Prevention:** Keep reviewer scope short
+  and time-bound; never infer a clean review from a worker that did not report.
+
 This is the project's durable record of mistakes and their prevention. The
 mandatory workflow is defined in `AGENTS.md`. Read this index before implementation
 or verification, then read entries relevant to the intended work. Search by affected
@@ -49,6 +340,13 @@ area, symptom, command, and rule when an incident occurs.
 - **Verification / prevention:** Full suite must verify the rendered cluster-to-chooser route, not infer it from a Timeline selection.
 
 ### Android ADB daemon unavailable (2026-10-18)
+
+- **Recurrence (2026-10-21, destination computation):** Sandboxed device preflight
+  again failed to start the host ADB daemon before reaching a device. This is an
+  external transport failure, not application failure or device validation.
+  Retry at the approved host boundary; do not repeat the unchanged sandbox call.
+  Host retry found the connected device and restored USB routing; transport is
+  available for this run. This is not owner-operated application acceptance.
 
 - **Symptom/evidence:** Device preflight failed before listing devices: `adb.exe` could not start/connect to its server.
 - **Cause:** Unknown host Android Debug Bridge daemon state; no application code, device data or build was changed.
@@ -2001,6 +2299,12 @@ results for Expo Doctor and do not retry unchanged registry access repeatedly.
 
 ## Consolidation staged whitespace regression (2026-10-21)
 
+**Publication recurrence:** The final staged audit found an extra blank line at
+EOF in the previously untracked M4.3 delivery spec. Removed only the trailing
+blank line and reran the complete staged whitespace audit before committing.
+Strengthen prevention: include newly tracked specs in the final staged audit;
+tracked-only working-tree checks cannot cover them.
+
 The first complete staged-diff whitespace audit found trailing spaces on the
 date line of the retained performance architecture review. This is a delivery
 artifact formatting defect introduced into the consolidated candidate, not an
@@ -2040,3 +2344,19 @@ an `ImportRepository & Pick<MaintenanceRepository, ...>` intersection. A
 single-file TypeScript project check and the 20-test provider suite pass.
 **Prevention:** when a test needs an optional runtime capability, retain the base
 fixture's contextual contract and extend it narrowly instead of removing its type.
+
+## Inventory used the untracked-only preservation tree as a full-source baseline (2026-10-21)
+
+- **Symptom/evidence:** A post-consolidation comparison against `codex/preserve-main-wip-untracked-2026-10-21` produced an oversized diff that appeared to add the whole mobile application. No application change or Git mutation occurred.
+- **Cause:** A stash's untracked-only parent contains captured untracked files, not the tracked working-tree snapshot. Treating it as the full baseline gives a false scope.
+- **Correction / verification:** Inspected the named tracked snapshot and its tree, compared tracked source against `codex/preserve-main-wip-2026-10-21`, and compared only captured untracked files against the complementary ref. Confirmed the actual production deltas and documented the integrated scopes. Current HEAD and clean audit-start status were read directly; root checks pass.
+- **Prevention:** Before a snapshot comparison, verify its parent/tree role and the presence of the target paths. Use the tracked and untracked preservation trees for their respective file sets; never infer implementation scope from a truncated, oversized diff.
+
+## Final consolidated device acceptance has no connected Android device (2026-10-21)
+
+- **Status / ownership:** Resolved: owner reconnected the device and confirmed consolidated Android import/Atlas completion. This was an external availability blocker, not an application regression.
+- **Evidence:** Host ADB lists no devices; querying the previously known reverse mapping returns device unavailable. Metro is running and mobile source matches consolidation HEAD `cd889c98946b067cefd8af303a36b09d8fdeedd7`.
+- **Action / prevention:** Requested owner reconnection/unlock. No device operation or source repair was attempted. Check enumeration before addressing a specific device, and keep final-bundle acceptance pending rather than reusing earlier recovery acceptance for later source changes.
+- **Reconnection verification:** Enumeration now succeeds. Restored USB Metro routing and reopened only the app process on the verified consolidated modules; no storage reset or reinstall. Owner import/Atlas result is the remaining evidence.
+- **Diagnostic-format limitation:** `logcat -v monotonic` produced `dmesg: klogctl: Permission denied` on this device. Switched to supported epoch formatting without changing permissions; fixed-event reads returned no matching fresh events yet. Do not infer a completed operation, duration, or application defect from that empty capture. Prefer supported timestamp formats and preserve the owner's actual click-and-wait result separately.
+- **Final acceptance evidence:** Owner confirmed `Import and Atlas check both complete`; fresh epoch-format events now corroborate `METADATA_IMPORT COMPLETE`, `ATLAS_UPDATED`, and `ATLAS_REVEAL_RETRY COMPLETE` with matching parent correlations. This closes the connection/acceptance blocker for those Android flows. The observed 41.6 s import, 104.6 s import-through-Atlas and 65.7 s recheck are one-run baselines, not a speed improvement or proof of a particular bottleneck. Profile the post-rebuild read/publication interval before choosing another performance patch.

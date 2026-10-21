@@ -49,6 +49,7 @@ const { classifyAppDiagnosticError } = require(path.join(sourceRoot, 'diagnostic
 function syntheticDatabase() {
   const sqlite = new DatabaseSync(':memory:');
   const statements = [];
+  const calls = [];
   const failures = [];
   let injectedFailure = null;
   let beforeStatement = null;
@@ -73,7 +74,11 @@ function syntheticDatabase() {
     getFirstAsync: async (sql, ...parameters) => execute(sql, () => sqlite.prepare(sql).get(...parameters) ?? null),
     getAllAsync: async (sql, ...parameters) => execute(sql, () => sqlite.prepare(sql).all(...parameters)),
   };
-  return { sqlite, adapter, statements, failures,
+  for (const method of Object.keys(adapter)) {
+    const original = adapter[method];
+    adapter[method] = (...args) => { calls.push([method, ...args]); return original(...args); };
+  }
+  return { sqlite, adapter, statements, calls, failures,
     beforeNext: (pattern, action) => { beforeStatement = { pattern, action }; },
     failOnce: (pattern, error = new Error('Synthetic SQLite operation failure.')) => { injectedFailure = { pattern, error }; } };
 }
@@ -103,6 +108,369 @@ function syntheticCandidates() {
 async function importSyntheticEvidence(repository) {
   await repository.commitPage({ scope: 'full', nextOffset: 3, scanned: 3, geotagged: 3, unavailable: 0, status: 'complete' }, syntheticCandidates());
 }
+
+test('reviewed privacy hides manual records durably, restores, and delete-all clears policies', async () => withDatabase(async (database) => {
+  const importer = createNativeImportRepository();
+  await importer.connectPrivateRecord();
+  const repository = createNativeReconstructionRepository();
+  const created = await repository.createManualJourney(manualJourney());
+  const displayId = typeof created === 'string' ? created : created.displayId;
+  assert.equal(typeof repository.reviewJourneyPrivacy, 'function', 'Reviewed privacy commands must exist');
+  const review = await repository.reviewJourneyPrivacy(displayId, 0);
+  assert.equal(review.ownerEntered, true);
+  await assert.rejects(repository.saveJourneyPrivacy(review.reviewId, 'exclude', 'manual-exclude'));
+  await repository.saveJourneyPrivacy(review.reviewId, 'hide', 'manual-hide');
+  assert.equal((await repository.loadDurableReveal()).journeys.length, 0);
+  await assert.rejects(repository.loadJourneyDetail(displayId));
+  const restarted = createNativeReconstructionRepository();
+  const policies = await restarted.loadJourneyPrivacyPolicies();
+  assert.equal(policies.length, 1);
+  await restarted.restoreJourneyPrivacy(policies[0].policyId, policies[0].revision, 'manual-restore');
+  assert.equal((await restarted.loadDurableReveal()).journeys.length, 1);
+  await importer.deleteLocalHistory();
+  assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS count FROM journey_privacy_revision').get().count, 0);
+}));
+
+test('reviewed privacy filters all inferred reads, visible statistics and stale selections through rescan', async () => withDatabase(async (database) => {
+  const repository = createNativeReconstructionRepository();
+  const { displayId, review } = await prepareConfirmedJourney(database, repository);
+  const eligible = await repository.loadJourneyEligibility(displayId, review.snapshotToken, 'share');
+  assert.equal(eligible.eligible, true);
+  const scope = await repository.reviewJourneyPrivacy(displayId, review.snapshotToken);
+  assert.equal(scope.supportingPhotoCount, 3);
+  await repository.saveJourneyPrivacy(scope.reviewId, 'hide', 'inferred-hide');
+  await repository.saveJourneyPrivacy(scope.reviewId, 'hide', 'inferred-hide');
+  const hidden = await repository.loadDurableReveal();
+  assert.equal(hidden.journeys.length, 0);
+  assert.equal(hidden.statistics.journeyCount, 0);
+  assert.equal(hidden.statistics.placeCount, 0);
+  assert.equal(hidden.statistics.supportedCountryCount, 0);
+  await assert.rejects(repository.loadJourneyDetail(displayId));
+  await assert.rejects(repository.loadJourneyMediaPage(displayId, review.snapshotToken, 0));
+  await assert.rejects(repository.loadUncertainMemories(displayId, review.snapshotToken));
+  assert.equal((await repository.loadJourneyEligibility(displayId, review.snapshotToken, 'share', eligible.privacyRevision)).eligible, false);
+  await importSyntheticEvidence(createNativeImportRepository());
+  await repository.rebuild(3500);
+  assert.equal((await repository.loadDurableReveal()).journeys.length, 0);
+  database.sqlite.exec("INSERT OR REPLACE INTO maintenance_change_queue (asset_id, change_kind, source_revision) VALUES ('synthetic-source-0', 'modified', 99)");
+  await repository.reconcileQueued(3550);
+  assert.equal((await repository.loadDurableReveal()).journeys.length, 0);
+  const policies = await repository.loadJourneyPrivacyPolicies();
+  await repository.restoreJourneyPrivacy(policies[0].policyId, policies[0].revision, 'inferred-restore');
+  assert.equal((await repository.loadDurableReveal()).journeys.length, 1);
+}));
+
+test('reviewed privacy excludes inputs and membership and preserves failed-write atomicity', async () => withDatabase(async (database) => {
+  const repository = createNativeReconstructionRepository();
+  const { displayId, review } = await prepareConfirmedJourney(database, repository);
+  const scope = await repository.reviewJourneyPrivacy(displayId, review.snapshotToken);
+  database.failOnce(/INSERT INTO journey_privacy_revision/);
+  await assert.rejects(repository.saveJourneyPrivacy(scope.reviewId, 'exclude', 'exclude-failure'));
+  assert.equal((await repository.loadJourneyPrivacyPolicies()).length, 0);
+  assert.equal((await repository.loadDurableReveal()).journeys.length, 1);
+  await repository.saveJourneyPrivacy(scope.reviewId, 'exclude', 'inferred-exclude');
+  const graph = await repository.rebuild(3600);
+  assert.equal(graph.journeys.length, 0);
+  assert.equal(graph.memberships.length, 0);
+  assert.equal((await repository.loadDurableReveal()).journeys.length, 0);
+  assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS count FROM canonical_evidence').get().count, 3);
+  assert.ok(database.sqlite.prepare('SELECT COUNT(*) AS count FROM journey_correction_revision').get().count > 0);
+  const policy = (await repository.loadJourneyPrivacyPolicies())[0];
+  await repository.restoreJourneyPrivacy(policy.policyId, policy.revision, 'restore-exclusion');
+  await repository.rebuild(3700);
+  assert.equal((await repository.loadDurableReveal()).journeys.length, 1);
+}));
+
+test('reviewed privacy rejects stale scopes and validates retained policy layout', async () => withDatabase(async (database) => {
+  const repository = createNativeReconstructionRepository();
+  const { displayId, review } = await prepareConfirmedJourney(database, repository);
+  const scope = await repository.reviewJourneyPrivacy(displayId, review.snapshotToken);
+  await repository.rebuild(3800);
+  await assert.rejects(repository.saveJourneyPrivacy(scope.reviewId, 'hide', 'stale-hide'));
+  assert.equal((await repository.loadJourneyPrivacyPolicies()).length, 0);
+  database.sqlite.exec('DROP TABLE journey_privacy_revision; UPDATE import_schema_version SET version = 99');
+  await ensureNativeImportSchema(database.adapter);
+  assert.equal(database.sqlite.prepare('SELECT version FROM import_schema_version').get().version, 99);
+  database.sqlite.exec('DROP TABLE journey_privacy_revision; CREATE TABLE journey_privacy_revision (revision INTEGER)');
+  await assert.rejects(ensureNativeImportSchema(database.adapter), (error) => error.name === 'LocalAtlasSchemaRecoveryError');
+}));
+
+test('reviewed privacy protects ambiguous successor split and merged scope without assigning by journey id', async () => withDatabase(async (database) => {
+  const repository = createNativeReconstructionRepository();
+  const { displayId, review } = await prepareConfirmedJourney(database, repository);
+  const scope = await repository.reviewJourneyPrivacy(displayId, review.snapshotToken);
+  await repository.saveJourneyPrivacy(scope.reviewId, 'hide', 'hide-lineage');
+  const prior = database.sqlite.prepare('SELECT journey_id, run_id FROM reconstruction_journey LIMIT 1').get();
+  for (const successor of ['synthetic-split-a', 'synthetic-split-b']) {
+    database.sqlite.prepare("INSERT INTO reconstruction_journey (journey_id, run_id, journey_state) VALUES (?, ?, 'inferred')").run(successor, prior.run_id);
+    database.sqlite.prepare("INSERT INTO reconstruction_trip_qualification (run_id, journey_id, classification, score, reasons_json) VALUES (?, ?, 'USER_CONFIRMED', 0, '[]')").run(prior.run_id, successor);
+    database.sqlite.prepare("INSERT INTO reconstruction_link (run_id, link_kind, parent_id, child_id) SELECT run_id, link_kind, ?, child_id FROM reconstruction_link WHERE run_id = ? AND parent_id = ? AND link_kind = 'journey-visit'").run(successor, prior.run_id, prior.journey_id);
+  }
+  database.sqlite.prepare('DELETE FROM reconstruction_journey WHERE journey_id = ?').run(prior.journey_id);
+  database.sqlite.prepare('DELETE FROM reconstruction_trip_qualification WHERE journey_id = ?').run(prior.journey_id);
+  database.sqlite.prepare("DELETE FROM reconstruction_link WHERE parent_id = ? AND link_kind = 'journey-visit'").run(prior.journey_id);
+  assert.equal((await createNativeReconstructionRepository().loadDurableReveal()).journeys.length, 0);
+  const policies = await repository.loadJourneyPrivacyPolicies();
+  assert.equal(policies.length, 1);
+  assert.equal(policies[0].status, 'protected');
+  database.sqlite.exec("UPDATE reconstruction_journey SET journey_id = 'synthetic-merged' WHERE journey_id = 'synthetic-split-a'; UPDATE reconstruction_trip_qualification SET journey_id = 'synthetic-merged' WHERE journey_id = 'synthetic-split-a'; UPDATE reconstruction_link SET parent_id = 'synthetic-merged' WHERE parent_id = 'synthetic-split-a'");
+  assert.equal((await createNativeReconstructionRepository().loadDurableReveal()).journeys.length, 0);
+  await repository.restoreJourneyPrivacy(policies[0].policyId, policies[0].revision, 'restore-lineage');
+  assert.equal((await repository.loadDurableReveal()).journeys.length, 2);
+}));
+
+test('reviewed privacy freezes reviewed duplicate input scope and withholds later family additions', async () => withDatabase(async (database) => {
+  const repository = createNativeReconstructionRepository();
+  const { displayId, review } = await prepareConfirmedJourney(database, repository, () => {
+    database.sqlite.exec("UPDATE canonical_evidence SET platform_duplicate_family_id = 'synthetic-family', duplicate_tuple_version = 1, duplicate_tuple_fingerprint = 'synthetic-tuple' WHERE evidence_id IN ('synthetic-source-0', 'synthetic-source-1')");
+  });
+  const scope = await repository.reviewJourneyPrivacy(displayId, review.snapshotToken);
+  assert.equal(scope.duplicateFamilyCount, 1);
+  assert.ok(scope.duplicatePhotoCount > 0);
+  await repository.saveJourneyPrivacy(scope.reviewId, 'exclude', 'exclude-family');
+  const stored = database.sqlite.prepare("SELECT reviewed_evidence_json FROM journey_privacy_revision WHERE policy_id = 'exclude-family'").get().reviewed_evidence_json;
+  const source = database.sqlite.prepare("SELECT * FROM canonical_evidence WHERE evidence_id = 'synthetic-source-0'").get();
+  insertCompatible(database, 'canonical_evidence', { ...source, evidence_id: 'synthetic-family-new', source_ref: 'synthetic-family-new' });
+  await repository.rebuild(3900);
+  assert.equal((await repository.loadDurableReveal()).journeys.length, 0);
+  assert.equal(database.sqlite.prepare("SELECT reviewed_evidence_json FROM journey_privacy_revision WHERE policy_id = 'exclude-family'").get().reviewed_evidence_json, stored);
+  assert.ok(!JSON.parse(stored).includes('synthetic-family-new'));
+  assert.equal((await repository.loadJourneyPrivacyPolicies()).length, 1);
+}));
+
+test('reviewed privacy rolls back a lifecycle race and failed durable read-back', async () => withDatabase(async (database) => {
+  const importer = createNativeImportRepository(); await importer.connectPrivateRecord();
+  const repository = createNativeReconstructionRepository();
+  const displayId = await repository.createManualJourney(manualJourney());
+  const scope = await repository.reviewJourneyPrivacy(displayId, 0);
+  database.beforeNext(/INSERT INTO journey_privacy_revision/, () => database.sqlite.exec("UPDATE private_record_lifecycle SET state = 'disconnected'"));
+  await assert.rejects(repository.saveJourneyPrivacy(scope.reviewId, 'hide', 'lifecycle-hide'));
+  assert.equal((await repository.loadJourneyPrivacyPolicies()).length, 0);
+  assert.equal((await repository.loadDurableReveal()).journeys.length, 1);
+  database.beforeNext(/INSERT INTO journey_privacy_revision/, () => database.failOnce(/SELECT \* FROM journey_privacy_revision WHERE command_key/));
+  await assert.rejects(repository.saveJourneyPrivacy(scope.reviewId, 'hide', 'readback-hide'));
+  assert.equal((await repository.loadJourneyPrivacyPolicies()).length, 0);
+}));
+
+test('reviewed privacy binds an idempotent command to its original reviewed target', async () => withDatabase(async () => {
+  const importer = createNativeImportRepository(); await importer.connectPrivateRecord();
+  const repository = createNativeReconstructionRepository();
+  const first = await repository.createManualJourney(manualJourney());
+  const firstReview = await repository.reviewJourneyPrivacy(first, 0);
+  await repository.saveJourneyPrivacy(firstReview.reviewId, 'hide', 'bound-hide-command');
+  await repository.saveJourneyPrivacy(firstReview.reviewId, 'hide', 'bound-hide-command');
+  const second = await repository.createManualJourney({ ...manualJourney(), commandKey: 'synthetic-second-manual', date: { kind: 'exact', day: '2021-01-01' } });
+  const secondReview = await repository.reviewJourneyPrivacy(second, 0);
+  await assert.rejects(repository.saveJourneyPrivacy(secondReview.reviewId, 'hide', 'bound-hide-command'));
+  assert.equal((await repository.loadDurableReveal()).journeys[0].displayId, second);
+}));
+
+function addPrivacySibling(database, sibling, { overlap = false } = {}) {
+  const original = database.sqlite.prepare('SELECT * FROM reconstruction_journey LIMIT 1').get();
+  const visit = database.sqlite.prepare('SELECT * FROM reconstruction_visit LIMIT 1').get();
+  const place = database.sqlite.prepare('SELECT * FROM reconstruction_place LIMIT 1').get();
+  const source = database.sqlite.prepare('SELECT * FROM canonical_evidence LIMIT 1').get();
+  const evidenceId = overlap ? source.evidence_id : `${sibling}-source`;
+  if (!overlap) insertCompatible(database, 'canonical_evidence', { ...source, evidence_id: evidenceId, source_ref: evidenceId });
+  insertCompatible(database, 'reconstruction_place', { ...place, place_id: `${sibling}-place`, representative_evidence_id: evidenceId });
+  insertCompatible(database, 'reconstruction_visit', { ...visit, visit_id: `${sibling}-visit`, place_id: `${sibling}-place` });
+  insertCompatible(database, 'reconstruction_journey', { ...original, journey_id: sibling });
+  database.sqlite.prepare("INSERT INTO reconstruction_trip_qualification (run_id, journey_id, classification, score, reasons_json) VALUES (?, ?, 'USER_CONFIRMED', 0, '[]')").run(original.run_id, sibling);
+  database.sqlite.prepare("INSERT INTO reconstruction_link (run_id, link_kind, parent_id, child_id) VALUES (?, 'journey-visit', ?, ?), (?, 'visit-support', ?, ?)").run(original.run_id, sibling, `${sibling}-visit`, original.run_id, `${sibling}-visit`, evidenceId);
+}
+
+test('reviewed privacy fallback scopes stay independent after hide A hide B restore A', async () => withDatabase(async (database) => {
+  const repository = createNativeReconstructionRepository();
+  const { displayId, review } = await prepareConfirmedJourney(database, repository);
+  addPrivacySibling(database, 'fallback-sibling');
+  const otherId = await repository.createManualJourney({ ...manualJourney(), commandKey: 'other-fallback', date: { kind: 'exact', day: '2021-01-01' } });
+  const beforeOverlap = await repository.loadDurableReveal();
+  const siblingId = beforeOverlap.journeys.find((journey) => journey.displayId !== displayId && journey.displayId !== otherId).displayId;
+  addPrivacySibling(database, 'fallback-overlapping', { overlap: true });
+  const prior = await repository.loadDurableReveal();
+  const scopeA = await repository.reviewJourneyPrivacy(displayId, review.snapshotToken);
+  assert.equal(scopeA.affectedJourneyCount, 2);
+  await repository.saveJourneyPrivacy(scopeA.reviewId, 'hide', 'fallback-A');
+  const protectedPrior = await repository.applyJourneyPrivacyToRecord(prior);
+  assert.equal(protectedPrior.journeys.length, 2);
+  assert.ok(protectedPrior.journeys.some((journey) => journey.displayId === otherId));
+  const scopeB = await repository.reviewJourneyPrivacy(siblingId, review.snapshotToken);
+  await repository.saveJourneyPrivacy(scopeB.reviewId, 'hide', 'fallback-B');
+  const policyA = (await repository.loadJourneyPrivacyPolicies()).find((row) => row.policyId === 'fallback-A');
+  await repository.restoreJourneyPrivacy(policyA.policyId, policyA.revision, 'restore-fallback-A');
+  const filtered = await repository.applyJourneyPrivacyToRecord(prior);
+  assert.ok(filtered.journeys.some((journey) => journey.displayId === displayId));
+  assert.ok(filtered.journeys.some((journey) => journey.displayId === otherId));
+  assert.ok(!filtered.journeys.some((journey) => journey.displayId === siblingId));
+  assert.equal(filtered.statistics, null);
+}));
+
+test('reviewed privacy rejects cached home and memory selections before writing revisions', async () => withDatabase(async (database) => {
+  const repository = createNativeReconstructionRepository();
+  const { displayId, review } = await prepareConfirmedJourney(database, repository);
+  const visit = database.sqlite.prepare("SELECT child_id FROM reconstruction_link WHERE link_kind = 'journey-visit' LIMIT 1").get().child_id;
+  const memoryId = review.detail.memories[0].id;
+  const scope = await repository.reviewJourneyPrivacy(displayId, review.snapshotToken);
+  await repository.saveJourneyPrivacy(scope.reviewId, 'hide', 'hide-cached-target');
+  const start = database.calls.length;
+  await assert.rejects(repository.saveConfiguredHomeAreaFromJourney(displayId, 'stale-home', visit, 'Synthetic home', null, null));
+  await assert.rejects(repository.saveJourneyMemoryCorrection(displayId, memoryId, 'assign', review.snapshotToken, 'stale-memory'));
+  assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS count FROM configured_home_area').get().count, 0);
+  assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS count FROM journey_memory_correction_revision').get().count, 0);
+  assert.ok(!database.calls.slice(start).some(([, sql]) => /INSERT INTO (configured_home_area|journey_memory_correction_revision)/.test(sql)));
+}));
+
+for (const action of ['assign', 'move', 'reject', 'unassign']) test(`reviewed privacy exclusion suspends dependent ${action} memory activation and restores it`, async () => withDatabase(async (database) => {
+  const repository = createNativeReconstructionRepository();
+  let { displayId, review } = await prepareConfirmedJourney(database, repository);
+  await repository.saveJourneyMemoryCorrection(displayId, review.detail.memories[0].id, action, review.snapshotToken, `memory-${action}`);
+  const revealed = await repository.loadDurableReveal();
+  displayId = revealed.journeys[0].displayId;
+  review = await repository.loadJourneyDetail(displayId);
+  const revisions = database.sqlite.prepare('SELECT * FROM journey_memory_correction_revision').all();
+  const scope = await repository.reviewJourneyPrivacy(displayId, review.snapshotToken);
+  await repository.saveJourneyPrivacy(scope.reviewId, 'exclude', `exclude-with-${action}`);
+  const graph = await repository.rebuild(4100);
+  assert.equal(graph.journeys.length, 0);
+  assert.deepEqual(database.sqlite.prepare('SELECT * FROM journey_memory_correction_revision').all(), revisions);
+  const policy = (await repository.loadJourneyPrivacyPolicies())[0];
+  await repository.restoreJourneyPrivacy(policy.policyId, policy.revision, `restore-with-${action}`);
+  await repository.rebuild(4200);
+  assert.equal((await repository.loadDurableReveal()).journeys.length, 1);
+  assert.deepEqual(database.sqlite.prepare('SELECT * FROM journey_memory_correction_revision').all(), revisions);
+  const latest = database.sqlite.prepare("SELECT MAX(run_id) AS run_id FROM reconstruction_run WHERE status = 'complete'").get().run_id;
+  assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS count FROM journey_memory_correction_application WHERE run_id = ?').get(latest).count, 1);
+}));
+
+test('reviewed privacy exclusion suspends memory activation by reviewed support while its source stays included', async () => withDatabase(async (database) => {
+  const repository = createNativeReconstructionRepository();
+  let { displayId, review } = await prepareConfirmedJourney(database, repository);
+  const source = database.sqlite.prepare('SELECT * FROM canonical_evidence LIMIT 1').get();
+  insertCompatible(database, 'canonical_evidence', { ...source, evidence_id: 'support-dependent-memory', source_ref: 'support-dependent-memory', latitude: null, longitude: null });
+  const candidates = await repository.loadUncertainMemories(displayId, review.snapshotToken);
+  await repository.saveJourneyMemoryCorrection(displayId, candidates.memories[0].id, 'assign', review.snapshotToken, 'support-dependent-correction');
+  displayId = (await repository.loadDurableReveal()).journeys[0].displayId;
+  review = await repository.loadJourneyDetail(displayId);
+  const scope = await repository.reviewJourneyPrivacy(displayId, review.snapshotToken);
+  await repository.saveJourneyPrivacy(scope.reviewId, 'exclude', 'exclude-support-dependent');
+  const storedScope = JSON.parse(database.sqlite.prepare("SELECT reviewed_evidence_json FROM journey_privacy_revision WHERE policy_id = 'exclude-support-dependent'").get().reviewed_evidence_json);
+  assert.ok(!storedScope.includes('support-dependent-memory'));
+  await repository.rebuild(4300);
+  assert.equal(database.sqlite.prepare("SELECT COUNT(*) AS count FROM journey_memory_correction_revision WHERE command_key = 'support-dependent-correction' AND state = 'effective'").get().count, 1);
+  const policy = (await repository.loadJourneyPrivacyPolicies())[0];
+  await repository.restoreJourneyPrivacy(policy.policyId, policy.revision, 'restore-support-dependent');
+  await repository.rebuild(4400);
+  assert.equal((await repository.loadDurableReveal()).journeys.length, 1);
+}));
+
+test('reviewed privacy exclusion preserves a persisted split and restores its activation', async () => withDatabase(async (database) => {
+  const repository = createNativeReconstructionRepository();
+  await prepareConfirmedJourney(database, repository);
+  const initial = database.sqlite.prepare('SELECT journey_id, run_id FROM reconstruction_journey LIMIT 1').get();
+  // A valid persisted boundary fixture, matching the existing graph-reuse case.
+  // This does not establish native split entry/acceptance.
+  insertCompatible(database, 'journey_correction_revision', {
+    revision_id: 'privacy-effective-split', action: 'split', source_run_id: initial.run_id,
+    journey_id: initial.journey_id, reviewed_support_json: JSON.stringify(['E:synthetic-source-0']),
+    reviewed_visits_json: JSON.stringify([['E:synthetic-source-0']]),
+    structural_boundary_json: JSON.stringify(['E:synthetic-source-0']), state: 'effective',
+    created_at_millis: 1, command_key: 'privacy-effective-split',
+  });
+  const splitGraph = await repository.rebuild(4500);
+  assert.ok(splitGraph.journeys.length > 0);
+  database.sqlite.exec("UPDATE reconstruction_trip_qualification SET classification = 'USER_CONFIRMED'");
+  const afterSplit = await repository.loadDurableReveal();
+  const details = await Promise.all(afterSplit.journeys.map((journey) => repository.loadJourneyDetail(journey.displayId)));
+  const detail = details.find((loaded) => loaded.detail.visits.some((visit) => visit.label === '2025-01-02'));
+  const scope = await repository.reviewJourneyPrivacy(detail.detail.id, detail.snapshotToken);
+  const revisions = database.sqlite.prepare('SELECT * FROM journey_correction_revision').all();
+  await repository.saveJourneyPrivacy(scope.reviewId, 'exclude', 'exclude-owner-split');
+  await repository.rebuild(4600);
+  assert.deepEqual(database.sqlite.prepare('SELECT * FROM journey_correction_revision').all(), revisions);
+  const policy = (await repository.loadJourneyPrivacyPolicies())[0];
+  await repository.restoreJourneyPrivacy(policy.policyId, policy.revision, 'restore-owner-split');
+  const restored = await repository.rebuild(4700);
+  assert.equal(restored.journeys.length, splitGraph.journeys.length);
+  assert.deepEqual(database.sqlite.prepare('SELECT * FROM journey_correction_revision').all(), revisions);
+}));
+
+test('reviewed privacy rejects malformed stored policy rows across reads and restore', async () => withDatabase(async (database) => {
+  const repository = createNativeReconstructionRepository();
+  const { displayId, review } = await prepareConfirmedJourney(database, repository);
+  const scope = await repository.reviewJourneyPrivacy(displayId, review.snapshotToken);
+  await repository.saveJourneyPrivacy(scope.reviewId, 'hide', 'malformed-policy');
+  database.sqlite.exec("PRAGMA ignore_check_constraints = ON; UPDATE journey_privacy_revision SET action = 'synthetic-invalid-action'");
+  await assert.rejects(repository.loadDurableReveal());
+  await assert.rejects(repository.loadJourneyPrivacyPolicies());
+  await assert.rejects(repository.restoreJourneyPrivacy('malformed-policy', 1, 'restore-malformed'));
+}));
+
+test('reviewed privacy rejects a cached memory protected by a different hidden journey', async () => withDatabase(async (database) => {
+  const repository = createNativeReconstructionRepository();
+  const { displayId, review } = await prepareConfirmedJourney(database, repository);
+  addPrivacySibling(database, 'memory-sibling');
+  const source = database.sqlite.prepare('SELECT * FROM canonical_evidence LIMIT 1').get();
+  insertCompatible(database, 'canonical_evidence', { ...source, evidence_id: 'synthetic-uncertain-private', source_ref: 'synthetic-uncertain-private', latitude: null, longitude: null });
+  const rawA = database.sqlite.prepare("SELECT journey_id FROM reconstruction_journey WHERE journey_id <> 'memory-sibling'").get().journey_id;
+  database.sqlite.prepare("INSERT INTO reconstruction_link (run_id, link_kind, parent_id, child_id) VALUES (?, 'membership:inferred:ordered-24-hour-bracket', ?, 'synthetic-uncertain-private')").run(review.snapshotToken, rawA);
+  const prior = await repository.loadDurableReveal();
+  const siblingId = prior.journeys.find((journey) => journey.displayId !== displayId).displayId;
+  const memoryPage = await repository.loadUncertainMemories(siblingId, review.snapshotToken);
+  assert.equal(memoryPage.memories.length, 1);
+  const scope = await repository.reviewJourneyPrivacy(displayId, review.snapshotToken);
+  await repository.saveJourneyPrivacy(scope.reviewId, 'hide', 'hide-other-memory');
+  assert.equal((await repository.loadJourneyDetail(siblingId)).detail.id, siblingId);
+  const start = database.calls.length;
+  await assert.rejects(repository.saveJourneyMemoryCorrection(siblingId, memoryPage.memories[0].id, 'assign', review.snapshotToken, 'cached-other-memory'));
+  assert.ok(!database.calls.slice(start).some(([, sql]) => sql.includes('INSERT INTO journey_memory_correction_revision')));
+}));
+
+test('reviewed privacy overlap discovery and create use the exact visible reviewed set', async () => withDatabase(async (database) => {
+  const repository = createNativeReconstructionRepository();
+  const { displayId, review } = await prepareConfirmedJourney(database, repository);
+  addPrivacySibling(database, 'visible-overlap');
+  const input = { ...manualJourney(), date: { kind: 'exact', day: '2025-01-02' }, commandKey: 'hidden-overlap-manual' };
+  const existing = await repository.findManualJourneyOverlaps(input);
+  assert.equal(existing.length, 2);
+  const manualId = await repository.createManualJourney({ ...input, reviewedOverlapIds: existing.map((row) => row.id) });
+  let scope = await repository.reviewJourneyPrivacy(manualId, 0);
+  await repository.saveJourneyPrivacy(scope.reviewId, 'hide', 'hide-overlap-manual');
+  scope = await repository.reviewJourneyPrivacy(displayId, review.snapshotToken);
+  await repository.saveJourneyPrivacy(scope.reviewId, 'hide', 'hide-overlap-inferred');
+  const visible = await repository.findManualJourneyOverlaps(input);
+  assert.equal(visible.length, 1);
+  assert.notEqual(visible[0].id, displayId);
+  await repository.createManualJourney({ ...input, commandKey: 'new-visible-overlap', reviewedOverlapIds: visible.map((row) => row.id) });
+  for (const policy of await repository.loadJourneyPrivacyPolicies()) await repository.restoreJourneyPrivacy(policy.policyId, policy.revision, `restore-${policy.revision}`);
+  const restored = await repository.findManualJourneyOverlaps(input);
+  assert.ok(restored.some((row) => row.id === displayId));
+  assert.ok(restored.some((row) => row.id === manualId));
+}));
+
+for (const action of ['hide', 'exclude']) test(`reviewed privacy blocks cached home selection after ${action} before any insert`, async () => withDatabase(async (database) => {
+  const repository = createNativeReconstructionRepository();
+  const { displayId, review } = await prepareConfirmedJourney(database, repository);
+  const visit = database.sqlite.prepare("SELECT child_id FROM reconstruction_link WHERE link_kind = 'journey-visit' LIMIT 1").get().child_id;
+  const scope = await repository.reviewJourneyPrivacy(displayId, review.snapshotToken);
+  await repository.saveJourneyPrivacy(scope.reviewId, action, `cached-home-${action}`);
+  const start = database.calls.length;
+  await assert.rejects(repository.saveConfiguredHomeAreaFromJourney(displayId, 'privacy-home', visit, 'Synthetic home', null, null));
+  assert.ok(!database.calls.slice(start).some(([, sql]) => sql.includes('INSERT INTO configured_home_area')));
+}));
+
+test('reviewed privacy rejects same-column policy schema missing constraints without rewriting rows', async () => withDatabase(async (database) => {
+  const importer = createNativeImportRepository(); await importer.connectPrivateRecord();
+  const repository = createNativeReconstructionRepository();
+  const displayId = await repository.createManualJourney(manualJourney());
+  const scope = await repository.reviewJourneyPrivacy(displayId, 0);
+  await repository.saveJourneyPrivacy(scope.reviewId, 'hide', 'retained-unconstrained');
+  database.sqlite.exec('CREATE TABLE synthetic_unconstrained AS SELECT * FROM journey_privacy_revision; DROP TABLE journey_privacy_revision; ALTER TABLE synthetic_unconstrained RENAME TO journey_privacy_revision');
+  const before = database.sqlite.prepare('SELECT * FROM journey_privacy_revision').all();
+  const ddl = database.sqlite.prepare("SELECT sql FROM sqlite_master WHERE name = 'journey_privacy_revision'").get().sql;
+  await assert.rejects(ensureNativeImportSchema(database.adapter), (error) => error.name === 'LocalAtlasSchemaRecoveryError');
+  assert.deepEqual(database.sqlite.prepare('SELECT * FROM journey_privacy_revision').all(), before);
+  assert.equal(database.sqlite.prepare("SELECT sql FROM sqlite_master WHERE name = 'journey_privacy_revision'").get().sql, ddl);
+}));
 
 function manualJourney() {
   return {
@@ -138,8 +506,9 @@ function seedRetainedProjection(database, version) {
   if (version >= 3) database.sqlite.exec("INSERT INTO maintenance_change_queue (asset_id, change_kind, source_revision) VALUES ('synthetic-retained-source', 'modified', 1)");
 }
 
-async function prepareConfirmedJourney(database, reconstruction) {
+async function prepareConfirmedJourney(database, reconstruction, prepare = () => {}) {
   await importSyntheticEvidence(createNativeImportRepository());
+  prepare();
   await reconstruction.rebuild(3400);
   // An existing owner-confirmed projection is fixture state; the actual
   // confirmation API then creates the durable correction used by later runs.
@@ -159,6 +528,233 @@ function seedPendingRemap(database) {
   database.sqlite.prepare(`INSERT INTO journey_correction_candidate (candidate_id, revision_id, base_run_id, state, reason, created_at_millis)
     VALUES ('synthetic-pending-candidate', 'synthetic-pending-revision', ?, 'pending_remap', 'Synthetic review required.', 1)`).run(journey.run_id);
 }
+
+function graphReuseRepository(reference) {
+  const filename = path.join(sourceRoot, 'reconstruction/repository.ts');
+  let source = fs.readFileSync(filename, 'utf8');
+  const branch = /const confirmedGraph = groupingConstraints\.length\s*\? reconstructV1\(evidenceWithStructuralBoundaries, \{ journeyGroupingConstraints: groupingConstraints \}\)\s*: baselineGraph;/g;
+  assert.equal([...source.matchAll(branch)].length, 1, 'Reference must replace exactly the empty-constraint reuse branch.');
+  if (reference) source = source.replace(branch,
+    'const confirmedGraph = reconstructV1(evidenceWithStructuralBoundaries, { journeyGroupingConstraints: groupingConstraints });');
+  const loaded = new Module(filename, module);
+  loaded.filename = filename;
+  loaded.paths = Module._nodeModulePaths(path.dirname(filename));
+  const engine = require(path.join(sourceRoot, 'reconstruction/engine.ts'));
+  let reconstructions = 0;
+  const inheritedRequire = loaded.require.bind(loaded);
+  loaded.require = (request) => request === './engine'
+    ? { ...engine, reconstructV1: (...args) => { reconstructions += 1; return engine.reconstructV1(...args); } }
+    : inheritedRequire(request);
+  loaded._compile(ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }, fileName: filename,
+  }).outputText, filename);
+  return { create: loaded.exports.createNativeReconstructionRepository, count: () => reconstructions };
+}
+
+for (const scenario of ['none', 'confirm', 'place', 'claim', 'memory-assign', 'reject', 'remove-visit', 'split', 'merge', 'malformed-reject', 'memory-write-failure']) {
+  test(`empty-constraint graph reuse preserves real SQLite behavior for ${scenario}`, async () => {
+    const results = [];
+    for (const reference of [true, false]) {
+      const loaded = graphReuseRepository(reference);
+      await withDatabase(async (database) => {
+        await importSyntheticEvidence(createNativeImportRepository());
+        if (scenario === 'merge') database.sqlite.exec(`UPDATE canonical_evidence SET
+          captured_at_millis = captured_at_millis + CASE evidence_id WHEN 'synthetic-source-1' THEN 259200000 WHEN 'synthetic-source-2' THEN 518400000 ELSE 0 END,
+          captured_day = CASE evidence_id WHEN 'synthetic-source-1' THEN '2025-01-06' WHEN 'synthetic-source-2' THEN '2025-01-10' ELSE captured_day END`);
+        const repository = loaded.create();
+        const initial = await repository.rebuild(1000);
+        const keys = ['E:synthetic-source-0', 'E:synthetic-source-1', 'E:synthetic-source-2'];
+        if (!['none', 'memory-assign', 'memory-write-failure'].includes(scenario)) {
+          const action = scenario === 'malformed-reject' ? 'reject' : scenario;
+          const reviewed = scenario === 'split' ? [keys[0]] : scenario === 'merge' ? keys.slice(0, 2) : keys;
+          const visits = scenario === 'split' ? [[keys[0]]] : scenario === 'merge' ? [[keys[0]], [keys[1]]] : [keys];
+          const structural = scenario === 'split' ? [keys[0]] : scenario === 'merge' ? { left: [keys[0]], right: [keys[1]] } : null;
+          insertCompatible(database, 'journey_correction_revision', {
+            revision_id: 'synthetic-reuse-correction', action, source_run_id: 1,
+            journey_id: initial.journeys[0].id, reviewed_support_json: JSON.stringify(reviewed),
+            reviewed_visits_json: JSON.stringify(visits), structural_boundary_json: structural ? JSON.stringify(structural) : null,
+            state: 'effective', created_at_millis: 1, command_key: 'synthetic-reuse-command',
+            owner_title: scenario === 'claim' ? 'Synthetic claimed journey' : null,
+            owner_place_id: scenario === 'place' ? 'synthetic-place' : null,
+            owner_place_name: scenario === 'place' ? 'Synthetic owner place' : null,
+            owner_place_context: scenario === 'place' ? 'Synthetic context' : null,
+            owner_latitude: scenario === 'place' ? 1 : null, owner_longitude: scenario === 'place' ? 2 : null,
+          });
+          if (scenario === 'malformed-reject') database.sqlite.exec("UPDATE journey_correction_revision SET reviewed_support_json = 'not-json'");
+        }
+        if (scenario === 'memory-assign' || scenario === 'memory-write-failure') {
+          insertCompatible(database, 'journey_memory_correction_revision', {
+            revision_id: 'synthetic-reuse-memory', action: 'assign', source_run_id: 1,
+            source_evidence_id: 'synthetic-source-0', journey_id: initial.journeys[0].id,
+            reviewed_support_json: JSON.stringify(keys), state: 'effective', created_at_millis: 1,
+            command_key: 'synthetic-reuse-memory-command',
+          });
+        }
+        const failure = new Error('synthetic-memory-write-failure');
+        if (scenario === 'memory-write-failure') database.failOnce(/^UPDATE journey_memory_correction_candidate SET state = 'resolved'/, failure);
+        const callStart = database.calls.length;
+        const countStart = loaded.count();
+        let graph = null;
+        let error = null;
+        try { graph = await repository.rebuild(2000); }
+        catch (caught) { error = { name: caught.name, message: caught.message, revisionId: caught.revisionId, identity: caught === failure }; }
+        const calls = database.calls.slice(callStart);
+        const rebuildCalls = loaded.count() - countStart;
+        if (scenario === 'malformed-reject') {
+          assert.equal(error?.revisionId, 'synthetic-reuse-correction');
+          assert.equal(rebuildCalls, 1, 'Malformed reviewed support must fail before constrained reconstruction.');
+        } else {
+          assert.equal(rebuildCalls, reference || scenario === 'reject' ? 2 : 1,
+            'Only an empty rejection-constraint set can skip the second engine pass.');
+          if (scenario === 'memory-write-failure') assert.equal(error?.identity, true);
+          // This separated-visit merge fixture is not protected from canonical
+          // continuity. Both implementations must fail closed when its reviewed
+          // support no longer maps to one final journey, preserving stored data.
+          else if (scenario === 'merge') assert.equal(error?.revisionId, 'synthetic-reuse-correction');
+          else assert.equal(error, null, `Synthetic ${scenario} must complete successfully.`);
+        }
+        if (error) assert.equal(calls.at(-1)[1], 'ROLLBACK');
+        const durableCallStart = database.calls.length;
+        const reveal = await repository.loadDurableReveal();
+        const durableCalls = database.calls.slice(durableCallStart);
+        const snapshots = Object.fromEntries(['reconstruction_run', 'reconstruction_place', 'reconstruction_visit', 'reconstruction_journey',
+          'reconstruction_link', 'reconstruction_disposition', 'reconstruction_trip_qualification',
+          'journey_correction_application', 'journey_memory_correction_application'].map((table) => [table,
+          database.sqlite.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()]));
+        results.push({ graph, error, calls, durableCalls, reveal, snapshots });
+      });
+    }
+    assert.deepEqual(results[1], results[0]);
+  });
+}
+
+test('phase profiling preserves real SQLite calls, graphs, early returns and error identity', async () => {
+  const originalDev = global.__DEV__;
+  const originalFlag = process.env.EXPO_PUBLIC_ATLAS_PHASE_PROFILE;
+  const originalInfo = console.info;
+  const events = [];
+  const results = [];
+  try {
+    global.__DEV__ = true;
+    console.info = (label, event) => { assert.equal(label, '[Travel Life diagnostic]'); events.push(event); };
+    for (const enabled of [false, true]) {
+      process.env.EXPO_PUBLIC_ATLAS_PHASE_PROFILE = enabled ? '1' : '0';
+      await withDatabase(async (database) => {
+        await importSyntheticEvidence(createNativeImportRepository());
+        const repository = createNativeReconstructionRepository();
+        const early = await repository.loadDurableReveal();
+        const graph = await repository.rebuild(1000);
+        const reveal = await repository.loadDurableReveal();
+        const failure = new Error('private-sentinel SQLite failure');
+        database.failOnce(/^INSERT INTO reconstruction_run/, failure);
+        await assert.rejects(repository.rebuild(2000), (error) => error === failure);
+        const queued = await repository.rebuild(3000, true);
+        assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS count FROM maintenance_change_queue').get().count, 0);
+        await database.adapter.execAsync('BEGIN IMMEDIATE TRANSACTION');
+        const ownedStart = database.calls.length;
+        const callerOwned = await repository.rebuild(4000, false, async () => true, true);
+        assert.ok(database.calls.slice(ownedStart).every(([method, sql]) => method !== 'execAsync' || !/BEGIN|COMMIT|ROLLBACK/.test(sql)));
+        await database.adapter.execAsync('ROLLBACK');
+        await assert.rejects(repository.rebuild(5000, true, async () => false), /Photo access is not permitted/);
+        const readFailure = new Error('private-sentinel native read');
+        database.failOnce(/^SELECT MAX\(run_id\).*reconstruction_run/, readFailure);
+        await assert.rejects(repository.loadDurableReveal(), (error) => error.stage === 'DURABLE_RUN_READ' && error.originalError === readFailure);
+        const manualFailure = new Error('no such column: date_start; private-sentinel');
+        database.failOnce(/^SELECT manual_id.*ORDER BY/, manualFailure);
+        await assert.rejects(repository.loadDurableReveal(), (error) => error.stage === 'DURABLE_MANUAL_EMPTY_LAYOUT' && error.originalError === manualFailure);
+        results.push({ early, graph, reveal, queued, callerOwned, calls: database.calls });
+        if (!enabled) assert.equal(events.length, 0);
+      });
+    }
+    assert.deepEqual(results[1], results[0]);
+    assert.ok(events.some((event) => event.stage === 'DURABLE_PROJECTION' && event.reasonCode === 'COMPLETE'));
+    const destinationQueryEnd = events.findIndex((event) => event.stage === 'DURABLE_DESTINATION_QUERY' && event.reasonCode === 'COMPLETE');
+    const destinationComputationStart = events.findIndex((event) => event.stage === 'DURABLE_DESTINATION_COMPUTATION' && event.reasonCode === 'START');
+    assert.ok(destinationQueryEnd >= 0, 'The destination-support query must have a fixed completion boundary.');
+    assert.equal(destinationComputationStart, destinationQueryEnd + 1, 'Destination computation must begin immediately after the support query.');
+    assert.ok(events.some((event) => event.stage === 'DURABLE_DESTINATION_COMPUTATION' && event.reasonCode === 'COMPLETE'));
+    const processingStages = ['REBUILD_PROCESSING', 'REBUILD_BASELINE_GRAPH', 'REBUILD_BASELINE_MAPPING',
+      'REBUILD_CONSTRAINED_GRAPH', 'REBUILD_CONFIRMED_MAPPING', 'REBUILD_MEMORY_OVERLAY',
+      'REBUILD_OWNER_MERGE', 'REBUILD_CONTINUITY', 'REBUILD_MEMBERSHIP', 'REBUILD_FINAL_MAPPING'];
+    const successfulRebuild = events.find((event) => event.stage === 'REBUILD_COMMIT' && event.reasonCode === 'COMPLETE');
+    assert.ok(successfulRebuild);
+    const completedStages = events.filter((event) => event.correlationId === successfulRebuild.correlationId
+      && event.reasonCode === 'COMPLETE').map((event) => event.stage);
+    const processingStart = completedStages.indexOf('REBUILD_PROCESSING');
+    assert.deepEqual(completedStages.slice(processingStart, processingStart + processingStages.length), processingStages,
+      'Rebuild processing must separate graph passes and correction/continuity phases in execution order.');
+    const detailedEvents = events.filter((event) => event.correlationId === successfulRebuild.correlationId);
+    const detailedStart = detailedEvents.findIndex((event) => event.stage === 'REBUILD_PROCESSING');
+    assert.deepEqual(detailedEvents.slice(detailedStart, detailedStart + processingStages.length * 2 + 1)
+      .map((event) => [event.stage, event.reasonCode]), [
+      ...processingStages.flatMap((stage) => [[stage, 'START'], [stage, 'COMPLETE']]),
+      ['REBUILD_PERSISTENCE', 'START'],
+    ]);
+    assert.ok(events.some((event) => event.stage === 'REBUILD_PERSISTENCE' && event.reasonCode === 'UNKNOWN'));
+    assert.ok(events.every((event) => event.durableOutcome === 'unchanged'));
+    assert.ok(!JSON.stringify(events).includes('private-sentinel'));
+    const correlations = Map.groupBy(events, (event) => event.correlationId);
+    assert.equal(correlations.size, 9);
+    for (const phases of correlations.values()) {
+      assert.equal(phases[0].reasonCode, 'START');
+      assert.ok(['COMPLETE', 'UNKNOWN'].includes(phases.at(-1).reasonCode));
+    }
+  } finally {
+    if (originalDev === undefined) delete global.__DEV__; else global.__DEV__ = originalDev;
+    if (originalFlag === undefined) delete process.env.EXPO_PUBLIC_ATLAS_PHASE_PROFILE;
+    else process.env.EXPO_PUBLIC_ATLAS_PHASE_PROFILE = originalFlag;
+    console.info = originalInfo;
+  }
+});
+
+test('processing interruption preserves rollback and error identity within a populated memory overlay', async () => {
+  const originalDev = global.__DEV__;
+  const originalFlag = process.env.EXPO_PUBLIC_ATLAS_PHASE_PROFILE;
+  const originalInfo = console.info;
+  const events = [];
+  const results = [];
+  try {
+    global.__DEV__ = true;
+    console.info = (_label, event) => events.push(event);
+    for (const enabled of [false, true]) {
+      process.env.EXPO_PUBLIC_ATLAS_PHASE_PROFILE = enabled ? '1' : '0';
+      await withDatabase(async (database) => {
+        await importSyntheticEvidence(createNativeImportRepository());
+        const repository = createNativeReconstructionRepository();
+        await repository.rebuild(1000);
+        database.sqlite.prepare(`INSERT INTO journey_memory_correction_revision
+          (revision_id, action, source_run_id, source_evidence_id, journey_id, reviewed_support_json, state, created_at_millis, command_key)
+          VALUES (?, 'assign', 1, ?, ?, ?, 'effective', 1, ?)`).run(
+          'synthetic-memory', 'synthetic-source-0', 'synthetic-target',
+          JSON.stringify(['E:synthetic-source-0', 'E:synthetic-source-1', 'E:synthetic-source-2']), 'synthetic-command',
+        );
+        const failure = new Error('private-sentinel memory write');
+        database.failOnce(/^UPDATE journey_memory_correction_candidate SET state = 'resolved'/, failure);
+        events.length = 0;
+        const callStart = database.calls.length;
+        await assert.rejects(repository.rebuild(2000), (error) => error === failure);
+        const calls = database.calls.slice(callStart);
+        assert.equal(calls.at(-1)[1], 'ROLLBACK');
+        assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS count FROM reconstruction_run').get().count, 1);
+        assert.equal(database.sqlite.prepare('SELECT state FROM journey_memory_correction_revision').get().state, 'effective');
+        results.push(calls);
+        if (!enabled) assert.equal(events.length, 0);
+        else {
+          assert.equal(events.at(-1).stage, 'REBUILD_MEMORY_OVERLAY');
+          assert.equal(events.at(-1).reasonCode, 'UNKNOWN');
+          assert.ok(!events.some((event) => event.stage === 'REBUILD_OWNER_MERGE' || event.stage === 'REBUILD_PERSISTENCE'));
+          assert.ok(!JSON.stringify(events).includes('private-sentinel'));
+        }
+      });
+    }
+    assert.deepEqual(results[1], results[0]);
+  } finally {
+    if (originalDev === undefined) delete global.__DEV__; else global.__DEV__ = originalDev;
+    if (originalFlag === undefined) delete process.env.EXPO_PUBLIC_ATLAS_PHASE_PROFILE;
+    else process.env.EXPO_PUBLIC_ATLAS_PHASE_PROFILE = originalFlag;
+    console.info = originalInfo;
+  }
+});
 
 test('fresh import, reconstruction, and durable Atlas read execute real SQLite', async () => withDatabase(async ({ sqlite }) => {
   const importer = createNativeImportRepository();
@@ -361,6 +957,9 @@ for (const marker of [33, 34]) {
       database.sqlite.exec(`UPDATE import_schema_version SET version = ${marker}; UPDATE private_history_record SET schema_version = ${marker};
         ALTER TABLE manual_journey RENAME COLUMN date_start TO synthetic_legacy_start`);
       const before = preservedRecordSnapshot(database);
+      // v34 legitimately advances retained v33 markers while preserving owner rows.
+      before.find((record) => record.table === 'private_history_record').rows[0].schema_version = Math.max(marker, schemaVersion);
+      before.find((record) => record.table === 'import_schema_version').rows[0].version = Math.max(marker, schemaVersion);
       const oldIndex = database.sqlite.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'index' AND name = 'manual_journey_dates'").get();
       const reconstruction = createNativeReconstructionRepository();
       await reconstruction[entry](7000);

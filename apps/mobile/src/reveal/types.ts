@@ -29,6 +29,8 @@ export type DurableRevealRecord = { journeys: DurableRevealJourney[]; statistics
 /** The only reconstruction shape that the reveal UI may receive. */
 export type RevealInput = {
   graph: ReconstructionGraph | null;
+  /** Native callers withhold graph fallback until the durable privacy projection exists. */
+  privacyReady?: boolean;
   durableRecord?: DurableRevealRecord | null;
   reconstructionStatus: 'idle' | 'running' | 'complete' | 'restricted' | 'error';
   /** Fixed owner-safe controller guidance; never sourced from native errors. */
@@ -66,6 +68,14 @@ export type RevealModel = {
 };
 
 export type AtlasView = 'map' | 'timeline';
+
+export type PrivateSelectionPurpose = 'share' | 'replay';
+export type PrivateJourneySelection = { displayId: string; snapshotToken: number; privacyRevision: number };
+export type JourneyEligibility = {
+  eligible: boolean;
+  reason: 'eligible' | 'private' | 'stale' | 'needs-review' | 'no-observed-destinations';
+  privacyRevision: number;
+};
 export type AtlasCamera = { center: [number, number]; zoom: number };
 export type AtlasExploration = { view: AtlasView; year: number | null; selectedJourneyId: string | null; camera?: AtlasCamera; localViewport?: { scale: number; x: number; y: number } };
 

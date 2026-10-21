@@ -1,10 +1,34 @@
 import { destinationLabel } from '@/reconstruction/destination-label';
 import { resolveDestination } from '@/reconstruction/country-resolver';
+import dataset from '@/reconstruction/data/natural-earth-destinations-5.1.1.json';
 
 const bali = { latitude: -8.5069, longitude: 115.2625 };
 const kuta = { latitude: -8.717, longitude: 115.19 };
 
 describe('supported offline destinations', () => {
+  it('bounds point-invariant trigonometry by areas rather than polygon edges', () => {
+    const cosine = jest.spyOn(Math, 'cos');
+    try {
+      expect(resolveDestination(bali)).toMatchObject({ code: 'IDN', country: 'Indonesia', region: 'Bali' });
+      const candidateAreas = dataset.countries.length + dataset.regions.filter((region) => region.code === 'IDN').length;
+      expect(cosine.mock.calls.length).toBeLessThanOrEqual(candidateAreas);
+    } finally {
+      cosine.mockRestore();
+    }
+  });
+
+  it('keeps conflicting duplicate support withheld in either encounter order', () => {
+    const support = [
+      { placeId: 'p', familyId: 'duplicate', ...bali },
+      { placeId: 'p', familyId: 'independent', ...bali },
+      { placeId: 'p', familyId: 'duplicate', latitude: 35.6762, longitude: 139.6503 },
+      { placeId: 'p', familyId: 'duplicate', ...bali },
+    ];
+    expect(destinationLabel(support)).toBe('Private journey');
+    expect(destinationLabel([...support].reverse())).toBe('Private journey');
+    expect(destinationLabel(support.map((item) => ({ ...item, reportedAccuracyMeters: 1001 })))).toBe('Private journey');
+  });
+
   it('resolves public Bali samples and other countries without a network service', () => {
     expect(resolveDestination(bali)).toMatchObject({ code: 'IDN', country: 'Indonesia', region: 'Bali' });
     expect(resolveDestination(kuta)).toMatchObject({ code: 'IDN', country: 'Indonesia', region: 'Bali' });

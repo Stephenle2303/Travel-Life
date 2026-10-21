@@ -4,7 +4,7 @@
 
 ## Goal
 
-Let the owner make their private travel record trustworthy through durable corrections and manual additions, then deliberately turn only chosen facts and memories into a replay or shareable highlight. This completes the MLP's correction-to-sharing loop while preserving evidence uncertainty, preventing accidental publication, and making the limits of revocation and source coverage clear.
+Let the owner make their private travel record trustworthy through durable corrections and manual additions, then deliberately turn only chosen facts and memories into a replay or shareable highlight. This completes the MLP's private Atlas-to-Replay-to-selected-share loop while preserving evidence uncertainty, preventing accidental publication, and making the limits of revocation and source coverage clear.
 
 ## Stories
 
@@ -20,20 +20,21 @@ Let the owner make their private travel record trustworthy through durable corre
 
 - Keep inferred facts, owner-entered facts, reviewed facts, evidence support, and photo membership distinct. A correction must be durable through restart, rescan, incremental/background updates, and reconstruction changes; ambiguous remaps stay visible for owner resolution rather than being dropped or applied to the wrong successor.
 - Let the owner repair history without requiring review of every photo. Manual journeys remain explicitly owner-entered, survive rescans, and never improve automated-recovery metrics. Overlaps require an explicit owner choice rather than a silent merge.
-- Treat hiding, exclusion from reconstruction, and deletion as different actions. Explain their effects on local history, counts, Replay, and sharing; hidden or excluded material must never leak into a preview or published content.
+- Treat hiding, exclusion from reconstruction, and deletion as different actions. Explain their effects on local history, counts, Replay, and sharing; hidden or excluded material must never leak into a preview or published content. The epic does not settle target granularity, hidden-count behavior, restore policy or per-item deletion semantics; those require an explicit story contract rather than implementation guesses.
 - Sharing starts empty and is always deliberate. Before export or publication, show the exact selected journey or lifetime-highlight fields and media. Inferred material requires review before it is shareable; previews and cancellation must not upload or publish anything.
 - Publish only a versioned, owner-protected snapshot and selected sanitized media derivatives. Never upload the full library, source metadata, hidden places, precise private locations, or source IDs. Snapshot content remains stable despite later private/background changes until the owner explicitly republishes.
-- Published links are unlisted, high-entropy, expiry-aware, revocable, and protected against cross-owner reads and writes. Enforce media/upload limits, strip metadata and unsafe content, prevent indexing/caching where applicable, and distinguish revoking future access from deleting copies recipients already saved.
+- Published links are unlisted, high-entropy, expiry-aware, revocable, and protected against cross-owner reads and writes. A link can be forwarded by anyone possessing it; there is no recipient sign-in gate. Enforce media/upload limits, strip metadata and unsafe content, prevent indexing/caching where applicable, and distinguish revoking future access from deleting copies recipients already saved.
 - The browser viewer must work without app installation or recipient login, offer responsive map, chronological timeline, and selected-memory browsing, and retain a usable list fallback when maps fail. Do not expose source references, access tokens, or private content through telemetry or analytics.
 - Replay is a 30–60 second, target-45-second, silent 720p MP4 using chronological observed destinations and owner-visible eligible memories. It must be previewable, cancelable, bounded in resource use, resilient to unavailable media, and use destination transitions rather than invented routes, duration, narration, or music. Native video export and link publication are separate explicit actions.
 - Validate correction, visibility, selected-content provenance, snapshot/media isolation, expiry/revocation, and Replay fidelity with objective regressions and real iOS/Android plus browser checks. Record unrun provider/model checks as untested; do not equate synthetic coverage with population accuracy.
 
 ## Technical Decisions
 
-- The local SQLite travel graph remains canonical. Retain stable evidence, association, boundary, correction, identity-lineage, visibility, and provenance data so correction replay is deterministic and conflicts can be surfaced honestly.
+- The local SQLite travel graph remains canonical, with explicit migrations. Retain stable evidence, association, boundary, correction, identity-lineage, visibility, and provenance data so correction replay is deterministic and conflicts can be surfaced honestly. Original photo location is evidence, not proof of owner presence, and a trip memory is not automatically visit support.
 - Original media remains in the device source. Do not put raw evidence, precise locations, media, private traces, credentials, or source identifiers in Git, logs, or analytics. Share only deliberately selected sanitized derivatives.
 - Apply correction and visibility precedence before reconstruction-derived display, counts, Replay selection, and share-preview construction. Private maintenance can reconcile the local record but must never automatically alter a published snapshot.
 - Preserve the local baseline and useful failure states when optional AI, media availability, network, renderer, or map services fail. AI consent and private-media processing remain separate from library permission.
+- Hosted snapshots and media use owner-protected storage and token-checked reads. Delete-all queues remote revocation and keeps pending credentials until acknowledged; offline local deletion must not claim remote removal succeeded. Working link expiry is thirty days, displayed and owner-adjustable. These are delivery requirements, not evidence of configured services.
 - Use minimal allowlisted telemetry only, with coarse operational states and counts. Never record journey contents, exact locations, trip dates, filenames, tokens, or raw evidence.
 
 ## UX & Interaction Patterns
