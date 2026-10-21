@@ -2,6 +2,12 @@
 
 ## Accepted-work publication verification (2026-10-21)
 
+- **Next-step lookup recurrence:** A roadmap lookup passed a literal directory
+  wildcard to `rg` and returned Windows error 123. Reissued it against the
+  directory with `-g` file filters; roadmap and deferred-work evidence were read.
+  No application change occurred. Prevention: always pass directory roots and
+  `-g` filters to `rg` on PowerShell, including short read-only planning lookups.
+
 - **External/pre-existing check limitation:** Fresh Expo Doctor ran successfully
   against the registry but exited 1 with 20/21 checks: the same nine Expo SDK
   patch-version recommendations recorded earlier. No dependency changed during
