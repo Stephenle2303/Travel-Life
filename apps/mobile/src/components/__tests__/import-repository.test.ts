@@ -29,10 +29,23 @@ describe('native import SQLite repository', () => {
   });
 
   it('opens an already-current schema without taking a startup write lock', async () => {
-    mockGetFirstAsync.mockResolvedValueOnce({ version: 33 });
+    mockGetFirstAsync.mockResolvedValueOnce({ version: 34 });
     await createNativeImportRepository().getCheckpoint('full');
     expect(mockExecAsync).toHaveBeenCalledWith('PRAGMA busy_timeout = 30000');
     expect(mockExecAsync).not.toHaveBeenCalledWith('BEGIN IMMEDIATE TRANSACTION');
+  });
+
+  it('reads separate aggregate queue and unresolved-remap counts', async () => {
+    mockGetFirstAsync.mockImplementation(async (sql: string) => sql.includes('import_schema_version') ? { version: 34 } : {
+      status: 'pending', queued_change_count: 0, unresolved_remap_count: 2,
+      last_checked_at_millis: null, last_updated_at_millis: null,
+      new_journey_count: 0, updated_journey_count: 0, message: null,
+    });
+    const snapshot = await createNativeImportRepository().loadReconciliation!();
+    expect(snapshot).toMatchObject({ status: 'pending', pendingCount: 2, queuedChangeCount: 0, unresolvedRemapCount: 2 });
+    const query = mockGetFirstAsync.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('FROM reconciliation_state state'))?.[0] as string;
+    expect(query).toContain('FROM maintenance_change_queue) AS queued_change_count');
+    expect(query).toContain('FROM reconciliation_unresolved_remap) AS unresolved_remap_count');
   });
 
   it('still migrates a fresh database when the schema table is absent', async () => {
@@ -40,6 +53,12 @@ describe('native import SQLite repository', () => {
     await createNativeImportRepository().getCheckpoint('full');
     expect(mockExecAsync).toHaveBeenCalledWith('BEGIN IMMEDIATE TRANSACTION');
     expect(mockRunAsync).toHaveBeenCalledWith('INSERT INTO import_schema_version (version) VALUES (?)', 33);
+  });
+
+  it('accepts an abandoned newer additive schema marker without opening a write transaction', async () => {
+    mockGetFirstAsync.mockResolvedValueOnce({ version: 34 });
+    await createNativeImportRepository().getCheckpoint('full');
+    expect(mockExecAsync).not.toHaveBeenCalledWith('BEGIN IMMEDIATE TRANSACTION');
   });
 
   it('runs the versioned migration transaction before reading a checkpoint', async () => {
@@ -146,6 +165,7 @@ describe('native import SQLite repository', () => {
     await repository.deleteLocalHistory();
     expect(mockExecAsync.mock.calls.flat().join('\n')).toContain('DELETE FROM configured_home_area');
     expect(mockExecAsync.mock.calls.flat().join('\n')).toContain('DELETE FROM manual_journey');
+    expect(mockExecAsync.mock.calls.flat().join('\n')).not.toContain('legacy_atlas_continuity');
   });
 
   it('lists and renames a Home base locally without changing its private area', async () => {

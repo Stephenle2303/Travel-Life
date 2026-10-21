@@ -1,0 +1,1330 @@
+diff --git a/apps/mobile/src/components/__tests__/atlas-reveal.test.tsx b/apps/mobile/src/components/__tests__/atlas-reveal.test.tsx
+index 3b4af53..f77f8be 100644
+--- a/apps/mobile/src/components/__tests__/atlas-reveal.test.tsx
++++ b/apps/mobile/src/components/__tests__/atlas-reveal.test.tsx
+@@ -71,6 +71,22 @@ describe('private Atlas reveal', () => {
+     expect(model.replay).toEqual({ eligible: false, reason: 'Replay needs observed destinations; owner-entered journeys are not evidence.' });
+   });
+ 
++  it('labels every durable journey related to a pending correction and keeps Edit reachable', async () => {
++    const onEditJourney = jest.fn();
++    const model = modelFor({ durableRecord: { journeys: [
++      { displayId: 'related-one', state: 'inferred', anchor: null, years: [2024], periodLabel: '2024', ordering: 'chronological', needsReview: true },
++      { displayId: 'related-two', state: 'inferred', anchor: null, years: [2024], periodLabel: '2024', ordering: 'chronological', needsReview: true },
++    ] } });
++    expect(model.journeys.map((journey) => journey.status)).toEqual(['Needs review', 'Needs review']);
++    const load = jest.fn(async (id: string) => ({ detail: { id, title: 'Private journey', observedSpan: 'Observed 2024', visits: [], memories: [], uncertainty: [], correctionState: 'pending remap' as const }, previews: [], snapshotToken: 1 }));
++    const view = await render(<AtlasReveal model={model} {...actions} loadJourneyPreview={load} onEditJourney={onEditJourney} />);
++    expect(JSON.stringify(view.toJSON())).toContain('Needs review');
++    await fireEvent.press(view.getAllByRole('button', { name: 'Private journey, 2024' })[0]);
++    await waitFor(() => expect(view.getByText('Needs review')).toBeOnTheScreen());
++    await fireEvent.press(view.getByRole('button', { name: 'Edit trip' }));
++    expect(onEditJourney).toHaveBeenCalledWith('related-one', expect.objectContaining({ selectedJourneyId: 'related-one' }));
++  });
++
+   it('emits and restores the exact Atlas context for manual entry', async () => {
+     const onManualEntry = jest.fn();
+     const view = await render(<AtlasReveal model={modelFor({ durableRecord: { journeys: [{ displayId: 'journey-1', state: 'inferred', anchor: { latitude: 13.7, longitude: 100.5 }, years: [2024], periodLabel: '2024', ordering: 'chronological' }] } })} {...actions} onManualEntry={onManualEntry} initialExploration={{ view: 'timeline', year: 2024, selectedJourneyId: 'journey-1', camera: { center: [100.5, 13.7], zoom: 4 } }} />);
+@@ -115,6 +131,17 @@ describe('private Atlas reveal', () => {
+     expect(view.getByText('Replay will be available after local updates finish.')).toBeOnTheScreen();
+   });
+ 
++  it('renders fixed reconstruction wait guidance instead of replacing it with generic processing copy', async () => {
++    const view = await render(<AtlasReveal model={modelFor({
++      reconstructionStatus: 'running',
++      reconstructionMessage: 'Waiting for an existing local update to finish. Your last completed Atlas remains available.',
++      reconciliationStatus: 'pending',
++      pendingCount: 1,
++    })} {...actions} />);
++
++    expect(view.getByText('Waiting for an existing local update to finish. Your last completed Atlas remains available.')).toBeOnTheScreen();
++  });
++
+   it('keeps Timeline recovery available without a configured native map', async () => {
+     const view = await render(<AtlasReveal model={modelFor({ durableRecord: { journeys: [{ displayId: 'unavailable-native', state: 'inferred', anchor: { latitude: 13.7, longitude: 100.5 }, years: [2024], periodLabel: '2024', ordering: 'chronological' }] } })} {...actions} mapAvailable={false} />);
+     expect(view.getByTestId('atlas-map-recovery')).toBeOnTheScreen();
+@@ -143,13 +170,77 @@ describe('private Atlas reveal', () => {
+     expect(JSON.stringify(model)).not.toContain('evidenceId');
+   });
+ 
+-  it('states processing is not final and offers a local catch-up', async () => {
+-    const view = await render(<AtlasReveal model={modelFor({ reconstructionStatus: 'running', reconciliationStatus: 'running', pendingCount: 1 })} {...actions} />);
++  it('states active processing is not final and disables a duplicate catch-up', async () => {
++    const onCatchUp = jest.fn();
++    const view = await render(<AtlasReveal model={modelFor({ reconstructionStatus: 'running', reconciliationStatus: 'running', pendingCount: 1,
++      durableRecord: { journeys: [{ displayId: 'previous-journey', state: 'inferred', anchor: { latitude: 13.7, longitude: 100.5 }, years: [2024], periodLabel: '2024', ordering: 'chronological' }] },
++    })} {...actions} onCatchUp={onCatchUp} />);
+     expect(view.getByLabelText('Local journey rebuild in progress').props.accessibilityState).toMatchObject({ busy: true });
+     expect(view.getByText(/Rebuilding local journey history/)).toBeOnTheScreen();
+     expect(view.getByText(/will refresh automatically when this finishes/)).toBeOnTheScreen();
+-    await fireEvent.press(view.getByRole('button', { name: 'Catch up local journey history' }));
+-    expect(actions.onCatchUp).toHaveBeenCalled();
++    expect(view.getByRole('button', { name: 'Local journey history is updating' }).props.accessibilityState).toMatchObject({ disabled: true });
++    expect(view.getByTestId('maplibre-atlas-map')).toBeOnTheScreen();
++    expect(view.getByRole('button', { name: 'Show chronological Timeline' })).toBeOnTheScreen();
++    expect(onCatchUp).not.toHaveBeenCalled();
++  });
++
++  it('offers catch-up for a sparse Atlas with only waiting changes', async () => {
++    const onCatchUp = jest.fn();
++    const model = modelFor({ reconstructionStatus: 'complete', reconciliationStatus: 'pending', pendingCount: 1 });
++    expect(model.state).toBe('sparse');
++    const view = await render(<AtlasReveal model={model} {...actions} onCatchUp={onCatchUp} />);
++    expect(view.getByText('No journey revealed yet.')).toBeOnTheScreen();
++    expect(view.getByText(/Catch up to check whether any journeys can be revealed/)).toBeOnTheScreen();
++    expect(view.queryByText(/Your last completed Atlas remains available/)).toBeNull();
++    expect(view.queryByLabelText('Local journey rebuild in progress')).toBeNull();
++    await fireEvent.press(view.getByRole('button', { name: 'Catch up waiting local journey changes' }));
++    expect(onCatchUp).toHaveBeenCalledTimes(1);
++    expect(view.queryByRole('button', { name: 'Recheck local journey history' })).toBeNull();
++  });
++
++  it('treats queued work as waiting and keeps the completed Atlas usable', async () => {
++    const onCatchUp = jest.fn();
++    const model = modelFor({
++      reconstructionStatus: 'complete', reconciliationStatus: 'pending', pendingCount: 1,
++      durableRecord: { journeys: [{ displayId: 'prior-journey', state: 'inferred', anchor: { latitude: 13.7, longitude: 100.5 }, years: [2024], periodLabel: '2024', ordering: 'chronological' }] },
++    });
++    expect(model.state).toBe('ready');
++    expect(model.pendingUpdates).toBe(true);
++    const view = await render(<AtlasReveal model={model} {...actions} onCatchUp={onCatchUp} />);
++    expect(view.queryByText('Updating your Atlas')).toBeNull();
++    expect(view.getByTestId('maplibre-atlas-map')).toBeOnTheScreen();
++    await fireEvent.press(view.getByRole('button', { name: 'Catch up waiting local journey changes' }));
++    expect(onCatchUp).toHaveBeenCalledTimes(1);
++    expect(view.queryByRole('button', { name: 'Rebuild local journey history' })).toBeNull();
++    expect(view.getByRole('button', { name: 'Add a journey manually' })).toBeOnTheScreen();
++  });
++
++  it('keeps remap-only review distinct from queued catch-up', async () => {
++    const model = modelFor({ reconciliationStatus: 'pending', pendingCount: 2, queuedChangeCount: 0, unresolvedRemapCount: 2 });
++    expect(model.pendingUpdates).toBe(false);
++    expect(model.reviewRequired).toBe(true);
++    const view = await render(<AtlasReveal model={model} {...actions} />);
++    expect(view.getByText(/correction matches need your review/)).toBeOnTheScreen();
++    expect(view.queryByRole('button', { name: 'Catch up waiting local journey changes' })).toBeNull();
++  });
++
++  it('withholds catch-up when queued changes also need correction remap review', async () => {
++    const model = modelFor({ reconciliationStatus: 'pending', pendingCount: 3, queuedChangeCount: 1, unresolvedRemapCount: 2 });
++    expect(model.pendingUpdates).toBe(false);
++    const view = await render(<AtlasReveal model={model} {...actions} />);
++    expect(view.getByText(/choose Edit and Trip accuracy/)).toBeOnTheScreen();
++    expect(view.queryByRole('button', { name: 'Catch up waiting local journey changes' })).toBeNull();
++  });
++
++  it('routes failed queued reconciliation through catch-up rather than rebuild', async () => {
++    const onCatchUp = jest.fn();
++    const onRetry = jest.fn();
++    const model = modelFor({ reconciliationStatus: 'error', pendingCount: 1, queuedChangeCount: 1, unresolvedRemapCount: 0 });
++    const view = await render(<AtlasReveal model={model} {...actions} onCatchUp={onCatchUp} onRetry={onRetry} />);
++    expect(view.queryByRole('button', { name: 'Recheck local journey history' })).toBeNull();
++    await fireEvent.press(view.getByRole('button', { name: 'Catch up waiting local journey changes' }));
++    expect(onCatchUp).toHaveBeenCalledTimes(1);
++    expect(onRetry).not.toHaveBeenCalled();
+   });
+ 
+   it('offers reconnect/import for restricted access and retry/manual entry after a failure', async () => {
+@@ -167,7 +258,7 @@ describe('private Atlas reveal', () => {
+     await waitFor(() => expect(failed.getByRole('button', { name: 'See photos and videos' })).toBeOnTheScreen());
+     await fireEvent.press(failed.getByRole('button', { name: 'See photos and videos' }));
+     expect(failed.getByTestId('journey-media-album')).toBeOnTheScreen();
+-    await fireEvent.press(failed.getByRole('button', { name: 'Retry local reveal' }));
++    await fireEvent.press(failed.getByRole('button', { name: 'Recheck local journey history' }));
+     await fireEvent.press(failed.getByRole('button', { name: 'Add a journey manually' }));
+     expect(actions.onRetry).toHaveBeenCalled();
+     expect(actions.onManualEntry).toHaveBeenCalled();
+diff --git a/apps/mobile/src/components/__tests__/reconciliation-repository.test.ts b/apps/mobile/src/components/__tests__/reconciliation-repository.test.ts
+index 9e43f0a..c327b13 100644
+--- a/apps/mobile/src/components/__tests__/reconciliation-repository.test.ts
++++ b/apps/mobile/src/components/__tests__/reconciliation-repository.test.ts
+@@ -1,5 +1,5 @@
+ import { createNativeReconstructionRepository } from '@/reconstruction';
+-import { applyJourneyCorrections, constructCanonicalV11Graph, mapCorrectionsToCommittedJourneys, mergeContinuousAwayJourneysV11, qualifyGraphJourneyV11, resolvePlaceCountryCode, resolveVerifiedDuplicateFamilies } from '@/reconstruction/repository';
++import { applyJourneyCorrections, constructCanonicalV11Graph, mapCorrectionsToCommittedJourneys, mapFinalCorrectionApplications, mergeContinuousAwayJourneysV11, qualifyGraphJourneyV11, resolvePlaceCountryCode, resolveVerifiedDuplicateFamilies } from '@/reconstruction/repository';
+ import type { ReconstructionGraph } from '@/reconstruction';
+ import { projectReveal, assertRevealPayload } from '@/reveal/projection';
+ 
+@@ -10,6 +10,10 @@ const mockGetAllAsync = jest.fn();
+ const mockOpenDatabaseAsync = jest.fn();
+ 
+ jest.mock('expo-sqlite', () => ({ openDatabaseAsync: (...args: unknown[]) => mockOpenDatabaseAsync(...args) }));
++jest.mock('@/import-record/repository', () => ({
++  ...jest.requireActual('@/import-record/repository'),
++  ensureNativeImportSchema: jest.fn(async () => undefined),
++}));
+ 
+ describe('durable local reconciliation repository', () => {
+   beforeEach(() => {
+@@ -18,6 +22,7 @@ describe('durable local reconciliation repository', () => {
+     mockExecAsync.mockResolvedValue(undefined); mockRunAsync.mockResolvedValue(undefined);
+     mockOpenDatabaseAsync.mockResolvedValue({ execAsync: mockExecAsync, runAsync: mockRunAsync, getFirstAsync: mockGetFirstAsync, getAllAsync: mockGetAllAsync });
+     mockGetFirstAsync.mockImplementation(async (sql: string) => {
++      if (sql.includes('SELECT version FROM import_schema_version')) return { version: 33 };
+       if (sql.includes('private_record_lifecycle')) return { state: 'connected' };
+       if (sql.includes('reconciliation_checkpoint')) return { snapshot_revision: 4 };
+       if (sql.includes('COUNT(*) AS count FROM maintenance_change_queue')) return { count: 1 };
+@@ -72,6 +77,101 @@ describe('durable local reconciliation repository', () => {
+     expect(mockExecAsync).toHaveBeenCalledWith('COMMIT');
+   });
+ 
++  it('marks a SQLite lock while writing the reconciliation lease with a fixed stage', async () => {
++    mockExecAsync.mockImplementation(async (sql: string) => {
++      if (sql === 'BEGIN IMMEDIATE TRANSACTION') throw new Error('database is locked');
++    });
++
++    await expect(createNativeReconstructionRepository().reconcileQueued(50)).rejects.toEqual(
++      expect.objectContaining({ name: 'ReconciliationStageError', stage: 'LEASE_WRITE' }),
++    );
++  });
++
++  it('persists a dense synthetic reconstruction with bounded batched writes inside one transaction', async () => {
++    const rows = Array.from({ length: 320 }, (_, index) => ({
++      evidence_id: `synthetic-${String(index).padStart(4, '0')}`, media_type: 'image',
++      captured_at_millis: Date.UTC(2026, 0, 1), captured_day: '2026-01-01', has_precise_offset: 1,
++      availability: 'available', latitude: 10 + (index % 20) * 0.00001,
++      longitude: 100 + Math.floor(index / 20) * 0.00001, reported_accuracy_meters: 10,
++      platform_duplicate_family_id: null, source_origin: 'capture-like', support_eligible: 1,
++    }));
++    mockGetAllAsync.mockImplementation(async (sql: string) => sql.includes('FROM canonical_evidence') ? rows : []);
++
++    const graph = await createNativeReconstructionRepository().rebuild();
++
++    const linkWrites = mockRunAsync.mock.calls.filter(([sql]) => typeof sql === 'string' && sql.startsWith('INSERT INTO reconstruction_link '));
++    const dispositionWrites = mockRunAsync.mock.calls.filter(([sql]) => typeof sql === 'string' && sql.startsWith('INSERT INTO reconstruction_disposition '));
++    expect(linkWrites.length).toBeGreaterThan(1);
++    expect(linkWrites.length).toBeLessThan(linkWrites.reduce((count, call) => count + (call.length - 1) / 4, 0) / 10);
++    expect(dispositionWrites).toHaveLength(2);
++    expect(linkWrites.some((call) => call.length > 5)).toBe(true);
++    expect([...linkWrites, ...dispositionWrites].every((call) => call.length - 1 <= 800)).toBe(true);
++    expect(linkWrites.every(([sql]) => sql.startsWith('INSERT INTO reconstruction_link (run_id, link_kind, parent_id, child_id) VALUES '))).toBe(true);
++    expect(dispositionWrites.every(([sql]) => sql.startsWith('INSERT INTO reconstruction_disposition (run_id, evidence_id, disposition_state, reasons_json) VALUES '))).toBe(true);
++    const tuples = (calls: unknown[][]) => calls.flatMap((call) => {
++      const values = call.slice(1);
++      return Array.from({ length: values.length / 4 }, (_, index) => values.slice(index * 4, index * 4 + 4));
++    });
++    expect(tuples(linkWrites)).toEqual([
++      ...graph.places.flatMap((place) => place.memberIds.map((id) => [7, 'place-support', place.id, id])),
++      ...graph.visits.flatMap((visit) => visit.evidenceIds.map((id) => [7, 'visit-support', visit.id, id])),
++      ...graph.journeys.flatMap((journey) => journey.visitIds.map((id) => [7, 'journey-visit', journey.id, id])),
++      ...graph.memberships.map((membership) => [7, `membership:${membership.state}:${membership.reason}`, membership.journeyId, membership.evidenceId]),
++      ...graph.possibleMerges.map((merge) => [7, `possible-merge:${merge.reason}`, merge.fromJourneyId, merge.toJourneyId]),
++    ]);
++    expect(tuples(dispositionWrites)).toEqual(graph.dispositions.map((item) => [7, item.evidenceId, item.state, JSON.stringify(item.reasons)]));
++    expect(mockExecAsync).toHaveBeenCalledWith('COMMIT');
++  });
++
++  it('rolls back a failed batched projection write', async () => {
++    mockGetAllAsync.mockImplementation(async (sql: string) => sql.includes('FROM canonical_evidence') ? [{
++      evidence_id: 'synthetic-one', captured_at_millis: Date.UTC(2026, 0, 1), captured_day: '2026-01-01',
++      has_precise_offset: 1, availability: 'available', latitude: 10, longitude: 100,
++      reported_accuracy_meters: 10, platform_duplicate_family_id: null, support_eligible: 1,
++    }] : []);
++    mockRunAsync.mockImplementation(async (sql: string) => {
++      if (sql.startsWith('INSERT INTO reconstruction_link ')) throw new Error('batched insert failed');
++    });
++
++    await expect(createNativeReconstructionRepository().rebuild(50, true)).rejects.toThrow('batched insert failed');
++    expect(mockExecAsync).toHaveBeenCalledWith('ROLLBACK');
++    expect(mockExecAsync).not.toHaveBeenCalledWith('COMMIT');
++    expect(mockRunAsync).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO reconciliation_queue_snapshot'), 5);
++    expect(mockRunAsync.mock.calls.some(([sql]) => typeof sql === 'string' && sql.includes('DELETE FROM maintenance_change_queue'))).toBe(false);
++  });
++
++  it('bounds bridge payloads when a generated place ID contains many long support IDs', async () => {
++    const rows = Array.from({ length: 100 }, (_, index) => ({
++      evidence_id: `synthetic-${String(index).padStart(4, '0')}-${'x'.repeat(990)}`,
++      captured_at_millis: Date.UTC(2026, 0, 1), captured_day: '2026-01-01',
++      has_precise_offset: 1, availability: 'available', latitude: 10,
++      longitude: 100, reported_accuracy_meters: 10,
++      platform_duplicate_family_id: null, support_eligible: 1,
++    }));
++    mockGetAllAsync.mockImplementation(async (sql: string) => sql.includes('FROM canonical_evidence') ? rows : []);
++
++    await createNativeReconstructionRepository().rebuild();
++
++    const linkWrites = mockRunAsync.mock.calls.filter(([sql]) => typeof sql === 'string' && sql.startsWith('INSERT INTO reconstruction_link '));
++    expect(linkWrites.length).toBeGreaterThan(2);
++    expect(linkWrites.every((call) => call.slice(1).reduce((count: number, value: unknown) => count + String(value ?? '').length, 0) <= 256_000)).toBe(true);
++    expect(mockExecAsync).toHaveBeenCalledWith('COMMIT');
++  });
++
++  it('rolls back before sending one oversized generated link row to SQLite', async () => {
++    mockGetAllAsync.mockImplementation(async (sql: string) => sql.includes('FROM canonical_evidence') ? [{
++      evidence_id: `synthetic-${'x'.repeat(256_100)}`,
++      captured_at_millis: Date.UTC(2026, 0, 1), captured_day: '2026-01-01', has_precise_offset: 1,
++      availability: 'available', latitude: 10, longitude: 100, reported_accuracy_meters: 10,
++      platform_duplicate_family_id: null, support_eligible: 1,
++    }] : []);
++    await expect(createNativeReconstructionRepository().rebuild(50, true)).rejects.toThrow('exceeds the local SQLite bridge limit');
++    expect(mockRunAsync.mock.calls.some(([sql]) => typeof sql === 'string' && sql.startsWith('INSERT INTO reconstruction_link '))).toBe(false);
++    expect(mockRunAsync.mock.calls.some(([sql]) => typeof sql === 'string' && sql.includes('DELETE FROM maintenance_change_queue'))).toBe(false);
++    expect(mockExecAsync).toHaveBeenCalledWith('ROLLBACK');
++    expect(mockExecAsync).not.toHaveBeenCalledWith('COMMIT');
++  });
++
+   it('reads only redacted chronology, coarsened anchors, and journey states from the committed graph', async () => {
+     mockGetAllAsync.mockResolvedValueOnce([{ journey_id: 'private:alpha', journey_state: 'inferred', latitude: 13.75632, longitude: 100.501765, display_ordinal: 1, year: 2024, first_year: 2024, last_year: 2025, ordering: 'chronological' }, { journey_id: 'private:beta', journey_state: 'possible-merge', latitude: null, longitude: null, display_ordinal: 2, year: null, first_year: null, last_year: null, ordering: 'uncertain' }]);
+ 
+@@ -89,6 +189,7 @@ describe('durable local reconciliation repository', () => {
+     expect(read).toContain('WHERE journey.run_id = ?');
+     expect(read).toContain('JOIN reconstruction_trip_qualification qualification');
+     expect(read).toContain("qualification.classification IN ('AUTO_CONFIRMED', 'USER_CONFIRMED')");
++    expect(read).not.toContain('legacy_atlas_continuity');
+     expect(mockGetFirstAsync).toHaveBeenCalledWith('SELECT MAX(run_id) AS run_id FROM reconstruction_run WHERE status = \'complete\'');
+     expect(read).not.toContain('source_ref');
+     expect(read).toContain('journey_years');
+@@ -103,6 +204,7 @@ describe('durable local reconciliation repository', () => {
+     const statisticRead = mockGetFirstAsync.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('COUNT(DISTINCT place.country_code)'))?.[0] as string;
+     expect(statisticRead).toContain('reconstruction_trip_qualification');
+     expect(statisticRead).toContain("classification IN ('AUTO_CONFIRMED', 'USER_CONFIRMED')");
++    expect(statisticRead).not.toContain('legacy_atlas_continuity');
+     expect(statisticRead).toContain('reconstruction_place');
+     expect(statisticRead).toContain('reconstruction_link');
+     expect(statisticRead).not.toContain('canonical_evidence');
+@@ -614,6 +716,38 @@ describe('durable local reconciliation repository', () => {
+     expect(mockRunAsync.mock.calls.some(([sql]) => typeof sql === 'string' && sql.includes('DELETE FROM maintenance_change_queue WHERE EXISTS'))).toBe(false);
+   });
+ 
++  it('defers Atlas catch-up while an OS maintenance lease is active without requesting a SQLite write lease', async () => {
++    mockGetFirstAsync.mockImplementation(async (sql: string) => {
++      if (sql.includes('private_record_lifecycle')) return { state: 'connected' };
++      if (sql.includes('maintenance_lease')) return { expires_at_millis: 1000 };
++      if (sql.includes('COUNT(*) AS count FROM maintenance_change_queue')) return { count: 1 };
++      return null;
++    });
++
++    await expect(createNativeReconstructionRepository().reconcileQueued(50)).rejects.toThrow('already running');
++    expect(mockExecAsync).not.toHaveBeenCalledWith('BEGIN IMMEDIATE TRANSACTION');
++    expect(mockRunAsync).not.toHaveBeenCalledWith(expect.stringContaining('INSERT INTO reconciliation_lease'), expect.anything(), expect.anything(), expect.anything());
++  });
++
++  it('defers a lease-write race when an OS maintenance lease appears after the initial read', async () => {
++    let maintenanceReads = 0;
++    mockGetFirstAsync.mockImplementation(async (sql: string) => {
++      if (sql.includes('maintenance_lease')) {
++        maintenanceReads += 1;
++        return maintenanceReads === 1 ? null : { expires_at_millis: 1000 };
++      }
++      if (sql.includes('private_record_lifecycle')) return { state: 'connected' };
++      return null;
++    });
++    mockExecAsync.mockImplementation(async (sql: string) => {
++      if (sql === 'BEGIN IMMEDIATE TRANSACTION') throw new Error('database is locked');
++    });
++
++    await expect(createNativeReconstructionRepository().reconcileQueued(50)).rejects.toThrow('already running');
++    expect(maintenanceReads).toBe(2);
++    expect(mockRunAsync).not.toHaveBeenCalledWith(expect.stringContaining('INSERT INTO reconciliation_lease'), expect.anything(), expect.anything(), expect.anything());
++  });
++
+   it('leaves confirmed, rejected, and owner-entered history outside the inferred remap review', async () => {
+     mockGetAllAsync.mockImplementation(async (sql: string) => sql.includes('JOIN inferred_history')
+       ? [{ overlay_id: 'overlay:inferred', target_id: 'journey:old', identity_lineage_id: 'lineage:old' }]
+@@ -696,3 +830,26 @@ describe('verified duplicate-family correction identity', () => {
+     expect(() => applyJourneyCorrections(graph, [correction], false, changed)).toThrow('owner remap');
+   });
+ });
++
++describe('final-map correction review', () => {
++  it('keeps an ambiguous final correction pending while retaining every related successor journey', () => {
++    const graph: ReconstructionGraph = {
++      ruleVersion: 'reconstruction-v1', places: [],
++      visits: [
++        { id: 'visit:left', placeId: 'place:left', evidenceIds: ['left'], order: 'ordered' },
++        { id: 'visit:right', placeId: 'place:right', evidenceIds: ['right'], order: 'ordered' },
++      ],
++      journeys: [
++        { id: 'journey:left', visitIds: ['visit:left'], state: 'inferred' },
++        { id: 'journey:right', visitIds: ['visit:right'], state: 'inferred' },
++      ], memberships: [], possibleMerges: [], dispositions: [],
++    };
++    const correction = { revision_id: 'ambiguous-final', action: 'claim' as const, reviewed_support_json: JSON.stringify(['E:left', 'E:right']), reviewed_visits_json: JSON.stringify([['E:left'], ['E:right']]) };
++
++    const result = mapFinalCorrectionApplications(graph, [correction]);
++
++    expect(result.matches.size).toBe(0);
++    expect(result.pending).toEqual([correction]);
++    expect(graph.journeys.map((journey) => journey.id)).toEqual(['journey:left', 'journey:right']);
++  });
++});
+diff --git a/apps/mobile/src/components/atlas-reveal.tsx b/apps/mobile/src/components/atlas-reveal.tsx
+index 90c743b..3e62898 100644
+--- a/apps/mobile/src/components/atlas-reveal.tsx
++++ b/apps/mobile/src/components/atlas-reveal.tsx
+@@ -64,6 +64,7 @@ function JourneyPreviewSheet({ journey, preview, previewError, onClose, onMedia,
+   if (!journey) return null;
+   return <Modal visible transparent animationType={atlasMotionPolicy(reducedMotion).cardAnimation} onRequestClose={onClose}><View testID="journey-preview-sheet" style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.42)', padding: 12 }}><InsetPanel>
+     <Text style={{ color: palette.limestone, fontSize: 20, fontWeight: '800' }}>{preview?.id === journey.id ? preview.detail.ownerClaim?.title ?? preview.detail.ownerPlace?.name ?? journey.label : journey.label}</Text>
++    {journey.status === 'Needs review' && <Body>Needs review</Body>}
+     {preview?.id === journey.id ? <><Body>{preview.detail.ownerEntered ? 'Owner-entered broad area and date claim. It has no observed evidence or associated media.' : preview.detail.ownerPlace ? `Confirmed place: ${preview.detail.ownerPlace.name}, ${preview.detail.ownerPlace.context}. This local selection controls the Atlas marker.` : preview.detail.ownerClaim ? 'Your title and date are shown separately from observed evidence.' : 'Observed evidence, not a claimed destination.'}</Body><Body>{journey.periodLabel}</Body><Body>{preview.detail.observedSpan}</Body>{!preview.detail.ownerEntered && <Body>{preview.detail.correctionState ?? 'inferred'}</Body>}{cardPhoto ? <><Image source={{ uri: cardPhoto.uri! }} style={{ height: 112, borderRadius: 12 }} accessibilityLabel="Associated photo preview" cachePolicy="memory" allowDownscaling /><Body>Associated photo.</Body></> : <Body>{preview.detail.ownerEntered ? 'No media is attached to this owner-entered journey.' : preview.previews.some((item) => item.uri) ? 'Associated video available. Open photos and videos to play it.' : 'No accessible associated media yet.'}</Body>}</> : previewError ? <Body>{previewError}</Body> : <Body>Loading local journey preview.</Body>}
+     <ActionButton accessibilityLabel="Close journey preview" onPress={onClose} variant="secondary">Close</ActionButton>
+     {preview?.id === journey.id && <ActionButton accessibilityLabel="See photos and videos" onPress={onMedia} disabled={!preview.detail.memories.length}>See photos and videos</ActionButton>}
+@@ -136,6 +137,8 @@ export function AtlasReveal({ model, onImport, onRetry, onCatchUp, onManualEntry
+       <Body>{model.message}</Body>
+       <Body>You can keep this screen open. Check the map and journeys again when this notice disappears.</Body>
+     </InsetPanel> : model.state === 'failed' ? <InsetPanel><Body>{model.message}</Body><Body>You can still browse the last committed journeys and their associated photos below while recovery is retried.</Body></InsetPanel> : model.state !== 'ready' && <Body>{model.message}</Body>}
++    {model.pendingUpdates && <InsetPanel><Body>{model.journeys.length ? 'Local changes are waiting. Your last completed Atlas remains available while you choose when to catch up.' : 'Local changes are waiting. Catch up to check whether any journeys can be revealed.'}</Body><ActionButton accessibilityLabel="Catch up waiting local journey changes" onPress={onCatchUp} variant="secondary">Catch up locally</ActionButton></InsetPanel>}
++    {model.reviewRequired && <InsetPanel><Body>Some correction matches need your review before local changes can catch up. Open the affected journey in the Timeline, then choose Edit and Trip accuracy to review its withheld correction.</Body></InsetPanel>}
+     {showAbout && <InsetPanel><Body>{model.coverage} It may be incomplete and is not a lifetime claim.</Body><Body>{model.message}</Body><Body>{useProviderMap ? 'The configured map provider receives style and tile requests, which disclose the viewed map area and ordinary network metadata. Travel Life does not send private journeys, media, source IDs, or precise locations with those requests.' : 'Map data is unavailable, so Atlas remains in its Timeline recovery state. Your local journeys remain available.'}</Body><ActionButton accessibilityLabel="Close About your Atlas" onPress={() => setShowAbout(false)} variant="secondary">Close</ActionButton></InsetPanel>}
+     {model.state === 'sparse' && <Text style={{ color: palette.limestone, fontSize: 20, fontWeight: '800' }}>No journey revealed yet.</Text>}
+     {model.state === 'sparse' && <InsetPanel>
+@@ -144,7 +147,7 @@ export function AtlasReveal({ model, onImport, onRetry, onCatchUp, onManualEntry
+         <Body>{model.diagnostics.assessed} records assessed; {model.diagnostics.supported} supported; {model.diagnostics.places} inferred places; {model.diagnostics.visits} inferred visits.</Body>
+         <Body>Reasons without visit support: {model.diagnostics.insufficientLocation} insufficient location support; {model.diagnostics.missingDay} missing capture day; {model.diagnostics.invalidDay} invalid capture day; {model.diagnostics.unavailable} unavailable; {model.diagnostics.duplicateConflict} duplicate family conflict; {model.diagnostics.excluded} excluded by you.</Body>
+         <Body>These are counts from the last completed local reconstruction. They do not prove where you were or that your lifetime history is complete.</Body>
+-      </> : <Body>No completed local evidence check is available yet. Recheck local journey history to produce one.</Body>}
++      </> : <Body>{model.pendingUpdates ? 'No completed local evidence check is available yet. Catch up locally to check the waiting changes.' : 'No completed local evidence check is available yet. Recheck local journey history to produce one.'}</Body>}
+     </InsetPanel>}
+     {model.state === 'ready' && <View style={{ gap: 2 }}>
+       <Text style={{ color: palette.sage, fontSize: 13, fontWeight: '700' }}>Inferred local record</Text>
+@@ -182,10 +185,10 @@ export function AtlasReveal({ model, onImport, onRetry, onCatchUp, onManualEntry
+         {!model.journeys.length && <Body>No supported journey is available to show.</Body>}
+     </View>
+     {model.replay.eligible ? <ActionButton accessibilityLabel="Check Replay availability" onPress={onReplay}>Explore Replay availability</ActionButton> : <InsetPanel><Body>{model.replay.reason}</Body></InsetPanel>}
+-    {model.state === 'ready' && <ActionButton accessibilityLabel="Rebuild local journey history" onPress={onRetry} variant="secondary">Rebuild local journey history</ActionButton>}
+-    {model.state === 'processing' && <ActionButton accessibilityLabel="Catch up local journey history" onPress={onCatchUp} variant="secondary">Catch up locally</ActionButton>}
+-    {model.state === 'failed' && <ActionButton accessibilityLabel="Retry local reveal" onPress={onRetry} variant="secondary">Retry local reveal</ActionButton>}
+-    {model.state === 'sparse' && <ActionButton accessibilityLabel="Recheck local journey history" onPress={onRetry} variant="secondary">Recheck local journey history</ActionButton>}
++    {model.state === 'ready' && !model.pendingUpdates && !model.reviewRequired && <ActionButton accessibilityLabel="Rebuild local journey history" onPress={onRetry} variant="secondary">Rebuild local journey history</ActionButton>}
++    {model.state === 'processing' && <ActionButton accessibilityLabel="Local journey history is updating" onPress={onCatchUp} disabled variant="secondary">Updating locally…</ActionButton>}
++    {model.state === 'failed' && !model.pendingUpdates && !model.reviewRequired && <ActionButton accessibilityLabel="Recheck local journey history" onPress={onRetry} variant="secondary">Recheck local journey history</ActionButton>}
++    {model.state === 'sparse' && !model.pendingUpdates && !model.reviewRequired && <ActionButton accessibilityLabel="Recheck local journey history" onPress={onRetry} variant="secondary">Recheck local journey history</ActionButton>}
+     {(model.state === 'sparse' || model.state === 'restricted') && <ActionButton accessibilityLabel="Import or reconnect photos" onPress={onImport}>Import or reconnect photos</ActionButton>}
+     {(model.state === 'ready' || model.state === 'sparse' || model.state === 'failed' || model.state === 'restricted') && <ActionButton accessibilityLabel="Add a journey manually" onPress={() => onManualEntry({ view, year, selectedJourneyId, camera: mapCamera, localViewport })} variant="secondary">Add a journey manually</ActionButton>}
+   </View>;
+diff --git a/apps/mobile/src/reconstruction/repository.ts b/apps/mobile/src/reconstruction/repository.ts
+index 40fd496..d8bcc91 100644
+--- a/apps/mobile/src/reconstruction/repository.ts
++++ b/apps/mobile/src/reconstruction/repository.ts
+@@ -6,6 +6,7 @@ import { NATURAL_EARTH_ADMIN_0_DATASET_VERSION, countryDisplayName, resolveCount
+ import { destinationLabel, type DestinationSupport } from './destination-label';
+ import type { DurableRevealRecord, JourneyDetail, RevealMapAnchor } from '@/reveal/types';
+ import type { ManualJourneyInput } from '@/import-record/types';
++import { ensureNativeImportSchema } from '@/import-record/repository';
+ import { serializeNativeTransactions } from '@/database/native-transaction';
+ 
+ type Database = {
+@@ -17,7 +18,7 @@ type Database = {
+ 
+ type EvidenceRow = { evidence_id: string; media_type?: 'image' | 'video'; captured_at_millis: number | null; captured_day: string | null; has_precise_offset: number; availability: ReconstructionEvidence['availability']; latitude: number | null; longitude: number | null; reported_accuracy_meters: number | null; platform_duplicate_family_id?: string | null; source_origin?: string | null; support_eligible?: number | null; duplicate_tuple_version?: number | null; duplicate_tuple_fingerprint?: string | null };
+ export type JourneyCorrectionAction = 'confirm' | 'reject' | 'claim' | 'place' | 'split' | 'merge' | 'remove-visit';
+-type JourneyCorrectionRevision = { revision_id: string; action: JourneyCorrectionAction; reviewed_support_json: string; reviewed_visits_json?: string; reviewed_family_snapshot_json?: string | null; structural_boundary_json?: string | null };
++type JourneyCorrectionRevision = { revision_id: string; action: JourneyCorrectionAction; source_run_id?: number; reviewed_support_json: string; reviewed_visits_json?: string; reviewed_family_snapshot_json?: string | null; structural_boundary_json?: string | null };
+ type MemoryCorrectionAction = 'assign' | 'move' | 'reject' | 'unassign';
+ type MemoryCorrectionRevision = { revision_id: string; action: MemoryCorrectionAction; source_evidence_id: string; reviewed_support_json: string; reviewed_family_snapshot_json?: string | null; created_at_millis: number };
+ type OwnerJourneyClaim = NonNullable<JourneyDetail['ownerClaim']>;
+@@ -26,6 +27,51 @@ type StructuralSplit = { afterVisitId: string };
+ type StructuralMerge = { withJourneyId: string };
+ type VisitRemoval = { visitId: string };
+ const RECONCILIATION_LEASE_MILLIS = 5 * 60 * 1000;
++export type ReconciliationStage = 'LEASE_OPEN' | 'MAINTENANCE_LEASE_READ' | 'LEASE_WRITE' | 'QUEUE_READ' | 'REBUILD' | 'OUTCOME_READ' | 'OUTCOME_SAVE' | 'LEASE_RELEASE';
++
++/** Carries an internal, fixed processing stage without exposing a native SQLite error to the UI log. */
++export class ReconciliationStageError extends Error {
++  constructor(readonly stage: ReconciliationStage, readonly originalError: unknown) {
++    super(originalError instanceof Error ? originalError.message : 'Local reconciliation failed.');
++    this.name = 'ReconciliationStageError';
++  }
++}
++
++function reconciliationStageError(stage: ReconciliationStage, error: unknown) {
++  return error instanceof ReconciliationStageError ? error : new ReconciliationStageError(stage, error);
++}
++
++// Keep each statement below SQLite's conservative 999-variable boundary.
++const MAX_RECONSTRUCTION_INSERT_PARAMETERS = 800;
++// Generated place IDs can contain every support ID. Bound bridge payloads as
++// well as SQLite parameters so one dense place does not create a huge call.
++const MAX_RECONSTRUCTION_INSERT_CHARACTERS = 256_000;
++
++type SqlValue = string | number | null;
++
++function reconstructionRowWriter(db: Database, tableAndColumns: string, width: number) {
++  const rowsPerStatement = Math.floor(MAX_RECONSTRUCTION_INSERT_PARAMETERS / width);
++  let batch: SqlValue[][] = [];
++  let characters = 0;
++  const flush = async () => {
++    if (!batch.length) return;
++    const slots = `(${Array(width).fill('?').join(', ')})`;
++    await db.runAsync(`INSERT INTO ${tableAndColumns} VALUES ${batch.map(() => slots).join(', ')}`, ...batch.flat());
++    batch = [];
++    characters = 0;
++  };
++  return {
++    async add(row: SqlValue[]) {
++      if (row.length !== width) throw new Error('Invalid reconstruction insert row width.');
++      const rowCharacters = row.reduce<number>((count, value) => count + String(value ?? '').length, 0);
++      if (rowCharacters > MAX_RECONSTRUCTION_INSERT_CHARACTERS) throw new Error('Reconstruction insert row exceeds the local SQLite bridge limit.');
++      if (batch.length >= rowsPerStatement || characters + rowCharacters > MAX_RECONSTRUCTION_INSERT_CHARACTERS) await flush();
++      batch.push(row);
++      characters += rowCharacters;
++    },
++    flush,
++  };
++}
+ 
+ const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+ 
+@@ -503,6 +549,25 @@ export function mapCorrectionsToCommittedJourneys(graph: ReconstructionGraph, co
+   return applyJourneyCorrections(graph, corrections, false, families).matches;
+ }
+ 
++/** Separates a reviewable ambiguity created only by the final committed graph
++ * from earlier structural/support failures, which remain fail-closed. */
++export function mapFinalCorrectionApplications(graph: ReconstructionGraph, corrections: JourneyCorrectionRevision[], families?: FamilyResolver) {
++  const matches = new Map<string, string>();
++  const pending: JourneyCorrectionRevision[] = [];
++  for (const correction of corrections) {
++    const targetKind = correction.action === 'reject' || correction.action === 'split' || correction.action === 'merge' ? 'grouping-constraint' : 'journey';
++    try {
++      const match = mapCorrectionsToCommittedJourneys(graph, [correction], families).get(correction.revision_id);
++      if (targetKind === 'journey' && !match) throw new JourneyCorrectionRemapRequiredError(correction.revision_id);
++      if (match) matches.set(correction.revision_id, match);
++    } catch (error) {
++      if (targetKind !== 'journey' || !(error instanceof JourneyCorrectionRemapRequiredError)) throw error;
++      pending.push(correction);
++    }
++  }
++  return { matches, pending };
++}
++
+ function rejectionGroupingConstraints(corrections: JourneyCorrectionRevision[], families?: FamilyResolver): JourneyGroupingConstraint[] {
+   const constraints: JourneyGroupingConstraint[] = [];
+   for (const correction of corrections) {
+@@ -599,8 +664,12 @@ export function createNativeReconstructionRepository() {
+   async function open() {
+     if (!database) database = (async () => {
+       // eslint-disable-next-line @typescript-eslint/no-require-imports
+-      const sqlite = require('expo-sqlite') as { openDatabaseAsync(name: string): Promise<Database> };
+-      const db = serializeNativeTransactions(await sqlite.openDatabaseAsync('travel-life-import-v1.db'));
++      const sqlite = require('expo-sqlite') as { openDatabaseAsync(name: string, options?: { useNewConnection?: boolean }): Promise<Database> };
++      // Expo SQLite can retain a released cached native handle after Android
++      // recreates the React runtime while the process survives. The import
++      // repository owns its cached connection; reconstruction gets a fresh
++      // handle and the existing transaction gate serializes their writers.
++      const db = serializeNativeTransactions(await sqlite.openDatabaseAsync('travel-life-import-v1.db', { useNewConnection: true }));
+       await db.execAsync('PRAGMA busy_timeout = 30000');
+       return db;
+     })().catch((error) => { database = null; throw error; });
+@@ -635,9 +704,35 @@ export function createNativeReconstructionRepository() {
+     return new Map([...grouped].map(([id, items]) => [id, destinationLabel(items)]));
+   }
+ 
+-  async function acquireLease(nowMillis: number): Promise<number | null> {
++  async function activeMaintenanceLease(db: Database, nowMillis: number) {
++    const maintenance = await db.getFirstAsync<{ expires_at_millis: number }>('SELECT expires_at_millis FROM maintenance_lease WHERE record_id = 1');
++    return maintenance !== null && maintenance.expires_at_millis > nowMillis;
++  }
++
++  async function acquireLease(nowMillis: number, setStage: (stage: ReconciliationStage) => void): Promise<number | null> {
++    setStage('LEASE_OPEN');
+     const db = await open();
+-    await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
++    // An OS-invoked metadata pass uses this durable lease from another JS
++    // runtime. Reading it first avoids racing its active writer for SQLite's
++    // exclusive transaction lock; its owner will reconcile the queue itself.
++    setStage('MAINTENANCE_LEASE_READ');
++    if (await activeMaintenanceLease(db, nowMillis)) return null;
++    setStage('LEASE_WRITE');
++    try {
++      await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
++    } catch (error) {
++      // A task can acquire its durable maintenance lease between the read
++      // above and this write. Recheck once to classify that race without
++      // retrying an unknown SQLite failure or adding another write.
++      try {
++        setStage('MAINTENANCE_LEASE_READ');
++        if (await activeMaintenanceLease(db, nowMillis)) return null;
++      } catch {
++        // Preserve the original write-lock failure when the read cannot run.
++      }
++      setStage('LEASE_WRITE');
++      throw error;
++    }
+     try {
+       const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
+       if (lifecycle?.state !== 'connected') throw new Error('Private record is not connected.');
+@@ -699,6 +794,7 @@ export function createNativeReconstructionRepository() {
+     async findManualJourneyOverlaps(input: ManualJourneyInput) {
+       validateManualJourney(input);
+       const db = await open();
++      await ensureNativeImportSchema(db);
+       const [start, end] = manualRange(input);
+       const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
+       if (lifecycle?.state !== 'connected') throw new Error('Private record is not connected.');
+@@ -722,6 +818,7 @@ export function createNativeReconstructionRepository() {
+     async createManualJourney(input: ManualJourneyInput) {
+       validateManualJourney(input);
+       const db = await open();
++      await ensureNativeImportSchema(db);
+       const [start, end] = manualRange(input);
+       await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
+       try {
+@@ -769,6 +866,7 @@ export function createNativeReconstructionRepository() {
+     /** Resolves an opaque Atlas id only inside SQLite and returns owner-readable text. */
+     async loadJourneyDetail(displayId: string): Promise<{ detail: JourneyDetail; previewSourceRefs: (string | null)[]; snapshotToken: number }> {
+       const db = await open();
++      if (displayId.startsWith('manual:')) await ensureNativeImportSchema(db);
+       const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
+       if (lifecycle?.state !== 'connected') throw new Error('Private record is not connected.');
+       if (displayId.startsWith('manual:')) {
+@@ -1184,6 +1282,9 @@ export function createNativeReconstructionRepository() {
+      * Source/evidence IDs, dates, and raw coordinates stay inside this query. */
+     async loadDurableReveal(): Promise<DurableRevealRecord> {
+       const db = await open();
++      // Atlas includes owner-entered journeys, so this is also a valid first
++      // entry point on a device that has not opened the import repository.
++      await ensureNativeImportSchema(db);
+       const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
+       if (lifecycle?.state !== 'connected') throw new Error('Private record is not connected.');
+       const completed = await db.getFirstAsync<{ run_id: number }>('SELECT MAX(run_id) AS run_id FROM reconstruction_run WHERE status = \'complete\'');
+@@ -1305,6 +1406,39 @@ export function createNativeReconstructionRepository() {
+       `, completed.run_id, completed.run_id, completed.run_id);
+       const journeys = new Map<string, DurableRevealRecord['journeys'][number]>();
+       const destinationLabels = await readDestinationLabels(db, completed.run_id);
++      const pendingReviewJourneys = new Set<string>();
++      const pendingCandidates = (await db.getAllAsync<{ revision_id: string; reviewed_support_json: string; reviewed_family_snapshot_json: string | null }>(
++        `SELECT candidate.revision_id, revision.reviewed_support_json, revision.reviewed_family_snapshot_json
++         FROM journey_correction_candidate candidate
++         JOIN journey_correction_revision revision ON revision.revision_id = candidate.revision_id
++         WHERE candidate.state = 'pending_remap'`,
++      )) ?? [];
++      if (pendingCandidates.length) {
++        const familyRows = await db.getAllAsync<EvidenceRow>('SELECT evidence_id, captured_at_millis, captured_day, has_precise_offset, availability, latitude, longitude, reported_accuracy_meters, platform_duplicate_family_id, source_origin, support_eligible, duplicate_tuple_version, duplicate_tuple_fingerprint FROM canonical_evidence');
++        const families = resolveVerifiedDuplicateFamilies(familyRows ?? []);
++        const supportRows = await db.getAllAsync<{ journey_id: string; evidence_id: string }>(`
++          SELECT DISTINCT journey.parent_id AS journey_id, support.child_id AS evidence_id
++          FROM reconstruction_link journey
++          JOIN reconstruction_link support ON support.run_id = journey.run_id
++            AND support.link_kind = 'visit-support' AND support.parent_id = journey.child_id
++          WHERE journey.run_id = ? AND journey.link_kind = 'journey-visit'`, completed.run_id);
++        const journeysByEvidence = new Map<string, Set<string>>();
++        for (const support of supportRows) {
++          const ids = journeysByEvidence.get(support.evidence_id) ?? new Set<string>();
++          ids.add(support.journey_id); journeysByEvidence.set(support.evidence_id, ids);
++        }
++        for (const candidate of pendingCandidates) {
++          try {
++            const reviewed = JSON.parse(candidate.reviewed_support_json) as unknown;
++            if (!Array.isArray(reviewed) || !reviewed.every((key): key is string => typeof key === 'string')) continue;
++            const snapshots = correctionFamilySnapshots(candidate.reviewed_family_snapshot_json, candidate.revision_id);
++            for (const key of reviewed) for (const journeyId of journeysByEvidence.get(resolveReviewedSupportKey(key, candidate.revision_id, snapshots, families)) ?? []) pendingReviewJourneys.add(journeyId);
++          } catch {
++            // A malformed candidate remains protected but cannot be attached to
++            // a current journey without a verified support mapping.
++          }
++        }
++      }
+       displayedJourneys.clear();
+       for (const row of rows) {
+         const displayId = opaqueJourneyDisplayId(row.journey_id);
+@@ -1315,7 +1449,7 @@ export function createNativeReconstructionRepository() {
+         const supportedLabel = destinationLabels.get(row.journey_id);
+         const ownerPlace = ownerPlaceByJourney.get(row.journey_id);
+         const label = ownerPlace ? `${ownerPlace.name}, ${ownerPlace.context}` : supportedLabel && supportedLabel !== 'Private journey' ? supportedLabel : names.length === 1 ? names[0] : names.length === 2 ? `${names[0]} & ${names[1]}` : names.length > 2 ? 'Multi-country trip' : 'Private journey';
+-        journeys.set(displayId, { displayId, state: row.journey_state, anchor: ownerPlace ? coarseMapAnchor(ownerPlace.latitude, ownerPlace.longitude) : coarseMapAnchor(row.latitude, row.longitude), years: row.year === null ? [] : [row.year], periodLabel: monthRangeLabel(row.first_day, row.last_day, row.first_year, row.last_year), ordering: row.ordering, label, locationKind: ownerPlace ? 'owner-confirmed' : 'inferred' });
++        journeys.set(displayId, { displayId, state: row.journey_state, anchor: ownerPlace ? coarseMapAnchor(ownerPlace.latitude, ownerPlace.longitude) : coarseMapAnchor(row.latitude, row.longitude), years: row.year === null ? [] : [row.year], periodLabel: monthRangeLabel(row.first_day, row.last_day, row.first_year, row.last_year), ordering: row.ordering, label, locationKind: ownerPlace ? 'owner-confirmed' : 'inferred', needsReview: pendingReviewJourneys.has(row.journey_id) });
+       }
+       return { journeys: [...journeys.values(), ...manualJourneys], statistics: statistics ? { journeyCount: statistics.journey_count, placeCount: statistics.place_count, supportedCountryCount: statistics.country_count, countryStatus: statistics.resolved_count === statistics.place_count ? 'supported' : 'unavailable' } : null,
+         diagnostics: diagnostics ? { assessed: diagnostics.assessed, supported: diagnostics.supported, places: diagnostics.places, visits: diagnostics.visits, missingDay: diagnostics.missing_day, invalidDay: diagnostics.invalid_day, unavailable: diagnostics.unavailable, duplicateConflict: diagnostics.duplicate_conflict, insufficientLocation: diagnostics.insufficient_location, excluded: diagnostics.excluded } : null };
+@@ -1361,7 +1495,7 @@ export function createNativeReconstructionRepository() {
+           hasPreciseOffset: row.has_precise_offset === 1, latitude: row.latitude, longitude: row.longitude, reportedAccuracyMeters: row.reported_accuracy_meters,
+           availability: row.availability, duplicateFamilyId: families.keyForEvidence(row.evidence_id).startsWith('F:') ? families.keyForEvidence(row.evidence_id).slice(2) : (row.platform_duplicate_family_id ?? null), duplicateConflict: families.conflictForEvidence(row.evidence_id), supportEligible: families.supportEligible(row.evidence_id), sourceOrigin: row.source_origin, excluded: excluded.has(row.evidence_id),
+         })), configuredHomeAreas.map((area) => ({ id: area.area_id, latitude: area.latitude, longitude: area.longitude, effectiveStartDay: area.effective_start_day, effectiveEndDay: area.effective_end_day, radiusMeters: area.radius_meters })));
+-        const corrections = await db.getAllAsync<JourneyCorrectionRevision>(`SELECT revision_id, action, reviewed_support_json, reviewed_visits_json, reviewed_family_snapshot_json, structural_boundary_json
++        const corrections = await db.getAllAsync<JourneyCorrectionRevision>(`SELECT revision_id, action, source_run_id, reviewed_support_json, reviewed_visits_json, reviewed_family_snapshot_json, structural_boundary_json
+           FROM journey_correction_revision WHERE state = 'effective'`);
+         const memoryCorrections = await db.getAllAsync<MemoryCorrectionRevision>(`SELECT revision_id, action, source_evidence_id, reviewed_support_json, reviewed_family_snapshot_json, created_at_millis
+           FROM journey_memory_correction_revision WHERE state = 'effective' ORDER BY created_at_millis, revision_id`);
+@@ -1452,7 +1586,7 @@ export function createNativeReconstructionRepository() {
+         // generate a different journey ID. Store correction applications
+         // against that final graph, not the pre-continuity ID, or a saved
+         // owner place will have no visible journey to override.
+-        const finalMatches = mapCorrectionsToCommittedJourneys(graph, corrections, families);
++        const { matches: finalMatches, pending: pendingFinalRemaps } = mapFinalCorrectionApplications(graph, corrections, families);
+         const evidenceRevision = (await db.getFirstAsync<{ canonical_evidence_revision: number | null }>('SELECT canonical_evidence_revision FROM private_history_record WHERE record_id = 1'))?.canonical_evidence_revision ?? 0;
+         const correctionRevision = (await db.getFirstAsync<{ revision: number | null }>('SELECT MAX(revision) AS revision FROM correction_overlays'))?.revision ?? 0;
+         const revision = Math.max(evidenceRevision, correctionRevision);
+@@ -1462,7 +1596,7 @@ export function createNativeReconstructionRepository() {
+         for (const correction of corrections) {
+           const targetKind = correction.action === 'reject' || correction.action === 'split' || correction.action === 'merge' ? 'grouping-constraint' : 'journey';
+           const journeyId = targetKind === 'journey' ? finalMatches.get(correction.revision_id) : null;
+-          if (targetKind === 'journey' && !journeyId) throw new JourneyCorrectionRemapRequiredError(correction.revision_id);
++          if (targetKind === 'journey' && !journeyId) continue;
+           await db.runAsync(
+             `INSERT INTO journey_correction_application (revision_id, run_id, target_kind, journey_id, application_state) VALUES (?, ?, ?, ?, 'effective')`,
+             correction.revision_id, runId, targetKind, journeyId ?? null,
+@@ -1474,18 +1608,32 @@ export function createNativeReconstructionRepository() {
+             correction.revision_id, runId, memoryMatches.get(correction.revision_id) ?? null,
+           );
+         }
+-        for (const correction of corrections) await db.runAsync(
++        for (const correction of pendingFinalRemaps) {
++          const existing = await db.getFirstAsync<{ candidate_id: string }>(
++            "SELECT candidate_id FROM journey_correction_candidate WHERE revision_id = ? AND state = 'pending_remap' LIMIT 1",
++            correction.revision_id,
++          );
++          if (!existing) await db.runAsync(
++            `INSERT INTO journey_correction_candidate (candidate_id, revision_id, base_run_id, state, reason, created_at_millis)
++             VALUES (?, ?, ?, 'pending_remap', ?, ?)`,
++            `candidate-${correction.revision_id}-${nowMillis}-${Math.random().toString(36).slice(2)}`,
++            correction.revision_id, correction.source_run_id ?? runId,
++            'Reviewed support now spans more than one rebuilt journey.', nowMillis,
++          );
++        }
++        for (const correction of corrections.filter((candidate) => finalMatches.has(candidate.revision_id))) await db.runAsync(
+           "UPDATE journey_correction_candidate SET state = 'resolved' WHERE revision_id = ? AND state = 'pending_remap'",
+           correction.revision_id,
+         );
+         await db.runAsync('DELETE FROM reconstruction_trip_qualification'); await db.runAsync('DELETE FROM reconstruction_disposition'); await db.runAsync('DELETE FROM reconstruction_link'); await db.runAsync('DELETE FROM reconstruction_journey'); await db.runAsync('DELETE FROM reconstruction_visit'); await db.runAsync('DELETE FROM reconstruction_place');
+         const evidenceById = new Map(evidence.map((item) => [item.id, item]));
++        const links = reconstructionRowWriter(db, 'reconstruction_link (run_id, link_kind, parent_id, child_id)', 4);
+         for (const place of graph.places) {
+           const countryCode = resolvePlaceCountryCode(place, evidenceById);
+           await db.runAsync('INSERT INTO reconstruction_place (place_id, run_id, representative_evidence_id, uncertainty_json, country_code, country_dataset_version) VALUES (?, ?, ?, ?, ?, ?)', place.id, runId, place.representativeId, JSON.stringify(place.uncertainty), countryCode, NATURAL_EARTH_ADMIN_0_DATASET_VERSION);
+-          for (const evidenceId of place.memberIds) await db.runAsync('INSERT INTO reconstruction_link (run_id, link_kind, parent_id, child_id) VALUES (?, ?, ?, ?)', runId, 'place-support', place.id, evidenceId);
++          for (const evidenceId of place.memberIds) await links.add([runId, 'place-support', place.id, evidenceId]);
+         }
+-        for (const visit of graph.visits) { await db.runAsync('INSERT INTO reconstruction_visit (visit_id, run_id, place_id, ordering) VALUES (?, ?, ?, ?)', visit.id, runId, visit.placeId, visit.order); for (const evidenceId of visit.evidenceIds) await db.runAsync('INSERT INTO reconstruction_link (run_id, link_kind, parent_id, child_id) VALUES (?, ?, ?, ?)', runId, 'visit-support', visit.id, evidenceId); }
++        for (const visit of graph.visits) { await db.runAsync('INSERT INTO reconstruction_visit (visit_id, run_id, place_id, ordering) VALUES (?, ?, ?, ?)', visit.id, runId, visit.placeId, visit.order); for (const evidenceId of visit.evidenceIds) await links.add([runId, 'visit-support', visit.id, evidenceId]); }
+         const confirmedJourneyIds = new Set(corrections.filter((correction) => correction.action === 'confirm').map((correction) => finalMatches.get(correction.revision_id)).filter((id): id is string => Boolean(id)));
+         const mediaByEvidence = new Map(rows.map((row) => [row.evidence_id, row.media_type ?? 'image'] as const));
+         for (const journey of graph.journeys) {
+@@ -1499,11 +1647,14 @@ export function createNativeReconstructionRepository() {
+             runId, journey.id, qualification.classification, qualification.score, qualification.path,
+             JSON.stringify(qualification.reasons),
+           );
+-          for (const visitId of journey.visitIds) await db.runAsync('INSERT INTO reconstruction_link (run_id, link_kind, parent_id, child_id) VALUES (?, ?, ?, ?)', runId, 'journey-visit', journey.id, visitId);
++          for (const visitId of journey.visitIds) await links.add([runId, 'journey-visit', journey.id, visitId]);
+         }
+-        for (const membership of graph.memberships) await db.runAsync('INSERT INTO reconstruction_link (run_id, link_kind, parent_id, child_id) VALUES (?, ?, ?, ?)', runId, `membership:${membership.state}:${membership.reason}`, membership.journeyId, membership.evidenceId);
+-        for (const merge of graph.possibleMerges) await db.runAsync('INSERT INTO reconstruction_link (run_id, link_kind, parent_id, child_id) VALUES (?, ?, ?, ?)', runId, `possible-merge:${merge.reason}`, merge.fromJourneyId, merge.toJourneyId);
+-        for (const disposition of graph.dispositions) await db.runAsync('INSERT INTO reconstruction_disposition (run_id, evidence_id, disposition_state, reasons_json) VALUES (?, ?, ?, ?)', runId, disposition.evidenceId, disposition.state, JSON.stringify(disposition.reasons));
++        for (const membership of graph.memberships) await links.add([runId, `membership:${membership.state}:${membership.reason}`, membership.journeyId, membership.evidenceId]);
++        for (const merge of graph.possibleMerges) await links.add([runId, `possible-merge:${merge.reason}`, merge.fromJourneyId, merge.toJourneyId]);
++        await links.flush();
++        const dispositions = reconstructionRowWriter(db, 'reconstruction_disposition (run_id, evidence_id, disposition_state, reasons_json)', 4);
++        for (const disposition of graph.dispositions) await dispositions.add([runId, disposition.evidenceId, disposition.state, JSON.stringify(disposition.reasons)]);
++        await dispositions.flush();
+         if (consumeQueuedChanges) {
+           const derivedIds = new Set([...graph.places, ...graph.visits, ...graph.journeys].map((item) => item.id));
+           const overlays = await db.getAllAsync<{ overlay_id: string; target_id: string; identity_lineage_id: string | null }>(`SELECT overlay.overlay_id, overlay.target_id, overlay.identity_lineage_id FROM correction_overlays overlay
+@@ -1544,24 +1695,46 @@ export function createNativeReconstructionRepository() {
+       }
+     },
+     async reconcileQueued(nowMillis = Date.now(), canUseSource: () => Promise<boolean> = async () => true) {
+-      const token = await acquireLease(nowMillis);
+-      if (token === null) throw new Error('Local reconciliation is already running; queued changes remain pending.');
++      let token: number | null = null;
++      let primaryFailure: unknown = null;
++      let stage: ReconciliationStage = 'LEASE_OPEN';
+       try {
++        token = await acquireLease(nowMillis, (next) => { stage = next; });
++        if (token === null) throw new Error('Local reconciliation is already running; queued changes remain pending.');
++        stage = 'QUEUE_READ';
+         const queued = (await (await open()).getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM maintenance_change_queue'))?.count ?? 0;
+         if (queued === 0) return { graph: { ruleVersion: RECONSTRUCTION_RULE_VERSION, places: [], visits: [], journeys: [], possibleMerges: [], dispositions: [], memberships: [] } as ReconstructionGraph, newJourneyCount: 0, updatedJourneyCount: 0 };
++        stage = 'REBUILD';
+         const graph = await this.rebuild(nowMillis, true, canUseSource);
++        stage = 'OUTCOME_READ';
+         const outcome = await (await open()).getFirstAsync<{ new_journey_count: number; updated_journey_count: number }>(
+           'SELECT new_journey_count, updated_journey_count FROM reconciliation_state WHERE record_id = 1',
+         );
+         return { graph, newJourneyCount: outcome?.new_journey_count ?? 0, updatedJourneyCount: outcome?.updated_journey_count ?? 0 };
+       } catch (error) {
+-        const restricted = error instanceof Error && (error.message.includes('not connected') || error.message.includes('not permitted'));
+-        const pending = error instanceof Error && (error.message.includes('need owner review') || error.message.includes('needs owner remap'));
+-        if (error instanceof JourneyCorrectionRemapRequiredError) await recordPendingCorrectionRemap(error.revisionId);
+-        await saveOutcome(restricted ? 'restricted' : pending ? 'pending' : 'error', restricted ? 'Local journey updates are waiting for connected private access.' : pending ? 'An owner correction needs review before queued local changes can be reconciled.' : 'Local journey reconciliation did not finish. Queued changes remain pending.');
+-        throw error;
++        // A fresh reconciliation or maintenance lease is expected contention,
++        // not a failed run. Preserve the prior result without writing outcome state.
++        if (error instanceof Error && error.message.includes('already running')) throw error;
++        primaryFailure = reconciliationStageError(stage, error);
++        const sourceError = error instanceof ReconciliationStageError ? error.originalError : error;
++        const restricted = sourceError instanceof Error && (sourceError.message.includes('not connected') || sourceError.message.includes('not permitted'));
++        const pending = sourceError instanceof Error && (sourceError.message.includes('need owner review') || sourceError.message.includes('needs owner remap'));
++        try {
++          stage = 'OUTCOME_SAVE';
++          if (sourceError instanceof JourneyCorrectionRemapRequiredError) await recordPendingCorrectionRemap(sourceError.revisionId);
++          await saveOutcome(restricted ? 'restricted' : pending ? 'pending' : 'error', restricted ? 'Local journey updates are waiting for connected private access.' : pending ? 'An owner correction needs review before queued local changes can be reconciled.' : 'Local journey reconciliation did not finish. Queued changes remain pending.');
++        } catch {
++          // The original reconstruction failure is more useful than a best-effort status-write failure.
++        }
++        throw primaryFailure;
+       } finally {
+-        await releaseLease(token);
++        if (token !== null) {
++          try {
++            await releaseLease(token);
++          } catch (error) {
++            if (primaryFailure === null) throw reconciliationStageError('LEASE_RELEASE', error);
++          }
++        }
+       }
+     },
+   };
+diff --git a/apps/mobile/src/reveal/projection.ts b/apps/mobile/src/reveal/projection.ts
+index f454603..a9af796 100644
+--- a/apps/mobile/src/reveal/projection.ts
++++ b/apps/mobile/src/reveal/projection.ts
+@@ -21,7 +21,11 @@ export function projectReveal(input: RevealInput): RevealModel {
+     // A bundled offline resolver may provide a coarse, evidence-derived display
+     // label. It is not an owner-presence claim; owner titles stay in detail.
+     label: 'label' in journey && typeof journey.label === 'string' && journey.label.length <= 80 ? journey.label : 'Private journey',
+-    status: journey.state === 'owner-entered' ? 'Owner-entered' as const : journey.state === 'inferred' ? 'Inferred' as const : 'Needs review' as const,
++    status: journey.state === 'owner-entered'
++      ? 'Owner-entered' as const
++      : 'needsReview' in journey && journey.needsReview
++        ? 'Needs review' as const
++        : journey.state === 'inferred' ? 'Inferred' as const : 'Needs review' as const,
+     years: 'years' in journey ? journey.years : [],
+     periodLabel: 'periodLabel' in journey ? journey.periodLabel : 'Date unknown',
+     ordering: 'ordering' in journey && journey.ordering === 'uncertain' ? 'Order uncertain' as const : 'Chronological' as const,
+@@ -33,28 +37,31 @@ export function projectReveal(input: RevealInput): RevealModel {
+     : input.sourceScope === 'limited'
+       ? `${input.importedCount} records in the selected accessible scope.`
+       : 'No accessible source coverage is available yet.';
++  const queuedChangeCount = input.queuedChangeCount ?? Math.max(0, input.pendingCount - (input.unresolvedRemapCount ?? 0));
++  const reviewRequired = (input.unresolvedRemapCount ?? 0) > 0;
++  const pendingUpdates = queuedChangeCount > 0 && !reviewRequired;
+ 
+   if (input.reconstructionStatus === 'restricted' || input.reconciliationStatus === 'restricted' || input.sourceScope === 'denied' || input.sourceScope === 'revoked') {
+     return { state: 'restricted', coverage, journeys, statistics: null, replay: { eligible: false, reason: 'Replay is unavailable until local access is restored.' }, message: 'Access is limited. Your last committed private record stays on this device.' };
+   }
+-  if (input.reconstructionStatus === 'running' || input.reconciliationStatus === 'running' || input.reconciliationStatus === 'pending' || input.pendingCount > 0) {
++  if (input.reconstructionStatus === 'running' || input.reconciliationStatus === 'running') {
+     const rebuilding = input.reconstructionStatus === 'running';
+     return {
+       state: 'processing', coverage, journeys, statistics: null,
+       replay: { eligible: false, reason: 'Replay will be available after local updates finish.' },
+-      message: rebuilding
++      message: input.reconstructionMessage ?? (rebuilding
+         ? 'Rebuilding local journey history. Checking saved evidence and recalculating trips; the map and journeys will refresh automatically when this finishes.'
+-        : 'Checking local updates. This record is not final yet; the map and journeys will refresh automatically when this finishes.',
++        : 'Checking local updates. This record is not final yet; the map and journeys will refresh automatically when this finishes.'),
+     };
+   }
+   if (input.reconstructionStatus === 'error' || input.reconciliationStatus === 'error') {
+-    return { state: 'failed', coverage, journeys, statistics: null, replay: { eligible: false, reason: 'Replay is unavailable while the local record needs recovery.' }, message: 'The local reveal could not finish. Your last committed record remains available.' };
++    return { state: 'failed', coverage, journeys, statistics: null, pendingUpdates, reviewRequired, replay: { eligible: false, reason: 'Replay is unavailable while the local record needs recovery.' }, message: input.reconstructionMessage ?? 'The local reveal could not finish. Your last committed record remains available.' };
+   }
+   if (!journeys.length) {
+-    return { state: 'sparse', coverage, journeys, statistics: null, diagnostics: input.durableRecord?.diagnostics ?? null, replay: { eligible: false, reason: 'Replay needs at least one supported revealed journey.' }, message: input.durableRecord?.diagnostics ? 'There is not enough supported local evidence to reveal a journey yet.' : 'No completed local reconstruction diagnostics are available yet.' };
++    return { state: 'sparse', coverage, journeys, statistics: null, pendingUpdates, reviewRequired, diagnostics: input.durableRecord?.diagnostics ?? null, replay: { eligible: false, reason: 'Replay needs at least one supported revealed journey.' }, message: input.durableRecord?.diagnostics ? 'There is not enough supported local evidence to reveal a journey yet.' : 'No completed local reconstruction diagnostics are available yet.' };
+   }
+   const inferredCount = journeys.filter((journey) => journey.status !== 'Owner-entered').length;
+-  return { state: 'ready', coverage, journeys, statistics: input.durableRecord?.statistics ?? null, replay: { eligible: inferredCount > 0, reason: inferredCount > 0 ? 'Replay can use only the observed destinations in this private reveal.' : 'Replay needs observed destinations; owner-entered journeys are not evidence.' }, message: 'Available reconstructed journeys are shown as inferred local records. Photo location does not verify your presence.' };
++  return { state: 'ready', coverage, journeys, statistics: input.durableRecord?.statistics ?? null, pendingUpdates, reviewRequired, replay: { eligible: inferredCount > 0, reason: inferredCount > 0 ? 'Replay can use only the observed destinations in this private reveal.' : 'Replay needs observed destinations; owner-entered journeys are not evidence.' }, message: 'Available reconstructed journeys are shown as inferred local records. Photo location does not verify your presence.' };
+ }
+ 
+ /** Derives the one safe Atlas state shared by Map and Timeline. */
+diff --git a/apps/mobile/src/reveal/types.ts b/apps/mobile/src/reveal/types.ts
+index a25de1e..3090bb5 100644
+--- a/apps/mobile/src/reveal/types.ts
++++ b/apps/mobile/src/reveal/types.ts
+@@ -14,6 +14,8 @@ export type DurableRevealJourney = {
+   label?: string;
+   /** An owner-confirmed local place is intentionally distinct from inferred evidence. */
+   locationKind?: 'inferred' | 'owner-confirmed' | 'owner-entered';
++  /** A private correction's reviewed support now spans this displayed journey. */
++  needsReview?: boolean;
+ };
+ export type InferredStatistics = { journeyCount: number; placeCount: number; supportedCountryCount: number; countryStatus: 'supported' | 'unavailable' };
+ /** Aggregate counts from one completed local reconstruction; no evidence identifiers or locations. */
+@@ -29,8 +31,12 @@ export type RevealInput = {
+   graph: ReconstructionGraph | null;
+   durableRecord?: DurableRevealRecord | null;
+   reconstructionStatus: 'idle' | 'running' | 'complete' | 'restricted' | 'error';
++  /** Fixed owner-safe controller guidance; never sourced from native errors. */
++  reconstructionMessage?: string | null;
+   reconciliationStatus: 'idle' | 'running' | 'complete' | 'pending' | 'restricted' | 'error';
+   pendingCount: number;
++  queuedChangeCount?: number;
++  unresolvedRemapCount?: number;
+   sourceScope: 'full' | 'limited' | 'unasked' | 'denied' | 'revoked' | 'unavailable';
+   importedCount: number;
+ };
+@@ -48,6 +54,9 @@ export type RevealJourney = {
+ 
+ export type RevealModel = {
+   state: 'ready' | 'sparse' | 'processing' | 'restricted' | 'failed';
++  /** Queued changes are waiting; no reconstruction is necessarily running. */
++  pendingUpdates?: boolean;
++  reviewRequired?: boolean;
+   coverage: string;
+   message: string;
+   journeys: RevealJourney[];
+diff --git a/docs/development/error-playbook.md b/docs/development/error-playbook.md
+index 682b7c6..93441f3 100644
+--- a/docs/development/error-playbook.md
++++ b/docs/development/error-playbook.md
+@@ -660,6 +660,54 @@ passing them to `rg --files`; a spec path is not proof of an existing directory.
+ - **Prevention:** When adding a migration, search for the prior numeric schema version in repository tests before running the suite.
+ - **Recurrence:** None recorded.
+ 
++**2026-10-20 recurrence:** The focused manual-journey Jest command stopped before loading tests because its sandbox Temp transform-cache rename returned `EPERM`; zero tests ran. Retry the unchanged focused command through the approved host boundary with a repository-local cache. A package typecheck also exposed an unrelated concurrent uncommitted test in `import-repository.test.ts` that invokes the optional `loadReconciliation` method without narrowing it. Leave that change to its owner and report the complete typecheck as blocked rather than masking it.
++
++**2026-10-20 command recurrence:** The first host full-suite retry supplied an absolute cache path containing spaces without preserving it as one argument; Jest interpreted the trailing path fragment as a test pattern and ran zero tests. Quote the entire `--cacheDirectory` value on PowerShell host retries and accept only the subsequent completed suite result.
++
++**2026-10-20 Atlas-continuity recurrence:** A PowerShell read-only search used Bash brace expansion and stopped before execution; a first continuity SQL patch then failed context verification because the repository query had changed concurrently. Neither failure changed product data. **Correction / verification:** reran the search with explicit Windows paths, reread the precise SQL blocks, and applied narrow patches. The first sandboxed focused Jest run again stopped before collection with the documented transform-cache `EPERM`; the quoted repository-local host retry passed 5 suites / 121 tests. **Prevention:** never use shell brace expansion in PowerShell; inspect exact current SQL before a multi-hunk patch; treat zero-test cache failures as environment-only and rerun on the approved host boundary.
++
++**2026-10-20 Atlas-continuity verification correction:** The later host rerun of the same five suites executed 121 tests but failed one provider assertion: it expected one durable-reveal read even though the provider correctly reads once on initial connected-state publication and once after the correction's required read-back. No product data changed and the durable boundary was not bypassed. **Correction:** wait for and assert the initial publication, then assert the second read caused by the completed correction. **Prevention:** lifecycle tests must count initialization reads separately from explicit read-backs; accept a host suite only after its final summary, not a prior delegated report.
++
++**2026-10-20 Atlas-continuity lint correction:** Mobile lint then found that the reconstruction completion callback captured `refreshDurableReveal` before its `useCallback` declaration, which React Compiler rejects because that earlier callback would retain a stale binding. **Correction:** declare the durable-refresh callback before constructing the reconstruction and maintenance controllers that use it. **Verification:** rerun lint, focused regression, and the complete mobile check after the hook-order change. **Prevention:** when a controller constructor receives a hook callback, declare the callback first and let lint validate hook capture order; TypeScript compilation alone is insufficient.
++
++**2026-10-20 Atlas-continuity duplicate read-back correction:** The first hook-order repair left the controller's optional external-commit callback active. A provider regression then measured three reads: initial connection publication, the callback, and the explicit correction read-back. **Cause:** correction flows already await their authoritative durable read; a controller-side second publication is redundant and can race its gate. **Correction:** remove the controller callback and leave direct owner operations responsible for their one awaited read-back; catch-up retains its own awaited read. **Prevention:** one operation has one publication owner; tests must assert an exact lifecycle read count after adding a cross-layer hook.
++
++**2026-10-20 Atlas-continuity review correction:** Independent review found that V34 initially snapshot every `SUGGESTED` row and the durable predicate let continuity override every later classification. **Correction:** snapshot only the latest completed V29 backfill signature (null path and fixed legacy reason), preserve its run provenance, and allow continuity only while the current row remains `SUGGESTED`; explicit non-primary outcomes stay withheld. The Atlas screen also catches the provider's already-rendered durable-read failure so the tap cannot cause an unhandled rejection, and recovery copy no longer promises an existing Atlas where none was read. **Prevention:** migration review must prove the exact historical marker and current-run boundary; continuity predicates must enumerate the allowed state rather than use an unconditional alternative.
++
++**2026-10-20 owner-reported inert retry:** After reload, the owner saw only `Retry local reveal`; tapping it showed no visible response. Source tracing found that Atlas called `reconstructionController.rebuild()` directly, then discarded its result without the required durable Atlas read-back. A successful rebuild could therefore leave the screen on the previous failed projection. **Correction:** wire the action through `retryJourneyCorrectionProjection`, which awaits rebuild and `refreshDurableReveal` before returning. **Prevention:** every owner-visible Atlas recovery action must use a provider operation that has a durable publication contract; a controller-only rebuild is not a reveal retry.
++
++**2026-10-20 device retry lifecycle failure:** Filtered Android JS log recorded `Uncaught (in promise) Error: Private record is unavailable` immediately after the owner tapped Retry following a reload. The retry handler used the React lifecycle snapshot before its asynchronous refresh had completed, then the screen discarded the rejected promise. **Correction:** retry now reads the durable lifecycle directly, resumes the reconstruction controller when connected, otherwise publishes a restricted recovery state; the screen catches any remaining rejection. **Prevention:** a retry available immediately after reload must obtain lifecycle authority from the durable repository, not an initial React snapshot. The initial ADB log command also mistakenly used PowerShell's read-only `$PID`; subsequent diagnostics use a task-specific variable name.
++
++**2026-10-20 retry rebuild failure:** After the lifecycle fix, the owner tapped Recheck and the button returned to Retry, proving the rebuild path started but failed. The generic controller state intentionally did not expose the native error, and current filtered logs had no retry-specific code. **Correction:** provider now emits only one fixed retry category (`SCHEMA`, `NATIVE_HANDLE`, `DATABASE_BUSY`, `TRANSACTION`, `OWNER_REVIEW`, `ACCESS`, or `UNKNOWN`) when that rebuild returns failed; raw exception text stays private. Focused retry coverage passed 47 tests, complete mobile Jest passed 343 tests, TypeScript, lint, root check, and diff check passed. **Next action:** reload the diagnostic bundle, owner taps Retry once, then inspect only the fixed code before selecting a repair.
++
++**2026-10-20 ADB/Metro preflight recurrence:** The follow-up device preflight could neither query the Metro status endpoint (`socket ... forbidden by its access permissions`) nor start/connect the host ADB daemon (`failed to check server version`). No app code, Android private record, or device input changed. **Status:** Open external environment blocker; this does not alter the established rebuild-failure evidence. **Prevention:** a host-side connectivity failure must be recorded separately from Atlas behavior; do not claim the owner retry was observed or fixed until an authorized device/Metro session can reload and provide the coarse diagnostic.
++
++**2026-10-20 retry lifecycle containment correction:** The owner subsequently tapped Retry, but filtered app logs contained only the earlier reload-time `Private record is unavailable` errors and no fixed retry diagnostic. Source review found the retry's own `getPrivateRecordLifecycle()` call could reject before it reached either the rebuild branch or its diagnostic. **Correction:** contain that lifecycle read, publish the existing restricted recovery state, and emit the fixed `ACCESS` category; the classifier now recognizes the unavailable message without recording it or private details. **Verification:** added a regression proving no rebuild starts and only `ACCESS` is emitted; focused Atlas/provider tests passed 48 tests and the full mobile suite passed 37 suites / 344 tests, with TypeScript, lint, root check, and diff check passing. **Prevention:** every external lifecycle read at an owner-triggered recovery boundary must have an explicit rejected-read path and a regression that asserts both no unsafe work and the coarse diagnostic.
++
++**2026-10-20 retry fixture type correction:** The first lifecycle-rejection regression used `graph: null` in `reconcileQueued`, violating its non-null reconstruction contract; mobile typecheck failed before an app build. **Correction:** use the minimal valid graph in that fixture. **Verification:** focused tests, TypeScript, lint, and the full 344-test suite passed after the fix. **Prevention:** typed test doubles must preserve non-null production return contracts even when the exercised branch does not consume that field.
++
++**2026-10-20 retry bundle/gesture observability gap:** After the owner reloaded and tapped, the filtered process log still had neither the existing failure category nor any new retry entry; it retained only earlier reload-time lifecycle errors. This does not prove whether the active bundle reached the retry handler. **Correction:** add a fixed `START` marker at the first executable line of the provider retry operation. **Verification:** the lifecycle regression asserts `START` followed by `ACCESS`; focused tests passed 48 tests and the full mobile suite passed 37 suites / 344 tests with TypeScript, lint, root check, and diff check passing. **Next action:** reload the current bundle, tap Retry once, and inspect `START` plus its terminal category before changing runtime behavior. **Prevention:** a device-only recovery diagnosis needs both an entry marker and a terminal marker; do not infer a tap or code-push outcome from stale process logs.
++
++**2026-10-20 Android reload transport repair:** The owner could not reload after the latest diagnostic bundle. Preflight found Android device `9cb47ed9` connected and ADB reverse intact, but no Metro listener on 8085. The first local restart bound Metro only to IPv6 `::1`, so `127.0.0.1:8085/status` was refused and the Android localhost reverse could not receive the bundle. A same-port IPv4 bridge cannot coexist with that Windows listener and was not retained. **Correction:** stop only the Metro process started in this session (verified by its exact command line) and restart it on 8085 with LAN binding; it now listens on `::`/IPv4 and returns `packager-status:running`, with `tcp:8085 tcp:8085` reverse confirmed. **Prevention:** before asking an Android owner to reload, verify both the device reverse mapping and an IPv4 localhost status request; an IPv6-only Metro listener is not sufficient.
++
++**2026-10-20 Atlas recovery-flow wording mismatch:** The owner correctly read `Recheck local journey history` followed by `Retry local reveal` as two required steps. In fact the latter is only the failed terminal state of the same recheck operation. **Correction:** use the single owner-facing action label `Recheck local journey history` for both sparse and failed states; the recovery state/error remains distinct internally and the coarse diagnostics continue to identify failure. **Verification:** focused Atlas reveal tests passed 32 tests, with mobile TypeScript and lint passing. **Prevention:** recovery labels must name the owner's task, not internal phase terminology; do not create a second apparent step after a failed attempt.
++
++**2026-10-20 shared lifecycle handle regression:** The owner reported metadata import could no longer start while Atlas reconstruction/reveal also failed after reload. Android system app-ops still reported `READ_MEDIA_IMAGES` and `READ_MEDIA_VIDEO` allowed, so system media permission was not the blocker. Source tracing showed both flows must first read the same private-record lifecycle through the import repository; unlike reconstruction's prior Android reload repair, that repository still requested Expo SQLite's cached native handle. **Likely cause:** the cached handle belongs to the previous React runtime and fails lifecycle reads after a reload, which makes import/reveal report unavailable despite granted permission. **Correction:** open the import repository with `useNewConnection: true`, while retaining the process-wide transaction serializer and busy timeout. This does not migrate, reset, or delete the private record. **Verification:** add a repository assertion for the fresh connection; import/lifecycle/Atlas focused suites passed 88 tests; full mobile Jest passed 37 suites / 344 tests, and TypeScript, lint, root check, and diff check pass. **Next action:** owner reloads and confirms the metadata-import action and one Atlas recheck on the existing local record. **Prevention:** every repository which gates a private lifecycle read after Android React reload must use a fresh native SQLite connection, not only reconstruction.
++
++**2026-10-20 import/recheck write contention:** After the fresh-handle reload, the retry marker reached `START` but ended in the fixed `DATABASE_BUSY` category. This proves the lifecycle path ran; metadata import and Atlas recheck then contended for SQLite writes. **Cause:** the owner can tap recheck while an owner-initiated import, including its automatic completed-import rebuild, is still active; Atlas waited for background maintenance but not the foreground import. **Correction:** PhotoAccessController now exposes an import-idle promise covering both broad and selected metadata imports, including the completed-import rebuild. Atlas retry awaits it and the maintenance queue before rebuilding. **Verification:** add a regression that holds a metadata page and proves the idle promise does not settle early; focused coordination suites passed 85 tests and full mobile Jest passed 37 suites / 345 tests with TypeScript, lint, root check, and diff check passing. **Prevention:** every competing owner-triggered writer must participate in the same pre-rebuild wait boundary; a busy Boolean alone is not a completion contract.
++
++**2026-10-20 import-idle type correction:** The first import-idle implementation passed `this.current.scope` into an async closure after its type narrowing expired, so TypeScript rejected potentially unavailable/revoked scopes. **Correction:** capture the validated `full`/`limited` scope before creating the async task. **Verification:** focused suites, TypeScript, lint, and the full 345-test run pass. **Prevention:** capture narrowed mutable state in an immutable local before an async closure; do not rely on a property narrowing across awaits.
++
++**2026-10-20 owner-reported inert metadata import:** After the contention repair, the owner tapped metadata import but saw no response and filtered logs contained no import operation marker. Source review found `startImport()` only used `finally`: an error from its completed-import rebuild could reject through a fire-and-forget screen handler with no owner-visible state. **Correction:** log fixed `START` and terminal categories only, catch the complete operation, and publish existing safe recovery copy in the Import screen rather than an unhandled rejection. **Verification:** a regression makes the completed-import rebuild throw `database is locked` and asserts the fixed recovery state plus only `START`/`DATABASE_BUSY`; focused suites passed 86 tests and full mobile Jest passed 37 suites / 346 tests with TypeScript, lint, root check, and diff check passing. **Next action:** reload, tap metadata import once, then inspect its fixed terminal marker. **Prevention:** every fire-and-forget owner action must catch its whole asynchronous transaction, including post-success callbacks, and leave a safe status rather than relying on the UI caller to catch it.
++
++**2026-10-20 retry regression-fixture correction:** The first new Retry local reveal test triggered reconstruction after private lifecycle became connected but before its separate permission snapshot had reached `full`. Atlas correctly rendered the restricted state, so the expected retry button was absent. **Correction:** wait for both lifecycle and permission readiness before inducing the recoverable reconstruction failure. **Prevention:** provider screen tests must establish every independently refreshed readiness state before asserting an owner-facing branch.
++
++**2026-10-20 retry fixture lifecycle recurrence:** Permission readiness alone was not enough: the provider's initial deleted-state effect can still clear/suspend the controller after a test observes connected state. **Correction:** explicitly resume the controller in the fixture before inducing the failed rebuild, matching the connected-state effect that has already completed on the owner's failed screen. **Prevention:** test controller lifecycle readiness, not only rendered permission/lifecycle values, before invoking a controller directly.
++
++**2026-10-20 retry screen-fixture scope correction:** Rendering the full Atlas screen in the provider contract test still selected its independently initialized restricted projection, obscuring the targeted recovery contract. **Correction:** exercise the provider method directly after a simulated failure; Atlas component tests already verify the `onRetry` button invocation and TypeScript verifies the screen wiring. **Prevention:** test the provider's durable-publication guarantee at its own boundary; do not make it depend on unrelated screen initialization branches.
++
++**2026-10-20 patch-attempt incident:** One multi-file `apply_patch` was rejected before writing because a hunk boundary was malformed. **Correction:** split the independent test/doc patches and apply each against its exact current context. **Prevention:** when a patch updates multiple files, verify that every file boundary starts a new patch section rather than continuing the preceding hunk.
++
+ ## EP-013: Partial implementation was handed off as though the task could pause
+ 
+ - **Date / task / area:** 2026-10-13; M4.1 implementation completion; task control.
+@@ -1693,3 +1741,143 @@ passing them to `rg --files`; a spec path is not proof of an existing directory.
+ - **Cause:** Unknown execution-session interruption; it is not an application test failure or passing result.
+ - **Correction / next action:** Run static checks separately and use a direct Windows process invocation for the complete Jest suite; use only completed results.
+ - **Prevention:** When a long-running verification handle vanishes, mark the result indeterminate and change the process-invocation shape rather than inferring success from startup output. Prepare documentation patches from exact marked lines.
++
++## Atlas speed verification cache and test corrections (2026-10-19)
++
++- **Date / task / area:** 2026-10-19; private Atlas reconstruction speed; host verification.
++- **Status:** Corrected and verified; device timing remains open.
++- **Symptom/evidence:** The first focused Jest attempt stopped before tests with a sandbox Temp cache-rename `EPERM`. A relative repository-cache argument then resolved under Jest's mobile working directory and created an unintended `apps/mobile/apps/mobile/.jest-cache-codex`. The first full mobile check ran all 325 Jest tests successfully but TypeScript rejected newly added numeric `reduce` callbacks over mixed SQL values. A focused batching assertion later failed because its guessed fewer-than-10 write count was 19 with the required payload cap.
++- **Cause:** Sandbox cache permissions; an incorrectly relative cache path; missing numeric TypeScript annotations; and a test threshold that ignored character-bounded batching.
++- **Correction / verification:** Use a repository-local cache with an absolute path, verify the generated cache's exact absolute path and remove only that directory, add numeric generics/annotations, and assert a tenfold-or-better statement reduction instead of an arbitrary count. Focused tests pass (112), full Jest passes (37 suites / 325 tests), and mobile TypeScript and lint pass.
++- **Prevention:** Resolve cache paths against the actual test process working directory before use; type arithmetic over mixed SQL values explicitly; set batching test bounds from the algorithm's documented parameter/payload limits.
++- **Further recurrence:** A new queued-action test used a shared `onCatchUp` mock without resetting it, so a later absolute call-count assertion saw two calls rather than one. Active, sparse-waiting, and ready-waiting cases now use separate spies; their call-count assertions measure each scenario independently. **Prevention strengthened:** Isolate mocks per case before asserting exact action counts.
++
++## Atlas speed Expo Doctor network lookup (2026-10-19)
++
++- **Date / task / area:** 2026-10-19; private Atlas reconstruction speed; mobile full check.
++- **Status:** Open external verification limitation.
++- **Symptom/evidence:** `npm --prefix apps/mobile run doctor` exited while resolving `registry.npmjs.org` with `ENOTFOUND`; the combined mobile `check` therefore cannot be reported as passing.
++- **Cause:** Registry DNS/network access was unavailable in this environment, not an observed application failure.
++- **Correction / next action:** Jest, TypeScript, and lint were run separately and completed; rerun Doctor when registry access returns. Do not infer Doctor success from the earlier 20/21 result.
++- **Prevention:** Report network-blocked dependency diagnostics separately from completed local gates, without repeatedly retrying an unchanged DNS failure.
++- **Recurrence (2026-10-20):** A single next-day retry again failed at `getaddrinfo ENOTFOUND registry.npmjs.org`, before Doctor could inspect the project. The limitation remains open; no further retry was made without changed network evidence.
++
++## Atlas speed independent-review edge cases (2026-10-20)
++
++- **Date / task / area:** 2026-10-20; private Atlas reconstruction speed; batching and waiting-state review.
++- **Status:** Corrected in code and host verification; physical device behavior remains unverified.
++- **Symptom/evidence:** Independent review found that link rows were accumulated in memory despite bounded write calls, a single oversized row could bypass the payload cap, and mock tests checked statement counts without validating inserted values. The waiting banner also treated unresolved correction remaps as catch-up-able queue rows because `pendingCount` sums both sources, and competing rebuild/retry actions could leave a real queue unacknowledged.
++- **Cause:** The first implementation optimized bridge call count but did not bound accumulator memory or trace all aggregate queue-status consumers through the owner action.
++- **Correction / verification:** The link/disposition writer now streams bounded batches and rejects a single oversized tuple before the native bridge, preserving transaction rollback. Tests compare inserted tuples with the graph, including order and values. Reconciliation exposes separate aggregate queue/remap counts; a remap requires review, while queued failure catches up through the queue-consuming path. Affected suites passed (97 tests); the full host mobile suite passed 37 suites / 332 tests, TypeScript, lint and `git diff --check` passed. Device confirmation is still pending.
++- **Prevention:** For a new batch writer, test memory/bridge limits and complete inserted values; for an aggregate status, trace the underlying SQL counts and each visible action before assigning owner-facing copy.
++- **Verification recurrence:** A root `--no-cache` Jest run still attempted a sandbox Temp transform-cache rename and failed with `EPERM` before any test executed. The exact suite was rerun through the approved host boundary and passed 37 suites / 332 tests. Do not treat `--no-cache` as a reliable workaround for this sandbox limitation.
++
++## M4.2 reconstruction entry skipped the shared schema upgrade (2026-10-20)
++
++- **Date / task / area:** 2026-10-20; Android Manual Journey entry; shared private SQLite schema.
++- **Status:** Code corrected and regression active; device confirmation pending.
++- **Symptom/evidence:** The owner-provided Android error reported `NativeDatabase.prepareAsync` rejecting a query for missing `date_start`. The Manual Journey query reads `manual_journey.date_start`, introduced by v33.
++- **Cause:** `createNativeReconstructionRepository` opened `travel-life-import-v1.db` directly. Schema migration existed only in `createNativeImportRepository`, so a v32 device reaching Atlas or Manual Journey through reconstruction could query v33 columns before migration.
++- **Correction / verification:** Extracted the migration gate for reuse and invoke it before manual-overlap/create/detail reads and durable Atlas projection reads. Focused manual-migration/reconciliation tests pass (42); the full mobile suite passes (37 suites / 332 tests). Typecheck is separately blocked by an unrelated uncommitted optional-method test; lint passes.
++- **Prevention:** Every independent SQLite repository entry point must either own the shared schema gate or call it before accessing a versioned table. Add a direct-open regression whenever a migration-backed table gains a new consumer.
++
++## M4.2 Android SQLite cached-handle failure (2026-10-20)
++
++- **Date / task / area:** 2026-10-20; Android Manual Journey overlap review; Expo SQLite runtime connection.
++- **Status:** Code corrected and host regression active; device confirmation pending.
++- **Symptom/evidence:** After the v33 `date_start` migration repair, the owner reported `NativeDatabase.prepareAsync` rejecting with a bare Java `NullPointerException` on the next Manual Journey overlap review. This is a different error from the missing-column failure. A filtered ADB log read returned no matching native stack frames, so no private database content was accessed.
++- **Cause:** The exact Android/SDK 57 failure signature matches Expo SQLite's active cached-handle issue after Android recreates the React runtime while the process survives. Travel Life independently opened the same database for import and reconstruction, allowing reconstruction to reuse a released cached native handle. This is an evidence-backed inference; physical reproduction remains pending.
++- **Correction / verification:** Reconstruction now opens `travel-life-import-v1.db` with `useNewConnection: true`, while the existing shared transaction gate keeps import/reconstruction writers serialized. The new regression was RED against the old one-argument open, then focused Manual Journey/reconciliation tests passed (43). The first bounded batch passed (18 suites / 279 tests). The second batch passed 18 of 19 suites / 54 of 55 tests; the sole failure is an unrelated uncommitted `reconstruction-controller.test.ts` assertion for a diagnostic logging change whose production implementation is absent.
++- **Prevention:** When separate long-lived repositories require the same Expo SQLite file, use a fresh native connection for the secondary repository and serialize explicit write transactions. Never classify a bare native-handle NPE as an SQL/schema error without inspecting the signature and native version.
++
++## Atlas catch-up device failure and diagnostic handoff (2026-10-20)
++
++- **Date / task / area:** 2026-10-20; private Atlas speed acceptance; Android catch-up and development transport.
++- **Status:** Open device failure; cause unknown. No full-device speed improvement is claimed.
++- **Symptom/evidence:** The owner tapped `Catch up locally` once on the current Atlas bundle. Device UI changed from waiting to updating, then returned to waiting with a failed-reveal message within roughly 20 seconds. App-process logs exposed no underlying exception. The local private record was not cleared, exported, or changed by diagnostics.
++- **Correction in progress:** A controller regression first failed because no failure category was logged, then passed after a fixed-code-only diagnostic (`SCHEMA`, `NATIVE_HANDLE`, `DATABASE_BUSY`, `TRANSACTION`, `ROW_LIMIT`, `OWNER_REVIEW`, `ACCESS`, `CONSTRAINT`, or `UNKNOWN`) was added. The raw exception is never logged. Full mobile Jest passed 37 suites / 334 tests; mobile TypeScript and lint and root `npm run check` passed. A physical retry and root-cause fix still require a connected phone and the refreshed bundle.
++- **Diagnostic/transport incidents:** ADB's sandbox daemon failed and approved-host ADB was used. A first `rg` query included a nonexistent `apps/mobile/app` path; later searches used actual paths. The phone has no `sqlite3` executable; `python` and `py` were unavailable on PATH, so the bundled Python path was located. An attempted aggregate-only in-memory query was rejected because it would transfer the entire private database to the host; do not route around that rejection. The earlier Metro process handle disappeared. Two sandbox-started Metro attempts showed a listener on 8085 but timed out at the host `/status` endpoint, even after a bounded cache-clear restart. The same exact checkout/port started through approved host networking returned `packager-status:running`; this was a host-network isolation problem, not a proven app bundle error. ADB then listed no device, so the development client still cannot load through its USB mapping.
++- **Agent test incident:** The first diagnostic test used an excess-property object literal and failed TypeScript after its intended RED Jest result. Binding the repository first corrected the type error; TypeScript and the full test suite then passed. This RED test was subsequently made GREEN, resolving the concurrent M4.2 entry's interim note about the missing implementation.
++- **Diagnostic log hygiene:** A raw Expo startup-log tail printed an `EXPO_PUBLIC` map-provider key into the local tool output. It is client-visible configuration, but printing it was unnecessary. Subsequent log inspection selected only event type and timestamp after parsing; future diagnostics should filter fields before displaying any startup log, and must never echo environment values.
++- **Next action/prevention:** Reconnect/authorize the phone, verify ADB and the exact host-reachable Metro listener before reloading, capture only the fixed diagnostic code from the retry, then investigate the classified path. Keep app-private evidence on-device; do not infer a cause from a generic failed UI or a disappearing dev-server session. For controller test doubles, use a separately typed/bound repository when the constructor intentionally exposes only the minimal rebuild interface. A local port listener alone is insufficient readiness evidence when the server was started inside a restricted network sandbox.
++- **Device retry recurrence:** After reconnect, ADB listed the authorized phone and the host Metro `/status` returned running. A cold launch landed in Expo Dev Launcher, where the green current-checkout server was visible. `adb shell input tap` again failed with this device's `INJECT_EVENTS` security restriction before interacting with the app. The owner was asked to tap the visible 8085 server card; automated input injection must not be treated as a viable acceptance method on this phone.
++- **Catch-up recurrence:** The owner loaded the fresh Android bundle, then tapped catch-up once. The fixed-only log reported `OWNER_REVIEW`; UI returned from updating to a failed state with queued changes still waiting. The initial code grouped protected history corrections and journey-remap failures into one diagnostic category, so its exact branch remained unknown. Two focused RED cases established the ambiguity; the classifier now emits distinct fixed `HISTORY_REVIEW` and `JOURNEY_REMAP` codes, with GREEN focused tests. A single owner-operated retry on that refreshed module is pending. Do not bypass either owner-protection gate merely to obtain a speed measurement.
++- **Cold-restart discrimination (2026-10-20):** After repeated owner-operated attempts produced only `DATABASE_BUSY LEASE_WRITE`, an approved Android force-stop and relaunch of the same private record, without clearing app data, changed the fixed result to `JOURNEY_REMAP REBUILD`. The committed Atlas remained browsable. This proves a fresh process can open the database and reach reconstruction; it does not prove an automatic recovery for the stale in-process native SQLite writer. The observed remap is an intended owner-protection gate, not a reason to alter or discard a reviewed correction. **Next action:** keep the busy-lock diagnosis open as a dev-runtime/process-lifecycle issue until a safe recovery mechanism has evidence; guide the owner to review the remap separately if they choose. Do not retry the map action merely to seek a timing sample.
++- **Second device retry:** The refreshed module was delivered and the owner tapped once more. This time the fixed log reported `DATABASE_BUSY`; UI returned to failed/waiting. The exact SQLite stage and competing writer are unknown. `reconcileQueued` begins a write lease before its own catch block; foreground automatic maintenance and an OS-invoked task can also write this database, but concurrency is not yet proven as the cause. Do not call the owner-review issue resolved because a later attempt hit a different lock failure. The attempted Expo `r` reload failed because this process session had closed stdin; an explicit development-client URL caused a fresh one-module Android bundle instead. The owner is checking the current maintenance status without changing its setting.
++- **Stage-diagnostic correction (2026-10-20):** The owner confirmed automatic maintenance had completed, then an additional owner-operated catch-up again reported `DATABASE_BUSY`; this rules out treating a currently running foreground maintenance check as the established cause, but does not identify the competing writer. `reconcileQueued` now wraps only fixed internal stages (`LEASE`, `QUEUE_READ`, `REBUILD`, `OUTCOME_READ`, `OUTCOME_SAVE`, `LEASE_RELEASE`) and the controller logs the fixed error code plus stage only. The raw native error stays in memory for safe classification and is never logged. Lease acquisition is now inside the reconciliation catch boundary, and a failure persisting best-effort outcome state cannot mask the original stage.
++- **Verification:** New RED/GREEN regressions cover a locked lease becoming `DATABASE_BUSY LEASE` with no private error detail in logs. Focused repository/controller tests passed 51 tests; the full mobile suite passed 37 suites / 338 tests, TypeScript and lint passed, and root `npm run check` passed. A first test patch was rejected before writing because it used a stale controller import anchor; the retry used the exact current header. The first lint run exposed an unused test import and a runtime constant used only as a type; both were removed before the clean lint rerun. One complete-suite process returned only a partial log without a summary, so it was treated as indeterminate and rerun to completion. A combined documentation patch was also rejected before writing because its project-state anchor was stale; the updates were then applied with exact independent anchors.
++- **Next action:** Reload this exact bundle on the connected Android development client and have the owner tap `Catch up locally` once. Read only the fixed `(code, stage)` pair. Do not add retries, relax the lease, or alter private reconstruction data until that pair identifies a real contention path.
++- **Review limitation:** The required BMAD Blind Hunter was launched after the implementation but its worker hit the account usage limit before returning findings. That layer is indeterminate, not a passed review. A direct diff/whitespace audit and the executable checks remain completed; rerun the independent review when worker capacity is available before treating the diagnostic refinement as review-complete.
++- **LEASE-stage correction (2026-10-20):** The device emitted `DATABASE_BUSY LEASE`, proving contention occurs before reconstruction begins. The concrete foreground race is AppState activation: it enqueues automatic metadata maintenance, while the visible Atlas action previously requested the reconstruction lease immediately. Atlas catch-up now waits for the already queued same-runtime maintenance transition before requesting its own lease. This does not relax the SQLite lease, retry blindly, change a journey rule, or treat an OS-background writer as synchronized; a future `DATABASE_BUSY LEASE` after this coordination would remain evidence of an external/native writer.
++- **Verification:** A new maintenance-controller regression was RED because the coordination boundary did not exist, then GREEN after `whenIdle()` was added. Focused maintenance/provider/controller/repository tests passed 67 tests. Mobile TypeScript and lint passed; an initial full-suite output stopped before its summary and was rerun to a complete 37 suites / 339 tests passing result. Root `npm run check` passed. The pre-reload independent-review worker remains unavailable as documented above. The owner must still validate the refreshed device bundle with one catch-up tap.
++- **Reload preflight correction:** The first reload preflight incorrectly compared `Invoke-WebRequest.Content` directly with a string; on this host it is a byte array, so a healthy Metro endpoint was misclassified as down and no ADB launch action ran. The corrected preflight decodes the bytes before comparison, then delivered the same verified 8085 development URL. **Prevention:** Normalize HTTP response content to text before branching on a status sentinel; a type-mismatched equality check is not a transport diagnosis.
++- **Cross-runtime lease correction (2026-10-20):** The refreshed bundle still emitted `DATABASE_BUSY LEASE` after same-runtime maintenance coordination, confirming an external/OS writer remains possible. The reconstruction repository now reads the durable `maintenance_lease` before starting its own immediate transaction. A fresh maintenance lease returns the existing safe `already running` result, so Atlas preserves the last committed state and does not create an outcome write or a second writer. This protects the demonstrated background-maintenance path without assuming it explains every native lock. A regression was RED (the existing run reached reconstruction) then exposed that moving lease acquisition inside the broader catch had changed the prior no-write deferral behavior; the repository now explicitly rethrows a fresh-lease result without saving an error outcome. **Verification:** focused reconciliation/controller tests passed 52 tests; TypeScript and lint passed; full mobile Jest passed 37 suites / 340 tests; root `npm run check` passed. The owner-device retry remains the only proof that this exact OS contention is handled.
++- **Precise-stage follow-up:** The maintenance-lease change still yielded a delayed `DATABASE_BUSY` result, so a generic `LEASE` label was not sufficient to decide the next SQLite change. Diagnostics now distinguish opening the reconstruction connection, reading the maintenance lease, and starting the reconciliation write transaction (`LEASE_OPEN`, `MAINTENANCE_LEASE_READ`, `LEASE_WRITE`). RED/GREEN focused tests verify a `BEGIN IMMEDIATE` failure is reported as `LEASE_WRITE`, without emitting the native message. TypeScript, lint, full mobile Jest (37 suites / 340 tests), and root `npm run check` passed. The next device result must identify this finer fixed stage before any native-connection or transaction-mechanism change. A combined documentation patch was rejected before writing because the project-state anchor was stale; the replacement used the current document tail.
++- **Post-lock lease recheck (2026-10-20):** The device reported `DATABASE_BUSY LEASE_WRITE`: it can read no active maintenance owner, then lose the immediate-transaction race to a task that starts in the gap. On that specific write-lock failure, reconstruction now performs one read-only maintenance-lease recheck. If a fresh maintenance lease appeared, it returns the existing safe no-write deferral result; otherwise it preserves `DATABASE_BUSY LEASE_WRITE`. It does not retry the transaction, mask a non-maintenance writer, or relax either lease. RED/GREEN regression covers the initial no-lease read followed by busy write and a fresh second lease read. Focused tests passed 53 tests; TypeScript and lint passed; full mobile Jest passed 37 suites / 341 tests; root `npm run check` passed. Device confirmation is required.
++
++## Worktree inventory sandbox boundary (2026-10-20)
++
++- **Date / task / area:** 2026-10-20; all-worktree release-source inventory.
++- **Status:** Resolved with repository-level Git references; no product source was changed.
++- **Symptom/evidence:** A read-only inventory attempted `git status` inside managed worktrees under `C:\\Users\\vothi\\.codex\\worktrees` and received `Permission denied` for each external checkout.
++- **Cause:** The active sandbox can read the primary checkout's Git metadata but cannot enter those worktree directories.
++- **Correction / verification:** Queried each registered `HEAD` and branch from the primary repository's worktree metadata and compared its commit range against `main`; this identified the branch-only commits without accessing external checkout files.
++- **Prevention:** For release inventory, start from `git worktree list --porcelain` and repository-level `git log main..REF`; request an approved host boundary only when uncommitted-file details from an external worktree are necessary.
++
++## Atlas visibility device preflight ADB recurrence (2026-10-20)
++
++- **Date / task / area:** 2026-10-20; Atlas/journey visibility diagnosis; Android device preflight.
++- **Status:** Transport restored; owner acceptance pending.
++- **Symptom/evidence:** The known absolute platform-tools executable failed before listing devices: `adb.exe` could not read the daemon response and could not start/connect to the server on TCP 5037. No application command, database query, app-data mutation, or private evidence transfer ran.
++- **Cause:** Unknown host ADB daemon state; this is separate from Atlas reconstruction, qualification, or UI behavior.
++- **Recovery / next action:** Approved-host read-only preflight now lists authorized Android device `9cb47ed9` and Metro `8085/status` returns `packager-status:running`. The next step is one owner-operated Atlas catch-up; do not inject input or infer the UI outcome from this transport result.
++
++## Performance work crossed import and reconstruction safety boundaries (2026-10-20)
++
++- **Date / task / area:** 2026-10-20; Atlas/import/general responsiveness work; shared SQLite and reconstruction delivery scope.
++- **Status:** Open product regression investigation. The owner reports metadata import and Atlas/journey reconstruction no longer complete. Private source data was not read or exported during this review.
++- **Evidence:** The uncommitted change set spans 23 files and 1,210 insertions, including schema v34, a `legacy_atlas_continuity` migration, changed journey-publication qualification, new SQLite connection behavior, reconciliation lease logic, and metadata-import error handling. The owner-operated Android result reached `JOURNEY_REMAP REBUILD`. Focused synthetic import/reconciliation/controller suites pass 95 tests, but they do not exercise the owner's existing correction and database state. `PhotoAccessController.startImport()` now catches a completed-import/rebuild failure, logs only a fixed code, and replaces it with a generic retry message.
++- **Cause:** A request to improve responsiveness was combined with unrelated V1.1 continuity/migration and correction-remapping work. The resulting reconstruction path intentionally refuses to publish when a saved correction cannot map to the rebuilt graph, while the import path can conceal the actual boundary failure from the owner. The exact on-device import failure category is not yet observed, so its direct cause remains unknown.
++- **Correction / next action:** Freeze additional performance and schema changes. First reproduce each owner action on the current bundle with safe fixed-code diagnostics; then restore a narrow, independently verified import/reconstruction baseline or implement a separately approved, correction-safe migration. Do not clear private history, delete corrections, weaken remap protection, or claim the synthetic tests prove the private-record flow.
++- **Prevention:** Performance tickets must declare immutable functional seams (import completion, schema/version behavior, durable projection, correction remapping) and reject unrelated migration/recognition changes. Test the actual pre-existing-state upgrade path and one owner-visible import/rebuild action before delivery; generic error copy is not evidence or sufficient recovery UX.
++- **Recovery (2026-10-20):** Removed the unapproved v34 legacy-continuity migration and its reveal qualification bypass. A database already marked v34 is now treated as forward-compatible/read-only by the v33 schema gate, so it is not downgraded or forced through a startup migration; the additive abandoned table is ignored. Restored the import repository's normal cached connection while retaining the reconstruction repository's targeted fresh connection for the Android released-handle repair. Completed metadata import is now reported separately from a failed protected Atlas rebuild: the metadata remains complete and the existing Atlas is retained. Focused recovery tests (111) plus typecheck, lint, and whitespace pass. The first full-suite recovery run failed only because one manual-journey test still asserted the removed v34 schema marker; the assertion was corrected before the final rerun. Device proof remains required: one owner-operated metadata import and one Atlas open/rebuild, with no private data export.
++- **Owner retry recurrence (2026-10-20):** The owner tapped Import and received no visible acknowledgement or progress. Source tracing found `PhotoAccessController.startImport()` first awaited lifecycle/SQLite reads before `ImportCoordinator` published `running`, so a delayed database read made the tap look inert. **Correction:** publish `Starting local metadata import…` synchronously, disable the duplicate start control, and show a preparing state before the first await; selected import receives equivalent acknowledgement. A focused delayed-lifecycle regression, owner flow, provider tests (42), typecheck, lint, and whitespace pass. Reload the new bundle before asking the owner to retry; an old bundle cannot validate this correction.
++- **Paused-terminal correction (2026-10-20):** The owner’s next retry rendered the safe generic failure. Investigation found a second controller defect: `ImportCoordinator` converts lifecycle/database-read failures into its durable `paused` coverage state and resolves normally, while `PhotoAccessController` previously left the optimistic `Starting…` message in place. A first regression incorrectly expected that internal pause to reject and failed; the failure established the actual coordinator contract. **Correction:** after either full or selected import resolves without `complete`, the controller emits only fixed `PAUSED` or `BLOCKED` diagnostic codes and replaces the optimistic acknowledgement with a safe retry/access message. The regression now simulates a connected first read followed by a locked lifecycle read and confirms no native/private error text reaches the owner. Focused controller/owner/provider checks pass (43 tests). Typecheck, lint, whitespace, and a refreshed Android owner retry remain required.
++- **ADB diagnostic recurrence (2026-10-20):** A read-only attempt to capture the fixed Android import code could not start/connect to the local ADB daemon on TCP 5037 (`could not read ok from ADB Server`). No device command, app-data mutation, log extraction, database access, or private evidence transfer occurred. **Cause:** unknown host ADB daemon state, not an application result. **Next action:** use the owner-visible fixed terminal message after reloading the bundle, or restore an authorized ADB daemon before reading only the fixed diagnostic code.
++- **Import `DATABASE_BUSY` owner recurrence (2026-10-20):** The refreshed owner retry reported `database busy`. This is evidence of an SQLite writer race, not a metadata, permission, or reconstruction-data failure. App activation independently queues `maintenanceController.catchUp()`, while the Import control previously began its lifecycle and page writes immediately. **Correction:** both full and selected owner imports now wait behind the already queued in-runtime maintenance transition before the first import repository read/write, while retaining the immediate `Starting…` acknowledgement and the existing 30-second native busy timeout for a separate/native writer. No lease is weakened, no database is cleared, and no retry loop is added. A new regression proves Import does not read a metadata page until the queued maintenance promise settles. The first run exposed a stale test-harness assumption that a delayed lifecycle mock is installed synchronously; it was corrected by yielding one event turn while preserving the immediate acknowledgement assertion. Focused maintenance/import/provider tests pass (46), plus typecheck, lint, and whitespace. Full-suite and Android owner confirmation remain required.
++- **Verification update:** The complete mobile Jest command exited successfully after the correction, as did root `npm run check` and `git diff --check`. The suite output includes the existing React test-environment `act(...)` warning in `journey-edit.test.tsx`; it is non-failing and unrelated to the import writer ordering. Android owner confirmation remains the only unresolved proof for this specific contention path.
++- **Repeated owner `DATABASE_BUSY` (2026-10-20):** The owner still observed `database busy` after the maintenance-ordering correction, so that known in-runtime writer is not sufficient to explain the live lock. Inspection found an error-recovery defect: `ImportCoordinator.runPages()` caught a failed page commit, then immediately attempted a second `commitPage(paused, [])` write to persist a pause marker. A busy first write therefore issued another write against the same locked SQLite database and could escape as the generic busy failure. **Correction:** track the last durably committed checkpoint; on a busy commit, make no second write, discard the uncommitted page from UI accounting, expose a safe paused/retry state, and retain the prior durable checkpoint. Non-busy read failures still attempt to persist a paused marker; if that write fails, they also remain safely paused without propagating. RED/GREEN regression proves one busy page write causes exactly one repository write, commits no source, and resolves to a safe paused state. Focused coordinator/controller/provider tests pass (63). The underlying external/native writer remains open until an owner retry after a fully stopped/relaunched app provides new evidence.
++- **Atlas catch-up failure after completed metadata import (2026-10-20):** The owner confirmed metadata import now runs, then reported that `Catch up locally` built failed. That is a separate reconstruction/reconciliation operation; the last committed Atlas remains the intended browse surface. A read-only ADB attempt again could not start/connect the host daemon on TCP 5037, so no fixed diagnostic code was captured and no device/private record was accessed. The previous Atlas failure UI was generic despite the controller having fixed, privacy-safe diagnostic categories/stages. **Correction:** catch-up now presents fixed owner guidance for busy storage, pending journey-remap review, pending history-review, schema recovery, or access; native error detail remains excluded. Focused reconstruction/Atlas/provider tests pass (60), plus typecheck, lint, and whitespace. Reloading the updated bundle and reporting this fixed guidance is required before changing reconstruction behavior.
++- **Silent Catch-up acknowledgement recurrence (2026-10-20):** The owner reloaded and tapped `Catch up locally`, but received no visible response or message. The provider intentionally awaited `maintenanceController.whenIdle()` before calling reconstruction, so the Atlas controller had not yet entered `running`; any queued maintenance operation made the button appear inert. **Correction:** `ReconstructionController.acknowledgeQueuedMaintenanceWait()` now immediately publishes a `running` notice that an existing local update is finishing while retaining the last completed Atlas. It does not acquire a reconstruction lease or claim a rebuild has started; after maintenance settles, normal reconciliation reports its fixed terminal outcome. A regression verifies the acknowledgement does not call rebuild. Focused reconstruction/provider/Atlas/maintenance suites pass (63), with typecheck, lint, and whitespace. The refreshed owner test must first show the waiting notice, then either complete or display the safe fixed failure guidance.
++- **Projection swallowed controller guidance (2026-10-20):** Follow-up source tracing found the prior acknowledgement and fixed failure text were still discarded by `projectReveal`: it received only reconstruction status and substituted generic processing/failure copy. **Correction:** `RevealInput` now carries the fixed controller message, and the Atlas/replay projections pass it through only for running/error reconstruction states. A UI regression proves the queued-maintenance waiting text renders. This change does not permit a native error, source ID, SQL fragment, or private coordinate to cross the projection boundary. Focused Atlas/controller/provider tests pass (62), plus typecheck, lint, and whitespace. A new-bundle owner tap must show the message before further database diagnosis.
++- **Post-rebuild durable Atlas read masked catch-up cause (2026-10-20):** The owner now sees `Updating your Atlas`, then the generic `Your local Atlas could not be read`. This proves the action reaches the catch-up path. `catchUpHistory()` previously ran `refreshDurableReveal()` after every reconciliation result; that follow-up read could overwrite a detailed reconciliation failure with a generic Atlas-read message. **Correction:** skip the durable refresh when reconciliation already has a non-complete state; on a completed reconciliation whose durable read fails, log only a fixed `Atlas durable read` category and show fixed owner guidance without throwing or replacing private data. Reconciliation-status refresh is isolated so its read failure also cannot mask the Atlas result. Focused provider/controller/Atlas tests pass (62), plus typecheck, lint, and whitespace. The precise on-device category still requires one refreshed-bundle retry; no reconstruction rule, correction, or history data has been changed.
++- **Unreachable remap-review recurrence (2026-10-20):** The owner reported that Atlas contains no journey to open after being instructed to review a withheld correction through Timeline Edit. This exposed a recovery-UI contradiction: `reviewRequired` is derived from pending-remap count, while the correction review route requires a displayed, committed journey ID. When the last committed Atlas has no journeys, the owner has no route to the protected correction. **Status:** Open. Do not ask the owner to discard data, add a manual journey, or retry reconstruction until a direct owner-controlled pending-correction review surface exists. **Prevention:** Every recovery notice must be tested in both non-empty and empty last-committed Atlas states, and every owner-required gate must expose an actionable route independent of the failed projection.
++- **Correction-remap product-contract correction (2026-10-21):** The owner clarified that a journey correction requiring review must not stop Atlas/Timeline reconstruction. The prior fail-closed implementation protected against an implicit remap but used rollback as its mechanism, incorrectly turning one withheld correction into a global reveal outage. **Required correction:** commit the evidence-derived graph, retain the unresolved correction untouched, mark every current journey related to its reviewed support as needing review, and keep owner review/edit reachable from that label. Structural/invalid correction semantics remain separately protected until explicitly designed. **Prevention:** model correction remap as a journey-level review state, not a global reconstruction status; acceptance must include an initially empty prior Atlas.
++
++## Runtime diagnostic logging implementation checks (2026-10-20)
++
++- **Date / task / area:** 2026-10-20; privacy-safe mobile runtime diagnostics.
++- **Symptom/evidence:** The first shared diagnostic typecheck rejected `catchUpFailureCode` because it was left typed as a broad `string`, which could not prove that a serialized reason code stayed within the closed event union. The same focused Jest run could not collect tests because the sandbox transform cache failed its atomic rename with `EPERM`; zero tests ran.
++- **Cause:** The migration reused a pre-existing broad helper signature, and the known sandbox Jest cache boundary applies before test execution.
++- **Correction / verification:** Narrow the helper to `AppDiagnosticReasonCode`; rerun TypeScript and lint after the correction. Rerun the unchanged Jest command through the approved host boundary with a quoted repository-local cache before interpreting test behavior.
++- **Prevention:** Keep diagnostic helper return types closed at the boundary; treat a transform-cache failure before collection as an environment incident, not a passing or failing application test.
++- **Focused-host correction:** The first host run collected 54 tests but retained two assertions for the retired positional console labels. The implementation emitted the expected fixed event objects; the stale assertions failed. Update those tests to assert operation, reason, null stage, retryability, and durable outcome, then rerun the same focused suites. Existing `act(...)` console warnings in `journey-edit` remain the separately recorded renderer limitation and are not diagnostic payloads.
++
++## Runtime diagnostic boundary verification correction (2026-10-21)
++
++- **Date / task / area:** 2026-10-21; privacy-safe mobile runtime diagnostics and owner import/Atlas recovery.
++- **Status:** Code and automated verification complete; Android owner acceptance remains pending.
++- **Symptom/evidence:** A broad documentation patch assumed an earlier project-state block and was rejected before any file changed. The live source had already moved to the structured diagnostic boundary, while the retained project-state wording still described positional markers.
++- **Cause:** Concurrent work changed the documentation between inspection and patch preparation.
++- **Correction / verification:** Re-read the exact live targets, made only this minimal update, and verified the sole production console call is the diagnostics sink. Full mobile Jest passed 38 suites / 356 tests; mobile TypeScript, lint, root `npm run check`, and `git diff --check` passed. The event regression asserts the fixed shape and redacts a private sentinel.
++- **Prevention:** Before a multi-file runtime-diagnostics patch, reread each target and scan production source for direct console calls. Treat a rejected no-op patch as an incident, not evidence that the assumed source state still exists.
++- **Continuation (2026-10-21):** The delegated implementation worker exhausted its usage quota before it could report a handoff. The parent inspected the live worktree rather than assuming no work existed; it found an incomplete migration, added fixed diagnostics for startup reconciliation/durable-read and maintenance-controller catch paths, and added redaction regressions. Journey Edit's focused suite also still emitted a React `act(...)` warning despite passing assertions; its shared motion lookup is now deliberately unresolved in that suite because motion behavior is not under test. Importing `jest` from `@jest/globals` while making that test deterministic then broke TypeScript's mock inference, although its runtime Jest assertion passed. **Correction:** restore the configured global Jest symbols and retain only the React Native import. Focused Journey Edit, full mobile Jest (38 suites / 357 tests), TypeScript, lint, root `npm run check`, and `git diff --check` now pass. **Prevention:** After an interrupted delegation, inspect the diff and resume only verified remaining work; run TypeScript immediately after changing a test framework import, because a passing Jest runtime suite alone does not validate test types.
++
++## Nonblocking correction-remap implementation checks (2026-10-21)
++
++- **Date / task / area:** 2026-10-21; final-graph journey-correction remap and Atlas review label.
++- **Symptom/evidence:** An initial multi-file patch used an outdated `JourneyPreviewSheet` signature and was rejected without changes. The first typecheck then rejected an `accessibilityLabel` passed to the shared `Body` primitive, which does not expose React Native accessibility props.
++- **Cause:** Concurrent source changes made the assumed component signature stale, and the primitive interface was not checked before adding the accessible label.
++- **Correction / verification:** Re-read the live component, applied the smallest valid label change, then removed the unsupported prop. Focused reconciliation, Atlas, and correction tests passed before the typecheck correction; typecheck is rerun after it.
++- **Prevention:** Re-read exact component signatures before a cross-file patch, and inspect shared UI primitive props before adding native accessibility attributes.
++- **Regression-test correction:** The first label assertion searched for an isolated native `Text` node, but Timeline nests the status alongside the period and location. It failed despite the rendered tree visibly containing the label. The assertion now checks the rendered tree for the compact text before exercising the existing Edit path. **Prevention:** When testing nested React Native text, assert the rendered composition rather than assuming child-text flattening behavior.
+diff --git a/docs/project-state.md b/docs/project-state.md
+index 0bafd01..bc79068 100644
+--- a/docs/project-state.md
++++ b/docs/project-state.md
+@@ -1,5 +1,66 @@
+ # Project state
+ 
++## Atlas legacy-continuity recovery (2026-10-20)
++
++Schema v34 takes a one-time local snapshot of V1 journeys that were already in
++the committed projection at the V1.1 boundary. During later reconstruction,
++only a snapshot identity that still exists in the current committed graph can
++join the redacted Atlas, Timeline, detail/media, and aggregate projection;
++new `SUGGESTED`/unconfirmed candidates remain withheld. Catch-up and import
++completion now await the durable Atlas read-back before reporting owner-visible
++success. A failed read keeps the prior projection browseable and uses fixed
++safe recovery copy rather than a raw SQLite/native error. Retry contains both
++the private-record lifecycle read and its promise, emits a fixed `START` marker
++when retry begins, then emits only a coarse terminal category when lifecycle or
++rebuild fails; it never exposes a raw SQLite/native exception or private
++record. Focused retry coverage passed 2 suites / 48 tests; full mobile Jest
++passed 37 suites / 344 tests; mobile TypeScript and lint, root `npm run check`,
++and `git diff --check` pass.
++The Atlas recovery action is intentionally one owner task: sparse and failed
++states both say `Recheck local journey history`; an internal rebuild failure is
++not presented as a separate `Retry local reveal` step. Focused Atlas UI tests
++(32), TypeScript, and lint pass after this wording correction.
++
++**Shared lifecycle/import repair (2026-10-20):** Android media permission is
++still allowed for images and video, but metadata import and Atlas reconstruction
++both depend on the import repository's first local lifecycle read. That
++repository now opens a fresh Expo SQLite native connection after a React reload,
++matching reconstruction's existing handle repair; no private history is
++migrated, reset, or deleted. Focused import/lifecycle/Atlas suites passed 88
++tests; full mobile Jest passed 37 suites / 344 tests, TypeScript, lint, root
++`npm run check`, and `git diff --check` pass. Owner confirmation that the
++existing import action and Atlas recheck work remains required.
++
++**Import/recheck contention repair (2026-10-20):** Device logs confirmed the
++fresh lifecycle path reaches Atlas retry but returned the fixed `DATABASE_BUSY`
++category, indicating a foreground metadata import and Atlas recheck contended
++for SQLite writes. Atlas now waits for the complete owner import (including its
++automatic rebuild) and local maintenance queue before rebuilding. No timing
++coordination is required from the owner. Focused coordination coverage passed
++85 tests; full mobile Jest passed 37 suites / 345 tests, TypeScript, lint, root
++`npm run check`, and `git diff --check` pass. Device confirmation after reload
++is still required.
++
++**Metadata-import recovery (2026-10-20):** Owner feedback exposed a final
++fire-and-forget failure path: a completed import's automatic rebuild could
++reject without an Import-screen response. The whole import operation now emits
++only fixed `START`/terminal diagnostic categories and keeps safe recovery copy
++on failure. Focused import/Atlas coverage passed 86 tests; full mobile Jest
++passed 37 suites / 346 tests, TypeScript, lint, root `npm run check`, and
++`git diff --check` pass. Reload and one owner import tap remain required device
++acceptance evidence.
++**Runtime diagnostic boundary (2026-10-21):** All foreground and maintenance diagnostics now use one local structured boundary with only operation, fixed reason code, optional fixed stage, retryability, durable outcome, and a local correlation ID. Import, Atlas rebuild/catch-up/retry/durable-read, maintenance, and place-save paths use that boundary; direct production console calls are lint failures. Full mobile Jest passed 38 suites / 356 tests; TypeScript, lint, root `npm run check`, and `git diff --check` pass. This establishes safe observable states, not device acceptance: one owner-operated metadata import on the refreshed bundle remains required.
++
++Expo Doctor remains 20/21 because of the pre-existing nine Expo SDK
++patch-version recommendations. Android/iOS owner click-and-wait evidence
++remains required. The earlier Android preflight had restored device `9cb47ed9`
++and Metro `8085/status`; a later reload attempt found Metro stopped, and its
++first restart bound IPv6-only. Metro was restarted with LAN/IPv4 binding and
++now returns `packager-status:running` on 8085; ADB reverse
++`tcp:8085 tcp:8085` and device connection are confirmed. No automated input is
++used. Reload the current bundle and tap Retry once; that result, plus the
++coarse retry diagnostic if it fails, is the required acceptance evidence.
++
+ ## M4.2 manual journey entry (2026-10-19)
+ 
+ Owners can now add a private, explicitly owner-entered journey through a local
+@@ -9,6 +70,27 @@ Atlas/Timeline/detail projection labels it owner-entered, returns no media or
+ fabricated support, survives rebuild reads, and does not alter recovery counts or
+ diagnostics. Creation validates the durable read-back before reporting success.
+ 
++**Schema-open repair (2026-10-20):** Android exposed `no such column:
++date_start` when a v32 private record reached the Manual Journey path through
++the reconstruction repository. That repository had opened the shared SQLite
++file directly, while only the import repository applied v33 migrations. Manual
++Journey operations and the durable Atlas projection now ensure the shared
++schema before reading `manual_journey`; ordinary correction operations retain
++their no-write current-schema startup path. Focused migration/reconciliation
++tests and the full mobile suite pass (37 suites / 332 tests). Device re-open
++and manual-entry confirmation remain required acceptance checks.
++
++**Android SQLite handle repair (2026-10-20):** The next owner retry reached a
++different bare `NativeDatabase.prepareAsync` Java `NullPointerException`.
++The signature matches the active Expo SQLite SDK 57 Android cached-handle issue
++when the React runtime restarts while its process remains alive. Reconstruction
++now opens the shared local database with a fresh native connection; the
++existing process-level transaction gate still serializes its writes with import.
++The regression was demonstrated RED then GREEN; focused tests pass (43), and
++the bounded suite passes 36 of 37 suites / 333 of 334 tests. The remaining
++failure is an unrelated uncommitted reconstruction-controller diagnostic-test
++change. Android retry is the required acceptance check.
++
+ The form supports an offline place result or owner label plus deliberate coarse
+ point, exact/approximate dates, and an explicit date-range overlap decision. Keep
+ separate creates a distinct assertion; Edit abandons the draft and opens the
+@@ -1940,3 +2022,169 @@ remains 20/21 due to the existing nine Expo SDK patch-version recommendations.
+ Root `npm run check` also passed. Android/iOS device confirmation of the
+ create/reconnect-to-manual-entry flow, including visual pending/error feedback,
+ remains required.
++
++## Private Atlas reconstruction speed (2026-10-20)
++
++The dense-place minimax representative now scores each candidate once rather
++than recomputing the score for every sort comparison. Link and disposition
++projection writes use bounded multi-row SQLite inserts in the existing atomic
++transaction; neither the inference rules nor the last committed Atlas is
++intentionally changed. Atlas distinguishes a queued local update from an
++operation actually running, so waiting changes can be caught up while the
++committed map and Timeline remain browsable. An active rebuild disables its
++duplicate catch-up action.
++
++Three paired runs on the same synthetic 2,000-record dense-place fixture gave
++baseline/current pure-engine times of 6,454/686, 5,704/750, and 5,875/701 ms;
++the complete graph hash matched in all six runs. This demonstrates an engine
++improvement for that synthetic case, not a measured full-build or device speed.
++Independent review then tightened the SQLite path to stream bounded batches
++rather than retain all links in memory, reject a single oversized row before
++the native bridge, and test exact inserted tuples. Reconciliation now exposes
++separate aggregate queue and unresolved-remap counts, so an owner correction
++that needs review is not presented as a no-op catch-up. A failed queue can
++retry through the queue-consuming action. The final host mobile Jest suite
++passed 37 suites / 332 tests, TypeScript, lint and whitespace validation
++passed, and root `npm run check` passed. Expo Doctor was blocked by registry DNS
++`ENOTFOUND`, so the combined mobile check is not claimed as passing. Android
++ADB listed no attached device; Android/iOS full-rebuild timing and visual
++confirmation remain required. A concurrent, unrelated private-schema migration
++change was preserved in the shared worktree; it was not part of this speed task.
++
++Device acceptance has now started but is not complete. On the connected Android
++development client, the current Atlas bundle showed the waiting state and the
++owner tapped `Catch up locally` once. It entered the updating state, then
++returned to waiting with a failed-reveal message in about 20 seconds. This is
++not a successful full-device speed measurement; the catch-up failure cause is
++still unknown. A focused, privacy-safe diagnostic now logs only a fixed error
++category rather than the raw native exception. Its test went RED then GREEN;
++the full mobile suite passed 37 suites / 334 tests, TypeScript and lint passed,
++and root `npm run check` passed. The private database was not copied for
++diagnostics. Two sandbox-started Metro attempts on port 8085 did not answer
++host status requests; the current checkout now runs through host networking
++and returns `packager-status:running`. ADB still no longer lists the phone, so
++the refreshed diagnostic bundle has not yet run on-device. Next:
++restore USB debugging, load this exact bundle, retry catch-up once, read the
++fixed diagnostic category, fix the identified failure, and only then measure
++the successful rebuild and catch-up latency. No Git commit or push was made.
++
++USB debugging was restored: ADB again lists the authorized Android device,
++and the current host Metro 8085 status endpoint responds. A cold launch now
++shows Expo Dev Launcher with the current 8085 server available, but this phone
++rejects ADB-injected taps (`INJECT_EVENTS`). The owner must select that visible
++server card before the refreshed bundle and catch-up diagnostic can be
++observed; no second catch-up has been triggered yet.
++
++The owner then opened the current Android bundle (1,657 modules, followed by a
++one-module diagnostic refresh) and twice tapped Atlas catch-up on request.
++Both runs entered the updating state but returned to failed/waiting, so neither
++is a successful device speed sample. The first emitted only fixed diagnostic
++code `OWNER_REVIEW`; the second emitted `DATABASE_BUSY`. The former covers two
++protected-correction branches, so a focused RED/GREEN test split the safe
++codes into `HISTORY_REVIEW` and `JOURNEY_REMAP`, but no device run has yet
++identified which branch occurred first. The latter identifies SQLite lock
++contention without identifying its stage or competing writer. No private
++exception text, place, media, or database contents were exported. Owner input
++on automatic-maintenance status is pending. The Atlas queue and last committed
++record remain untouched; the full-device latency claim remains open.
++
++The owner then confirmed automatic maintenance was enabled and its latest local
++check had completed, followed by one more owner-operated retry that again
++reported `DATABASE_BUSY`. This does not prove which writer holds SQLite, but
++it means an active foreground maintenance check is no longer the assumed cause.
++The native reconciliation boundary now returns an internal fixed stage for a
++failure at lease acquisition, queue read, rebuild, outcome read/save, or lease
++release; the controller logs only the fixed error category and stage, never the
++underlying SQLite message. Lease acquisition is included in this boundary and a
++best-effort outcome-state write cannot overwrite the original stage. RED/GREEN
++stage/privacy regressions passed; full mobile Jest passed 37 suites / 338 tests,
++with TypeScript, lint, and root `npm run check` also passing. The refreshed
++Android bundle still needs one owner tap to identify the actual fixed stage,
++after which only the demonstrated contention path should be corrected. No Git
++commit or push was made.
++
++That owner tap reported `DATABASE_BUSY LEASE`: contention occurs before any
++reconstruction work begins. App activation can queue automatic maintenance in
++the same JavaScript runtime just before the visible Atlas action requests its
++own SQLite writer lease. Atlas now waits for that already queued maintenance
++transition before requesting its lease; it does not weaken the lease, retry
++blindly, or change private history. A RED/GREEN coordination regression passed,
++along with focused 67 tests, mobile TypeScript and lint, full mobile Jest (37
++suites / 339 tests), and root `npm run check`. This synchronizes known
++foreground writers only; a new `DATABASE_BUSY LEASE` after the refreshed device
++test would instead point to an OS/native or other external writer. One
++owner-operated catch-up on the refreshed bundle remains required; no Git commit
++or push was made.
++
++The next device retry still emitted `DATABASE_BUSY LEASE`, so foreground
++maintenance coordination alone was insufficient. The reconstruction lease now
++first reads the durable OS-maintenance lease. If an active background task owns
++it, Atlas treats that as the existing safe “another local catch-up is running”
++state and makes no immediate SQLite write, rather than surfacing a failed
++catch-up. The owner can keep browsing the committed Atlas while that task
++finishes. This does not claim every native lock is explained; a repeated busy
++error after this bundle would warrant a separate native-lock investigation.
++Focused tests (52), full mobile Jest (37 suites / 340 tests), TypeScript, lint,
++and root `npm run check` pass. One owner-operated device retry on the refreshed
++bundle remains required; no Git commit or push was made.
++
++The OS-maintenance lease deferral did not yet eliminate a delayed busy outcome.
++The safe diagnostic now separates connection open, maintenance-lease read, and
++reconciliation-lease write. A device retry must report one of those fixed
++stages before altering native SQLite configuration or transaction behavior.
++Focused diagnostic tests, TypeScript, lint, full mobile Jest (37 suites / 340
++tests), and root `npm run check` pass. No private SQLite message is logged,
++exported, or stored in project artifacts.
++
++The refined device result was `DATABASE_BUSY LEASE_WRITE`: no maintenance lease
++was visible initially, but a background task can begin between that read and
++the foreground write. On this exact busy path Atlas now performs one read-only
++recheck for a freshly created maintenance lease. It safely defers if present;
++otherwise it preserves the real busy diagnostic without blind transaction
++retries. Focused tests (53), full mobile Jest (37 suites / 341 tests),
++TypeScript, lint, and root `npm run check` pass. The updated bundle needs one
++owner-operated catch-up confirmation; no Git commit or push was made.
++
++The owner then performed that confirmation after a cold Android restart (force
++stop and relaunch, with no app data cleared). The fixed safe result changed
++from `DATABASE_BUSY LEASE_WRITE` to `JOURNEY_REMAP REBUILD`. This confirms a
++fresh process can open the local database and reach the protected remap check;
++it does not demonstrate a durable automatic recovery for the prior in-process
++native SQLite lock. The remap remains owner-controlled, the committed Atlas is
++still browsable, and no successful rebuild-latency claim is made. The
++process-lifecycle lock remains an open diagnostic; owner correction review is
++separate from performance acceptance.
++
++## Performance scope and private-record regression review (2026-10-20)
++
++The owner reported that, after performance-focused work, metadata import and Atlas/journey reconstruction no longer complete. Review found the active uncommitted change set combines performance changes with schema v34, legacy Atlas continuity, journey qualification/publication changes, SQLite connection lifecycle changes, and correction-remapping behavior. The observed owner-device reconstruction result is `JOURNEY_REMAP REBUILD`, which is an owner-protection gate reached before a new Atlas projection is published; it is not a successful performance result. Metadata-import failure is currently rendered as a safe generic retry message, so its on-device category remains unobserved. Focused synthetic host suites pass (95 tests), but they do not validate the owner's existing private record or correction lineage. Freeze this combined scope; separate recovery/compatibility from performance work and do not alter or clear private history/corrections without an explicit, validated migration plan.
++
++## Performance regression recovery (2026-10-20)
++
++The recovery patch removes the unapproved schema v34 legacy-continuity migration and the corresponding Atlas qualification bypass. Devices already carrying the additive v34 marker are treated as forward-compatible and are not downgraded or re-migrated; the unused table is ignored. Import returns to the original cached connection model, while the reconstruction-only fresh connection for the verified Android released-handle failure remains. A completed metadata import now remains explicitly complete even if the follow-up protected Atlas rebuild needs recovery; the current committed Atlas stays available. The correction-remap safeguard remains intact: it still requires owner review rather than discarding or remapping a correction automatically. Focused recovery checks passed (111 tests), along with mobile typecheck, lint, and whitespace validation. Android owner validation is still required before this is considered repaired: import metadata once, then open/rebuild Atlas and confirm the committed journeys remain visible; report only the fixed diagnostic state if it fails.
++
++The first owner retry exposed a separate acknowledgement defect: Import waited for the lifecycle/database read before rendering any state, so the tap appeared inert while SQLite was delayed. Import now synchronously says `Starting local metadata import…`, disables duplicate start, and renders a preparing state until page import reports progress. A delayed-lifecycle regression plus owner-flow/provider tests (42), typecheck, lint, and whitespace validation pass. The Android bundle must be refreshed before a retry; the prior bundle cannot show this correction.
++
++The next recovery refinement closes a terminal-state gap: lifecycle or SQLite-read failures can be deliberately represented by the import coordinator as a durable paused/blocked coverage state rather than a rejected promise. The controller now replaces the immediate `Starting…` acknowledgement with a safe `paused` retry or `blocked` access message for both full and selected imports, and emits only a fixed diagnostic category. A regression covers a normal initial lifecycle read followed by a protected locked-read pause and confirms private native text is not surfaced. Focused controller/owner/provider tests pass (43); Android owner validation after a bundle refresh remains required. A same-session read-only ADB attempt could not connect to the host daemon, so no on-device error code was captured and no private data was read.
++
++The owner then reported `database busy` from Import. The demonstrated same-runtime race is app activation queuing automatic maintenance while the owner can immediately start a metadata import against the same SQLite file. Full and selected imports now preserve their immediate acknowledgement but wait for that queued maintenance transition before their first repository read/write. This is serialization of a known writer, not a blind SQLite retry: the native busy timeout remains the boundary for a separate/native writer, and no private record, correction, lease, or metadata was changed to recover. A regression proves Import cannot read a metadata page before the maintenance wait settles; focused maintenance/import/provider tests (46), typecheck, lint, whitespace, the complete mobile Jest command, and root `npm run check` pass. The only remaining validation is one owner retry on a refreshed bundle.
++
++That owner retry still reported `database busy`, proving the queued maintenance writer is not sufficient explanation. Recovery inspection found that a busy page commit caused the import coordinator to immediately attempt a second SQLite write merely to save a pause marker. It now retains the last confirmed durable checkpoint, performs no second write after a busy result, excludes the uncommitted page from counts, and presents a safe paused retry state. A regression verifies exactly one attempted write, no retained source, and no rejection when a page commit is busy; focused coordinator/controller/provider suites pass (63). The active external/native writer is still unproven. The next required evidence is one owner retry only after fully stopping and reopening the Android app on a refreshed bundle; no data clear, correction deletion, or Supabase change is justified.
++
++Metadata import subsequently ran, but owner-triggered Atlas catch-up built failed. This is a separate reconciliation path and does not discard the prior committed Atlas. The first live failure did not expose its fixed category on screen, while a same-session read-only ADB diagnostic could not start/connect the host daemon. Catch-up now gives privacy-safe owner guidance for busy local storage, journey-correction remap review, history-correction review, schema recovery, or access; it never includes native error text or private record data. Focused reconstruction/Atlas/provider tests (60), typecheck, lint, and whitespace pass. Reload this bundle and report the fixed on-screen guidance before any reconstruction rule, correction, schema, or native connection change.
++
++The first retry after that change still appeared inert because Catch up waited for an already queued maintenance operation before handing control to reconstruction. Atlas now acknowledges the tap immediately with a waiting notice while preserving the prior committed journeys; it neither claims reconstruction has begun nor takes a writer lease until maintenance settles. A regression proves the acknowledgement does not call rebuild; focused reconstruction/provider/Atlas/maintenance tests (63), typecheck, lint, and whitespace pass. Reload the bundle and tap once: the screen must first show the waiting notice, then complete or expose the fixed safe cause.
++
++That acknowledgement was initially still invisible because the Atlas reveal projection replaced controller text with generic status copy. The projection now preserves the fixed owner-safe reconstruction message for running and error states, and both Atlas and Replay pass it through. A UI regression confirms the queued-maintenance waiting text renders; focused Atlas/controller/provider tests (62), typecheck, lint, and whitespace pass. A refreshed owner tap should now show the waiting state immediately before it either completes or presents the safe cause; no database or correction data has been changed.
++
++The refreshed action now reaches `Updating your Atlas` but then showed a generic durable-read error. Source tracing found `catchUpHistory` could overwrite an already classified reconciliation outcome while attempting a post-rebuild durable Atlas reload. It now preserves any non-complete reconciliation result; if only the durable read fails after a complete reconciliation, it reports a fixed safe storage/schema/connection/access category and retains the last committed Atlas. Reconciliation-status reads are separately recoverable. Focused provider/controller/Atlas tests (62), typecheck, lint, and whitespace pass. One refreshed owner retry must provide the fixed on-screen category before any more targeted repair.
++
++## Runtime diagnostic logging contract (2026-10-20)
++
++Mobile runtime diagnostics now use one local typed console boundary. Every migrated event carries a closed operation and reason code, fixed reconciliation stage or null, retryability, durable outcome, and a locally generated non-record-derived correlation ID. Rebuild, catch-up, metadata import, durable reads, reveal retry, OS maintenance, and journey-place saves no longer log raw native error text; the correction save UI now retains only safe recovery copy. Production mobile lint rejects direct `console` calls outside that boundary. Focused host checks cover structured shape, private-sentinel redaction, import/retry terminal paths, and paused background maintenance. This is local development diagnostics only; it does not send or persist diagnostic events remotely.
++
++Continuation audit added startup reconciliation-status and durable-read error events plus maintenance-controller failure events, so those recoverable UI states no longer discard their fixed cause. The Journey Edit regression suite now holds the unrelated shared reduced-motion lookup pending and no longer emits its React `act(...)` warning. Focused Journey Edit, the complete mobile Jest suite (38 suites / 357 tests), TypeScript, lint, root `npm run check`, and `git diff --check` pass. Device acceptance remains unnecessary for this logging-only change.
++
++## Nonblocking journey-correction remap (2026-10-21)
++
++Final committed-graph ambiguity no longer rolls back an otherwise valid Atlas reconstruction. The local transaction retains the correction as a pending remap candidate, commits and acknowledges the evidence-derived graph, and marks every current displayed journey supported by the reviewed evidence as `Needs review`. The compact label is visible in the Timeline and selected Atlas preview, where the existing Edit → Trip accuracy review flow remains the protected owner action. Structural and pre-final support-validation failures remain fail-closed. Focused reconciliation/Atlas/correction tests passed; final static and repository checks remain to be recorded after this in-progress worktree settles.

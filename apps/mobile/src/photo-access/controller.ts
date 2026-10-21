@@ -1,4 +1,5 @@
 import { ImportCoordinator, createNativeImportRepository, type ImportCoverage, type ImportRepository } from '@/import-record';
+import { classifyAppDiagnosticError, createDiagnosticCorrelationId, recordAppDiagnostic } from '@/diagnostics/app-diagnostics';
 
 import type { PermissionSnapshot, PhotoAccessAdapter, PhotoAccessSnapshot } from './types';
 
@@ -18,6 +19,7 @@ export class PhotoAccessController {
   private current = initialPhotoAccess;
   private serial = 0;
   private busy = false;
+  private importTransition: Promise<void> = Promise.resolve();
   private previouslyGranted = false;
   private selectedIds: string[] = [];
   private readonly importer: ImportCoordinator;
@@ -27,17 +29,53 @@ export class PhotoAccessController {
     private readonly notify: (snapshot: PhotoAccessSnapshot) => void,
     notifyImport: (coverage: ImportCoverage) => void = () => {},
     private readonly repository: ImportRepository = createNativeImportRepository(),
-    private readonly onCompletedLibraryImport: () => Promise<void> = async () => {},
+    private readonly onCompletedLibraryImport: () => Promise<boolean | void> = async () => {},
+    /** An activation-triggered maintenance scan can already own the same
+     * private SQLite writer when the owner taps Import. Wait for that known
+     * in-runtime writer rather than asking SQLite to race it. */
+    private readonly waitForMaintenance: () => Promise<void> = async () => {},
   ) {
     this.importer = new ImportCoordinator(adapter, this.repository, notifyImport);
   }
 
   get snapshot() { return this.current; }
   get isBusy() { return this.busy; }
+  /** Lets Atlas wait for an owner-initiated local metadata write before rebuilding. */
+  whenImportIdle() { return this.importTransition; }
 
   private set(patch: Partial<PhotoAccessSnapshot>) {
     this.current = { ...this.current, ...patch };
     this.notify(this.current);
+  }
+
+  /** Metadata import and its follow-up Atlas rebuild are separate durable
+   * operations. A protected rebuild must not tell the owner their metadata
+   * import was lost or leave later Atlas actions waiting on a rejection. */
+  private async refreshAtlasAfterCompletedImport(correlationId: string) {
+    try {
+      const atlasUpdated = await this.onCompletedLibraryImport();
+      if (atlasUpdated !== false) recordAppDiagnostic({ operation: 'METADATA_IMPORT', reasonCode: 'ATLAS_UPDATED', stage: null, retryable: false, durableOutcome: 'complete', correlationId });
+    } catch (error) {
+      recordAppDiagnostic({ operation: 'METADATA_IMPORT', reasonCode: classifyAppDiagnosticError(error), stage: null, retryable: true, durableOutcome: 'unchanged', correlationId });
+      this.set({ message: 'Metadata import is complete. Your existing Atlas stays available while its local update is recovered.' });
+    }
+  }
+
+  /** ImportCoordinator records recoverable lifecycle/database failures as a
+   * paused or blocked coverage state rather than rejecting its promise. The
+   * controller must replace its optimistic tap acknowledgement in that case. */
+  private publishImportRecovery(correlationId: string) {
+    const status = this.importer.coverage.status;
+    const code = status === 'blocked' ? 'BLOCKED' : 'PAUSED';
+    const storageBusy = this.importer.coverage.message === 'Local storage is busy. No metadata page was committed. Retry when ready.';
+    recordAppDiagnostic({ operation: 'METADATA_IMPORT', reasonCode: code, stage: null, retryable: true, durableOutcome: status === 'blocked' ? 'blocked' : 'paused', correlationId });
+    this.set({
+      message: status === 'blocked'
+        ? 'Local metadata import is blocked. Recheck access before retrying.'
+        : storageBusy
+          ? 'Local metadata storage is busy. No metadata page was committed. Retry when ready.'
+        : 'Local metadata import is paused. Retry when ready.',
+    });
   }
 
   private applyPermission(permission: PermissionSnapshot | null) {
@@ -216,25 +254,57 @@ export class PhotoAccessController {
   }
 
   async startImport() {
-    if (this.busy || (this.current.scope !== 'full' && this.current.scope !== 'limited')) return;
-    this.busy = true;
-    try {
-      await this.importer.start(this.current.scope, this.current.countStatus === 'complete' ? this.current.count : null);
-      if (this.importer.coverage.status === 'complete') await this.onCompletedLibraryImport();
-    } finally {
-      this.busy = false;
-    }
+    const scope = this.current.scope;
+    if (this.busy || (scope !== 'full' && scope !== 'limited')) return;
+    const correlationId = createDiagnosticCorrelationId();
+    recordAppDiagnostic({ operation: 'METADATA_IMPORT', reasonCode: 'START', stage: null, retryable: false, durableOutcome: 'unchanged', correlationId });
+    // The first repository/lifecycle read can wait behind SQLite. A tap must
+    // still receive an immediate visible acknowledgement before that await.
+    this.set({ message: 'Starting local metadata import…' });
+    const work = (async () => {
+      this.busy = true;
+      try {
+        await this.waitForMaintenance();
+        await this.importer.start(scope, this.current.countStatus === 'complete' ? this.current.count : null);
+        if (this.importer.coverage.status === 'complete') {
+          recordAppDiagnostic({ operation: 'METADATA_IMPORT', reasonCode: 'COMPLETE', stage: null, retryable: false, durableOutcome: 'complete', correlationId });
+          await this.refreshAtlasAfterCompletedImport(correlationId);
+        } else this.publishImportRecovery(correlationId);
+      } catch (error) {
+        const code = classifyAppDiagnosticError(error);
+        recordAppDiagnostic({ operation: 'METADATA_IMPORT', reasonCode: code, stage: null, retryable: true, durableOutcome: 'failed', correlationId });
+        this.set({ message: 'Local metadata import could not be completed. Try again when ready.' });
+      } finally {
+        this.busy = false;
+      }
+    })();
+    this.importTransition = work;
+    await work;
   }
 
   async importSelected() {
     if (this.busy || this.current.selectedCount === null) return;
-    this.busy = true;
-    try {
-      await this.importer.importSelected(this.selectedIds, this.current.selectedMissingIds);
-      if (this.importer.coverage.status === 'complete') await this.onCompletedLibraryImport();
-    } finally {
-      this.busy = false;
-    }
+    const correlationId = createDiagnosticCorrelationId();
+    recordAppDiagnostic({ operation: 'METADATA_IMPORT', reasonCode: 'START', stage: null, retryable: false, durableOutcome: 'unchanged', correlationId });
+    this.set({ message: 'Starting selected metadata import…' });
+    const work = (async () => {
+      this.busy = true;
+      try {
+        await this.waitForMaintenance();
+        await this.importer.importSelected(this.selectedIds, this.current.selectedMissingIds);
+        if (this.importer.coverage.status === 'complete') {
+          recordAppDiagnostic({ operation: 'METADATA_IMPORT', reasonCode: 'COMPLETE', stage: null, retryable: false, durableOutcome: 'complete', correlationId });
+          await this.refreshAtlasAfterCompletedImport(correlationId);
+        } else this.publishImportRecovery(correlationId);
+      } catch (error) {
+        recordAppDiagnostic({ operation: 'METADATA_IMPORT', reasonCode: classifyAppDiagnosticError(error), stage: null, retryable: true, durableOutcome: 'failed', correlationId });
+        this.set({ message: 'Selected metadata import could not be completed. Try again when ready.' });
+      } finally {
+        this.busy = false;
+      }
+    })();
+    this.importTransition = work;
+    await work;
   }
 
   async stopImport() {

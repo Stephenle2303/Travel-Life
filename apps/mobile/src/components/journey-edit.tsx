@@ -4,6 +4,7 @@ import { ScrollView, TextInput } from 'react-native';
 import { ActionButton, Body, Eyebrow, InsetPanel, Title } from '@/components/ui';
 import type { JourneyDetail } from '@/reveal/types';
 import { searchOwnerPlaces } from '@/reconstruction/owner-place-search';
+import { createDiagnosticCorrelationId, recordAppDiagnostic } from '@/diagnostics/app-diagnostics';
 
 export type JourneyEditTask = 'location' | 'name-dates' | 'destinations' | 'photos' | 'accuracy';
 type CorrectionAction = 'confirm' | 'reject' | 'claim' | 'place' | 'split' | 'merge' | 'remove-visit';
@@ -46,10 +47,9 @@ export function JourneyLocationTask({ id, load, save, retryProjection, onBack, o
       const outcome = await save(id, 'place', loaded.snapshotToken, loaded.detail, `journey:${id}:${loaded.snapshotToken}:place:${place.id}:${Date.now()}`, place);
       if (outcome === 'applied') { setStatus(`Confirmed place applied: ${place.name}.`); onApplied(); }
       else setStatus('The place was saved locally but has not been verified in this trip yet. Retry the local update; Atlas will not report it as applied.');
-    } catch (error) {
-      const reason = error instanceof Error && error.message ? error.message : 'The private save failed.';
-      console.error('journey-place-save-failed', reason);
-      setStatus(`Could not save this place: ${reason}`);
+    } catch {
+      recordAppDiagnostic({ operation: 'JOURNEY_PLACE_SAVE', reasonCode: 'SAVE_FAILED', stage: null, retryable: true, durableOutcome: 'unchanged', correlationId: createDiagnosticCorrelationId() });
+      setStatus('Could not save this place. Your prior journey remains available. Retry when ready.');
     }
     finally { setSaving(false); }
   };

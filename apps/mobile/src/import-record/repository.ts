@@ -663,7 +663,7 @@ const migrationV32 = `
 // Manual assertions deliberately do not reuse reconstruction_journey, visit,
 // evidence, qualification, or correction rows.  They can therefore survive a
 // replacement reconstruction without acquiring fabricated support.
-const migrationV33 = `
+const manualJourneyTableSchema = `
   CREATE TABLE IF NOT EXISTS manual_journey (
     manual_id TEXT PRIMARY KEY NOT NULL,
     command_key TEXT NOT NULL UNIQUE,
@@ -676,6 +676,10 @@ const migrationV33 = `
     date_end TEXT NOT NULL,
     created_at_millis INTEGER NOT NULL
   );
+`;
+
+const migrationV33 = `
+  ${manualJourneyTableSchema}
   CREATE INDEX IF NOT EXISTS manual_journey_dates ON manual_journey (date_start, date_end);
   UPDATE private_history_record SET schema_version = 33 WHERE record_id = 1;
 `;
@@ -688,7 +692,129 @@ type RevisionRow = { revision: number | null };
 type MaintenanceStateRow = { enabled: number; status: MaintenanceSnapshot['status']; last_checked_at_millis: number | null; last_updated_at_millis: number | null; message: string | null };
 type MaintenanceCheckpointRow = { scope: Extract<ImportScope, 'full' | 'limited'>; next_offset: number; run_token: number; status: MaintenanceCheckpoint['status'] };
 type SourceRow = { modified_at_millis: number | null; availability: SourceCandidate['availability']; platform_duplicate_family_id?: string | null; duplicate_tuple_fingerprint?: string | null };
-type ReconciliationStateRow = { status: ReconciliationSnapshot['status']; last_checked_at_millis: number | null; last_updated_at_millis: number | null; new_journey_count: number; updated_journey_count: number; message: string | null; pending_count: number };
+type ReconciliationStateRow = { status: ReconciliationSnapshot['status']; last_checked_at_millis: number | null; last_updated_at_millis: number | null; new_journey_count: number; updated_journey_count: number; message: string | null; queued_change_count: number; unresolved_remap_count: number };
+
+export class LocalAtlasSchemaRecoveryError extends Error {
+  constructor() {
+    super('Local Atlas schema recovery could not finish.');
+    this.name = 'LocalAtlasSchemaRecoveryError';
+  }
+}
+
+const retainedManualTable = 'manual_journey_retained_schema';
+type ManualLayout = 'current' | 'missing' | 'incompatible';
+
+async function readManualLayout(db: SqliteDatabase): Promise<ManualLayout> {
+  try {
+    // Preparing a zero-row query validates physical columns without reading
+    // owner values or trusting a potentially retained newer version marker.
+    await db.getAllAsync('SELECT manual_id, command_key, owner_label, owner_context, latitude, longitude, date_kind, date_start, date_end, created_at_millis FROM manual_journey LIMIT 0');
+    return 'current';
+  } catch (error) {
+    if (!(error instanceof Error)) throw error;
+    const message = error.message.toLowerCase();
+    if (/no such table:\s*manual_journey\b/.test(message)) return 'missing';
+    if (message.includes('no such column:')) return 'incompatible';
+    throw error;
+  }
+}
+
+async function assertEmptyManualRecovery(db: SqliteDatabase, layout: Exclude<ManualLayout, 'current'>) {
+  if (layout === 'incompatible') {
+    const rows = await db.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM manual_journey');
+    if (rows?.count !== 0) throw new LocalAtlasSchemaRecoveryError();
+  }
+  const archive = await db.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM sqlite_master WHERE name = ?', retainedManualTable);
+  if (archive?.count !== 0) throw new LocalAtlasSchemaRecoveryError();
+}
+
+async function ensureManualJourneyLayout(db: SqliteDatabase) {
+  const layout = await readManualLayout(db);
+  if (layout === 'current') return;
+  await assertEmptyManualRecovery(db, layout);
+  await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
+  try {
+    // Another writer may have repaired the table or populated it while this
+    // connection waited for its serialized writer turn. Recheck both facts.
+    const lockedLayout = await readManualLayout(db);
+    if (lockedLayout !== 'current') {
+      await assertEmptyManualRecovery(db, lockedLayout);
+      if (lockedLayout === 'incompatible') await db.execAsync(`ALTER TABLE manual_journey RENAME TO ${retainedManualTable}`);
+      await db.execAsync(manualJourneyTableSchema);
+      // The original date index remains attached to the archived empty table.
+      // A distinct fixed name creates an actual index on the canonical table.
+      await db.execAsync('CREATE INDEX manual_journey_recovery_dates ON manual_journey (date_start, date_end)');
+    }
+    await db.execAsync('COMMIT');
+  } catch (error) {
+    try { await db.execAsync('ROLLBACK'); }
+    catch { /* Preserve the primary failure if rollback also fails. */ }
+    throw error;
+  }
+}
+
+/** Ensures independently opened repositories read the current private schema. */
+export async function ensureNativeImportSchema(db: SqliteDatabase) {
+  let currentSchema: SchemaRow | null = null;
+  try {
+    currentSchema = await db.getFirstAsync<SchemaRow>('SELECT version FROM import_schema_version LIMIT 1');
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes('no such table: import_schema_version')) throw error;
+  }
+  // A device may retain an abandoned newer marker from a removed experimental
+  // migration. Its additive tables are harmless; never try to downgrade or
+  // rerun the full migration chain during a normal Atlas/import entry.
+  if ((currentSchema?.version ?? 0) >= CURRENT_SCHEMA_VERSION) {
+    await ensureManualJourneyLayout(db);
+    return;
+  }
+  await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
+  try {
+    await db.execAsync('CREATE TABLE IF NOT EXISTS import_schema_version (version INTEGER NOT NULL)');
+    const row = await db.getFirstAsync<SchemaRow>('SELECT version FROM import_schema_version LIMIT 1');
+    const version = row?.version ?? 0;
+    if (version < 1) await db.execAsync(migrationV1);
+    if (version < 2) await db.execAsync(migrationV2);
+    if (version < 3) await db.execAsync(migrationV3);
+    if (version < 4) await db.execAsync(migrationV4);
+    if (version < 5) await db.execAsync(migrationV5);
+    if (version < 6) await db.execAsync(migrationV6);
+    if (version < 7) await db.execAsync(migrationV7);
+    if (version < 8) await db.execAsync(migrationV8);
+    if (version < 9) await db.execAsync(migrationV9);
+    if (version < 10) await db.execAsync(migrationV10);
+    if (version < 11) await db.execAsync(migrationV11);
+    if (version < 12) await db.execAsync(migrationV12);
+    if (version < 13) await db.execAsync(migrationV13);
+    if (version < 14) await db.execAsync(migrationV14);
+    if (version < 15) await db.execAsync(migrationV15);
+    if (version < 16) await db.execAsync(migrationV16);
+    if (version < 17) await db.execAsync(migrationV17);
+    if (version < 18) await db.execAsync(migrationV18);
+    if (version < 19) await db.execAsync(migrationV19);
+    if (version < 20) await db.execAsync(migrationV20);
+    if (version < 21) await db.execAsync(migrationV21);
+    if (version < 22) await db.execAsync(migrationV22);
+    if (version < 23) await db.execAsync(migrationV23);
+    if (version < 24) await db.execAsync(migrationV24);
+    if (version < 25) await db.execAsync(migrationV25);
+    if (version < 26) await db.execAsync(migrationV26);
+    if (version < 27) await db.execAsync(migrationV27);
+    if (version < 28) await db.execAsync(migrationV28);
+    if (version < 29) await db.execAsync(migrationV29);
+    if (version < 30) await db.execAsync(migrationV30);
+    if (version < 31) await db.execAsync(migrationV31);
+    if (version < 32) await db.execAsync(migrationV32);
+    if (version < 33) await db.execAsync(migrationV33);
+    if (version === 0) await db.runAsync('INSERT INTO import_schema_version (version) VALUES (?)', CURRENT_SCHEMA_VERSION);
+    else if (version < CURRENT_SCHEMA_VERSION) await db.runAsync('UPDATE import_schema_version SET version = ?', CURRENT_SCHEMA_VERSION);
+    await db.execAsync('COMMIT');
+  } catch (error) {
+    await db.execAsync('ROLLBACK');
+    throw error;
+  }
+  await ensureManualJourneyLayout(db);
+}
 
 const DUPLICATE_TUPLE_VERSION = 1;
 function normalizedFamilyId(value: string | null | undefined) {
@@ -737,7 +863,10 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
         }
         // Most opens only read the existing schema. Avoid taking a write lock
         // during startup when there is nothing to migrate.
-        if (currentSchema?.version === CURRENT_SCHEMA_VERSION) return db;
+        if ((currentSchema?.version ?? 0) >= CURRENT_SCHEMA_VERSION) {
+          await ensureManualJourneyLayout(db);
+          return db;
+        }
         await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
         try {
           await db.execAsync('CREATE TABLE IF NOT EXISTS import_schema_version (version INTEGER NOT NULL)');
@@ -896,6 +1025,11 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
       const db = await open();
       await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
       try {
+        const legacyContinuity = await db.getFirstAsync<{ count: number }>(
+          'SELECT COUNT(*) AS count FROM sqlite_master WHERE type = ? AND name = ?',
+          'table', 'legacy_atlas_continuity',
+        );
+        if (legacyContinuity?.count) await db.execAsync('DELETE FROM legacy_atlas_continuity');
         await db.execAsync(`
           DELETE FROM correction_markers;
           DELETE FROM correction_overlays;
@@ -1068,11 +1202,14 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
       const row = await (await open()).getFirstAsync<ReconciliationStateRow>(
         `SELECT state.status, state.last_checked_at_millis, state.last_updated_at_millis,
           state.new_journey_count, state.updated_journey_count, state.message,
-          (SELECT COUNT(*) FROM maintenance_change_queue) + (SELECT COUNT(*) FROM reconciliation_unresolved_remap) AS pending_count
+          (SELECT COUNT(*) FROM maintenance_change_queue) AS queued_change_count,
+          (SELECT COUNT(*) FROM reconciliation_unresolved_remap) AS unresolved_remap_count
          FROM reconciliation_state state WHERE state.record_id = 1`,
       );
       return row ? {
-        status: row.status, pendingCount: row.pending_count, lastCheckedAtMillis: row.last_checked_at_millis,
+        status: row.status, pendingCount: row.queued_change_count + row.unresolved_remap_count,
+        queuedChangeCount: row.queued_change_count, unresolvedRemapCount: row.unresolved_remap_count,
+        lastCheckedAtMillis: row.last_checked_at_millis,
         lastUpdatedAtMillis: row.last_updated_at_millis, newJourneyCount: row.new_journey_count,
         updatedJourneyCount: row.updated_journey_count, message: row.message,
       } : { status: 'idle', pendingCount: 0, lastCheckedAtMillis: null, lastUpdatedAtMillis: null, newJourneyCount: 0, updatedJourneyCount: 0, message: null };

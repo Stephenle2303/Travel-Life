@@ -33,6 +33,7 @@ export function ImportScreen() {
   const { snapshot, controller, importCoverage } = usePhotoAccess();
   const hasLibraryScope = snapshot.scope === 'full' || snapshot.scope === 'limited';
   const canResume = importCoverage.status === 'paused' || importCoverage.status === 'blocked';
+  const importStarting = controller.isBusy && importCoverage.status !== 'running';
   return (
     <Screen>
       <Eyebrow>Private photo access</Eyebrow>
@@ -58,11 +59,11 @@ export function ImportScreen() {
       </InsetPanel>
       {hasLibraryScope && <InsetPanel>
         <Body>Current accessible scope: {importCoverage.accessible === null ? 'not counted for this import' : importCoverage.accessible}. Scanned: {importCoverage.scanned}. Geotagged metadata available: {importCoverage.geotagged}. Unavailable: {importCoverage.unavailable}.</Body>
-        <Body>{importCoverage.status === 'complete' ? 'Metadata import completed for the current accessible scope. This is not lifetime coverage.' : importCoverage.status === 'running' ? 'Importing normalized metadata locally. You can pause safely after a committed page.' : importCoverage.status === 'paused' ? 'Import is paused. Resume only reads the current accessible scope.' : importCoverage.status === 'blocked' ? 'Import stopped because access changed. Recheck access before resuming.' : 'Start imports metadata only into this device-local index.'}</Body>
+        <Body>{importStarting ? 'Starting local metadata import. Preparing this device-only check…' : importCoverage.status === 'complete' ? 'Metadata import completed for the current accessible scope. This is not lifetime coverage.' : importCoverage.status === 'running' ? 'Importing normalized metadata locally. You can pause safely after a committed page.' : importCoverage.status === 'paused' ? 'Import is paused. Resume only reads the current accessible scope.' : importCoverage.status === 'blocked' ? 'Import stopped because access changed. Recheck access before resuming.' : 'Start imports metadata only into this device-local index.'}</Body>
         {importCoverage.message && <Body>{importCoverage.message}</Body>}
       </InsetPanel>}
-      {hasLibraryScope && importCoverage.status !== 'running' && <ActionButton accessibilityLabel={canResume ? 'Resume metadata import' : 'Start metadata import'} onPress={() => void controller.startImport()}>
-        {canResume ? 'Resume metadata import' : 'Start metadata import'}
+      {hasLibraryScope && importCoverage.status !== 'running' && <ActionButton accessibilityLabel={importStarting ? 'Starting local metadata import' : canResume ? 'Resume metadata import' : 'Start metadata import'} onPress={() => void controller.startImport()} disabled={controller.isBusy}>
+        {importStarting ? 'Starting local metadata import…' : canResume ? 'Resume metadata import' : 'Start metadata import'}
       </ActionButton>}
       {hasLibraryScope && importCoverage.status === 'running' && <ActionButton accessibilityLabel="Cancel metadata import" onPress={() => controller.cancelImport()} variant="secondary">Cancel metadata import</ActionButton>}
       {snapshot.selectedCount !== null && <ActionButton accessibilityLabel="Import selected metadata" onPress={() => void controller.importSelected()} variant="secondary">Import selected metadata</ActionButton>}
@@ -76,7 +77,7 @@ export function ImportScreen() {
 
 export function EmptyAtlasScreen() {
   const router = useRouter();
-  const { snapshot, importCoverage, reconciliation, catchUpHistory, reconstruction, reconstructionController, durableReveal, loadJourneyDetail, loadJourneyMediaPage, privateRecord, privateRecordController } = usePhotoAccess();
+  const { snapshot, importCoverage, reconciliation, catchUpHistory, reconstruction, retryJourneyCorrectionProjection, durableReveal, loadJourneyDetail, loadJourneyMediaPage, privateRecord, privateRecordController } = usePhotoAccess();
   const [initialAtlasContext] = useState(() => consumeAtlasPreviewContext());
   const [atlasGestureActive, setAtlasGestureActive] = useState(false);
   const [manualEntryRecovery, setManualEntryRecovery] = useState<AtlasExploration | null>(null);
@@ -85,8 +86,11 @@ export function EmptyAtlasScreen() {
     graph: reconstruction.graph,
     durableRecord: durableReveal,
     reconstructionStatus: reconstruction.status,
+    reconstructionMessage: reconstruction.message,
     reconciliationStatus: reconciliation.status,
     pendingCount: reconciliation.pendingCount,
+    queuedChangeCount: reconciliation.queuedChangeCount,
+    unresolvedRemapCount: reconciliation.unresolvedRemapCount,
     sourceScope: snapshot.scope,
     importedCount: importCoverage.scanned,
   });
@@ -101,8 +105,8 @@ export function EmptyAtlasScreen() {
         model={reveal}
         initialExploration={initialAtlasContext}
         onImport={() => openRoute(router, appRoutes.import)}
-        onRetry={() => void reconstructionController.rebuild()}
-        onCatchUp={() => void catchUpHistory()}
+        onRetry={() => { void retryJourneyCorrectionProjection().catch(() => {}); }}
+        onCatchUp={() => { void catchUpHistory().catch(() => {}); }}
         onManualEntry={(context) => {
           if (privateRecord.state === 'connected') { saveAtlasPreviewContext(context); openRoute(router, appRoutes.manualJourney); }
           else { manualRecoveryRequest.current += 1; setManualEntryRecovery(context); }
@@ -139,7 +143,7 @@ export function EmptyAtlasScreen() {
 export function ReplayAvailabilityScreen() {
   const router = useRouter();
   const { snapshot, importCoverage, reconciliation, reconstruction, durableReveal } = usePhotoAccess();
-  const reveal = projectReveal({ graph: reconstruction.graph, durableRecord: durableReveal, reconstructionStatus: reconstruction.status, reconciliationStatus: reconciliation.status, pendingCount: reconciliation.pendingCount, sourceScope: snapshot.scope, importedCount: importCoverage.scanned });
+  const reveal = projectReveal({ graph: reconstruction.graph, durableRecord: durableReveal, reconstructionStatus: reconstruction.status, reconstructionMessage: reconstruction.message, reconciliationStatus: reconciliation.status, pendingCount: reconciliation.pendingCount, queuedChangeCount: reconciliation.queuedChangeCount, unresolvedRemapCount: reconciliation.unresolvedRemapCount, sourceScope: snapshot.scope, importedCount: importCoverage.scanned });
   if (!reveal.replay.eligible) return <Screen>
     <Eyebrow>Private Replay</Eyebrow>
     <Title>Replay is unavailable.</Title>

@@ -1,5 +1,6 @@
 import { createNativeReconstructionRepository } from '@/reconstruction';
-import { applyJourneyCorrections, constructCanonicalV11Graph, mapCorrectionsToCommittedJourneys, mergeContinuousAwayJourneysV11, qualifyGraphJourneyV11, resolvePlaceCountryCode, resolveVerifiedDuplicateFamilies } from '@/reconstruction/repository';
+import { ensureNativeImportSchema } from '@/import-record/repository';
+import { applyJourneyCorrections, constructCanonicalV11Graph, mapCorrectionsToCommittedJourneys, mapFinalCorrectionApplications, mergeContinuousAwayJourneysV11, qualifyGraphJourneyV11, resolvePlaceCountryCode, resolveVerifiedDuplicateFamilies } from '@/reconstruction/repository';
 import type { ReconstructionGraph } from '@/reconstruction';
 import { projectReveal, assertRevealPayload } from '@/reveal/projection';
 
@@ -10,6 +11,10 @@ const mockGetAllAsync = jest.fn();
 const mockOpenDatabaseAsync = jest.fn();
 
 jest.mock('expo-sqlite', () => ({ openDatabaseAsync: (...args: unknown[]) => mockOpenDatabaseAsync(...args) }));
+jest.mock('@/import-record/repository', () => ({
+  ...jest.requireActual('@/import-record/repository'),
+  ensureNativeImportSchema: jest.fn(async () => undefined),
+}));
 
 describe('durable local reconciliation repository', () => {
   beforeEach(() => {
@@ -18,6 +23,7 @@ describe('durable local reconciliation repository', () => {
     mockExecAsync.mockResolvedValue(undefined); mockRunAsync.mockResolvedValue(undefined);
     mockOpenDatabaseAsync.mockResolvedValue({ execAsync: mockExecAsync, runAsync: mockRunAsync, getFirstAsync: mockGetFirstAsync, getAllAsync: mockGetAllAsync });
     mockGetFirstAsync.mockImplementation(async (sql: string) => {
+      if (sql.includes('SELECT version FROM import_schema_version')) return { version: 33 };
       if (sql.includes('private_record_lifecycle')) return { state: 'connected' };
       if (sql.includes('reconciliation_checkpoint')) return { snapshot_revision: 4 };
       if (sql.includes('COUNT(*) AS count FROM maintenance_change_queue')) return { count: 1 };
@@ -72,6 +78,132 @@ describe('durable local reconciliation repository', () => {
     expect(mockExecAsync).toHaveBeenCalledWith('COMMIT');
   });
 
+  it('gates queued Atlas reconciliation before reading or writing its versioned lease tables', async () => {
+    await createNativeReconstructionRepository().reconcileQueued(50);
+
+    const schemaGate = jest.mocked(ensureNativeImportSchema);
+    const firstLeaseTransaction = mockExecAsync.mock.invocationCallOrder[mockExecAsync.mock.calls.findIndex(([sql]) => sql === 'BEGIN IMMEDIATE TRANSACTION')];
+    expect(schemaGate.mock.invocationCallOrder[0]).toBeLessThan(firstLeaseTransaction);
+  });
+
+  it('records a completed no-queued-update outcome instead of retaining stale reconciliation state', async () => {
+    mockGetFirstAsync.mockImplementation(async (sql: string) => {
+      if (sql.includes('private_record_lifecycle')) return { state: 'connected' };
+      if (sql.includes('COUNT(*) AS count FROM maintenance_change_queue')) return { count: 0 };
+      return null;
+    });
+
+    await createNativeReconstructionRepository().reconcileQueued(50);
+
+    expect(mockRunAsync).toHaveBeenCalledWith(expect.stringContaining("UPDATE reconciliation_state SET status = 'complete'"), 50, 50, 'No local journey updates were waiting.');
+    expect(mockRunAsync).toHaveBeenCalledWith(expect.stringContaining("UPDATE reconciliation_checkpoint SET status = 'complete'"), 'No local journey updates were waiting.');
+  });
+
+  it('gates a direct Atlas writer through the additive import schema before opening its transaction', async () => {
+    await createNativeReconstructionRepository().rebuild(50);
+
+    const schemaGate = jest.mocked(ensureNativeImportSchema);
+    expect(schemaGate).toHaveBeenCalledTimes(1);
+    const schemaOrder = schemaGate.mock.invocationCallOrder[0];
+    const beginOrder = mockExecAsync.mock.invocationCallOrder[mockExecAsync.mock.calls.findIndex(([sql]) => sql === 'BEGIN IMMEDIATE TRANSACTION')];
+    expect(schemaOrder).toBeLessThan(beginOrder);
+  });
+
+  it('marks a SQLite lock while writing the reconciliation lease with a fixed stage', async () => {
+    mockExecAsync.mockImplementation(async (sql: string) => {
+      if (sql === 'BEGIN IMMEDIATE TRANSACTION') throw new Error('database is locked');
+    });
+
+    await expect(createNativeReconstructionRepository().reconcileQueued(50)).rejects.toEqual(
+      expect.objectContaining({ name: 'ReconciliationStageError', stage: 'LEASE_WRITE' }),
+    );
+  });
+
+  it('persists a dense synthetic reconstruction with bounded batched writes inside one transaction', async () => {
+    const rows = Array.from({ length: 320 }, (_, index) => ({
+      evidence_id: `synthetic-${String(index).padStart(4, '0')}`, media_type: 'image',
+      captured_at_millis: Date.UTC(2026, 0, 1), captured_day: '2026-01-01', has_precise_offset: 1,
+      availability: 'available', latitude: 10 + (index % 20) * 0.00001,
+      longitude: 100 + Math.floor(index / 20) * 0.00001, reported_accuracy_meters: 10,
+      platform_duplicate_family_id: null, source_origin: 'capture-like', support_eligible: 1,
+    }));
+    mockGetAllAsync.mockImplementation(async (sql: string) => sql.includes('FROM canonical_evidence') ? rows : []);
+
+    const graph = await createNativeReconstructionRepository().rebuild();
+
+    const linkWrites = mockRunAsync.mock.calls.filter(([sql]) => typeof sql === 'string' && sql.startsWith('INSERT INTO reconstruction_link '));
+    const dispositionWrites = mockRunAsync.mock.calls.filter(([sql]) => typeof sql === 'string' && sql.startsWith('INSERT INTO reconstruction_disposition '));
+    expect(linkWrites.length).toBeGreaterThan(1);
+    expect(linkWrites.length).toBeLessThan(linkWrites.reduce((count, call) => count + (call.length - 1) / 4, 0) / 10);
+    expect(dispositionWrites).toHaveLength(2);
+    expect(linkWrites.some((call) => call.length > 5)).toBe(true);
+    expect([...linkWrites, ...dispositionWrites].every((call) => call.length - 1 <= 800)).toBe(true);
+    expect(linkWrites.every(([sql]) => sql.startsWith('INSERT INTO reconstruction_link (run_id, link_kind, parent_id, child_id) VALUES '))).toBe(true);
+    expect(dispositionWrites.every(([sql]) => sql.startsWith('INSERT INTO reconstruction_disposition (run_id, evidence_id, disposition_state, reasons_json) VALUES '))).toBe(true);
+    const tuples = (calls: unknown[][]) => calls.flatMap((call) => {
+      const values = call.slice(1);
+      return Array.from({ length: values.length / 4 }, (_, index) => values.slice(index * 4, index * 4 + 4));
+    });
+    expect(tuples(linkWrites)).toEqual([
+      ...graph.places.flatMap((place) => place.memberIds.map((id) => [7, 'place-support', place.id, id])),
+      ...graph.visits.flatMap((visit) => visit.evidenceIds.map((id) => [7, 'visit-support', visit.id, id])),
+      ...graph.journeys.flatMap((journey) => journey.visitIds.map((id) => [7, 'journey-visit', journey.id, id])),
+      ...graph.memberships.map((membership) => [7, `membership:${membership.state}:${membership.reason}`, membership.journeyId, membership.evidenceId]),
+      ...graph.possibleMerges.map((merge) => [7, `possible-merge:${merge.reason}`, merge.fromJourneyId, merge.toJourneyId]),
+    ]);
+    expect(tuples(dispositionWrites)).toEqual(graph.dispositions.map((item) => [7, item.evidenceId, item.state, JSON.stringify(item.reasons)]));
+    expect(mockExecAsync).toHaveBeenCalledWith('COMMIT');
+  });
+
+  it('rolls back a failed batched projection write', async () => {
+    mockGetAllAsync.mockImplementation(async (sql: string) => sql.includes('FROM canonical_evidence') ? [{
+      evidence_id: 'synthetic-one', captured_at_millis: Date.UTC(2026, 0, 1), captured_day: '2026-01-01',
+      has_precise_offset: 1, availability: 'available', latitude: 10, longitude: 100,
+      reported_accuracy_meters: 10, platform_duplicate_family_id: null, support_eligible: 1,
+    }] : []);
+    mockRunAsync.mockImplementation(async (sql: string) => {
+      if (sql.startsWith('INSERT INTO reconstruction_link ')) throw new Error('batched insert failed');
+    });
+
+    await expect(createNativeReconstructionRepository().rebuild(50, true)).rejects.toThrow('batched insert failed');
+    expect(mockExecAsync).toHaveBeenCalledWith('ROLLBACK');
+    expect(mockExecAsync).not.toHaveBeenCalledWith('COMMIT');
+    expect(mockRunAsync).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO reconciliation_queue_snapshot'), 5);
+    expect(mockRunAsync.mock.calls.some(([sql]) => typeof sql === 'string' && sql.includes('DELETE FROM maintenance_change_queue'))).toBe(false);
+  });
+
+  it('bounds bridge payloads when a generated place ID contains many long support IDs', async () => {
+    const rows = Array.from({ length: 100 }, (_, index) => ({
+      evidence_id: `synthetic-${String(index).padStart(4, '0')}-${'x'.repeat(990)}`,
+      captured_at_millis: Date.UTC(2026, 0, 1), captured_day: '2026-01-01',
+      has_precise_offset: 1, availability: 'available', latitude: 10,
+      longitude: 100, reported_accuracy_meters: 10,
+      platform_duplicate_family_id: null, support_eligible: 1,
+    }));
+    mockGetAllAsync.mockImplementation(async (sql: string) => sql.includes('FROM canonical_evidence') ? rows : []);
+
+    await createNativeReconstructionRepository().rebuild();
+
+    const linkWrites = mockRunAsync.mock.calls.filter(([sql]) => typeof sql === 'string' && sql.startsWith('INSERT INTO reconstruction_link '));
+    expect(linkWrites.length).toBeGreaterThan(2);
+    expect(linkWrites.every((call) => call.slice(1).reduce((count: number, value: unknown) => count + String(value ?? '').length, 0) <= 256_000)).toBe(true);
+    expect(mockExecAsync).toHaveBeenCalledWith('COMMIT');
+  });
+
+  it('rolls back before sending one oversized generated link row to SQLite', async () => {
+    mockGetAllAsync.mockImplementation(async (sql: string) => sql.includes('FROM canonical_evidence') ? [{
+      evidence_id: `synthetic-${'x'.repeat(256_100)}`,
+      captured_at_millis: Date.UTC(2026, 0, 1), captured_day: '2026-01-01', has_precise_offset: 1,
+      availability: 'available', latitude: 10, longitude: 100, reported_accuracy_meters: 10,
+      platform_duplicate_family_id: null, support_eligible: 1,
+    }] : []);
+    await expect(createNativeReconstructionRepository().rebuild(50, true)).rejects.toThrow('exceeds the local SQLite bridge limit');
+    expect(mockRunAsync.mock.calls.some(([sql]) => typeof sql === 'string' && sql.startsWith('INSERT INTO reconstruction_link '))).toBe(false);
+    expect(mockRunAsync.mock.calls.some(([sql]) => typeof sql === 'string' && sql.includes('DELETE FROM maintenance_change_queue'))).toBe(false);
+    expect(mockExecAsync).toHaveBeenCalledWith('ROLLBACK');
+    expect(mockExecAsync).not.toHaveBeenCalledWith('COMMIT');
+  });
+
   it('reads only redacted chronology, coarsened anchors, and journey states from the committed graph', async () => {
     mockGetAllAsync.mockResolvedValueOnce([{ journey_id: 'private:alpha', journey_state: 'inferred', latitude: 13.75632, longitude: 100.501765, display_ordinal: 1, year: 2024, first_year: 2024, last_year: 2025, ordering: 'chronological' }, { journey_id: 'private:beta', journey_state: 'possible-merge', latitude: null, longitude: null, display_ordinal: 2, year: null, first_year: null, last_year: null, ordering: 'uncertain' }]);
 
@@ -89,6 +221,7 @@ describe('durable local reconciliation repository', () => {
     expect(read).toContain('WHERE journey.run_id = ?');
     expect(read).toContain('JOIN reconstruction_trip_qualification qualification');
     expect(read).toContain("qualification.classification IN ('AUTO_CONFIRMED', 'USER_CONFIRMED')");
+    expect(read).not.toContain('legacy_atlas_continuity');
     expect(mockGetFirstAsync).toHaveBeenCalledWith('SELECT MAX(run_id) AS run_id FROM reconstruction_run WHERE status = \'complete\'');
     expect(read).not.toContain('source_ref');
     expect(read).toContain('journey_years');
@@ -103,6 +236,7 @@ describe('durable local reconciliation repository', () => {
     const statisticRead = mockGetFirstAsync.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('COUNT(DISTINCT place.country_code)'))?.[0] as string;
     expect(statisticRead).toContain('reconstruction_trip_qualification');
     expect(statisticRead).toContain("classification IN ('AUTO_CONFIRMED', 'USER_CONFIRMED')");
+    expect(statisticRead).not.toContain('legacy_atlas_continuity');
     expect(statisticRead).toContain('reconstruction_place');
     expect(statisticRead).toContain('reconstruction_link');
     expect(statisticRead).not.toContain('canonical_evidence');
@@ -581,6 +715,25 @@ describe('durable local reconciliation repository', () => {
     expect(mockExecAsync).toHaveBeenCalledWith('COMMIT');
   });
 
+  it('keeps one pending candidate when the same remap is recorded again', async () => {
+    let candidateExists = false;
+    mockGetFirstAsync.mockImplementation(async (sql: string) => {
+      if (sql.includes('private_record_lifecycle')) return { state: 'connected' };
+      if (sql.includes('SELECT source_run_id FROM journey_correction_revision')) return { source_run_id: 7 };
+      if (sql.includes('FROM journey_correction_candidate')) return candidateExists ? { candidate_id: 'candidate-1' } : null;
+      return null;
+    });
+    mockRunAsync.mockImplementation(async (sql: string) => {
+      if (sql.includes('INSERT INTO journey_correction_candidate')) candidateExists = true;
+    });
+    const repository = createNativeReconstructionRepository();
+
+    await repository.markJourneyCorrectionPending('revision-1');
+    await repository.markJourneyCorrectionPending('revision-1');
+
+    expect(mockRunAsync.mock.calls.filter(([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO journey_correction_candidate'))).toHaveLength(1);
+  });
+
   it('records an ambiguous memory correction in its own durable remap queue', async () => {
     mockGetFirstAsync.mockImplementation(async (sql: string) => {
       if (sql.includes('private_record_lifecycle')) return { state: 'connected' };
@@ -612,6 +765,38 @@ describe('durable local reconciliation repository', () => {
     await expect(createNativeReconstructionRepository().reconcileQueued(50)).rejects.toThrow('already running');
     expect(mockRunAsync.mock.calls.some(([sql]) => typeof sql === 'string' && sql.includes('reconciliation_queue_snapshot'))).toBe(false);
     expect(mockRunAsync.mock.calls.some(([sql]) => typeof sql === 'string' && sql.includes('DELETE FROM maintenance_change_queue WHERE EXISTS'))).toBe(false);
+  });
+
+  it('defers Atlas catch-up while an OS maintenance lease is active without requesting a SQLite write lease', async () => {
+    mockGetFirstAsync.mockImplementation(async (sql: string) => {
+      if (sql.includes('private_record_lifecycle')) return { state: 'connected' };
+      if (sql.includes('maintenance_lease')) return { expires_at_millis: 1000 };
+      if (sql.includes('COUNT(*) AS count FROM maintenance_change_queue')) return { count: 1 };
+      return null;
+    });
+
+    await expect(createNativeReconstructionRepository().reconcileQueued(50)).rejects.toThrow('already running');
+    expect(mockExecAsync).not.toHaveBeenCalledWith('BEGIN IMMEDIATE TRANSACTION');
+    expect(mockRunAsync).not.toHaveBeenCalledWith(expect.stringContaining('INSERT INTO reconciliation_lease'), expect.anything(), expect.anything(), expect.anything());
+  });
+
+  it('defers a lease-write race when an OS maintenance lease appears after the initial read', async () => {
+    let maintenanceReads = 0;
+    mockGetFirstAsync.mockImplementation(async (sql: string) => {
+      if (sql.includes('maintenance_lease')) {
+        maintenanceReads += 1;
+        return maintenanceReads === 1 ? null : { expires_at_millis: 1000 };
+      }
+      if (sql.includes('private_record_lifecycle')) return { state: 'connected' };
+      return null;
+    });
+    mockExecAsync.mockImplementation(async (sql: string) => {
+      if (sql === 'BEGIN IMMEDIATE TRANSACTION') throw new Error('database is locked');
+    });
+
+    await expect(createNativeReconstructionRepository().reconcileQueued(50)).rejects.toThrow('already running');
+    expect(maintenanceReads).toBe(2);
+    expect(mockRunAsync).not.toHaveBeenCalledWith(expect.stringContaining('INSERT INTO reconciliation_lease'), expect.anything(), expect.anything(), expect.anything());
   });
 
   it('leaves confirmed, rejected, and owner-entered history outside the inferred remap review', async () => {
@@ -694,5 +879,60 @@ describe('verified duplicate-family correction identity', () => {
       reviewed_visits_json: JSON.stringify([['F:family-a']]), reviewed_family_snapshot_json: JSON.stringify(original.snapshotsFor(['F:family-a'])),
     };
     expect(() => applyJourneyCorrections(graph, [correction], false, changed)).toThrow('owner remap');
+  });
+});
+
+describe('final-map correction review', () => {
+  it('keeps an ambiguous final correction pending while retaining every related successor journey', () => {
+    const graph: ReconstructionGraph = {
+      ruleVersion: 'reconstruction-v1', places: [],
+      visits: [
+        { id: 'visit:left', placeId: 'place:left', evidenceIds: ['left'], order: 'ordered' },
+        { id: 'visit:right', placeId: 'place:right', evidenceIds: ['right'], order: 'ordered' },
+      ],
+      journeys: [
+        { id: 'journey:left', visitIds: ['visit:left'], state: 'inferred' },
+        { id: 'journey:right', visitIds: ['visit:right'], state: 'inferred' },
+      ], memberships: [], possibleMerges: [], dispositions: [],
+    };
+    const correction = { revision_id: 'ambiguous-final', action: 'claim' as const, reviewed_support_json: JSON.stringify(['E:left', 'E:right']), reviewed_visits_json: JSON.stringify([['E:left'], ['E:right']]) };
+
+    const result = mapFinalCorrectionApplications(graph, [correction]);
+
+    expect(result.matches.size).toBe(0);
+    expect(result.pending).toEqual([correction]);
+    expect(graph.journeys.map((journey) => journey.id)).toEqual(['journey:left', 'journey:right']);
+  });
+
+  it('keeps a saved confirmation pending instead of making an intermediate mapping block the rebuild', () => {
+    const graph: ReconstructionGraph = {
+      ruleVersion: 'reconstruction-v1', places: [],
+      visits: [
+        { id: 'visit:left', placeId: 'place:left', evidenceIds: ['left'], order: 'ordered' },
+        { id: 'visit:right', placeId: 'place:right', evidenceIds: ['right'], order: 'ordered' },
+      ],
+      journeys: [
+        { id: 'journey:left', visitIds: ['visit:left'], state: 'inferred' },
+        { id: 'journey:right', visitIds: ['visit:right'], state: 'inferred' },
+      ], memberships: [], possibleMerges: [], dispositions: [],
+    };
+    const correction = { revision_id: 'ambiguous-confirmation', action: 'confirm' as const, reviewed_support_json: JSON.stringify(['E:left', 'E:right']), reviewed_visits_json: JSON.stringify([['E:left'], ['E:right']]) };
+
+    expect(mapFinalCorrectionApplications(graph, [correction])).toEqual({ matches: new Map(), pending: [correction] });
+  });
+
+  it('keeps a structural removal fail-closed', () => {
+    const graph: ReconstructionGraph = {
+      ruleVersion: 'reconstruction-v1', places: [], visits: [
+        { id: 'visit:left', placeId: 'place:left', evidenceIds: ['left'], order: 'ordered' },
+        { id: 'visit:right', placeId: 'place:right', evidenceIds: ['right'], order: 'ordered' },
+      ], journeys: [
+        { id: 'journey:left', visitIds: ['visit:left'], state: 'inferred' },
+        { id: 'journey:right', visitIds: ['visit:right'], state: 'inferred' },
+      ], memberships: [], possibleMerges: [], dispositions: [],
+    };
+    const correction = { revision_id: 'ambiguous-removal', action: 'remove-visit' as const, reviewed_support_json: JSON.stringify(['E:left', 'E:right']), reviewed_visits_json: JSON.stringify([['E:left'], ['E:right']]) };
+
+    expect(() => mapFinalCorrectionApplications(graph, [correction])).toThrow('needs owner remap');
   });
 });

@@ -2,6 +2,7 @@ import type { MaintenanceRepository } from '@/import-record/types';
 import type { PhotoAccessAdapter } from '@/photo-access/types';
 import { reconcilePermittedLibrary } from './reconcile-runner';
 import type { MaintenanceView, SchedulerAdapter } from './types';
+import { classifyAppDiagnosticError, createDiagnosticCorrelationId, recordAppDiagnostic } from '@/diagnostics/app-diagnostics';
 
 const initial: MaintenanceView = { enabled: false, status: 'disabled', lastCheckedAtMillis: null, lastUpdatedAtMillis: null, message: null, checkpoint: null };
 
@@ -12,12 +13,15 @@ export class MaintenanceController {
   get snapshot() { return this.current; }
   private set(next: MaintenanceView) { this.current = next; this.notify(next); }
   private enqueue(work: () => Promise<void>) {
-    const next = this.transition.then(work).catch(() => {
+    const next = this.transition.then(work).catch((error) => {
+      recordAppDiagnostic({ operation: 'MAINTENANCE_RECONCILIATION', reasonCode: classifyAppDiagnosticError(error), stage: null, retryable: true, durableOutcome: 'failed', correlationId: createDiagnosticCorrelationId() });
       this.set({ ...this.current, status: 'error', message: 'Automatic maintenance status could not be updated. Retry when ready.' });
     });
     this.transition = next;
     return next;
   }
+  /** Lets a foreground owner action wait for an already queued local maintenance write. */
+  whenIdle() { return this.transition; }
   refresh() { return this.enqueue(() => this.refreshNow()); }
   private async refreshNow() {
     const permission = await this.photoAccess.inspect();
@@ -51,7 +55,8 @@ export class MaintenanceController {
       const next = { ...this.current, enabled: true, status: 'pending' as const, message: 'Automatic maintenance is on. Your device chooses when to run it.' };
       await this.repository.saveMaintenance(next);
       this.set({ ...next, checkpoint: this.current.checkpoint });
-    } catch {
+    } catch (error) {
+      recordAppDiagnostic({ operation: 'MAINTENANCE_RECONCILIATION', reasonCode: classifyAppDiagnosticError(error), stage: null, retryable: true, durableOutcome: 'restricted', correlationId: createDiagnosticCorrelationId() });
       const next = { ...this.current, enabled: false, status: 'restricted' as const, message: 'Automatic maintenance could not be scheduled. Retry when ready.' };
       await this.repository.saveMaintenance(next);
       this.set({ ...next, checkpoint: this.current.checkpoint });

@@ -58,10 +58,11 @@
     "android:device": "expo run:android --device",
     "ios:device": "expo run:ios --device",
     "test": "jest --runInBand",
+    "test:sqlite": "node --test scripts/atlas-sqlite.test.cjs",
     "typecheck": "tsc --noEmit",
     "lint": "expo lint",
     "doctor": "npx expo-doctor",
-    "check": "npm run test && npm run typecheck && npm run lint && npm run doctor"
+    "check": "npm run test && npm run test:sqlite && npm run typecheck && npm run lint && npm run doctor"
   },
   "jest": {
     "preset": "jest-expo",

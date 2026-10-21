@@ -14,6 +14,8 @@ export type DurableRevealJourney = {
   label?: string;
   /** An owner-confirmed local place is intentionally distinct from inferred evidence. */
   locationKind?: 'inferred' | 'owner-confirmed' | 'owner-entered';
+  /** A private correction's reviewed support now spans this displayed journey. */
+  needsReview?: boolean;
 };
 export type InferredStatistics = { journeyCount: number; placeCount: number; supportedCountryCount: number; countryStatus: 'supported' | 'unavailable' };
 /** Aggregate counts from one completed local reconstruction; no evidence identifiers or locations. */
@@ -29,8 +31,12 @@ export type RevealInput = {
   graph: ReconstructionGraph | null;
   durableRecord?: DurableRevealRecord | null;
   reconstructionStatus: 'idle' | 'running' | 'complete' | 'restricted' | 'error';
+  /** Fixed owner-safe controller guidance; never sourced from native errors. */
+  reconstructionMessage?: string | null;
   reconciliationStatus: 'idle' | 'running' | 'complete' | 'pending' | 'restricted' | 'error';
   pendingCount: number;
+  queuedChangeCount?: number;
+  unresolvedRemapCount?: number;
   sourceScope: 'full' | 'limited' | 'unasked' | 'denied' | 'revoked' | 'unavailable';
   importedCount: number;
 };
@@ -48,6 +54,9 @@ export type RevealJourney = {
 
 export type RevealModel = {
   state: 'ready' | 'sparse' | 'processing' | 'restricted' | 'failed';
+  /** Queued changes are waiting; no reconstruction is necessarily running. */
+  pendingUpdates?: boolean;
+  reviewRequired?: boolean;
   coverage: string;
   message: string;
   journeys: RevealJourney[];

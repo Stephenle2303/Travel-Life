@@ -27,6 +27,35 @@ describe('manual journey repository boundary', () => {
     await expect(repository.createManualJourney(input)).resolves.toBe('manual:stable');
     expect(mockRunAsync.mock.calls.filter(([sql]) => String(sql).includes('INSERT INTO manual_journey'))).toHaveLength(1);
   });
+
+  it('migrates a v32 private database before the direct reconstruction open queries manual dates', async () => {
+    mockGetFirstAsync.mockImplementation(async (sql: string) => {
+      if (sql.includes('import_schema_version')) return { version: 32 };
+      if (sql.includes('private_record_lifecycle')) return { state: 'connected' };
+      if (sql.includes('MAX(run_id)')) return null;
+      return null;
+    });
+
+    await createNativeReconstructionRepository().findManualJourneyOverlaps(input);
+
+    expect(mockExecAsync.mock.calls.flat().join('\n')).toContain('CREATE TABLE IF NOT EXISTS manual_journey');
+    expect(mockExecAsync.mock.calls.flat().join('\n')).toContain('date_start TEXT NOT NULL');
+    expect(mockRunAsync).toHaveBeenCalledWith('UPDATE import_schema_version SET version = ?', 33);
+  });
+
+  it('opens a fresh native connection for the manually entered journey path after an Android runtime restart', async () => {
+    mockGetFirstAsync.mockImplementation(async (sql: string) => {
+      if (sql.includes('import_schema_version')) return { version: 33 };
+      if (sql.includes('private_record_lifecycle')) return { state: 'connected' };
+      if (sql.includes('MAX(run_id)')) return null;
+      return null;
+    });
+
+    await createNativeReconstructionRepository().findManualJourneyOverlaps(input);
+
+    expect(mockOpenDatabaseAsync).toHaveBeenCalledWith('travel-life-import-v1.db', { useNewConnection: true });
+  });
+
   it('rolls back and never inserts when overlap state changes after review', async () => {
     mockGetFirstAsync.mockImplementation(async (sql: string) => sql.includes('private_record_lifecycle') ? { state: 'connected' } : sql.includes('WHERE command_key') ? null : sql.includes('MAX(run_id)') ? null : null);
     mockGetAllAsync.mockResolvedValue([{ manual_id: 'late' }]);

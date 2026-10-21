@@ -6,6 +6,7 @@ import { NATURAL_EARTH_ADMIN_0_DATASET_VERSION, countryDisplayName, resolveCount
 import { destinationLabel, type DestinationSupport } from './destination-label';
 import type { DurableRevealRecord, JourneyDetail, RevealMapAnchor } from '@/reveal/types';
 import type { ManualJourneyInput } from '@/import-record/types';
+import { ensureNativeImportSchema } from '@/import-record/repository';
 import { serializeNativeTransactions } from '@/database/native-transaction';
 
 type Database = {
@@ -17,7 +18,7 @@ type Database = {
 
 type EvidenceRow = { evidence_id: string; media_type?: 'image' | 'video'; captured_at_millis: number | null; captured_day: string | null; has_precise_offset: number; availability: ReconstructionEvidence['availability']; latitude: number | null; longitude: number | null; reported_accuracy_meters: number | null; platform_duplicate_family_id?: string | null; source_origin?: string | null; support_eligible?: number | null; duplicate_tuple_version?: number | null; duplicate_tuple_fingerprint?: string | null };
 export type JourneyCorrectionAction = 'confirm' | 'reject' | 'claim' | 'place' | 'split' | 'merge' | 'remove-visit';
-type JourneyCorrectionRevision = { revision_id: string; action: JourneyCorrectionAction; reviewed_support_json: string; reviewed_visits_json?: string; reviewed_family_snapshot_json?: string | null; structural_boundary_json?: string | null };
+type JourneyCorrectionRevision = { revision_id: string; action: JourneyCorrectionAction; source_run_id?: number; reviewed_support_json: string; reviewed_visits_json?: string; reviewed_family_snapshot_json?: string | null; structural_boundary_json?: string | null };
 type MemoryCorrectionAction = 'assign' | 'move' | 'reject' | 'unassign';
 type MemoryCorrectionRevision = { revision_id: string; action: MemoryCorrectionAction; source_evidence_id: string; reviewed_support_json: string; reviewed_family_snapshot_json?: string | null; created_at_millis: number };
 type OwnerJourneyClaim = NonNullable<JourneyDetail['ownerClaim']>;
@@ -26,6 +27,90 @@ type StructuralSplit = { afterVisitId: string };
 type StructuralMerge = { withJourneyId: string };
 type VisitRemoval = { visitId: string };
 const RECONCILIATION_LEASE_MILLIS = 5 * 60 * 1000;
+export type ReconciliationStage = 'LEASE_OPEN' | 'MAINTENANCE_LEASE_READ' | 'LEASE_WRITE' | 'QUEUE_READ' | 'REBUILD' | 'OUTCOME_READ' | 'OUTCOME_SAVE' | 'LEASE_RELEASE';
+
+export type DurableRevealStage =
+  | 'DURABLE_OPEN' | 'DURABLE_SCHEMA' | 'DURABLE_LIFECYCLE_READ' | 'DURABLE_RUN_READ'
+  | 'DURABLE_MANUAL_READ' | 'DURABLE_JOURNEY_READ' | 'DURABLE_COUNTRY_READ'
+  | 'DURABLE_OWNER_PLACE_READ' | 'DURABLE_STATISTICS_READ' | 'DURABLE_DIAGNOSTICS_READ'
+  | 'DURABLE_DESTINATION_READ' | 'DURABLE_CORRECTION_READ' | 'DURABLE_FAMILY_READ'
+  | 'DURABLE_SUPPORT_READ' | 'DURABLE_PROJECTION'
+  | 'DURABLE_MANUAL_EMPTY_LAYOUT' | 'DURABLE_MANUAL_RETAINED_LAYOUT';
+
+const manualSchemaFailureStages = {
+  manual_id: 'DURABLE_MANUAL_ID_FIELD', command_key: 'DURABLE_MANUAL_COMMAND_FIELD',
+  owner_label: 'DURABLE_MANUAL_LABEL_FIELD', owner_context: 'DURABLE_MANUAL_CONTEXT_FIELD',
+  latitude: 'DURABLE_MANUAL_LATITUDE_FIELD', longitude: 'DURABLE_MANUAL_LONGITUDE_FIELD',
+  date_kind: 'DURABLE_MANUAL_DATE_KIND_FIELD', date_start: 'DURABLE_MANUAL_START_FIELD', date_end: 'DURABLE_MANUAL_END_FIELD',
+} as const;
+export type DurableRevealDiagnosticStage = DurableRevealStage | typeof manualSchemaFailureStages[keyof typeof manualSchemaFailureStages] | 'DURABLE_MANUAL_TABLE';
+
+/** Native detail stays in memory; only the fixed stage crosses diagnostics. */
+export class DurableRevealStageError extends Error {
+  constructor(readonly stage: DurableRevealStage, readonly originalError: unknown) {
+    super('Local Atlas read did not finish.');
+    this.name = 'DurableRevealStageError';
+  }
+}
+
+export function durableRevealFailureStage(error: unknown): DurableRevealDiagnosticStage | null {
+  if (!(error instanceof DurableRevealStageError)) return null;
+  if (error.stage === 'DURABLE_MANUAL_READ' && error.originalError instanceof Error) {
+    // Recognize only known schema signatures in memory. Neither the parsed
+    // identifier nor the native message is returned or sent to diagnostics.
+    const message = error.originalError.message.toLowerCase();
+    if (/no such table:\s*manual_journey\b/.test(message)) return 'DURABLE_MANUAL_TABLE';
+    const field = /no such column:\s*(?:manual_journey\.)?([a-z_]+)\b/.exec(message)?.[1];
+    if (field && Object.prototype.hasOwnProperty.call(manualSchemaFailureStages, field)) {
+      return manualSchemaFailureStages[field as keyof typeof manualSchemaFailureStages];
+    }
+  }
+  return error.stage;
+}
+
+/** Carries an internal, fixed processing stage without exposing a native SQLite error to the UI log. */
+export class ReconciliationStageError extends Error {
+  constructor(readonly stage: ReconciliationStage, readonly originalError: unknown) {
+    super(originalError instanceof Error ? originalError.message : 'Local reconciliation failed.');
+    this.name = 'ReconciliationStageError';
+  }
+}
+
+function reconciliationStageError(stage: ReconciliationStage, error: unknown) {
+  return error instanceof ReconciliationStageError ? error : new ReconciliationStageError(stage, error);
+}
+
+// Keep each statement below SQLite's conservative 999-variable boundary.
+const MAX_RECONSTRUCTION_INSERT_PARAMETERS = 800;
+// Generated place IDs can contain every support ID. Bound bridge payloads as
+// well as SQLite parameters so one dense place does not create a huge call.
+const MAX_RECONSTRUCTION_INSERT_CHARACTERS = 256_000;
+
+type SqlValue = string | number | null;
+
+function reconstructionRowWriter(db: Database, tableAndColumns: string, width: number) {
+  const rowsPerStatement = Math.floor(MAX_RECONSTRUCTION_INSERT_PARAMETERS / width);
+  let batch: SqlValue[][] = [];
+  let characters = 0;
+  const flush = async () => {
+    if (!batch.length) return;
+    const slots = `(${Array(width).fill('?').join(', ')})`;
+    await db.runAsync(`INSERT INTO ${tableAndColumns} VALUES ${batch.map(() => slots).join(', ')}`, ...batch.flat());
+    batch = [];
+    characters = 0;
+  };
+  return {
+    async add(row: SqlValue[]) {
+      if (row.length !== width) throw new Error('Invalid reconstruction insert row width.');
+      const rowCharacters = row.reduce<number>((count, value) => count + String(value ?? '').length, 0);
+      if (rowCharacters > MAX_RECONSTRUCTION_INSERT_CHARACTERS) throw new Error('Reconstruction insert row exceeds the local SQLite bridge limit.');
+      if (batch.length >= rowsPerStatement || characters + rowCharacters > MAX_RECONSTRUCTION_INSERT_CHARACTERS) await flush();
+      batch.push(row);
+      characters += rowCharacters;
+    },
+    flush,
+  };
+}
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
@@ -503,6 +588,28 @@ export function mapCorrectionsToCommittedJourneys(graph: ReconstructionGraph, co
   return applyJourneyCorrections(graph, corrections, false, families).matches;
 }
 
+function canAwaitJourneyCorrectionReview(correction: JourneyCorrectionRevision) {
+  return correction.action === 'confirm' || correction.action === 'claim' || correction.action === 'place';
+}
+
+/** Separates a reviewable ambiguity created only by the final committed graph
+ * from earlier structural/support failures, which remain fail-closed. */
+export function mapFinalCorrectionApplications(graph: ReconstructionGraph, corrections: JourneyCorrectionRevision[], families?: FamilyResolver) {
+  const matches = new Map<string, string>();
+  const pending: JourneyCorrectionRevision[] = [];
+  for (const correction of corrections) {
+    try {
+      const match = mapCorrectionsToCommittedJourneys(graph, [correction], families).get(correction.revision_id);
+      if (canAwaitJourneyCorrectionReview(correction) && !match) throw new JourneyCorrectionRemapRequiredError(correction.revision_id);
+      if (match) matches.set(correction.revision_id, match);
+    } catch (error) {
+      if (!canAwaitJourneyCorrectionReview(correction) || !(error instanceof JourneyCorrectionRemapRequiredError)) throw error;
+      pending.push(correction);
+    }
+  }
+  return { matches, pending };
+}
+
 function rejectionGroupingConstraints(corrections: JourneyCorrectionRevision[], families?: FamilyResolver): JourneyGroupingConstraint[] {
   const constraints: JourneyGroupingConstraint[] = [];
   for (const correction of corrections) {
@@ -599,8 +706,12 @@ export function createNativeReconstructionRepository() {
   async function open() {
     if (!database) database = (async () => {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const sqlite = require('expo-sqlite') as { openDatabaseAsync(name: string): Promise<Database> };
-      const db = serializeNativeTransactions(await sqlite.openDatabaseAsync('travel-life-import-v1.db'));
+      const sqlite = require('expo-sqlite') as { openDatabaseAsync(name: string, options?: { useNewConnection?: boolean }): Promise<Database> };
+      // Expo SQLite can retain a released cached native handle after Android
+      // recreates the React runtime while the process survives. The import
+      // repository owns its cached connection; reconstruction gets a fresh
+      // handle and the existing transaction gate serializes their writers.
+      const db = serializeNativeTransactions(await sqlite.openDatabaseAsync('travel-life-import-v1.db', { useNewConnection: true }));
       await db.execAsync('PRAGMA busy_timeout = 30000');
       return db;
     })().catch((error) => { database = null; throw error; });
@@ -635,9 +746,35 @@ export function createNativeReconstructionRepository() {
     return new Map([...grouped].map(([id, items]) => [id, destinationLabel(items)]));
   }
 
-  async function acquireLease(nowMillis: number): Promise<number | null> {
+  async function activeMaintenanceLease(db: Database, nowMillis: number) {
+    const maintenance = await db.getFirstAsync<{ expires_at_millis: number }>('SELECT expires_at_millis FROM maintenance_lease WHERE record_id = 1');
+    return maintenance !== null && maintenance.expires_at_millis > nowMillis;
+  }
+
+  async function acquireLease(nowMillis: number, setStage: (stage: ReconciliationStage) => void): Promise<number | null> {
+    setStage('LEASE_OPEN');
     const db = await open();
-    await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
+    // An OS-invoked metadata pass uses this durable lease from another JS
+    // runtime. Reading it first avoids racing its active writer for SQLite's
+    // exclusive transaction lock; its owner will reconcile the queue itself.
+    setStage('MAINTENANCE_LEASE_READ');
+    if (await activeMaintenanceLease(db, nowMillis)) return null;
+    setStage('LEASE_WRITE');
+    try {
+      await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
+    } catch (error) {
+      // A task can acquire its durable maintenance lease between the read
+      // above and this write. Recheck once to classify that race without
+      // retrying an unknown SQLite failure or adding another write.
+      try {
+        setStage('MAINTENANCE_LEASE_READ');
+        if (await activeMaintenanceLease(db, nowMillis)) return null;
+      } catch {
+        // Preserve the original write-lock failure when the read cannot run.
+      }
+      setStage('LEASE_WRITE');
+      throw error;
+    }
     try {
       const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
       if (lifecycle?.state !== 'connected') throw new Error('Private record is not connected.');
@@ -666,6 +803,16 @@ export function createNativeReconstructionRepository() {
     } catch (error) { await db.execAsync('ROLLBACK'); throw error; }
   }
 
+  async function saveNoQueuedOutcome(nowMillis: number) {
+    const db = await open();
+    await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
+    try {
+      await db.runAsync("UPDATE reconciliation_state SET status = 'complete', last_checked_at_millis = ?, last_updated_at_millis = ?, new_journey_count = 0, updated_journey_count = 0, message = ? WHERE record_id = 1", nowMillis, nowMillis, 'No local journey updates were waiting.');
+      await db.runAsync("UPDATE reconciliation_checkpoint SET status = 'complete', message = ? WHERE record_id = 1", 'No local journey updates were waiting.');
+      await db.execAsync('COMMIT');
+    } catch (error) { await db.execAsync('ROLLBACK'); throw error; }
+  }
+
   async function recordPendingCorrectionRemap(revisionId: string) {
     const db = await open();
     await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
@@ -680,11 +827,19 @@ export function createNativeReconstructionRepository() {
           "SELECT source_run_id FROM journey_memory_correction_revision WHERE revision_id = ? AND state = 'effective'", revisionId,
         );
         if (!memoryRevision) { await db.execAsync('COMMIT'); return; }
+        const existing = await db.getFirstAsync<{ candidate_id: string }>(
+          "SELECT candidate_id FROM journey_memory_correction_candidate WHERE revision_id = ? AND state = 'pending_remap' LIMIT 1", revisionId,
+        );
+        if (existing) { await db.execAsync('COMMIT'); return; }
         const candidateId = `memory-candidate-${revisionId}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
         await db.runAsync(`INSERT INTO journey_memory_correction_candidate (candidate_id, revision_id, base_run_id, state, reason, created_at_millis)
           VALUES (?, ?, ?, 'pending_remap', ?, ?)`, candidateId, revisionId, memoryRevision.source_run_id, 'The selected memory or its reviewed target no longer maps uniquely to this rebuilt journey.', Date.now());
         await db.execAsync('COMMIT'); return;
       }
+      const existing = await db.getFirstAsync<{ candidate_id: string }>(
+        "SELECT candidate_id FROM journey_correction_candidate WHERE revision_id = ? AND state = 'pending_remap' LIMIT 1", revisionId,
+      );
+      if (existing) { await db.execAsync('COMMIT'); return; }
       const candidateId = `candidate-${revisionId}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       await db.runAsync(
         `INSERT INTO journey_correction_candidate (candidate_id, revision_id, base_run_id, state, reason, created_at_millis)
@@ -699,6 +854,7 @@ export function createNativeReconstructionRepository() {
     async findManualJourneyOverlaps(input: ManualJourneyInput) {
       validateManualJourney(input);
       const db = await open();
+      await ensureNativeImportSchema(db);
       const [start, end] = manualRange(input);
       const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
       if (lifecycle?.state !== 'connected') throw new Error('Private record is not connected.');
@@ -722,6 +878,7 @@ export function createNativeReconstructionRepository() {
     async createManualJourney(input: ManualJourneyInput) {
       validateManualJourney(input);
       const db = await open();
+      await ensureNativeImportSchema(db);
       const [start, end] = manualRange(input);
       await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
       try {
@@ -769,6 +926,7 @@ export function createNativeReconstructionRepository() {
     /** Resolves an opaque Atlas id only inside SQLite and returns owner-readable text. */
     async loadJourneyDetail(displayId: string): Promise<{ detail: JourneyDetail; previewSourceRefs: (string | null)[]; snapshotToken: number }> {
       const db = await open();
+      if (displayId.startsWith('manual:')) await ensureNativeImportSchema(db);
       const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
       if (lifecycle?.state !== 'connected') throw new Error('Private record is not connected.');
       if (displayId.startsWith('manual:')) {
@@ -1183,16 +1341,28 @@ export function createNativeReconstructionRepository() {
     /** Reads only coarse map anchors and journey state from the committed run.
      * Source/evidence IDs, dates, and raw coordinates stay inside this query. */
     async loadDurableReveal(): Promise<DurableRevealRecord> {
-      const db = await open();
-      const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
-      if (lifecycle?.state !== 'connected') throw new Error('Private record is not connected.');
-      const completed = await db.getFirstAsync<{ run_id: number }>('SELECT MAX(run_id) AS run_id FROM reconstruction_run WHERE status = \'complete\'');
-      if (!completed?.run_id) {
-        const manualRows = await db.getAllAsync<ManualRow>('SELECT manual_id, command_key, owner_label, owner_context, latitude, longitude, date_kind, date_start, date_end FROM manual_journey ORDER BY date_start DESC, manual_id DESC');
-        const manualJourneys = manualRows.filter((row) => typeof row.manual_id === 'string' && typeof row.owner_label === 'string' && typeof row.owner_context === 'string' && typeof row.date_start === 'string' && typeof row.date_end === 'string' && (row.date_kind === 'exact' || row.date_kind === 'approximate')).map((row) => ({ displayId: `manual:${row.manual_id}`, state: 'owner-entered' as const, anchor: coarseMapAnchor(row.latitude, row.longitude), years: [Number(row.date_start.slice(0, 4))], periodLabel: row.date_kind === 'exact' ? row.date_start : `${row.date_start} to ${row.date_end} (approximate)`, ordering: 'chronological' as const, label: `${row.owner_label} · ${row.owner_context}`, locationKind: 'owner-entered' as const }));
-        return { journeys: manualJourneys, statistics: null };
-      }
-      const rows = await db.getAllAsync<{ journey_id: string; run_id: number; journey_state: 'inferred' | 'possible-merge'; latitude: number | null; longitude: number | null; display_ordinal: number; year: number | null; ordering: 'chronological' | 'uncertain'; first_year: number | null; last_year: number | null; first_day: string | null; last_day: string | null }>(`
+      let stage: DurableRevealStage = 'DURABLE_OPEN';
+      let db: Database | null = null;
+      try {
+        db = await open();
+        // Atlas includes owner-entered journeys, so this is also a valid first
+        // entry point on a device that has not opened the import repository.
+        stage = 'DURABLE_SCHEMA';
+        await ensureNativeImportSchema(db);
+        stage = 'DURABLE_LIFECYCLE_READ';
+        const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
+        if (lifecycle?.state !== 'connected') throw new Error('Private record is not connected.');
+        stage = 'DURABLE_RUN_READ';
+        const completed = await db.getFirstAsync<{ run_id: number }>('SELECT MAX(run_id) AS run_id FROM reconstruction_run WHERE status = \'complete\'');
+        if (!completed?.run_id) {
+          stage = 'DURABLE_MANUAL_READ';
+          const manualRows = await db.getAllAsync<ManualRow>('SELECT manual_id, command_key, owner_label, owner_context, latitude, longitude, date_kind, date_start, date_end FROM manual_journey ORDER BY date_start DESC, manual_id DESC');
+          stage = 'DURABLE_PROJECTION';
+          const manualJourneys = manualRows.filter((row) => typeof row.manual_id === 'string' && typeof row.owner_label === 'string' && typeof row.owner_context === 'string' && typeof row.date_start === 'string' && typeof row.date_end === 'string' && (row.date_kind === 'exact' || row.date_kind === 'approximate')).map((row) => ({ displayId: `manual:${row.manual_id}`, state: 'owner-entered' as const, anchor: coarseMapAnchor(row.latitude, row.longitude), years: [Number(row.date_start.slice(0, 4))], periodLabel: row.date_kind === 'exact' ? row.date_start : `${row.date_start} to ${row.date_end} (approximate)`, ordering: 'chronological' as const, label: `${row.owner_label} · ${row.owner_context}`, locationKind: 'owner-entered' as const }));
+          return { journeys: manualJourneys, statistics: null };
+        }
+        stage = 'DURABLE_JOURNEY_READ';
+        const rows = await db.getAllAsync<{ journey_id: string; run_id: number; journey_state: 'inferred' | 'possible-merge'; latitude: number | null; longitude: number | null; display_ordinal: number; year: number | null; ordering: 'chronological' | 'uncertain'; first_year: number | null; last_year: number | null; first_day: string | null; last_day: string | null }>(`
         WITH journey_anchor AS (
           SELECT journey_link.parent_id AS journey_id, MIN(visit.visit_id) AS visit_id
           FROM reconstruction_link journey_link
@@ -1238,9 +1408,12 @@ export function createNativeReconstructionRepository() {
         FROM numbered_journeys LEFT JOIN journey_years ON journey_years.journey_id = numbered_journeys.journey_id
         ORDER BY numbered_journeys.display_ordinal, journey_years.year
       `, completed.run_id);
-      const manualRows = await db.getAllAsync<ManualRow>('SELECT manual_id, command_key, owner_label, owner_context, latitude, longitude, date_kind, date_start, date_end FROM manual_journey ORDER BY date_start DESC, manual_id DESC');
-      const manualJourneys = manualRows.filter((row) => typeof row.manual_id === 'string' && typeof row.owner_label === 'string' && typeof row.owner_context === 'string' && typeof row.date_start === 'string' && typeof row.date_end === 'string' && (row.date_kind === 'exact' || row.date_kind === 'approximate')).map((row) => ({ displayId: `manual:${row.manual_id}`, state: 'owner-entered' as const, anchor: coarseMapAnchor(row.latitude, row.longitude), years: [Number(row.date_start.slice(0, 4))], periodLabel: row.date_kind === 'exact' ? row.date_start : `${row.date_start} to ${row.date_end} (approximate)`, ordering: 'chronological' as const, label: `${row.owner_label} · ${row.owner_context}`, locationKind: 'owner-entered' as const }));
-      const countryRows = await db.getAllAsync<{ journey_id: string; country_code: string }>(`
+        stage = 'DURABLE_MANUAL_READ';
+        const manualRows = await db.getAllAsync<ManualRow>('SELECT manual_id, command_key, owner_label, owner_context, latitude, longitude, date_kind, date_start, date_end FROM manual_journey ORDER BY date_start DESC, manual_id DESC');
+        stage = 'DURABLE_PROJECTION';
+        const manualJourneys = manualRows.filter((row) => typeof row.manual_id === 'string' && typeof row.owner_label === 'string' && typeof row.owner_context === 'string' && typeof row.date_start === 'string' && typeof row.date_end === 'string' && (row.date_kind === 'exact' || row.date_kind === 'approximate')).map((row) => ({ displayId: `manual:${row.manual_id}`, state: 'owner-entered' as const, anchor: coarseMapAnchor(row.latitude, row.longitude), years: [Number(row.date_start.slice(0, 4))], periodLabel: row.date_kind === 'exact' ? row.date_start : `${row.date_start} to ${row.date_end} (approximate)`, ordering: 'chronological' as const, label: `${row.owner_label} · ${row.owner_context}`, locationKind: 'owner-entered' as const }));
+        stage = 'DURABLE_COUNTRY_READ';
+        const countryRows = await db.getAllAsync<{ journey_id: string; country_code: string }>(`
         SELECT DISTINCT journey_link.parent_id AS journey_id, place.country_code
         FROM reconstruction_link journey_link
         JOIN reconstruction_visit visit ON visit.run_id = journey_link.run_id AND visit.visit_id = journey_link.child_id
@@ -1250,25 +1423,27 @@ export function createNativeReconstructionRepository() {
           AND qualification.classification IN ('AUTO_CONFIRMED', 'USER_CONFIRMED')
           AND place.country_dataset_version = ? AND place.country_code IS NOT NULL
       `, completed.run_id, NATURAL_EARTH_ADMIN_0_DATASET_VERSION);
-      const ownerPlaceRows = await db.getAllAsync<{ journey_id: string; owner_place_name: string; owner_place_context: string; owner_latitude: number; owner_longitude: number }>(`
+        stage = 'DURABLE_OWNER_PLACE_READ';
+        const ownerPlaceRows = await db.getAllAsync<{ journey_id: string; owner_place_name: string; owner_place_context: string; owner_latitude: number; owner_longitude: number }>(`
         SELECT application.journey_id, revision.owner_place_name, revision.owner_place_context, revision.owner_latitude, revision.owner_longitude
         FROM journey_correction_application application
         JOIN journey_correction_revision revision ON revision.revision_id = application.revision_id
         WHERE application.run_id = ? AND application.target_kind = 'journey'
           AND revision.action = 'place' AND revision.state = 'effective'
         ORDER BY revision.created_at_millis DESC`, completed.run_id);
-      const ownerPlaceByJourney = new Map<string, { name: string; context: string; latitude: number; longitude: number }>();
-      for (const row of ownerPlaceRows) {
-        if (!ownerPlaceByJourney.has(row.journey_id) && row.owner_place_name && row.owner_place_context && Number.isFinite(row.owner_latitude) && Number.isFinite(row.owner_longitude)) {
-          ownerPlaceByJourney.set(row.journey_id, { name: row.owner_place_name, context: row.owner_place_context, latitude: row.owner_latitude, longitude: row.owner_longitude });
+        const ownerPlaceByJourney = new Map<string, { name: string; context: string; latitude: number; longitude: number }>();
+        for (const row of ownerPlaceRows) {
+          if (!ownerPlaceByJourney.has(row.journey_id) && row.owner_place_name && row.owner_place_context && Number.isFinite(row.owner_latitude) && Number.isFinite(row.owner_longitude)) {
+            ownerPlaceByJourney.set(row.journey_id, { name: row.owner_place_name, context: row.owner_place_context, latitude: row.owner_latitude, longitude: row.owner_longitude });
+          }
         }
-      }
-      const labelsByJourney = new Map<string, string[]>();
-      for (const row of countryRows) {
-        const name = countryDisplayName(row.country_code);
-        if (name) labelsByJourney.set(row.journey_id, [...new Set([...(labelsByJourney.get(row.journey_id) ?? []), name])].sort());
-      }
-      const statistics = await db.getFirstAsync<{ journey_count: number; place_count: number; country_count: number; resolved_count: number }>(`
+        const labelsByJourney = new Map<string, string[]>();
+        for (const row of countryRows) {
+          const name = countryDisplayName(row.country_code);
+          if (name) labelsByJourney.set(row.journey_id, [...new Set([...(labelsByJourney.get(row.journey_id) ?? []), name])].sort());
+        }
+        stage = 'DURABLE_STATISTICS_READ';
+        const statistics = await db.getFirstAsync<{ journey_count: number; place_count: number; country_count: number; resolved_count: number }>(`
         WITH qualified_destinations AS (
           SELECT DISTINCT visit.place_id
           FROM reconstruction_link journey_visit
@@ -1285,11 +1460,12 @@ export function createNativeReconstructionRepository() {
           (SELECT COUNT(DISTINCT place.country_code) FROM qualified_destinations destination JOIN reconstruction_place place ON place.run_id = ? AND place.place_id = destination.place_id WHERE place.country_code IS NOT NULL AND place.country_dataset_version = ?) AS country_count,
           (SELECT COUNT(*) FROM qualified_destinations destination JOIN reconstruction_place place ON place.run_id = ? AND place.place_id = destination.place_id WHERE place.country_dataset_version = ?) AS resolved_count
       `, completed.run_id, completed.run_id, completed.run_id, NATURAL_EARTH_ADMIN_0_DATASET_VERSION, completed.run_id, NATURAL_EARTH_ADMIN_0_DATASET_VERSION);
-      const diagnostics = await db.getFirstAsync<{
-        assessed: number; supported: number; places: number; visits: number;
-        missing_day: number; invalid_day: number; unavailable: number;
-        duplicate_conflict: number; insufficient_location: number; excluded: number;
-      }>(`
+        stage = 'DURABLE_DIAGNOSTICS_READ';
+        const diagnostics = await db.getFirstAsync<{
+          assessed: number; supported: number; places: number; visits: number;
+          missing_day: number; invalid_day: number; unavailable: number;
+          duplicate_conflict: number; insufficient_location: number; excluded: number;
+        }>(`
         SELECT
           COUNT(*) AS assessed,
           COALESCE(SUM(CASE WHEN disposition_state = 'supported' THEN 1 ELSE 0 END), 0) AS supported,
@@ -1303,25 +1479,82 @@ export function createNativeReconstructionRepository() {
           COALESCE(SUM(CASE WHEN reasons_json = '["owner-excluded"]' THEN 1 ELSE 0 END), 0) AS excluded
         FROM reconstruction_disposition WHERE run_id = ?
       `, completed.run_id, completed.run_id, completed.run_id);
-      const journeys = new Map<string, DurableRevealRecord['journeys'][number]>();
-      const destinationLabels = await readDestinationLabels(db, completed.run_id);
-      displayedJourneys.clear();
-      for (const row of rows) {
-        const displayId = opaqueJourneyDisplayId(row.journey_id);
-        displayedJourneys.set(displayId, { runId: row.run_id, journeyId: row.journey_id });
-        const existing = journeys.get(displayId);
-        if (existing) { if (row.year !== null) existing.years.push(row.year); continue; }
-        const names = labelsByJourney.get(row.journey_id) ?? [];
-        const supportedLabel = destinationLabels.get(row.journey_id);
-        const ownerPlace = ownerPlaceByJourney.get(row.journey_id);
-        const label = ownerPlace ? `${ownerPlace.name}, ${ownerPlace.context}` : supportedLabel && supportedLabel !== 'Private journey' ? supportedLabel : names.length === 1 ? names[0] : names.length === 2 ? `${names[0]} & ${names[1]}` : names.length > 2 ? 'Multi-country trip' : 'Private journey';
-        journeys.set(displayId, { displayId, state: row.journey_state, anchor: ownerPlace ? coarseMapAnchor(ownerPlace.latitude, ownerPlace.longitude) : coarseMapAnchor(row.latitude, row.longitude), years: row.year === null ? [] : [row.year], periodLabel: monthRangeLabel(row.first_day, row.last_day, row.first_year, row.last_year), ordering: row.ordering, label, locationKind: ownerPlace ? 'owner-confirmed' : 'inferred' });
+        const journeys = new Map<string, DurableRevealRecord['journeys'][number]>();
+        stage = 'DURABLE_DESTINATION_READ';
+        const destinationLabels = await readDestinationLabels(db, completed.run_id);
+        const pendingReviewJourneys = new Set<string>();
+        stage = 'DURABLE_CORRECTION_READ';
+        const pendingCandidates = (await db.getAllAsync<{ revision_id: string; reviewed_support_json: string; reviewed_family_snapshot_json: string | null }>(
+          `SELECT candidate.revision_id, revision.reviewed_support_json, revision.reviewed_family_snapshot_json
+         FROM journey_correction_candidate candidate
+         JOIN journey_correction_revision revision ON revision.revision_id = candidate.revision_id
+         WHERE candidate.state = 'pending_remap'`,
+        )) ?? [];
+        if (pendingCandidates.length) {
+          stage = 'DURABLE_FAMILY_READ';
+          const familyRows = await db.getAllAsync<EvidenceRow>('SELECT evidence_id, captured_at_millis, captured_day, has_precise_offset, availability, latitude, longitude, reported_accuracy_meters, platform_duplicate_family_id, source_origin, support_eligible, duplicate_tuple_version, duplicate_tuple_fingerprint FROM canonical_evidence');
+          const families = resolveVerifiedDuplicateFamilies(familyRows ?? []);
+          stage = 'DURABLE_SUPPORT_READ';
+          const supportRows = await db.getAllAsync<{ journey_id: string; evidence_id: string }>(`
+          SELECT DISTINCT journey.parent_id AS journey_id, support.child_id AS evidence_id
+          FROM reconstruction_link journey
+          JOIN reconstruction_link support ON support.run_id = journey.run_id
+            AND support.link_kind = 'visit-support' AND support.parent_id = journey.child_id
+          WHERE journey.run_id = ? AND journey.link_kind = 'journey-visit'`, completed.run_id);
+          const journeysByEvidence = new Map<string, Set<string>>();
+          for (const support of supportRows) {
+            const ids = journeysByEvidence.get(support.evidence_id) ?? new Set<string>();
+            ids.add(support.journey_id); journeysByEvidence.set(support.evidence_id, ids);
+          }
+          for (const candidate of pendingCandidates) {
+            try {
+              const reviewed = JSON.parse(candidate.reviewed_support_json) as unknown;
+              if (!Array.isArray(reviewed) || !reviewed.every((key): key is string => typeof key === 'string')) continue;
+              const snapshots = correctionFamilySnapshots(candidate.reviewed_family_snapshot_json, candidate.revision_id);
+              for (const key of reviewed) for (const journeyId of journeysByEvidence.get(resolveReviewedSupportKey(key, candidate.revision_id, snapshots, families)) ?? []) pendingReviewJourneys.add(journeyId);
+            } catch {
+              // A malformed candidate remains protected but cannot be attached to
+              // a current journey without a verified support mapping.
+            }
+          }
+        }
+        stage = 'DURABLE_PROJECTION';
+        displayedJourneys.clear();
+        for (const row of rows) {
+          const displayId = opaqueJourneyDisplayId(row.journey_id);
+          displayedJourneys.set(displayId, { runId: row.run_id, journeyId: row.journey_id });
+          const existing = journeys.get(displayId);
+          if (existing) { if (row.year !== null) existing.years.push(row.year); continue; }
+          const names = labelsByJourney.get(row.journey_id) ?? [];
+          const supportedLabel = destinationLabels.get(row.journey_id);
+          const ownerPlace = ownerPlaceByJourney.get(row.journey_id);
+          const label = ownerPlace ? `${ownerPlace.name}, ${ownerPlace.context}` : supportedLabel && supportedLabel !== 'Private journey' ? supportedLabel : names.length === 1 ? names[0] : names.length === 2 ? `${names[0]} & ${names[1]}` : names.length > 2 ? 'Multi-country trip' : 'Private journey';
+          journeys.set(displayId, { displayId, state: row.journey_state, anchor: ownerPlace ? coarseMapAnchor(ownerPlace.latitude, ownerPlace.longitude) : coarseMapAnchor(row.latitude, row.longitude), years: row.year === null ? [] : [row.year], periodLabel: monthRangeLabel(row.first_day, row.last_day, row.first_year, row.last_year), ordering: row.ordering, label, locationKind: ownerPlace ? 'owner-confirmed' : 'inferred', needsReview: pendingReviewJourneys.has(row.journey_id) });
+        }
+        return { journeys: [...journeys.values(), ...manualJourneys], statistics: statistics ? { journeyCount: statistics.journey_count, placeCount: statistics.place_count, supportedCountryCount: statistics.country_count, countryStatus: statistics.resolved_count === statistics.place_count ? 'supported' : 'unavailable' } : null,
+          diagnostics: diagnostics ? { assessed: diagnostics.assessed, supported: diagnostics.supported, places: diagnostics.places, visits: diagnostics.visits, missingDay: diagnostics.missing_day, invalidDay: diagnostics.invalid_day, unavailable: diagnostics.unavailable, duplicateConflict: diagnostics.duplicate_conflict, insufficientLocation: diagnostics.insufficient_location, excluded: diagnostics.excluded } : null };
+      } catch (error) {
+        if (db && stage === 'DURABLE_MANUAL_READ' && error instanceof Error && error.message.toLowerCase().includes('no such column')) {
+          try {
+            // Only row presence is inspected. No owner-entered value leaves
+            // SQLite, and this diagnostic path never repairs or writes data.
+            const manualCount = await db.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM manual_journey');
+            if (manualCount?.count === 0) stage = 'DURABLE_MANUAL_EMPTY_LAYOUT';
+            else if (manualCount && manualCount.count > 0) stage = 'DURABLE_MANUAL_RETAINED_LAYOUT';
+          } catch {
+            // A failed optional probe must not mask the original read error.
+          }
+        }
+        throw new DurableRevealStageError(stage, error);
       }
-      return { journeys: [...journeys.values(), ...manualJourneys], statistics: statistics ? { journeyCount: statistics.journey_count, placeCount: statistics.place_count, supportedCountryCount: statistics.country_count, countryStatus: statistics.resolved_count === statistics.place_count ? 'supported' : 'unavailable' } : null,
-        diagnostics: diagnostics ? { assessed: diagnostics.assessed, supported: diagnostics.supported, places: diagnostics.places, visits: diagnostics.visits, missingDay: diagnostics.missing_day, invalidDay: diagnostics.invalid_day, unavailable: diagnostics.unavailable, duplicateConflict: diagnostics.duplicate_conflict, insufficientLocation: diagnostics.insufficient_location, excluded: diagnostics.excluded } : null };
     },
     async rebuild(nowMillis = Date.now(), consumeQueuedChanges = false, canUseSource: () => Promise<boolean> = async () => true, transactionAlreadyOpen = false): Promise<ReconstructionGraph> {
       const db = await open();
+      // Catch-up can arrive before a durable-reveal read has had a chance to
+      // gate a retained device through the additive import schema. Do that
+      // once before this direct writer begins; never attempt a migration
+      // inside a caller-owned correction transaction.
+      if (!transactionAlreadyOpen) await ensureNativeImportSchema(db);
       if (!transactionAlreadyOpen) await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
       try {
         const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
@@ -1361,7 +1594,7 @@ export function createNativeReconstructionRepository() {
           hasPreciseOffset: row.has_precise_offset === 1, latitude: row.latitude, longitude: row.longitude, reportedAccuracyMeters: row.reported_accuracy_meters,
           availability: row.availability, duplicateFamilyId: families.keyForEvidence(row.evidence_id).startsWith('F:') ? families.keyForEvidence(row.evidence_id).slice(2) : (row.platform_duplicate_family_id ?? null), duplicateConflict: families.conflictForEvidence(row.evidence_id), supportEligible: families.supportEligible(row.evidence_id), sourceOrigin: row.source_origin, excluded: excluded.has(row.evidence_id),
         })), configuredHomeAreas.map((area) => ({ id: area.area_id, latitude: area.latitude, longitude: area.longitude, effectiveStartDay: area.effective_start_day, effectiveEndDay: area.effective_end_day, radiusMeters: area.radius_meters })));
-        const corrections = await db.getAllAsync<JourneyCorrectionRevision>(`SELECT revision_id, action, reviewed_support_json, reviewed_visits_json, reviewed_family_snapshot_json, structural_boundary_json
+        const corrections = await db.getAllAsync<JourneyCorrectionRevision>(`SELECT revision_id, action, source_run_id, reviewed_support_json, reviewed_visits_json, reviewed_family_snapshot_json, structural_boundary_json
           FROM journey_correction_revision WHERE state = 'effective'`);
         const memoryCorrections = await db.getAllAsync<MemoryCorrectionRevision>(`SELECT revision_id, action, source_evidence_id, reviewed_support_json, reviewed_family_snapshot_json, created_at_millis
           FROM journey_memory_correction_revision WHERE state = 'effective' ORDER BY created_at_millis, revision_id`);
@@ -1370,11 +1603,16 @@ export function createNativeReconstructionRepository() {
         // before a newly generated graph can bypass the owner decision.
         const evidenceWithStructuralBoundaries = applyStructuralBoundaries(evidence, corrections, families);
         const nonStructuralCorrections = corrections.filter((correction) => correction.action !== 'split' && correction.action !== 'merge');
-        const baseline = applyJourneyCorrections(reconstructV1(evidenceWithStructuralBoundaries), nonStructuralCorrections, false, families);
-        const confirmed = applyJourneyCorrections(
-          reconstructV1(evidenceWithStructuralBoundaries, { journeyGroupingConstraints: rejectionGroupingConstraints(nonStructuralCorrections, families) }),
+        const baselineGraph = reconstructV1(evidenceWithStructuralBoundaries);
+        // Journey-scoped corrections can be ambiguous before the final
+        // continuity graph exists. Preserve them as review candidates rather
+        // than letting an intermediate mapper prevent the Atlas from being
+        // rebuilt. Grouping and structural corrections still fail closed.
+        const baseline = mapFinalCorrectionApplications(baselineGraph, nonStructuralCorrections, families);
+        const confirmedGraph = reconstructV1(evidenceWithStructuralBoundaries, { journeyGroupingConstraints: rejectionGroupingConstraints(nonStructuralCorrections, families) });
+        const confirmed = mapFinalCorrectionApplications(
+          confirmedGraph,
           nonStructuralCorrections.filter((correction) => correction.action === 'confirm' || correction.action === 'remove-visit'),
-          false,
           families,
         );
         // A memory decision has two independent identities: the particular
@@ -1382,7 +1620,7 @@ export function createNativeReconstructionRepository() {
         // Reuse the exact support mapper for the target; the photo itself is
         // checked below against the current canonical snapshot.  No inferred
         // visit/place/country support is changed by this overlay.
-        const memoryMatches = applyJourneyCorrections(confirmed.graph, memoryCorrections.map((correction) => ({
+        const memoryMatches = applyJourneyCorrections(confirmedGraph, memoryCorrections.map((correction) => ({
           revision_id: correction.revision_id,
           action: 'claim' as const,
           reviewed_support_json: correction.reviewed_support_json,
@@ -1419,7 +1657,7 @@ export function createNativeReconstructionRepository() {
             ownerPrimary.delete(sourceUnit);
           }
         }
-        const structurallyMerged = applyOwnerJourneyMerges(confirmed.graph, corrections, families);
+        const structurallyMerged = applyOwnerJourneyMerges(confirmedGraph, corrections, families);
         // Do not remap an owner-reviewed graph implicitly.  Exact correction
         // matches pin only their own journeys; unrelated corrections must not
         // freeze a later, unreviewed continuous away episode.
@@ -1452,7 +1690,8 @@ export function createNativeReconstructionRepository() {
         // generate a different journey ID. Store correction applications
         // against that final graph, not the pre-continuity ID, or a saved
         // owner place will have no visible journey to override.
-        const finalMatches = mapCorrectionsToCommittedJourneys(graph, corrections, families);
+        const { matches: finalMatches, pending: finalPendingRemaps } = mapFinalCorrectionApplications(graph, corrections, families);
+        const pendingFinalRemaps = [...new Map([...baseline.pending, ...confirmed.pending, ...finalPendingRemaps].map((correction) => [correction.revision_id, correction])).values()];
         const evidenceRevision = (await db.getFirstAsync<{ canonical_evidence_revision: number | null }>('SELECT canonical_evidence_revision FROM private_history_record WHERE record_id = 1'))?.canonical_evidence_revision ?? 0;
         const correctionRevision = (await db.getFirstAsync<{ revision: number | null }>('SELECT MAX(revision) AS revision FROM correction_overlays'))?.revision ?? 0;
         const revision = Math.max(evidenceRevision, correctionRevision);
@@ -1462,7 +1701,7 @@ export function createNativeReconstructionRepository() {
         for (const correction of corrections) {
           const targetKind = correction.action === 'reject' || correction.action === 'split' || correction.action === 'merge' ? 'grouping-constraint' : 'journey';
           const journeyId = targetKind === 'journey' ? finalMatches.get(correction.revision_id) : null;
-          if (targetKind === 'journey' && !journeyId) throw new JourneyCorrectionRemapRequiredError(correction.revision_id);
+          if (targetKind === 'journey' && !journeyId) continue;
           await db.runAsync(
             `INSERT INTO journey_correction_application (revision_id, run_id, target_kind, journey_id, application_state) VALUES (?, ?, ?, ?, 'effective')`,
             correction.revision_id, runId, targetKind, journeyId ?? null,
@@ -1474,18 +1713,32 @@ export function createNativeReconstructionRepository() {
             correction.revision_id, runId, memoryMatches.get(correction.revision_id) ?? null,
           );
         }
-        for (const correction of corrections) await db.runAsync(
+        for (const correction of pendingFinalRemaps) {
+          const existing = await db.getFirstAsync<{ candidate_id: string }>(
+            "SELECT candidate_id FROM journey_correction_candidate WHERE revision_id = ? AND state = 'pending_remap' LIMIT 1",
+            correction.revision_id,
+          );
+          if (!existing) await db.runAsync(
+            `INSERT INTO journey_correction_candidate (candidate_id, revision_id, base_run_id, state, reason, created_at_millis)
+             VALUES (?, ?, ?, 'pending_remap', ?, ?)`,
+            `candidate-${correction.revision_id}-${nowMillis}-${Math.random().toString(36).slice(2)}`,
+            correction.revision_id, correction.source_run_id ?? runId,
+            'Reviewed support now spans more than one rebuilt journey.', nowMillis,
+          );
+        }
+        for (const correction of corrections.filter((candidate) => finalMatches.has(candidate.revision_id))) await db.runAsync(
           "UPDATE journey_correction_candidate SET state = 'resolved' WHERE revision_id = ? AND state = 'pending_remap'",
           correction.revision_id,
         );
         await db.runAsync('DELETE FROM reconstruction_trip_qualification'); await db.runAsync('DELETE FROM reconstruction_disposition'); await db.runAsync('DELETE FROM reconstruction_link'); await db.runAsync('DELETE FROM reconstruction_journey'); await db.runAsync('DELETE FROM reconstruction_visit'); await db.runAsync('DELETE FROM reconstruction_place');
         const evidenceById = new Map(evidence.map((item) => [item.id, item]));
+        const links = reconstructionRowWriter(db, 'reconstruction_link (run_id, link_kind, parent_id, child_id)', 4);
         for (const place of graph.places) {
           const countryCode = resolvePlaceCountryCode(place, evidenceById);
           await db.runAsync('INSERT INTO reconstruction_place (place_id, run_id, representative_evidence_id, uncertainty_json, country_code, country_dataset_version) VALUES (?, ?, ?, ?, ?, ?)', place.id, runId, place.representativeId, JSON.stringify(place.uncertainty), countryCode, NATURAL_EARTH_ADMIN_0_DATASET_VERSION);
-          for (const evidenceId of place.memberIds) await db.runAsync('INSERT INTO reconstruction_link (run_id, link_kind, parent_id, child_id) VALUES (?, ?, ?, ?)', runId, 'place-support', place.id, evidenceId);
+          for (const evidenceId of place.memberIds) await links.add([runId, 'place-support', place.id, evidenceId]);
         }
-        for (const visit of graph.visits) { await db.runAsync('INSERT INTO reconstruction_visit (visit_id, run_id, place_id, ordering) VALUES (?, ?, ?, ?)', visit.id, runId, visit.placeId, visit.order); for (const evidenceId of visit.evidenceIds) await db.runAsync('INSERT INTO reconstruction_link (run_id, link_kind, parent_id, child_id) VALUES (?, ?, ?, ?)', runId, 'visit-support', visit.id, evidenceId); }
+        for (const visit of graph.visits) { await db.runAsync('INSERT INTO reconstruction_visit (visit_id, run_id, place_id, ordering) VALUES (?, ?, ?, ?)', visit.id, runId, visit.placeId, visit.order); for (const evidenceId of visit.evidenceIds) await links.add([runId, 'visit-support', visit.id, evidenceId]); }
         const confirmedJourneyIds = new Set(corrections.filter((correction) => correction.action === 'confirm').map((correction) => finalMatches.get(correction.revision_id)).filter((id): id is string => Boolean(id)));
         const mediaByEvidence = new Map(rows.map((row) => [row.evidence_id, row.media_type ?? 'image'] as const));
         for (const journey of graph.journeys) {
@@ -1499,11 +1752,14 @@ export function createNativeReconstructionRepository() {
             runId, journey.id, qualification.classification, qualification.score, qualification.path,
             JSON.stringify(qualification.reasons),
           );
-          for (const visitId of journey.visitIds) await db.runAsync('INSERT INTO reconstruction_link (run_id, link_kind, parent_id, child_id) VALUES (?, ?, ?, ?)', runId, 'journey-visit', journey.id, visitId);
+          for (const visitId of journey.visitIds) await links.add([runId, 'journey-visit', journey.id, visitId]);
         }
-        for (const membership of graph.memberships) await db.runAsync('INSERT INTO reconstruction_link (run_id, link_kind, parent_id, child_id) VALUES (?, ?, ?, ?)', runId, `membership:${membership.state}:${membership.reason}`, membership.journeyId, membership.evidenceId);
-        for (const merge of graph.possibleMerges) await db.runAsync('INSERT INTO reconstruction_link (run_id, link_kind, parent_id, child_id) VALUES (?, ?, ?, ?)', runId, `possible-merge:${merge.reason}`, merge.fromJourneyId, merge.toJourneyId);
-        for (const disposition of graph.dispositions) await db.runAsync('INSERT INTO reconstruction_disposition (run_id, evidence_id, disposition_state, reasons_json) VALUES (?, ?, ?, ?)', runId, disposition.evidenceId, disposition.state, JSON.stringify(disposition.reasons));
+        for (const membership of graph.memberships) await links.add([runId, `membership:${membership.state}:${membership.reason}`, membership.journeyId, membership.evidenceId]);
+        for (const merge of graph.possibleMerges) await links.add([runId, `possible-merge:${merge.reason}`, merge.fromJourneyId, merge.toJourneyId]);
+        await links.flush();
+        const dispositions = reconstructionRowWriter(db, 'reconstruction_disposition (run_id, evidence_id, disposition_state, reasons_json)', 4);
+        for (const disposition of graph.dispositions) await dispositions.add([runId, disposition.evidenceId, disposition.state, JSON.stringify(disposition.reasons)]);
+        await dispositions.flush();
         if (consumeQueuedChanges) {
           const derivedIds = new Set([...graph.places, ...graph.visits, ...graph.journeys].map((item) => item.id));
           const overlays = await db.getAllAsync<{ overlay_id: string; target_id: string; identity_lineage_id: string | null }>(`SELECT overlay.overlay_id, overlay.target_id, overlay.identity_lineage_id FROM correction_overlays overlay
@@ -1544,24 +1800,54 @@ export function createNativeReconstructionRepository() {
       }
     },
     async reconcileQueued(nowMillis = Date.now(), canUseSource: () => Promise<boolean> = async () => true) {
-      const token = await acquireLease(nowMillis);
-      if (token === null) throw new Error('Local reconciliation is already running; queued changes remain pending.');
+      let token: number | null = null;
+      let primaryFailure: unknown = null;
+      let stage: ReconciliationStage = 'LEASE_OPEN';
       try {
+        // This path reads versioned maintenance/reconciliation lease tables
+        // before it delegates to rebuild. Gate it here, rather than relying
+        // on the later rebuild gate after a retained local record has already
+        // failed a lease read.
+        await ensureNativeImportSchema(await open());
+        token = await acquireLease(nowMillis, (next) => { stage = next; });
+        if (token === null) throw new Error('Local reconciliation is already running; queued changes remain pending.');
+        stage = 'QUEUE_READ';
         const queued = (await (await open()).getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM maintenance_change_queue'))?.count ?? 0;
-        if (queued === 0) return { graph: { ruleVersion: RECONSTRUCTION_RULE_VERSION, places: [], visits: [], journeys: [], possibleMerges: [], dispositions: [], memberships: [] } as ReconstructionGraph, newJourneyCount: 0, updatedJourneyCount: 0 };
+        if (queued === 0) {
+          await saveNoQueuedOutcome(nowMillis);
+          return { graph: { ruleVersion: RECONSTRUCTION_RULE_VERSION, places: [], visits: [], journeys: [], possibleMerges: [], dispositions: [], memberships: [] } as ReconstructionGraph, newJourneyCount: 0, updatedJourneyCount: 0 };
+        }
+        stage = 'REBUILD';
         const graph = await this.rebuild(nowMillis, true, canUseSource);
+        stage = 'OUTCOME_READ';
         const outcome = await (await open()).getFirstAsync<{ new_journey_count: number; updated_journey_count: number }>(
           'SELECT new_journey_count, updated_journey_count FROM reconciliation_state WHERE record_id = 1',
         );
         return { graph, newJourneyCount: outcome?.new_journey_count ?? 0, updatedJourneyCount: outcome?.updated_journey_count ?? 0 };
       } catch (error) {
-        const restricted = error instanceof Error && (error.message.includes('not connected') || error.message.includes('not permitted'));
-        const pending = error instanceof Error && (error.message.includes('need owner review') || error.message.includes('needs owner remap'));
-        if (error instanceof JourneyCorrectionRemapRequiredError) await recordPendingCorrectionRemap(error.revisionId);
-        await saveOutcome(restricted ? 'restricted' : pending ? 'pending' : 'error', restricted ? 'Local journey updates are waiting for connected private access.' : pending ? 'An owner correction needs review before queued local changes can be reconciled.' : 'Local journey reconciliation did not finish. Queued changes remain pending.');
-        throw error;
+        // A fresh reconciliation or maintenance lease is expected contention,
+        // not a failed run. Preserve the prior result without writing outcome state.
+        if (error instanceof Error && error.message.includes('already running')) throw error;
+        primaryFailure = reconciliationStageError(stage, error);
+        const sourceError = error instanceof ReconciliationStageError ? error.originalError : error;
+        const restricted = sourceError instanceof Error && (sourceError.message.includes('not connected') || sourceError.message.includes('not permitted'));
+        const pending = sourceError instanceof Error && (sourceError.message.includes('need owner review') || sourceError.message.includes('needs owner remap'));
+        try {
+          stage = 'OUTCOME_SAVE';
+          if (sourceError instanceof JourneyCorrectionRemapRequiredError) await recordPendingCorrectionRemap(sourceError.revisionId);
+          await saveOutcome(restricted ? 'restricted' : pending ? 'pending' : 'error', restricted ? 'Local journey updates are waiting for connected private access.' : pending ? 'An owner correction needs review before queued local changes can be reconciled.' : 'Local journey reconciliation did not finish. Queued changes remain pending.');
+        } catch {
+          // The original reconstruction failure is more useful than a best-effort status-write failure.
+        }
+        throw primaryFailure;
       } finally {
-        await releaseLease(token);
+        if (token !== null) {
+          try {
+            await releaseLease(token);
+          } catch (error) {
+            if (primaryFailure === null) throw reconciliationStageError('LEASE_RELEASE', error);
+          }
+        }
       }
     },
   };

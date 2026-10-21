@@ -117,6 +117,8 @@ export type ReconciliationStatus = 'idle' | 'pending' | 'running' | 'complete' |
 export type ReconciliationSnapshot = {
   status: ReconciliationStatus;
   pendingCount: number;
+  queuedChangeCount?: number;
+  unresolvedRemapCount?: number;
   lastCheckedAtMillis: number | null;
   lastUpdatedAtMillis: number | null;
   newJourneyCount: number;

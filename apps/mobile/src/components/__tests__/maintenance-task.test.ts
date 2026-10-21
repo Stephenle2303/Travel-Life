@@ -1,3 +1,5 @@
+import { ReconciliationStageError } from '@/reconstruction/repository';
+
 const mockDefineTask = jest.fn();
 const mockReconcile = jest.fn();
 const mockReconcileQueued = jest.fn();
@@ -22,5 +24,58 @@ describe('maintenance task entry point', () => {
     mockReconcile.mockResolvedValueOnce('paused');
     await expect(handler()).resolves.toBe(2);
     expect(mockReconcileQueued).toHaveBeenCalledTimes(1);
+  });
+
+  it('emits one fixed maintenance outcome when the background reconciliation is paused', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    require('@/maintenance/task');
+    const handler = mockDefineTask.mock.calls[0][1] as () => Promise<number>;
+    const diagnostic = jest.spyOn(console, 'info').mockImplementation(() => {});
+    try {
+      mockReconcile.mockResolvedValueOnce('paused');
+      await expect(handler()).resolves.toBe(2);
+      expect(diagnostic).toHaveBeenCalledTimes(1);
+      expect(diagnostic).toHaveBeenCalledWith('[Travel Life diagnostic]', expect.objectContaining({
+        operation: 'MAINTENANCE_RECONCILIATION', reasonCode: 'PAUSED', stage: null,
+        retryable: true, durableOutcome: 'paused', correlationId: expect.any(String),
+      }));
+    } finally {
+      diagnostic.mockRestore();
+    }
+  });
+
+  it('redacts a failed background reconstruction into one fixed maintenance diagnostic', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    require('@/maintenance/task');
+    const handler = mockDefineTask.mock.calls[0][1] as () => Promise<number>;
+    const diagnostic = jest.spyOn(console, 'info').mockImplementation(() => {});
+    try {
+      const privateSentinel = 'private-background-rebuild-sentinel';
+      mockReconcile.mockResolvedValueOnce('complete');
+      mockReconcileQueued.mockRejectedValueOnce(new Error(`database is locked: ${privateSentinel}`));
+      await expect(handler()).resolves.toBe(2);
+      expect(diagnostic).toHaveBeenCalledTimes(1);
+      expect(diagnostic).toHaveBeenCalledWith('[Travel Life diagnostic]', expect.objectContaining({
+        operation: 'MAINTENANCE_RECONCILIATION', reasonCode: 'DATABASE_BUSY', stage: null,
+        retryable: true, durableOutcome: 'failed', correlationId: expect.any(String),
+      }));
+      expect(JSON.stringify(diagnostic.mock.calls)).not.toContain(privateSentinel);
+    } finally { diagnostic.mockRestore(); }
+  });
+
+  it('preserves the closed native reason and reconciliation stage for background failures', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    require('@/maintenance/task');
+    const handler = mockDefineTask.mock.calls[0][1] as () => Promise<number>;
+    const diagnostic = jest.spyOn(console, 'info').mockImplementation(() => {});
+    try {
+      mockReconcile.mockResolvedValueOnce('complete');
+      mockReconcileQueued.mockRejectedValueOnce(new ReconciliationStageError('LEASE_WRITE', new Error('database is locked: private sentinel')));
+      await expect(handler()).resolves.toBe(2);
+      expect(diagnostic).toHaveBeenCalledWith('[Travel Life diagnostic]', expect.objectContaining({
+        operation: 'MAINTENANCE_RECONCILIATION', reasonCode: 'DATABASE_BUSY', stage: 'LEASE_WRITE', retryable: true, durableOutcome: 'failed',
+      }));
+      expect(JSON.stringify(diagnostic.mock.calls)).not.toContain('private sentinel');
+    } finally { diagnostic.mockRestore(); }
   });
 });

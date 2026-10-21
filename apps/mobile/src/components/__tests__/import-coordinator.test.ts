@@ -207,6 +207,19 @@ describe('resumable local metadata import', () => {
     expect(await h.repository.getCheckpoint('full')).toMatchObject({ status: 'paused', nextOffset: 0 });
   });
 
+  it('does not issue a second pause write when a metadata page commit reports SQLite busy', async () => {
+    const h = harness();
+    h.adapter.readMetadataPage.mockResolvedValueOnce([image('uncommitted')]);
+    const commitPage = jest.fn(async () => { throw new Error('database is locked'); });
+    h.repository.commitPage = commitPage;
+
+    await expect(h.coordinator.start('full', 1)).resolves.toBeUndefined();
+
+    expect(commitPage).toHaveBeenCalledTimes(1);
+    expect(h.coordinator.coverage).toMatchObject({ status: 'paused', scanned: 0, message: 'Local storage is busy. No metadata page was committed. Retry when ready.' });
+    expect(h.repository.sources.has('uncommitted')).toBe(false);
+  });
+
   it('shows a recoverable paused state when local checkpoint access fails', async () => {
     const h = harness();
     h.repository.getCheckpoint = async () => { throw new Error('database unavailable'); };

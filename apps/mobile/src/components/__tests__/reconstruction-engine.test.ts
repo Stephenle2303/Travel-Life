@@ -12,6 +12,28 @@ describe('reconstruction-v1 deterministic baseline', () => {
     expect(reconstructV1(input).places[0]).toMatchObject({ memberIds: ['a', 'b'], representativeId: 'a' });
   });
 
+  it('keeps the exact minimax representative and graph for a dense synthetic place', () => {
+    const input = Array.from({ length: 80 }, (_, index) => e(
+      `dense-${String(index).padStart(3, '0')}`,
+      10 + (index % 10) * 0.00001,
+      100 + Math.floor(index / 10) * 0.00001,
+    ));
+    const graph = reconstructV1(input);
+    const distance = (a: ReconstructionEvidence, b: ReconstructionEvidence) => {
+      const radians = Math.PI / 180;
+      const latitudeDelta = ((b.latitude ?? 0) - (a.latitude ?? 0)) * radians;
+      const longitudeDelta = (((((b.longitude ?? 0) - (a.longitude ?? 0) + 180) % 360) + 360) % 360 - 180) * radians;
+      const haversine = Math.sin(latitudeDelta / 2) ** 2
+        + Math.cos((a.latitude ?? 0) * radians) * Math.cos((b.latitude ?? 0) * radians) * Math.sin(longitudeDelta / 2) ** 2;
+      return Math.round(2 * 6_371_000 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine)) * 1000) / 1000;
+    };
+    const representative = [...input].sort((a, b) =>
+      Math.max(...input.map((item) => distance(a, item))) - Math.max(...input.map((item) => distance(b, item)))
+      || a.id.localeCompare(b.id))[0].id;
+    expect(graph.places).toEqual([expect.objectContaining({ representativeId: representative, memberIds: input.map((item) => item.id) })]);
+    expect(reconstructV1([...input].reverse())).toEqual(graph);
+  });
+
   it('uses complete-link clusters and normalizes the date line', () => {
     const graph = reconstructV1([e('west', 0, 179.99), e('east', 0, -179.99), e('far', 0, 179.94)]);
     expect(graph.places).toHaveLength(2);

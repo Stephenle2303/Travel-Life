@@ -13,7 +13,7 @@ const emptyRepository: ImportRepository = {
   saveCorrectionOverlay: async () => {},
 };
 
-function harness(initial: PermissionSnapshot | null = { scope: 'unasked', canAskAgain: true }, repository: ImportRepository = emptyRepository) {
+function harness(initial: PermissionSnapshot | null = { scope: 'unasked', canAskAgain: true }, repository: ImportRepository = emptyRepository, onCompletedLibraryImport: () => Promise<boolean | void> = async () => {}, waitForMaintenance: () => Promise<void> = async () => {}) {
   let permission = initial;
   const adapter: jest.Mocked<PhotoAccessAdapter> = {
     inspect: jest.fn(async () => permission),
@@ -24,7 +24,7 @@ function harness(initial: PermissionSnapshot | null = { scope: 'unasked', canAsk
     manageLimited: jest.fn(async () => {}),
     select: jest.fn(async (): Promise<SelectionResult> => ({ canceled: true })),
   };
-  const controller = new PhotoAccessController(adapter, () => {}, () => {}, repository);
+  const controller = new PhotoAccessController(adapter, () => {}, () => {}, repository, onCompletedLibraryImport, waitForMaintenance);
   return { adapter, controller, setPermission(next: PermissionSnapshot | null) { permission = next; } };
 }
 
@@ -65,6 +65,95 @@ describe('native photo access contract', () => {
 
     expect(h.adapter.readPage).toHaveBeenCalledTimes(1);
     expect(h.controller.snapshot.countStatus).toBe('incomplete');
+  });
+
+  it('keeps Atlas rebuild callers behind an active metadata import', async () => {
+    const h = harness({ scope: 'full', canAskAgain: false });
+    await h.controller.refresh();
+    let finishPage!: (value: []) => void;
+    h.adapter.readMetadataPage.mockImplementationOnce(() => new Promise((resolve) => { finishPage = resolve; }));
+    const importing = h.controller.startImport();
+    let idle = false;
+    const waiting = h.controller.whenImportIdle().then(() => { idle = true; });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(idle).toBe(false);
+    finishPage([]);
+    await Promise.all([importing, waiting]);
+    expect(idle).toBe(true);
+  });
+
+  it('acknowledges an import tap before a delayed private-record check returns', async () => {
+    let releaseLifecycle!: (value: { state: 'connected' }) => void;
+    let delayNextLifecycleCheck = false;
+    const repository: ImportRepository = {
+      ...emptyRepository,
+      getPrivateRecordLifecycle: () => delayNextLifecycleCheck
+        ? new Promise((resolve) => { releaseLifecycle = resolve; })
+        : Promise.resolve({ state: 'connected' }),
+    };
+    const h = harness({ scope: 'full', canAskAgain: false }, repository);
+    await h.controller.refresh();
+    delayNextLifecycleCheck = true;
+
+    const importing = h.controller.startImport();
+
+    expect(h.controller.snapshot.message).toBe('Starting local metadata import…');
+    expect(h.controller.isBusy).toBe(true);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    releaseLifecycle({ state: 'connected' });
+    await importing;
+  });
+
+  it('waits for an already queued maintenance writer before beginning import', async () => {
+    let releaseMaintenance!: () => void;
+    const h = harness(
+      { scope: 'full', canAskAgain: false },
+      emptyRepository,
+      async () => {},
+      () => new Promise((resolve) => { releaseMaintenance = resolve; }),
+    );
+    await h.controller.refresh();
+
+    const importing = h.controller.startImport();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    expect(h.controller.snapshot.message).toBe('Starting local metadata import…');
+    expect(h.adapter.readMetadataPage).not.toHaveBeenCalled();
+    releaseMaintenance();
+    await importing;
+    expect(h.adapter.readMetadataPage).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps completed metadata import distinct from a protected Atlas rebuild failure', async () => {
+    const diagnostic = jest.spyOn(console, 'info').mockImplementation(() => {});
+    const h = harness({ scope: 'full', canAskAgain: false }, emptyRepository, async () => { throw new Error('database is locked'); });
+    await h.controller.refresh();
+
+    await h.controller.startImport();
+
+    expect(h.controller.snapshot.message).toBe('Metadata import is complete. Your existing Atlas stays available while its local update is recovered.');
+    expect(diagnostic).toHaveBeenNthCalledWith(1, '[Travel Life diagnostic]', expect.objectContaining({ operation: 'METADATA_IMPORT', reasonCode: 'START', stage: null, retryable: false, durableOutcome: 'unchanged' }));
+    expect(diagnostic).toHaveBeenNthCalledWith(2, '[Travel Life diagnostic]', expect.objectContaining({ operation: 'METADATA_IMPORT', reasonCode: 'COMPLETE', stage: null, retryable: false, durableOutcome: 'complete' }));
+    expect(diagnostic).toHaveBeenNthCalledWith(3, '[Travel Life diagnostic]', expect.objectContaining({ operation: 'METADATA_IMPORT', reasonCode: 'DATABASE_BUSY', stage: null, retryable: true, durableOutcome: 'unchanged' }));
+    diagnostic.mockRestore();
+  });
+
+  it('replaces the starting acknowledgement when the coordinator pauses without throwing', async () => {
+    let lifecycleChecks = 0;
+    const h = harness({ scope: 'full', canAskAgain: false }, {
+      ...emptyRepository,
+      getPrivateRecordLifecycle: async () => {
+        lifecycleChecks += 1;
+        if (lifecycleChecks === 1) return { state: 'connected' };
+        throw new Error('database is locked: private source id');
+      },
+    });
+    await h.controller.refresh();
+
+    await h.controller.startImport();
+
+    expect(h.controller.snapshot.message).toBe('Local metadata import is paused. Retry when ready.');
+    expect(h.controller.snapshot.message).not.toContain('private source id');
   });
 
   it('clears retained counts and selections after confirmed local deletion', async () => {

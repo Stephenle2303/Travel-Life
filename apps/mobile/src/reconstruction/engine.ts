@@ -121,7 +121,10 @@ export function reconstructV1(input: ReconstructionEvidence[], options: Reconstr
     if (choices.length) clusters[choices[0].index].push(unit); else clusters.push([unit]);
   }
   const places: Place[] = clusters.map((members) => {
-    const representativeId = [...members].sort((a, b) => Math.max(...members.map((m) => distance(a, m))) - Math.max(...members.map((m) => distance(b, m))) || a.id.localeCompare(b.id))[0].id;
+    // The minimax score is stable for each candidate. Compute it once rather
+    // than recomputing every pair for each sort comparison in a dense place.
+    const maxDistanceById = new Map(members.map((candidate) => [candidate.id, members.reduce((max, member) => Math.max(max, distance(candidate, member)), 0)]));
+    const representativeId = [...members].sort((a, b) => maxDistanceById.get(a.id)! - maxDistanceById.get(b.id)! || a.id.localeCompare(b.id))[0].id;
     const memberIds = members.map((m) => m.id).sort();
     return { id: `place:${memberIds.join('|')}`, memberIds, representativeId, uncertainty: members.some((m) => m.reportedAccuracyMeters === null) ? ['reported-accuracy-unknown'] : [] };
   });

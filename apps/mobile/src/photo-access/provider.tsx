@@ -8,7 +8,9 @@ import type { OwnerPreview, PhotoAccessAdapter, PhotoAccessSnapshot } from './ty
 import { createNativeImportRepository, type ImportCoverage, type ImportRepository, type MaintenanceRepository, type ReconciliationSnapshot, type ManualJourneyInput } from '@/import-record';
 import { MaintenanceController, createExpoScheduler, type MaintenanceView } from '@/maintenance';
 import { createNativeReconstructionRepository, ReconstructionController, type ReconstructionView } from '@/reconstruction';
+import { durableRevealFailureStage } from '@/reconstruction/repository';
 import { AiProposalController, type AiReviewView } from '@/ai';
+import { classifyAppDiagnosticError, createDiagnosticCorrelationId, recordAppDiagnostic } from '@/diagnostics/app-diagnostics';
 import type { DurableRevealRecord, JourneyDetail, JourneyMediaPage } from '@/reveal/types';
 
 export function isCurrentDurableRevealRead(readGeneration: number, currentGeneration: number) {
@@ -109,7 +111,23 @@ type PhotoAccessContextValue = {
 type ReconstructionRepositoryProp = Omit<ReturnType<typeof createNativeReconstructionRepository>, 'findManualJourneyOverlaps' | 'createManualJourney'>
   & Partial<Pick<ReturnType<typeof createNativeReconstructionRepository>, 'findManualJourneyOverlaps' | 'createManualJourney'>>;
 
+function durableRevealFailureMessage(error: unknown) {
+  switch (classifyAppDiagnosticError(error)) {
+    case 'DATABASE_BUSY': return 'Local storage is busy while the committed Atlas is reloaded. Your last completed Atlas was kept.';
+    case 'SCHEMA': return 'Local Atlas storage needs a safe schema recovery. Your last completed Atlas was kept.';
+    case 'NATIVE_HANDLE': return 'The local Atlas connection needs recovery. Your last completed Atlas was kept.';
+    case 'ACCESS': return 'Reconnect your private record before the Atlas can be reloaded.';
+    default: return 'The committed local Atlas could not be reloaded. Your last completed Atlas was kept.';
+  }
+}
+
 const PhotoAccessContext = createContext<PhotoAccessContextValue | null>(null);
+
+class DurablePublicationRuntime {
+  private connected = false;
+  setLifecycle(state: LifecycleSnapshot['state']) { this.connected = state === 'connected'; }
+  get isConnected() { return this.connected; }
+}
 
 export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, repository, reconstructionRepository }: PropsWithChildren<{ adapter?: PhotoAccessAdapter; repository?: ImportRepository; reconstructionRepository?: ReconstructionRepositoryProp }>) {
   const [snapshot, setSnapshot] = useState(initialPhotoAccess);
@@ -129,21 +147,27 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     findManualJourneyOverlaps: reconstructionRepository.findManualJourneyOverlaps ?? (async () => []),
     createManualJourney: reconstructionRepository.createManualJourney ?? (async () => { throw new Error('Manual journeys are unavailable in this runtime.'); }),
   } : createNativeReconstructionRepository());
+  const [durablePublicationRuntime] = useState(() => new DurablePublicationRuntime());
+  const refreshDurableReveal = useCallback(async () => {
+    if (!durablePublicationRuntime.isConnected) throw new Error('Private record is unavailable.');
+    const generation = durableRevealGate.next();
+    const record = await nativeReconstructionRepository.loadDurableReveal();
+    if (!durablePublicationRuntime.isConnected || !canPublishJourneyDetail(generation, durableRevealGate.current(), 'connected')) throw new Error('Private record is unavailable.');
+    setDurableReveal(record);
+  }, [durablePublicationRuntime, durableRevealGate, nativeReconstructionRepository]);
+  useEffect(() => {
+    durablePublicationRuntime.setLifecycle(privateRecord.state);
+  }, [durablePublicationRuntime, privateRecord.state]);
   const [reconstructionController] = useState(() => new ReconstructionController(nativeReconstructionRepository, (view) => {
     setReconstruction(view);
-    if (view.status === 'complete') {
-      const generation = durableRevealGate.next();
-      void nativeReconstructionRepository.loadDurableReveal().then((record) => {
-        if (durableRevealGate.isCurrent(generation)) setDurableReveal(record);
-      }).catch(() => {});
-    }
   }));
   const currentSourcePermitted = async () => {
     const access = await adapter.inspect();
     return access?.scope === 'full' || access?.scope === 'limited';
   };
   const [maintenanceController] = useState(() => new MaintenanceController(durableMaintenanceRepository, adapter, createExpoScheduler(), setMaintenance, () => Date.now(), async () => {
-    await reconstructionController.reconcile(currentSourcePermitted);
+    await reconstructionController.reconcile(currentSourcePermitted, 'MAINTENANCE_RECONCILIATION');
+    await refreshDurableReveal();
     if (durableMaintenanceRepository.loadReconciliation) setReconciliation(await durableMaintenanceRepository.loadReconciliation());
   }));
   // M2.3 intentionally ships with the server kill switch off. This local-safe
@@ -152,8 +176,11 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
   const [controller] = useState(() => new PhotoAccessController(adapter, setSnapshot, setImportCoverage, sharedRepository, async () => {
     // Import completion makes the owner control available; it never enables it.
     await maintenanceController.refresh();
-    await reconstructionController.rebuild();
-  }));
+    const result = await reconstructionController.rebuild();
+    if (result.status !== 'complete') return false;
+    await refreshDurableReveal();
+    return true;
+  }, () => maintenanceController.whenIdle()));
   const [privateRecordController] = useState(() => new HistoryRecordController(
     sharedRepository,
     async () => { durableRevealGate.invalidate(); await controller.stopImport(); await maintenanceController.stopForLifecycle(); reconstructionController.clear(); setDurableReveal(null); aiProposalController.clear(); },
@@ -165,7 +192,8 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     void controller.refresh();
     void privateRecordController.refresh();
     void maintenanceController.refresh();
-    if (durableMaintenanceRepository.loadReconciliation) void durableMaintenanceRepository.loadReconciliation().then(setReconciliation).catch(() => {
+    if (durableMaintenanceRepository.loadReconciliation) void durableMaintenanceRepository.loadReconciliation().then(setReconciliation).catch((error) => {
+      recordAppDiagnostic({ operation: 'MAINTENANCE_RECONCILIATION', reasonCode: classifyAppDiagnosticError(error), stage: null, retryable: true, durableOutcome: 'failed', correlationId: createDiagnosticCorrelationId() });
       setReconciliation((current) => ({ ...current, status: 'error', message: 'Local update status could not be read. Retry when ready.' }));
     });
     const subscription = AppState.addEventListener('change', (state) => {
@@ -188,25 +216,23 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     }
   }, [maintenance.enabled, maintenanceController, snapshot.scope]);
 
-  const refreshDurableReveal = useCallback(async () => {
-    if (privateRecord.state !== 'connected') throw new Error('Private record is unavailable.');
-    const generation = durableRevealGate.next();
-    const record = await nativeReconstructionRepository.loadDurableReveal();
-    if (!canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state)) throw new Error('Private record is unavailable.');
-    setDurableReveal(record);
-  }, [durableRevealGate, nativeReconstructionRepository, privateRecord.state]);
   const refreshHomeBases = useCallback(async () => {
     const areas = await sharedRepository.loadConfiguredHomeAreas?.() ?? [];
     setHomeBases(areas.map(({ id, label, origin, effectiveStartDay, effectiveEndDay, radiusMeters }) => ({ id, label, origin, effectiveStartDay, effectiveEndDay, radiusMeters })));
   }, [sharedRepository]);
 
   useEffect(() => {
-    if (privateRecord.state !== 'connected' || adapter !== nativePhotoAccess) return;
+    if (privateRecord.state !== 'connected') return;
     const generation = durableRevealGate.next();
     void nativeReconstructionRepository.loadDurableReveal().then((record) => {
       if (canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state)) setDurableReveal(record);
-    }).catch(() => {});
-  }, [adapter, durableRevealGate, nativeReconstructionRepository, privateRecord.state]);
+    }).catch((error) => {
+      if (canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state)) {
+        recordAppDiagnostic({ operation: 'ATLAS_DURABLE_READ', reasonCode: classifyAppDiagnosticError(error), stage: durableRevealFailureStage(error), retryable: true, durableOutcome: 'unchanged', correlationId: createDiagnosticCorrelationId() });
+        setReconstruction((current) => ({ ...current, status: 'error', message: 'The local Atlas could not be read. Try again when ready.' }));
+      }
+    });
+  }, [durableRevealGate, nativeReconstructionRepository, privateRecord.state]);
   useEffect(() => {
     if (privateRecord.state !== 'connected') return;
     let active = true;
@@ -225,8 +251,33 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
   }, [privateRecord, reconstructionController]);
 
   const catchUpHistory = async () => {
-    await reconstructionController.reconcile(currentSourcePermitted);
-    if (durableMaintenanceRepository.loadReconciliation) setReconciliation(await durableMaintenanceRepository.loadReconciliation());
+    // App activation can enqueue local maintenance just before the owner taps
+    // Atlas catch-up. Let that single-runtime writer finish before requesting
+    // the reconstruction lease, rather than racing for SQLite's write lock.
+    reconstructionController.acknowledgeQueuedMaintenanceWait();
+    await maintenanceController.whenIdle();
+    await reconstructionController.reconcile(currentSourcePermitted, 'ATLAS_CATCH_UP');
+    // Reconciliation publishes its own fixed failure state. A follow-up
+    // durable read cannot improve that failure and must not overwrite its
+    // correction/busy diagnosis with a generic Atlas-read error.
+    if (reconstructionController.view.status !== 'complete') return;
+    try {
+      await refreshDurableReveal();
+    } catch (error) {
+      // Preserve the last committed projection. The fixed copy is safe for
+      // Atlas; raw SQLite/native errors never cross this boundary.
+      recordAppDiagnostic({ operation: 'ATLAS_DURABLE_READ', reasonCode: classifyAppDiagnosticError(error), stage: durableRevealFailureStage(error), retryable: true, durableOutcome: 'unchanged', correlationId: createDiagnosticCorrelationId() });
+      setReconstruction((current) => ({ ...current, status: 'error', message: durableRevealFailureMessage(error) }));
+      return;
+    }
+    if (durableMaintenanceRepository.loadReconciliation) {
+      try {
+        setReconciliation(await durableMaintenanceRepository.loadReconciliation());
+      } catch (error) {
+        recordAppDiagnostic({ operation: 'MAINTENANCE_RECONCILIATION', reasonCode: classifyAppDiagnosticError(error), stage: null, retryable: true, durableOutcome: 'unchanged', correlationId: createDiagnosticCorrelationId() });
+        setReconciliation((current) => ({ ...current, status: 'error', message: 'Local update status could not be read. Retry when ready.' }));
+      }
+    }
   };
   const loadJourneyDetail = useCallback(async (displayId: string) => {
     const generation = durableRevealGate.next();
@@ -305,12 +356,45 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     return 'applied';
   }, [nativeReconstructionRepository, privateRecord.state, reconstructionController, refreshDurableReveal]);
   const retryJourneyCorrectionProjection = useCallback(async () => {
-    if (privateRecord.state !== 'connected') throw new Error('Private record is unavailable.');
+    // A dev-client reload renders before the asynchronous lifecycle refresh
+    // finishes. Read the durable lifecycle here so the owner-facing retry is
+    // not rejected merely because React still holds its initial snapshot.
+    const correlationId = createDiagnosticCorrelationId();
+    recordAppDiagnostic({ operation: 'ATLAS_REVEAL_RETRY', reasonCode: 'START', stage: null, retryable: false, durableOutcome: 'unchanged', correlationId });
+    // A completed metadata import itself rebuilds the projection. Do not let
+    // a second owner recheck contend with those local SQLite writes.
+    await controller.whenImportIdle();
+    await maintenanceController.whenIdle();
+    let lifecycle: Awaited<ReturnType<typeof sharedRepository.getPrivateRecordLifecycle>>;
+    try {
+      lifecycle = await sharedRepository.getPrivateRecordLifecycle();
+    } catch (error) {
+      recordAppDiagnostic({ operation: 'ATLAS_REVEAL_RETRY', reasonCode: classifyAppDiagnosticError(error), stage: null, retryable: true, durableOutcome: 'restricted', correlationId });
+      setReconstruction((current) => ({ ...current, status: 'restricted', message: 'Reconnect your private record before retrying Atlas.' }));
+      return false;
+    }
+    durablePublicationRuntime.setLifecycle(lifecycle.state);
+    if (lifecycle.state !== 'connected') {
+      recordAppDiagnostic({ operation: 'ATLAS_REVEAL_RETRY', reasonCode: 'RESTRICTED', stage: null, retryable: true, durableOutcome: 'restricted', correlationId });
+      setReconstruction((current) => ({ ...current, status: 'restricted', message: 'Reconnect your private record before retrying Atlas.' }));
+      return false;
+    }
+    reconstructionController.resume();
     const projection = await reconstructionController.rebuild();
-    if (projection.status !== 'complete') return false;
-    await refreshDurableReveal();
-    return true;
-  }, [privateRecord.state, reconstructionController, refreshDurableReveal]);
+    if (projection.status !== 'complete') {
+      recordAppDiagnostic({ operation: 'ATLAS_REVEAL_RETRY', reasonCode: projection.status === 'failed' ? classifyAppDiagnosticError(projection.error) : 'ALREADY_RUNNING', stage: null, retryable: true, durableOutcome: projection.status === 'failed' ? 'failed' : 'unchanged', correlationId });
+      return false;
+    }
+    try {
+      await refreshDurableReveal();
+      recordAppDiagnostic({ operation: 'ATLAS_REVEAL_RETRY', reasonCode: 'COMPLETE', stage: null, retryable: false, durableOutcome: 'complete', correlationId });
+      return true;
+    } catch (error) {
+      recordAppDiagnostic({ operation: 'ATLAS_REVEAL_RETRY', reasonCode: classifyAppDiagnosticError(error), stage: durableRevealFailureStage(error), retryable: true, durableOutcome: 'failed', correlationId });
+      setReconstruction((current) => ({ ...current, status: 'error', message: durableRevealFailureMessage(error) }));
+      return false;
+    }
+  }, [controller, durablePublicationRuntime, maintenanceController, reconstructionController, refreshDurableReveal, sharedRepository]);
   const saveConfiguredHomeArea = useCallback(async (displayId: string, visitId: string, ownerLabel: string, effectiveStartDay: string | null, effectiveEndDay: string | null) => {
     if (privateRecord.state !== 'connected') throw new Error('Private record is unavailable.');
     await nativeReconstructionRepository.saveConfiguredHomeAreaFromJourney(displayId, `home:${displayId}:${visitId}`, visitId, ownerLabel, effectiveStartDay, effectiveEndDay);

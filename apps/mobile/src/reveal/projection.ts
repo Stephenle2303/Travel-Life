@@ -21,7 +21,11 @@ export function projectReveal(input: RevealInput): RevealModel {
     // A bundled offline resolver may provide a coarse, evidence-derived display
     // label. It is not an owner-presence claim; owner titles stay in detail.
     label: 'label' in journey && typeof journey.label === 'string' && journey.label.length <= 80 ? journey.label : 'Private journey',
-    status: journey.state === 'owner-entered' ? 'Owner-entered' as const : journey.state === 'inferred' ? 'Inferred' as const : 'Needs review' as const,
+    status: journey.state === 'owner-entered'
+      ? 'Owner-entered' as const
+      : 'needsReview' in journey && journey.needsReview
+        ? 'Needs review' as const
+        : journey.state === 'inferred' ? 'Inferred' as const : 'Needs review' as const,
     years: 'years' in journey ? journey.years : [],
     periodLabel: 'periodLabel' in journey ? journey.periodLabel : 'Date unknown',
     ordering: 'ordering' in journey && journey.ordering === 'uncertain' ? 'Order uncertain' as const : 'Chronological' as const,
@@ -33,28 +37,31 @@ export function projectReveal(input: RevealInput): RevealModel {
     : input.sourceScope === 'limited'
       ? `${input.importedCount} records in the selected accessible scope.`
       : 'No accessible source coverage is available yet.';
+  const queuedChangeCount = input.queuedChangeCount ?? Math.max(0, input.pendingCount - (input.unresolvedRemapCount ?? 0));
+  const reviewRequired = (input.unresolvedRemapCount ?? 0) > 0;
+  const pendingUpdates = queuedChangeCount > 0 && !reviewRequired;
 
   if (input.reconstructionStatus === 'restricted' || input.reconciliationStatus === 'restricted' || input.sourceScope === 'denied' || input.sourceScope === 'revoked') {
     return { state: 'restricted', coverage, journeys, statistics: null, replay: { eligible: false, reason: 'Replay is unavailable until local access is restored.' }, message: 'Access is limited. Your last committed private record stays on this device.' };
   }
-  if (input.reconstructionStatus === 'running' || input.reconciliationStatus === 'running' || input.reconciliationStatus === 'pending' || input.pendingCount > 0) {
+  if (input.reconstructionStatus === 'running' || input.reconciliationStatus === 'running') {
     const rebuilding = input.reconstructionStatus === 'running';
     return {
       state: 'processing', coverage, journeys, statistics: null,
       replay: { eligible: false, reason: 'Replay will be available after local updates finish.' },
-      message: rebuilding
+      message: input.reconstructionMessage ?? (rebuilding
         ? 'Rebuilding local journey history. Checking saved evidence and recalculating trips; the map and journeys will refresh automatically when this finishes.'
-        : 'Checking local updates. This record is not final yet; the map and journeys will refresh automatically when this finishes.',
+        : 'Checking local updates. This record is not final yet; the map and journeys will refresh automatically when this finishes.'),
     };
   }
   if (input.reconstructionStatus === 'error' || input.reconciliationStatus === 'error') {
-    return { state: 'failed', coverage, journeys, statistics: null, replay: { eligible: false, reason: 'Replay is unavailable while the local record needs recovery.' }, message: 'The local reveal could not finish. Your last committed record remains available.' };
+    return { state: 'failed', coverage, journeys, statistics: null, pendingUpdates, reviewRequired, replay: { eligible: false, reason: 'Replay is unavailable while the local record needs recovery.' }, message: input.reconstructionMessage ?? 'The local reveal could not finish. Your last committed record remains available.' };
   }
   if (!journeys.length) {
-    return { state: 'sparse', coverage, journeys, statistics: null, diagnostics: input.durableRecord?.diagnostics ?? null, replay: { eligible: false, reason: 'Replay needs at least one supported revealed journey.' }, message: input.durableRecord?.diagnostics ? 'There is not enough supported local evidence to reveal a journey yet.' : 'No completed local reconstruction diagnostics are available yet.' };
+    return { state: 'sparse', coverage, journeys, statistics: null, pendingUpdates, reviewRequired, diagnostics: input.durableRecord?.diagnostics ?? null, replay: { eligible: false, reason: 'Replay needs at least one supported revealed journey.' }, message: input.durableRecord?.diagnostics ? 'There is not enough supported local evidence to reveal a journey yet.' : 'No completed local reconstruction diagnostics are available yet.' };
   }
   const inferredCount = journeys.filter((journey) => journey.status !== 'Owner-entered').length;
-  return { state: 'ready', coverage, journeys, statistics: input.durableRecord?.statistics ?? null, replay: { eligible: inferredCount > 0, reason: inferredCount > 0 ? 'Replay can use only the observed destinations in this private reveal.' : 'Replay needs observed destinations; owner-entered journeys are not evidence.' }, message: 'Available reconstructed journeys are shown as inferred local records. Photo location does not verify your presence.' };
+  return { state: 'ready', coverage, journeys, statistics: input.durableRecord?.statistics ?? null, pendingUpdates, reviewRequired, replay: { eligible: inferredCount > 0, reason: inferredCount > 0 ? 'Replay can use only the observed destinations in this private reveal.' : 'Replay needs observed destinations; owner-entered journeys are not evidence.' }, message: 'Available reconstructed journeys are shown as inferred local records. Photo location does not verify your presence.' };
 }
 
 /** Derives the one safe Atlas state shared by Map and Timeline. */

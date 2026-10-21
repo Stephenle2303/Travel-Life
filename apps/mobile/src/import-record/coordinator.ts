@@ -34,6 +34,10 @@ function checkpointToCoverage(checkpoint: ImportCheckpoint, accessible: number |
   };
 }
 
+function isDatabaseBusy(error: unknown) {
+  return error instanceof Error && (error.message.toLowerCase().includes('database is locked') || error.message.toLowerCase().includes('database busy') || error.message.toLowerCase().includes('sqlite_busy'));
+}
+
 export class ImportCoordinator {
   private current = idleCoverage;
   private serial = 0;
@@ -215,6 +219,10 @@ export class ImportCoordinator {
 
   private async runPages(token: number, initial: ImportCheckpoint, accessible: number | null) {
     let checkpoint: ImportCheckpoint = { ...initial, status: 'running' };
+    // Only this checkpoint has definitely reached durable storage. Keep it so
+    // a failed page write never appears committed and never requires another
+    // write while SQLite is reporting that it is busy.
+    let lastCommitted: ImportCheckpoint = initial;
     this.activeCheckpoint = checkpoint;
     this.set(checkpointToCoverage(checkpoint, accessible));
     try {
@@ -236,15 +244,30 @@ export class ImportCoordinator {
         checkpoint = this.advance(checkpoint, page);
         checkpoint.status = page.length < PAGE_SIZE ? 'complete' : 'running';
         await this.repository.commitPage(checkpoint, page);
+        lastCommitted = checkpoint;
         this.activeCheckpoint = checkpoint;
         if (token !== this.serial) return;
         this.set(checkpointToCoverage(checkpoint, accessible));
         if (checkpoint.status === 'complete') return;
       }
-    } catch {
+    } catch (error) {
       if (token === this.serial) {
-        const paused = { ...checkpoint, status: 'paused' as const };
-        await this.repository.commitPage(paused, []);
+        const paused = { ...lastCommitted, status: 'paused' as const };
+        // A busy commit has made no durable change. Do not immediately submit
+        // a second pause-marker write to the same locked database; preserve
+        // the last durable checkpoint and let the owner retry safely.
+        if (isDatabaseBusy(error)) {
+          this.activeCheckpoint = paused;
+          this.set({ ...checkpointToCoverage(paused, accessible), message: 'Local storage is busy. No metadata page was committed. Retry when ready.' });
+          return;
+        }
+        try {
+          await this.repository.commitPage(paused, []);
+        } catch {
+          this.activeCheckpoint = paused;
+          this.set({ ...checkpointToCoverage(paused, accessible), message: 'Import paused, but its local progress marker could not be saved. Retry when ready.' });
+          return;
+        }
         this.activeCheckpoint = paused;
         if (token === this.serial) this.set({ ...checkpointToCoverage(paused, accessible), message: 'Import paused because the current device-visible scope could not be read.' });
       }

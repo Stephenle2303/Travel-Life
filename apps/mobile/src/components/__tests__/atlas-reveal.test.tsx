@@ -71,6 +71,22 @@ describe('private Atlas reveal', () => {
     expect(model.replay).toEqual({ eligible: false, reason: 'Replay needs observed destinations; owner-entered journeys are not evidence.' });
   });
 
+  it('labels every durable journey related to a pending correction and keeps Edit reachable', async () => {
+    const onEditJourney = jest.fn();
+    const model = modelFor({ durableRecord: { journeys: [
+      { displayId: 'related-one', state: 'inferred', anchor: null, years: [2024], periodLabel: '2024', ordering: 'chronological', needsReview: true },
+      { displayId: 'related-two', state: 'inferred', anchor: null, years: [2024], periodLabel: '2024', ordering: 'chronological', needsReview: true },
+    ] } });
+    expect(model.journeys.map((journey) => journey.status)).toEqual(['Needs review', 'Needs review']);
+    const load = jest.fn(async (id: string) => ({ detail: { id, title: 'Private journey', observedSpan: 'Observed 2024', visits: [], memories: [], uncertainty: [], correctionState: 'pending remap' as const }, previews: [], snapshotToken: 1 }));
+    const view = await render(<AtlasReveal model={model} {...actions} loadJourneyPreview={load} onEditJourney={onEditJourney} />);
+    expect(JSON.stringify(view.toJSON())).toContain('Needs review');
+    await fireEvent.press(view.getAllByRole('button', { name: 'Private journey, 2024' })[0]);
+    await waitFor(() => expect(view.getByText('Needs review')).toBeOnTheScreen());
+    await fireEvent.press(view.getByRole('button', { name: 'Edit trip' }));
+    expect(onEditJourney).toHaveBeenCalledWith('related-one', expect.objectContaining({ selectedJourneyId: 'related-one' }));
+  });
+
   it('emits and restores the exact Atlas context for manual entry', async () => {
     const onManualEntry = jest.fn();
     const view = await render(<AtlasReveal model={modelFor({ durableRecord: { journeys: [{ displayId: 'journey-1', state: 'inferred', anchor: { latitude: 13.7, longitude: 100.5 }, years: [2024], periodLabel: '2024', ordering: 'chronological' }] } })} {...actions} onManualEntry={onManualEntry} initialExploration={{ view: 'timeline', year: 2024, selectedJourneyId: 'journey-1', camera: { center: [100.5, 13.7], zoom: 4 } }} />);
@@ -115,6 +131,17 @@ describe('private Atlas reveal', () => {
     expect(view.getByText('Replay will be available after local updates finish.')).toBeOnTheScreen();
   });
 
+  it('renders fixed reconstruction wait guidance instead of replacing it with generic processing copy', async () => {
+    const view = await render(<AtlasReveal model={modelFor({
+      reconstructionStatus: 'running',
+      reconstructionMessage: 'Waiting for an existing local update to finish. Your last completed Atlas remains available.',
+      reconciliationStatus: 'pending',
+      pendingCount: 1,
+    })} {...actions} />);
+
+    expect(view.getByText('Waiting for an existing local update to finish. Your last completed Atlas remains available.')).toBeOnTheScreen();
+  });
+
   it('keeps Timeline recovery available without a configured native map', async () => {
     const view = await render(<AtlasReveal model={modelFor({ durableRecord: { journeys: [{ displayId: 'unavailable-native', state: 'inferred', anchor: { latitude: 13.7, longitude: 100.5 }, years: [2024], periodLabel: '2024', ordering: 'chronological' }] } })} {...actions} mapAvailable={false} />);
     expect(view.getByTestId('atlas-map-recovery')).toBeOnTheScreen();
@@ -143,13 +170,77 @@ describe('private Atlas reveal', () => {
     expect(JSON.stringify(model)).not.toContain('evidenceId');
   });
 
-  it('states processing is not final and offers a local catch-up', async () => {
-    const view = await render(<AtlasReveal model={modelFor({ reconstructionStatus: 'running', reconciliationStatus: 'running', pendingCount: 1 })} {...actions} />);
+  it('states active processing is not final and disables a duplicate catch-up', async () => {
+    const onCatchUp = jest.fn();
+    const view = await render(<AtlasReveal model={modelFor({ reconstructionStatus: 'running', reconciliationStatus: 'running', pendingCount: 1,
+      durableRecord: { journeys: [{ displayId: 'previous-journey', state: 'inferred', anchor: { latitude: 13.7, longitude: 100.5 }, years: [2024], periodLabel: '2024', ordering: 'chronological' }] },
+    })} {...actions} onCatchUp={onCatchUp} />);
     expect(view.getByLabelText('Local journey rebuild in progress').props.accessibilityState).toMatchObject({ busy: true });
     expect(view.getByText(/Rebuilding local journey history/)).toBeOnTheScreen();
     expect(view.getByText(/will refresh automatically when this finishes/)).toBeOnTheScreen();
-    await fireEvent.press(view.getByRole('button', { name: 'Catch up local journey history' }));
-    expect(actions.onCatchUp).toHaveBeenCalled();
+    expect(view.getByRole('button', { name: 'Local journey history is updating' }).props.accessibilityState).toMatchObject({ disabled: true });
+    expect(view.getByTestId('maplibre-atlas-map')).toBeOnTheScreen();
+    expect(view.getByRole('button', { name: 'Show chronological Timeline' })).toBeOnTheScreen();
+    expect(onCatchUp).not.toHaveBeenCalled();
+  });
+
+  it('offers catch-up for a sparse Atlas with only waiting changes', async () => {
+    const onCatchUp = jest.fn();
+    const model = modelFor({ reconstructionStatus: 'complete', reconciliationStatus: 'pending', pendingCount: 1 });
+    expect(model.state).toBe('sparse');
+    const view = await render(<AtlasReveal model={model} {...actions} onCatchUp={onCatchUp} />);
+    expect(view.getByText('No journey revealed yet.')).toBeOnTheScreen();
+    expect(view.getByText(/Catch up to check whether any journeys can be revealed/)).toBeOnTheScreen();
+    expect(view.queryByText(/Your last completed Atlas remains available/)).toBeNull();
+    expect(view.queryByLabelText('Local journey rebuild in progress')).toBeNull();
+    await fireEvent.press(view.getByRole('button', { name: 'Catch up waiting local journey changes' }));
+    expect(onCatchUp).toHaveBeenCalledTimes(1);
+    expect(view.queryByRole('button', { name: 'Recheck local journey history' })).toBeNull();
+  });
+
+  it('treats queued work as waiting and keeps the completed Atlas usable', async () => {
+    const onCatchUp = jest.fn();
+    const model = modelFor({
+      reconstructionStatus: 'complete', reconciliationStatus: 'pending', pendingCount: 1,
+      durableRecord: { journeys: [{ displayId: 'prior-journey', state: 'inferred', anchor: { latitude: 13.7, longitude: 100.5 }, years: [2024], periodLabel: '2024', ordering: 'chronological' }] },
+    });
+    expect(model.state).toBe('ready');
+    expect(model.pendingUpdates).toBe(true);
+    const view = await render(<AtlasReveal model={model} {...actions} onCatchUp={onCatchUp} />);
+    expect(view.queryByText('Updating your Atlas')).toBeNull();
+    expect(view.getByTestId('maplibre-atlas-map')).toBeOnTheScreen();
+    await fireEvent.press(view.getByRole('button', { name: 'Catch up waiting local journey changes' }));
+    expect(onCatchUp).toHaveBeenCalledTimes(1);
+    expect(view.queryByRole('button', { name: 'Rebuild local journey history' })).toBeNull();
+    expect(view.getByRole('button', { name: 'Add a journey manually' })).toBeOnTheScreen();
+  });
+
+  it('keeps remap-only review distinct from queued catch-up', async () => {
+    const model = modelFor({ reconciliationStatus: 'pending', pendingCount: 2, queuedChangeCount: 0, unresolvedRemapCount: 2 });
+    expect(model.pendingUpdates).toBe(false);
+    expect(model.reviewRequired).toBe(true);
+    const view = await render(<AtlasReveal model={model} {...actions} />);
+    expect(view.getByText(/correction matches need your review/)).toBeOnTheScreen();
+    expect(view.queryByRole('button', { name: 'Catch up waiting local journey changes' })).toBeNull();
+  });
+
+  it('withholds catch-up when queued changes also need correction remap review', async () => {
+    const model = modelFor({ reconciliationStatus: 'pending', pendingCount: 3, queuedChangeCount: 1, unresolvedRemapCount: 2 });
+    expect(model.pendingUpdates).toBe(false);
+    const view = await render(<AtlasReveal model={model} {...actions} />);
+    expect(view.getByText(/choose Edit and Trip accuracy/)).toBeOnTheScreen();
+    expect(view.queryByRole('button', { name: 'Catch up waiting local journey changes' })).toBeNull();
+  });
+
+  it('routes failed queued reconciliation through catch-up rather than rebuild', async () => {
+    const onCatchUp = jest.fn();
+    const onRetry = jest.fn();
+    const model = modelFor({ reconciliationStatus: 'error', pendingCount: 1, queuedChangeCount: 1, unresolvedRemapCount: 0 });
+    const view = await render(<AtlasReveal model={model} {...actions} onCatchUp={onCatchUp} onRetry={onRetry} />);
+    expect(view.queryByRole('button', { name: 'Recheck local journey history' })).toBeNull();
+    await fireEvent.press(view.getByRole('button', { name: 'Catch up waiting local journey changes' }));
+    expect(onCatchUp).toHaveBeenCalledTimes(1);
+    expect(onRetry).not.toHaveBeenCalled();
   });
 
   it('offers reconnect/import for restricted access and retry/manual entry after a failure', async () => {
@@ -167,7 +258,7 @@ describe('private Atlas reveal', () => {
     await waitFor(() => expect(failed.getByRole('button', { name: 'See photos and videos' })).toBeOnTheScreen());
     await fireEvent.press(failed.getByRole('button', { name: 'See photos and videos' }));
     expect(failed.getByTestId('journey-media-album')).toBeOnTheScreen();
-    await fireEvent.press(failed.getByRole('button', { name: 'Retry local reveal' }));
+    await fireEvent.press(failed.getByRole('button', { name: 'Recheck local journey history' }));
     await fireEvent.press(failed.getByRole('button', { name: 'Add a journey manually' }));
     expect(actions.onRetry).toHaveBeenCalled();
     expect(actions.onManualEntry).toHaveBeenCalled();

@@ -80,6 +80,18 @@ Do not send private evidence to a model provider without authorization covering
 that data and processing. Public fixture data must be synthetic or explicitly
 approved for publication.
 
+## Runtime diagnostic logging
+
+Production mobile diagnostics must use `src/diagnostics/app-diagnostics.ts` as
+the sole console boundary. Emit only its closed structured event: operation,
+fixed reason code, fixed stage or null, retryability, durable outcome, and a
+locally generated correlation ID. Classify native errors only in memory; never
+log or render their message, stack, SQL, source/media IDs, place labels,
+coordinates, tokens, lifecycle payloads, or correction data. Expected
+cancellation, stale work, unavailable optional APIs, and already-running work
+must be represented with fixed lifecycle outcomes rather than unexpected-error
+diagnostics.
+
 ## Mandatory error learning
 
 Before implementation or verification, read the index and relevant entries in

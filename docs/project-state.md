@@ -1,5 +1,130 @@
 # Project state
 
+## Consolidated worktree candidate (2026-10-21)
+
+The single candidate branch `codex/worktree-consolidation-2026-10-21` combines
+the existing main WIP and delivery records with explicit dispositions for unique
+worktree history. It preserves named local refs for the original main snapshot,
+dimensional Atlas commit, and detached responsiveness history. Commit
+`a994c9717c1978fe7754d9cd253acd60846e0272` is the locally verified candidate;
+it has not been pushed, merged, or used to retire any worktree. Root checks,
+38 mobile Jest suites / 377 tests, 50 real-SQLite tests, TypeScript, lint, and
+whitespace checks pass. Expo Doctor is 20/21 because of nine pre-existing Expo
+SDK patch mismatches. Independent review workers exhausted their account quota
+before returning findings; direct full-diff audit found no tracked cache/private
+paths or direct production console calls outside the diagnostics boundary. Device
+acceptance for the final bundle remains pending.
+
+## Multi-worktree cleanup planning (2026-10-21)
+
+Read-only Git inventory confirmed five worktrees: main contains 32 modified
+tracked files plus untracked source/tests/specs and a generated Jest cache; all
+four secondary worktrees are clean. Cartography and destination-label branches
+are ancestors of local main. Dimensional Atlas has one unique commit; the detached
+responsiveness worktree has two. Local main is two commits ahead of the cached
+remote ref; remote freshness was not checked. No commit, merge, push or retirement
+was performed. The owner requires one consolidated execution and delivery, with
+one integration branch, combined verification/review, and one final consolidation
+commit for new changes after authorization. Internal preservation, reconciliation,
+verification and retirement steps are not separate stories or approval milestones.
+Existing performance work is accounted for within that same plan; optimization
+remains paused. Plan:
+`_bmad-output/planning-artifacts/worktree-cleanup-plan-2026-10-21.md`.
+
+## Atlas physical-schema compatibility recovery (2026-10-21)
+
+Fresh fixed device diagnostics established that the manual-journey query lacked
+`date_start` despite the schema gate succeeding. A clean-process, aggregate-only
+probe confirmed the incompatible manual table was empty. Its original creation
+cause remains unknown; this does not establish that all mixed WIP came from the
+performance request. Current source uses schema v33; earlier v34 continuity
+notes below are historical and not the authority for current query compatibility.
+
+The shared schema gate now validates the actual manual columns with a zero-row
+query even for current/newer markers. Healthy layouts take no writer. A missing
+table is created; an incompatible empty table is rechecked under the serialized
+writer, retained with its indexes, then replaced with canonical empty manual
+storage and its own date index. Both version markers, evidence, corrections,
+committed projections, and unrelated work are preserved. Populated or uncertain
+layouts and archive conflicts fail closed. No reconstruction/qualification rule,
+performance algorithm, schema version, or private-evidence processing changed.
+
+Verification: 49 real-SQLite integration tests; 38 mobile Jest suites / 373 tests;
+mobile TypeScript/lint; root `npm run check`; source syntax and task whitespace
+checks pass. Independent review found no remaining blockers after preservation
+coverage and native-error classification were strengthened. These results prove
+software/schema contracts, not reconstruction accuracy or faster device timing.
+
+The served recovery module was verified, and the app was reopened through its
+local development URL after final checks. The owner then confirmed: `Atlas loads
+and the recheck completes`. This accepts the repaired Android path. A matching
+fresh terminal event was not returned by the final fixed-log read, so completion
+is owner-confirmed rather than independently demonstrated by that log capture.
+No data reset, reinstall, commit, or push occurred. Performance changes remain paused.
+
+Delivery record: `_bmad-output/implementation-artifacts/spec-atlas-schema-recovery.md`.
+
+## Atlas legacy-continuity recovery (2026-10-20)
+
+Schema v34 takes a one-time local snapshot of V1 journeys that were already in
+the committed projection at the V1.1 boundary. During later reconstruction,
+only a snapshot identity that still exists in the current committed graph can
+join the redacted Atlas, Timeline, detail/media, and aggregate projection;
+new `SUGGESTED`/unconfirmed candidates remain withheld. Catch-up and import
+completion now await the durable Atlas read-back before reporting owner-visible
+success. A failed read keeps the prior projection browseable and uses fixed
+safe recovery copy rather than a raw SQLite/native error. Retry contains both
+the private-record lifecycle read and its promise, emits a fixed `START` marker
+when retry begins, then emits only a coarse terminal category when lifecycle or
+rebuild fails; it never exposes a raw SQLite/native exception or private
+record. Focused retry coverage passed 2 suites / 48 tests; full mobile Jest
+passed 37 suites / 344 tests; mobile TypeScript and lint, root `npm run check`,
+and `git diff --check` pass.
+The Atlas recovery action is intentionally one owner task: sparse and failed
+states both say `Recheck local journey history`; an internal rebuild failure is
+not presented as a separate `Retry local reveal` step. Focused Atlas UI tests
+(32), TypeScript, and lint pass after this wording correction.
+
+**Shared lifecycle/import repair (2026-10-20):** Android media permission is
+still allowed for images and video, but metadata import and Atlas reconstruction
+both depend on the import repository's first local lifecycle read. That
+repository now opens a fresh Expo SQLite native connection after a React reload,
+matching reconstruction's existing handle repair; no private history is
+migrated, reset, or deleted. Focused import/lifecycle/Atlas suites passed 88
+tests; full mobile Jest passed 37 suites / 344 tests, TypeScript, lint, root
+`npm run check`, and `git diff --check` pass. Owner confirmation that the
+existing import action and Atlas recheck work remains required.
+
+**Import/recheck contention repair (2026-10-20):** Device logs confirmed the
+fresh lifecycle path reaches Atlas retry but returned the fixed `DATABASE_BUSY`
+category, indicating a foreground metadata import and Atlas recheck contended
+for SQLite writes. Atlas now waits for the complete owner import (including its
+automatic rebuild) and local maintenance queue before rebuilding. No timing
+coordination is required from the owner. Focused coordination coverage passed
+85 tests; full mobile Jest passed 37 suites / 345 tests, TypeScript, lint, root
+`npm run check`, and `git diff --check` pass. Device confirmation after reload
+is still required.
+
+**Metadata-import recovery (2026-10-20):** Owner feedback exposed a final
+fire-and-forget failure path: a completed import's automatic rebuild could
+reject without an Import-screen response. The whole import operation now emits
+only fixed `START`/terminal diagnostic categories and keeps safe recovery copy
+on failure. Focused import/Atlas coverage passed 86 tests; full mobile Jest
+passed 37 suites / 346 tests, TypeScript, lint, root `npm run check`, and
+`git diff --check` pass. Reload and one owner import tap remain required device
+acceptance evidence.
+**Runtime diagnostic boundary (2026-10-21):** All foreground and maintenance diagnostics now use one local structured boundary with only operation, fixed reason code, optional fixed stage, retryability, durable outcome, and a local correlation ID. Import, Atlas rebuild/catch-up/retry/durable-read, maintenance, and place-save paths use that boundary; direct production console calls are lint failures. Full mobile Jest passed 38 suites / 356 tests; TypeScript, lint, root `npm run check`, and `git diff --check` pass. This establishes safe observable states, not device acceptance: one owner-operated metadata import on the refreshed bundle remains required.
+
+Expo Doctor remains 20/21 because of the pre-existing nine Expo SDK
+patch-version recommendations. Android/iOS owner click-and-wait evidence
+remains required. The earlier Android preflight had restored device `9cb47ed9`
+and Metro `8085/status`; a later reload attempt found Metro stopped, and its
+first restart bound IPv6-only. Metro was restarted with LAN/IPv4 binding and
+now returns `packager-status:running` on 8085; ADB reverse
+`tcp:8085 tcp:8085` and device connection are confirmed. No automated input is
+used. Reload the current bundle and tap Retry once; that result, plus the
+coarse retry diagnostic if it fails, is the required acceptance evidence.
+
 ## M4.2 manual journey entry (2026-10-19)
 
 Owners can now add a private, explicitly owner-entered journey through a local
@@ -8,6 +133,27 @@ reconstruction, evidence, visit-support, and qualification tables. The durable
 Atlas/Timeline/detail projection labels it owner-entered, returns no media or
 fabricated support, survives rebuild reads, and does not alter recovery counts or
 diagnostics. Creation validates the durable read-back before reporting success.
+
+**Schema-open repair (2026-10-20):** Android exposed `no such column:
+date_start` when a v32 private record reached the Manual Journey path through
+the reconstruction repository. That repository had opened the shared SQLite
+file directly, while only the import repository applied v33 migrations. Manual
+Journey operations and the durable Atlas projection now ensure the shared
+schema before reading `manual_journey`; ordinary correction operations retain
+their no-write current-schema startup path. Focused migration/reconciliation
+tests and the full mobile suite pass (37 suites / 332 tests). Device re-open
+and manual-entry confirmation remain required acceptance checks.
+
+**Android SQLite handle repair (2026-10-20):** The next owner retry reached a
+different bare `NativeDatabase.prepareAsync` Java `NullPointerException`.
+The signature matches the active Expo SQLite SDK 57 Android cached-handle issue
+when the React runtime restarts while its process remains alive. Reconstruction
+now opens the shared local database with a fresh native connection; the
+existing process-level transaction gate still serializes its writes with import.
+The regression was demonstrated RED then GREEN; focused tests pass (43), and
+the bounded suite passes 36 of 37 suites / 333 of 334 tests. The remaining
+failure is an unrelated uncommitted reconstruction-controller diagnostic-test
+change. Android retry is the required acceptance check.
 
 The form supports an offline place result or owner label plus deliberate coarse
 point, exact/approximate dates, and an explicit date-range overlap decision. Keep
@@ -1940,3 +2086,196 @@ remains 20/21 due to the existing nine Expo SDK patch-version recommendations.
 Root `npm run check` also passed. Android/iOS device confirmation of the
 create/reconnect-to-manual-entry flow, including visual pending/error feedback,
 remains required.
+
+## Private Atlas reconstruction speed (2026-10-20)
+
+The dense-place minimax representative now scores each candidate once rather
+than recomputing the score for every sort comparison. Link and disposition
+projection writes use bounded multi-row SQLite inserts in the existing atomic
+transaction; neither the inference rules nor the last committed Atlas is
+intentionally changed. Atlas distinguishes a queued local update from an
+operation actually running, so waiting changes can be caught up while the
+committed map and Timeline remain browsable. An active rebuild disables its
+duplicate catch-up action.
+
+Three paired runs on the same synthetic 2,000-record dense-place fixture gave
+baseline/current pure-engine times of 6,454/686, 5,704/750, and 5,875/701 ms;
+the complete graph hash matched in all six runs. This demonstrates an engine
+improvement for that synthetic case, not a measured full-build or device speed.
+Independent review then tightened the SQLite path to stream bounded batches
+rather than retain all links in memory, reject a single oversized row before
+the native bridge, and test exact inserted tuples. Reconciliation now exposes
+separate aggregate queue and unresolved-remap counts, so an owner correction
+that needs review is not presented as a no-op catch-up. A failed queue can
+retry through the queue-consuming action. The final host mobile Jest suite
+passed 37 suites / 332 tests, TypeScript, lint and whitespace validation
+passed, and root `npm run check` passed. Expo Doctor was blocked by registry DNS
+`ENOTFOUND`, so the combined mobile check is not claimed as passing. Android
+ADB listed no attached device; Android/iOS full-rebuild timing and visual
+confirmation remain required. A concurrent, unrelated private-schema migration
+change was preserved in the shared worktree; it was not part of this speed task.
+
+Device acceptance has now started but is not complete. On the connected Android
+development client, the current Atlas bundle showed the waiting state and the
+owner tapped `Catch up locally` once. It entered the updating state, then
+returned to waiting with a failed-reveal message in about 20 seconds. This is
+not a successful full-device speed measurement; the catch-up failure cause is
+still unknown. A focused, privacy-safe diagnostic now logs only a fixed error
+category rather than the raw native exception. Its test went RED then GREEN;
+the full mobile suite passed 37 suites / 334 tests, TypeScript and lint passed,
+and root `npm run check` passed. The private database was not copied for
+diagnostics. Two sandbox-started Metro attempts on port 8085 did not answer
+host status requests; the current checkout now runs through host networking
+and returns `packager-status:running`. ADB still no longer lists the phone, so
+the refreshed diagnostic bundle has not yet run on-device. Next:
+restore USB debugging, load this exact bundle, retry catch-up once, read the
+fixed diagnostic category, fix the identified failure, and only then measure
+the successful rebuild and catch-up latency. No Git commit or push was made.
+
+USB debugging was restored: ADB again lists the authorized Android device,
+and the current host Metro 8085 status endpoint responds. A cold launch now
+shows Expo Dev Launcher with the current 8085 server available, but this phone
+rejects ADB-injected taps (`INJECT_EVENTS`). The owner must select that visible
+server card before the refreshed bundle and catch-up diagnostic can be
+observed; no second catch-up has been triggered yet.
+
+The owner then opened the current Android bundle (1,657 modules, followed by a
+one-module diagnostic refresh) and twice tapped Atlas catch-up on request.
+Both runs entered the updating state but returned to failed/waiting, so neither
+is a successful device speed sample. The first emitted only fixed diagnostic
+code `OWNER_REVIEW`; the second emitted `DATABASE_BUSY`. The former covers two
+protected-correction branches, so a focused RED/GREEN test split the safe
+codes into `HISTORY_REVIEW` and `JOURNEY_REMAP`, but no device run has yet
+identified which branch occurred first. The latter identifies SQLite lock
+contention without identifying its stage or competing writer. No private
+exception text, place, media, or database contents were exported. Owner input
+on automatic-maintenance status is pending. The Atlas queue and last committed
+record remain untouched; the full-device latency claim remains open.
+
+The owner then confirmed automatic maintenance was enabled and its latest local
+check had completed, followed by one more owner-operated retry that again
+reported `DATABASE_BUSY`. This does not prove which writer holds SQLite, but
+it means an active foreground maintenance check is no longer the assumed cause.
+The native reconciliation boundary now returns an internal fixed stage for a
+failure at lease acquisition, queue read, rebuild, outcome read/save, or lease
+release; the controller logs only the fixed error category and stage, never the
+underlying SQLite message. Lease acquisition is included in this boundary and a
+best-effort outcome-state write cannot overwrite the original stage. RED/GREEN
+stage/privacy regressions passed; full mobile Jest passed 37 suites / 338 tests,
+with TypeScript, lint, and root `npm run check` also passing. The refreshed
+Android bundle still needs one owner tap to identify the actual fixed stage,
+after which only the demonstrated contention path should be corrected. No Git
+commit or push was made.
+
+That owner tap reported `DATABASE_BUSY LEASE`: contention occurs before any
+reconstruction work begins. App activation can queue automatic maintenance in
+the same JavaScript runtime just before the visible Atlas action requests its
+own SQLite writer lease. Atlas now waits for that already queued maintenance
+transition before requesting its lease; it does not weaken the lease, retry
+blindly, or change private history. A RED/GREEN coordination regression passed,
+along with focused 67 tests, mobile TypeScript and lint, full mobile Jest (37
+suites / 339 tests), and root `npm run check`. This synchronizes known
+foreground writers only; a new `DATABASE_BUSY LEASE` after the refreshed device
+test would instead point to an OS/native or other external writer. One
+owner-operated catch-up on the refreshed bundle remains required; no Git commit
+or push was made.
+
+The next device retry still emitted `DATABASE_BUSY LEASE`, so foreground
+maintenance coordination alone was insufficient. The reconstruction lease now
+first reads the durable OS-maintenance lease. If an active background task owns
+it, Atlas treats that as the existing safe “another local catch-up is running”
+state and makes no immediate SQLite write, rather than surfacing a failed
+catch-up. The owner can keep browsing the committed Atlas while that task
+finishes. This does not claim every native lock is explained; a repeated busy
+error after this bundle would warrant a separate native-lock investigation.
+Focused tests (52), full mobile Jest (37 suites / 340 tests), TypeScript, lint,
+and root `npm run check` pass. One owner-operated device retry on the refreshed
+bundle remains required; no Git commit or push was made.
+
+The OS-maintenance lease deferral did not yet eliminate a delayed busy outcome.
+The safe diagnostic now separates connection open, maintenance-lease read, and
+reconciliation-lease write. A device retry must report one of those fixed
+stages before altering native SQLite configuration or transaction behavior.
+Focused diagnostic tests, TypeScript, lint, full mobile Jest (37 suites / 340
+tests), and root `npm run check` pass. No private SQLite message is logged,
+exported, or stored in project artifacts.
+
+The refined device result was `DATABASE_BUSY LEASE_WRITE`: no maintenance lease
+was visible initially, but a background task can begin between that read and
+the foreground write. On this exact busy path Atlas now performs one read-only
+recheck for a freshly created maintenance lease. It safely defers if present;
+otherwise it preserves the real busy diagnostic without blind transaction
+retries. Focused tests (53), full mobile Jest (37 suites / 341 tests),
+TypeScript, lint, and root `npm run check` pass. The updated bundle needs one
+owner-operated catch-up confirmation; no Git commit or push was made.
+
+The owner then performed that confirmation after a cold Android restart (force
+stop and relaunch, with no app data cleared). The fixed safe result changed
+from `DATABASE_BUSY LEASE_WRITE` to `JOURNEY_REMAP REBUILD`. This confirms a
+fresh process can open the local database and reach the protected remap check;
+it does not demonstrate a durable automatic recovery for the prior in-process
+native SQLite lock. The remap remains owner-controlled, the committed Atlas is
+still browsable, and no successful rebuild-latency claim is made. The
+process-lifecycle lock remains an open diagnostic; owner correction review is
+separate from performance acceptance.
+
+## Performance scope and private-record regression review (2026-10-20)
+
+The owner reported that, after performance-focused work, metadata import and Atlas/journey reconstruction no longer complete. Review found the active uncommitted change set combines performance changes with schema v34, legacy Atlas continuity, journey qualification/publication changes, SQLite connection lifecycle changes, and correction-remapping behavior. The observed owner-device reconstruction result is `JOURNEY_REMAP REBUILD`, which is an owner-protection gate reached before a new Atlas projection is published; it is not a successful performance result. Metadata-import failure is currently rendered as a safe generic retry message, so its on-device category remains unobserved. Focused synthetic host suites pass (95 tests), but they do not validate the owner's existing private record or correction lineage. Freeze this combined scope; separate recovery/compatibility from performance work and do not alter or clear private history/corrections without an explicit, validated migration plan.
+
+## Performance regression recovery (2026-10-20)
+
+The recovery patch removes the unapproved schema v34 legacy-continuity migration and the corresponding Atlas qualification bypass. Devices already carrying the additive v34 marker are treated as forward-compatible and are not downgraded or re-migrated; the unused table is ignored. Import returns to the original cached connection model, while the reconstruction-only fresh connection for the verified Android released-handle failure remains. A completed metadata import now remains explicitly complete even if the follow-up protected Atlas rebuild needs recovery; the current committed Atlas stays available. The correction-remap safeguard remains intact: it still requires owner review rather than discarding or remapping a correction automatically. Focused recovery checks passed (111 tests), along with mobile typecheck, lint, and whitespace validation. Android owner validation is still required before this is considered repaired: import metadata once, then open/rebuild Atlas and confirm the committed journeys remain visible; report only the fixed diagnostic state if it fails.
+
+The first owner retry exposed a separate acknowledgement defect: Import waited for the lifecycle/database read before rendering any state, so the tap appeared inert while SQLite was delayed. Import now synchronously says `Starting local metadata import…`, disables duplicate start, and renders a preparing state until page import reports progress. A delayed-lifecycle regression plus owner-flow/provider tests (42), typecheck, lint, and whitespace validation pass. The Android bundle must be refreshed before a retry; the prior bundle cannot show this correction.
+
+The next recovery refinement closes a terminal-state gap: lifecycle or SQLite-read failures can be deliberately represented by the import coordinator as a durable paused/blocked coverage state rather than a rejected promise. The controller now replaces the immediate `Starting…` acknowledgement with a safe `paused` retry or `blocked` access message for both full and selected imports, and emits only a fixed diagnostic category. A regression covers a normal initial lifecycle read followed by a protected locked-read pause and confirms private native text is not surfaced. Focused controller/owner/provider tests pass (43); Android owner validation after a bundle refresh remains required. A same-session read-only ADB attempt could not connect to the host daemon, so no on-device error code was captured and no private data was read.
+
+The owner then reported `database busy` from Import. The demonstrated same-runtime race is app activation queuing automatic maintenance while the owner can immediately start a metadata import against the same SQLite file. Full and selected imports now preserve their immediate acknowledgement but wait for that queued maintenance transition before their first repository read/write. This is serialization of a known writer, not a blind SQLite retry: the native busy timeout remains the boundary for a separate/native writer, and no private record, correction, lease, or metadata was changed to recover. A regression proves Import cannot read a metadata page before the maintenance wait settles; focused maintenance/import/provider tests (46), typecheck, lint, whitespace, the complete mobile Jest command, and root `npm run check` pass. The only remaining validation is one owner retry on a refreshed bundle.
+
+That owner retry still reported `database busy`, proving the queued maintenance writer is not sufficient explanation. Recovery inspection found that a busy page commit caused the import coordinator to immediately attempt a second SQLite write merely to save a pause marker. It now retains the last confirmed durable checkpoint, performs no second write after a busy result, excludes the uncommitted page from counts, and presents a safe paused retry state. A regression verifies exactly one attempted write, no retained source, and no rejection when a page commit is busy; focused coordinator/controller/provider suites pass (63). The active external/native writer is still unproven. The next required evidence is one owner retry only after fully stopping and reopening the Android app on a refreshed bundle; no data clear, correction deletion, or Supabase change is justified.
+
+Metadata import subsequently ran, but owner-triggered Atlas catch-up built failed. This is a separate reconciliation path and does not discard the prior committed Atlas. The first live failure did not expose its fixed category on screen, while a same-session read-only ADB diagnostic could not start/connect the host daemon. Catch-up now gives privacy-safe owner guidance for busy local storage, journey-correction remap review, history-correction review, schema recovery, or access; it never includes native error text or private record data. Focused reconstruction/Atlas/provider tests (60), typecheck, lint, and whitespace pass. Reload this bundle and report the fixed on-screen guidance before any reconstruction rule, correction, schema, or native connection change.
+
+The first retry after that change still appeared inert because Catch up waited for an already queued maintenance operation before handing control to reconstruction. Atlas now acknowledges the tap immediately with a waiting notice while preserving the prior committed journeys; it neither claims reconstruction has begun nor takes a writer lease until maintenance settles. A regression proves the acknowledgement does not call rebuild; focused reconstruction/provider/Atlas/maintenance tests (63), typecheck, lint, and whitespace pass. Reload the bundle and tap once: the screen must first show the waiting notice, then complete or expose the fixed safe cause.
+
+That acknowledgement was initially still invisible because the Atlas reveal projection replaced controller text with generic status copy. The projection now preserves the fixed owner-safe reconstruction message for running and error states, and both Atlas and Replay pass it through. A UI regression confirms the queued-maintenance waiting text renders; focused Atlas/controller/provider tests (62), typecheck, lint, and whitespace pass. A refreshed owner tap should now show the waiting state immediately before it either completes or presents the safe cause; no database or correction data has been changed.
+
+The refreshed action now reaches `Updating your Atlas` but then showed a generic durable-read error. Source tracing found `catchUpHistory` could overwrite an already classified reconciliation outcome while attempting a post-rebuild durable Atlas reload. It now preserves any non-complete reconciliation result; if only the durable read fails after a complete reconciliation, it reports a fixed safe storage/schema/connection/access category and retains the last committed Atlas. Reconciliation-status reads are separately recoverable. Focused provider/controller/Atlas tests (62), typecheck, lint, and whitespace pass. One refreshed owner retry must provide the fixed on-screen category before any more targeted repair.
+
+## Runtime diagnostic logging contract (2026-10-20)
+
+Mobile runtime diagnostics now use one local typed console boundary. Every migrated event carries a closed operation and reason code, fixed reconciliation stage or null, retryability, durable outcome, and a locally generated non-record-derived correlation ID. Rebuild, catch-up, metadata import, durable reads, reveal retry, OS maintenance, and journey-place saves no longer log raw native error text; the correction save UI now retains only safe recovery copy. Production mobile lint rejects direct `console` calls outside that boundary. Focused host checks cover structured shape, private-sentinel redaction, import/retry terminal paths, and paused background maintenance. This is local development diagnostics only; it does not send or persist diagnostic events remotely.
+
+Continuation audit added startup reconciliation-status and durable-read error events plus maintenance-controller failure events, so those recoverable UI states no longer discard their fixed cause. The Journey Edit regression suite now holds the unrelated shared reduced-motion lookup pending and no longer emits its React `act(...)` warning. Focused Journey Edit, the complete mobile Jest suite (38 suites / 357 tests), TypeScript, lint, root `npm run check`, and `git diff --check` pass. Device acceptance remains unnecessary for this logging-only change.
+
+## Nonblocking journey-correction remap (2026-10-21)
+
+Final committed-graph ambiguity no longer rolls back an otherwise valid Atlas reconstruction. The local transaction retains the correction as a pending remap candidate, commits and acknowledges the evidence-derived graph, and marks every current displayed journey supported by the reviewed evidence as `Needs review`. The compact label is visible in the Timeline and selected Atlas preview, where the existing Edit → Trip accuracy review flow remains the protected owner action. Structural and pre-final support-validation failures remain fail-closed. Focused reconciliation/Atlas/correction tests passed; final static and repository checks remain to be recorded after this in-progress worktree settles.
+
+**Android startup transport recovery (2026-10-21):** The development app was unable to load because Metro was no longer listening on the configured Android port `8085`, not because of an observed import, Atlas, or private-record failure. A sandbox restart was rejected as invalid when the host status request timed out. Metro is now running from the host and `127.0.0.1:8085/status` returns `packager-status:running`; Android device `9cb47ed9` is connected with `tcp:8085` reverse restored. No app data was cleared or changed. Owner reload acceptance remains required before interpreting any later app screen failure as a bundle/runtime defect.
+
+**Atlas native-lock recovery (2026-10-21):** The refreshed device then reported local storage busy while Atlas updates. This is treated as an in-process native SQLite lock recurrence; current runtime coordination already waits for foreground maintenance/import and checks the durable maintenance lease, but cannot prove an orphaned native handle has released. The connected Travel Life package was force-stopped and relaunched without clearing any storage, import state, correction, or Atlas history. One owner-operated catch-up on the fresh process is the remaining evidence before any further reconstruction or database change.
+
+**Nonblocking correction-remap gap correction (2026-10-21):** Owner evidence exposed that a saved reviewable journey correction still blocked before the final graph because baseline/confirmed mappers used the former fail-closed path. Those intermediate maps now retain ambiguous `confirm`, `claim`, and `place` corrections as pending candidates; Atlas commits and labels every supported current journey `Needs review`. Grouping/structural corrections (`reject`, `split`, `merge`, `remove-visit`) remain protected and fail closed. Focused reconciliation/controller tests (59), mobile TypeScript, lint, and root `npm run check` pass. One fresh-bundle owner Catch up locally action must confirm the durable Atlas and label.
+
+**Direct Atlas schema gate correction (2026-10-21):** The owner then reached the fixed safe schema-recovery state. Investigation found `reconcileQueued → rebuild` could begin a direct writer before `ensureNativeImportSchema`, despite Atlas durable-read already being gated. Direct rebuild now runs the additive local schema gate before its own transaction, while caller-owned correction transactions remain untouched. The regression asserts this call order; focused reconciliation/controller tests (60), mobile TypeScript, lint, and root `npm run check` pass. One owner Catch up locally on the refreshed bundle remains required; no private storage was reset or read externally.
+
+**Queued reconciliation schema gate correction (2026-10-21):** The same schema-recovery state repeated, proving the direct rebuild gate was too late. `reconcileQueued` reads versioned maintenance/reconciliation leases before it calls rebuild, so it now gates schema immediately after opening the native connection and before all lease reads/writes. Direct-rebuild gating remains for other entry points. The regression locks this earlier ordering; focused reconciliation/controller tests (61), mobile TypeScript, lint, and root `npm run check` pass. A refreshed owner catch-up is required; no local history, correction, or import state was cleared.
+
+**Schema-recovery recurrence and scope audit (2026-10-21):** The owner reports the same failure again and disputes isolation of the performance work. Runtime recovery is open, superseding any reading of the previous source corrections as a completed device fix. Current source includes both gates, but this audit has not established the installed bundle or failing schema object/stage. The performance spec forbids changing graph/correction rules; current WIP mixes multiple delivery records and cannot be attributed wholesale to that request. Next work must establish bundle and fixed-stage evidence, exercise retained-schema migration with synthetic real SQLite, and isolate any repair from unrelated performance/correction changes. This party audit changed documentation only; no runtime checks or device operations were performed.
+
+## Consolidation candidate (2026-10-21)
+
+The complete recovery candidate now lives on
+`codex/worktree-consolidation-2026-10-21`, based on local main
+`36458951cb11ca8b384053400e15841b240dccf3`. Named refs preserve the detached
+responsiveness source, dimensional Atlas source, baseline main, and the full
+captured main WIP (including its untracked-content parent) before restoration.
+Current source is the behavioral baseline: retained-schema recovery, owner
+correction review, durable Atlas/media continuity, and privacy-safe diagnostics
+must not be replaced by older worktree implementations. The generated root Jest
+cache is ignored and remains local-only. Automated checks and owner-operated
+device flows are recorded against the final candidate commit; no publish,
+worktree retirement, data reset, or performance claim is authorized by this
+consolidation record.

@@ -1,7 +1,16 @@
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { AccessibilityInfo } from 'react-native';
 import { JourneyEditHub, JourneyLocationTask } from '@/components/journey-edit';
 
 const detail = { id: 'trip-1', title: 'Private journey', observedSpan: 'Observed 2022', visits: [], memories: [], uncertainty: [] };
+
+beforeEach(() => {
+  // Journey Edit does not assert motion behavior. Keep the shared hook's
+  // platform preference lookup unresolved so this suite never schedules a
+  // state update after its renderer act boundary.
+  jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockReturnValue(new Promise<boolean>(() => {}));
+});
+afterEach(() => { jest.restoreAllMocks(); });
 
 describe('Journey Edit flow', () => {
   it('keeps the five focused tasks in the shared Edit hub', async () => {
@@ -31,16 +40,19 @@ describe('Journey Edit flow', () => {
     await waitFor(() => expect(view.getByText(/not been verified/)).toBeOnTheScreen());
   });
 
-  it('keeps the repository rejection visible instead of masking it as a verification failure', async () => {
-    const logged = jest.spyOn(console, 'error').mockImplementation();
+  it('redacts a repository rejection and emits only a fixed correction-save diagnostic', async () => {
+    const logged = jest.spyOn(console, 'info').mockImplementation();
     try {
-      const view = await render(<JourneyLocationTask id="trip-1" load={async () => ({ detail, snapshotToken: 3 })} save={async () => { throw new Error('Review is stale. Reload the journey before saving.'); }} retryProjection={async () => false} onBack={jest.fn()} onApplied={jest.fn()} />);
+      const privateSentinel = 'private-native-place-sentinel';
+      const view = await render(<JourneyLocationTask id="trip-1" load={async () => ({ detail, snapshotToken: 3 })} save={async () => { throw new Error(privateSentinel); }} retryProjection={async () => false} onBack={jest.fn()} onApplied={jest.fn()} />);
       await waitFor(() => expect(view.getByLabelText('Search a place to confirm')).toBeOnTheScreen());
       fireEvent.changeText(view.getByLabelText('Search a place to confirm'), 'Phú Quốc');
       await fireEvent.press(await view.findByRole('button', { name: /Select place Phú Quốc/ }));
       await fireEvent.press(view.getByRole('button', { name: 'Confirm place' }));
-      await waitFor(() => expect(view.getByText(/Review is stale\. Reload the journey before saving\./)).toBeOnTheScreen());
-      expect(logged).toHaveBeenCalledWith('journey-place-save-failed', 'Review is stale. Reload the journey before saving.');
+      await waitFor(() => expect(view.getByText(/Could not save this place\. Your prior journey remains available/)).toBeOnTheScreen());
+      expect(logged).toHaveBeenCalledWith('[Travel Life diagnostic]', expect.objectContaining({ operation: 'JOURNEY_PLACE_SAVE', reasonCode: 'SAVE_FAILED', stage: null, retryable: true, durableOutcome: 'unchanged' }));
+      expect(JSON.stringify(logged.mock.calls)).not.toContain(privateSentinel);
+      expect(view.queryByText(privateSentinel)).toBeNull();
     } finally { logged.mockRestore(); }
   });
 });

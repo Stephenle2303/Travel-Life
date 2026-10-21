@@ -1,4 +1,6 @@
 import { maintenanceTaskName } from './scheduler';
+import { classifyAppDiagnosticError, createDiagnosticCorrelationId, recordAppDiagnostic } from '@/diagnostics/app-diagnostics';
+import { ReconciliationStageError } from '@/reconstruction/repository';
 
 // This module is imported by the root layout. Native task registration remains
 // at module scope; the handler creates no providers and mounts no UI.
@@ -6,6 +8,7 @@ try {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const taskManager = require('expo-task-manager') as { defineTask(name: string, handler: () => Promise<unknown>): void };
   taskManager.defineTask(maintenanceTaskName, async () => {
+    const correlationId = createDiagnosticCorrelationId();
     // Loading native media/SQLite bridges happens only in an OS-invoked task,
     // never when the React tree or web test harness imports this module.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -26,8 +29,12 @@ try {
           return access?.scope === 'full' || access?.scope === 'limited';
         });
       }
-      catch { return backgroundTask.BackgroundTaskResult.Failed; }
+      catch (error) {
+        recordAppDiagnostic({ operation: 'MAINTENANCE_RECONCILIATION', reasonCode: classifyAppDiagnosticError(error), stage: error instanceof ReconciliationStageError ? error.stage : null, retryable: true, durableOutcome: 'failed', correlationId });
+        return backgroundTask.BackgroundTaskResult.Failed;
+      }
     }
+    if (result !== 'complete') recordAppDiagnostic({ operation: 'MAINTENANCE_RECONCILIATION', reasonCode: result === 'paused' ? 'PAUSED' : 'RESTRICTED', stage: null, retryable: result === 'paused', durableOutcome: result === 'paused' ? 'paused' : 'restricted', correlationId });
     return result === 'complete' ? backgroundTask.BackgroundTaskResult.Success : backgroundTask.BackgroundTaskResult.Failed;
   });
 } catch {

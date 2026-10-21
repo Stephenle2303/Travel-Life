@@ -1,0 +1,1081 @@
+diff --git "a/C:\\Users\\vothi\\Desktop\\Travel Life\\apps\\mobile\\.jest-cache-codex\\schema-recovery-baseline\\repository.ts" "b/C:\\Users\\vothi\\Desktop\\Travel Life\\apps\\mobile\\src\\reconstruction\\repository.ts"
+index ec3b83b..34e3384 100644
+--- "a/C:\\Users\\vothi\\Desktop\\Travel Life\\apps\\mobile\\.jest-cache-codex\\schema-recovery-baseline\\repository.ts"	
++++ "b/C:\\Users\\vothi\\Desktop\\Travel Life\\apps\\mobile\\src\\reconstruction\\repository.ts"	
+@@ -29,6 +29,45 @@ type VisitRemoval = { visitId: string };
+ const RECONCILIATION_LEASE_MILLIS = 5 * 60 * 1000;
+ export type ReconciliationStage = 'LEASE_OPEN' | 'MAINTENANCE_LEASE_READ' | 'LEASE_WRITE' | 'QUEUE_READ' | 'REBUILD' | 'OUTCOME_READ' | 'OUTCOME_SAVE' | 'LEASE_RELEASE';
+ 
++export type DurableRevealStage =
++  | 'DURABLE_OPEN' | 'DURABLE_SCHEMA' | 'DURABLE_LIFECYCLE_READ' | 'DURABLE_RUN_READ'
++  | 'DURABLE_MANUAL_READ' | 'DURABLE_JOURNEY_READ' | 'DURABLE_COUNTRY_READ'
++  | 'DURABLE_OWNER_PLACE_READ' | 'DURABLE_STATISTICS_READ' | 'DURABLE_DIAGNOSTICS_READ'
++  | 'DURABLE_DESTINATION_READ' | 'DURABLE_CORRECTION_READ' | 'DURABLE_FAMILY_READ'
++  | 'DURABLE_SUPPORT_READ' | 'DURABLE_PROJECTION'
++  | 'DURABLE_MANUAL_EMPTY_LAYOUT' | 'DURABLE_MANUAL_RETAINED_LAYOUT';
++
++const manualSchemaFailureStages = {
++  manual_id: 'DURABLE_MANUAL_ID_FIELD', command_key: 'DURABLE_MANUAL_COMMAND_FIELD',
++  owner_label: 'DURABLE_MANUAL_LABEL_FIELD', owner_context: 'DURABLE_MANUAL_CONTEXT_FIELD',
++  latitude: 'DURABLE_MANUAL_LATITUDE_FIELD', longitude: 'DURABLE_MANUAL_LONGITUDE_FIELD',
++  date_kind: 'DURABLE_MANUAL_DATE_KIND_FIELD', date_start: 'DURABLE_MANUAL_START_FIELD', date_end: 'DURABLE_MANUAL_END_FIELD',
++} as const;
++export type DurableRevealDiagnosticStage = DurableRevealStage | typeof manualSchemaFailureStages[keyof typeof manualSchemaFailureStages] | 'DURABLE_MANUAL_TABLE';
++
++/** Native detail stays in memory; only the fixed stage crosses diagnostics. */
++export class DurableRevealStageError extends Error {
++  constructor(readonly stage: DurableRevealStage, readonly originalError: unknown) {
++    super('Local Atlas read did not finish.');
++    this.name = 'DurableRevealStageError';
++  }
++}
++
++export function durableRevealFailureStage(error: unknown): DurableRevealDiagnosticStage | null {
++  if (!(error instanceof DurableRevealStageError)) return null;
++  if (error.stage === 'DURABLE_MANUAL_READ' && error.originalError instanceof Error) {
++    // Recognize only known schema signatures in memory. Neither the parsed
++    // identifier nor the native message is returned or sent to diagnostics.
++    const message = error.originalError.message.toLowerCase();
++    if (/no such table:\s*manual_journey\b/.test(message)) return 'DURABLE_MANUAL_TABLE';
++    const field = /no such column:\s*(?:manual_journey\.)?([a-z_]+)\b/.exec(message)?.[1];
++    if (field && Object.prototype.hasOwnProperty.call(manualSchemaFailureStages, field)) {
++      return manualSchemaFailureStages[field as keyof typeof manualSchemaFailureStages];
++    }
++  }
++  return error.stage;
++}
++
+ /** Carries an internal, fixed processing stage without exposing a native SQLite error to the UI log. */
+ export class ReconciliationStageError extends Error {
+   constructor(readonly stage: ReconciliationStage, readonly originalError: unknown) {
+@@ -1284,19 +1323,28 @@ export function createNativeReconstructionRepository() {
+     /** Reads only coarse map anchors and journey state from the committed run.
+      * Source/evidence IDs, dates, and raw coordinates stay inside this query. */
+     async loadDurableReveal(): Promise<DurableRevealRecord> {
+-      const db = await open();
+-      // Atlas includes owner-entered journeys, so this is also a valid first
+-      // entry point on a device that has not opened the import repository.
+-      await ensureNativeImportSchema(db);
+-      const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
+-      if (lifecycle?.state !== 'connected') throw new Error('Private record is not connected.');
+-      const completed = await db.getFirstAsync<{ run_id: number }>('SELECT MAX(run_id) AS run_id FROM reconstruction_run WHERE status = \'complete\'');
+-      if (!completed?.run_id) {
+-        const manualRows = await db.getAllAsync<ManualRow>('SELECT manual_id, command_key, owner_label, owner_context, latitude, longitude, date_kind, date_start, date_end FROM manual_journey ORDER BY date_start DESC, manual_id DESC');
+-        const manualJourneys = manualRows.filter((row) => typeof row.manual_id === 'string' && typeof row.owner_label === 'string' && typeof row.owner_context === 'string' && typeof row.date_start === 'string' && typeof row.date_end === 'string' && (row.date_kind === 'exact' || row.date_kind === 'approximate')).map((row) => ({ displayId: `manual:${row.manual_id}`, state: 'owner-entered' as const, anchor: coarseMapAnchor(row.latitude, row.longitude), years: [Number(row.date_start.slice(0, 4))], periodLabel: row.date_kind === 'exact' ? row.date_start : `${row.date_start} to ${row.date_end} (approximate)`, ordering: 'chronological' as const, label: `${row.owner_label} · ${row.owner_context}`, locationKind: 'owner-entered' as const }));
+-        return { journeys: manualJourneys, statistics: null };
+-      }
+-      const rows = await db.getAllAsync<{ journey_id: string; run_id: number; journey_state: 'inferred' | 'possible-merge'; latitude: number | null; longitude: number | null; display_ordinal: number; year: number | null; ordering: 'chronological' | 'uncertain'; first_year: number | null; last_year: number | null; first_day: string | null; last_day: string | null }>(`
++      let stage: DurableRevealStage = 'DURABLE_OPEN';
++      let db: Database | null = null;
++      try {
++        db = await open();
++        // Atlas includes owner-entered journeys, so this is also a valid first
++        // entry point on a device that has not opened the import repository.
++        stage = 'DURABLE_SCHEMA';
++        await ensureNativeImportSchema(db);
++        stage = 'DURABLE_LIFECYCLE_READ';
++        const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
++        if (lifecycle?.state !== 'connected') throw new Error('Private record is not connected.');
++        stage = 'DURABLE_RUN_READ';
++        const completed = await db.getFirstAsync<{ run_id: number }>('SELECT MAX(run_id) AS run_id FROM reconstruction_run WHERE status = \'complete\'');
++        if (!completed?.run_id) {
++          stage = 'DURABLE_MANUAL_READ';
++          const manualRows = await db.getAllAsync<ManualRow>('SELECT manual_id, command_key, owner_label, owner_context, latitude, longitude, date_kind, date_start, date_end FROM manual_journey ORDER BY date_start DESC, manual_id DESC');
++          stage = 'DURABLE_PROJECTION';
++          const manualJourneys = manualRows.filter((row) => typeof row.manual_id === 'string' && typeof row.owner_label === 'string' && typeof row.owner_context === 'string' && typeof row.date_start === 'string' && typeof row.date_end === 'string' && (row.date_kind === 'exact' || row.date_kind === 'approximate')).map((row) => ({ displayId: `manual:${row.manual_id}`, state: 'owner-entered' as const, anchor: coarseMapAnchor(row.latitude, row.longitude), years: [Number(row.date_start.slice(0, 4))], periodLabel: row.date_kind === 'exact' ? row.date_start : `${row.date_start} to ${row.date_end} (approximate)`, ordering: 'chronological' as const, label: `${row.owner_label} · ${row.owner_context}`, locationKind: 'owner-entered' as const }));
++          return { journeys: manualJourneys, statistics: null };
++        }
++        stage = 'DURABLE_JOURNEY_READ';
++        const rows = await db.getAllAsync<{ journey_id: string; run_id: number; journey_state: 'inferred' | 'possible-merge'; latitude: number | null; longitude: number | null; display_ordinal: number; year: number | null; ordering: 'chronological' | 'uncertain'; first_year: number | null; last_year: number | null; first_day: string | null; last_day: string | null }>(`
+         WITH journey_anchor AS (
+           SELECT journey_link.parent_id AS journey_id, MIN(visit.visit_id) AS visit_id
+           FROM reconstruction_link journey_link
+@@ -1342,9 +1390,12 @@ export function createNativeReconstructionRepository() {
+         FROM numbered_journeys LEFT JOIN journey_years ON journey_years.journey_id = numbered_journeys.journey_id
+         ORDER BY numbered_journeys.display_ordinal, journey_years.year
+       `, completed.run_id);
+-      const manualRows = await db.getAllAsync<ManualRow>('SELECT manual_id, command_key, owner_label, owner_context, latitude, longitude, date_kind, date_start, date_end FROM manual_journey ORDER BY date_start DESC, manual_id DESC');
+-      const manualJourneys = manualRows.filter((row) => typeof row.manual_id === 'string' && typeof row.owner_label === 'string' && typeof row.owner_context === 'string' && typeof row.date_start === 'string' && typeof row.date_end === 'string' && (row.date_kind === 'exact' || row.date_kind === 'approximate')).map((row) => ({ displayId: `manual:${row.manual_id}`, state: 'owner-entered' as const, anchor: coarseMapAnchor(row.latitude, row.longitude), years: [Number(row.date_start.slice(0, 4))], periodLabel: row.date_kind === 'exact' ? row.date_start : `${row.date_start} to ${row.date_end} (approximate)`, ordering: 'chronological' as const, label: `${row.owner_label} · ${row.owner_context}`, locationKind: 'owner-entered' as const }));
+-      const countryRows = await db.getAllAsync<{ journey_id: string; country_code: string }>(`
++        stage = 'DURABLE_MANUAL_READ';
++        const manualRows = await db.getAllAsync<ManualRow>('SELECT manual_id, command_key, owner_label, owner_context, latitude, longitude, date_kind, date_start, date_end FROM manual_journey ORDER BY date_start DESC, manual_id DESC');
++        stage = 'DURABLE_PROJECTION';
++        const manualJourneys = manualRows.filter((row) => typeof row.manual_id === 'string' && typeof row.owner_label === 'string' && typeof row.owner_context === 'string' && typeof row.date_start === 'string' && typeof row.date_end === 'string' && (row.date_kind === 'exact' || row.date_kind === 'approximate')).map((row) => ({ displayId: `manual:${row.manual_id}`, state: 'owner-entered' as const, anchor: coarseMapAnchor(row.latitude, row.longitude), years: [Number(row.date_start.slice(0, 4))], periodLabel: row.date_kind === 'exact' ? row.date_start : `${row.date_start} to ${row.date_end} (approximate)`, ordering: 'chronological' as const, label: `${row.owner_label} · ${row.owner_context}`, locationKind: 'owner-entered' as const }));
++        stage = 'DURABLE_COUNTRY_READ';
++        const countryRows = await db.getAllAsync<{ journey_id: string; country_code: string }>(`
+         SELECT DISTINCT journey_link.parent_id AS journey_id, place.country_code
+         FROM reconstruction_link journey_link
+         JOIN reconstruction_visit visit ON visit.run_id = journey_link.run_id AND visit.visit_id = journey_link.child_id
+@@ -1354,25 +1405,27 @@ export function createNativeReconstructionRepository() {
+           AND qualification.classification IN ('AUTO_CONFIRMED', 'USER_CONFIRMED')
+           AND place.country_dataset_version = ? AND place.country_code IS NOT NULL
+       `, completed.run_id, NATURAL_EARTH_ADMIN_0_DATASET_VERSION);
+-      const ownerPlaceRows = await db.getAllAsync<{ journey_id: string; owner_place_name: string; owner_place_context: string; owner_latitude: number; owner_longitude: number }>(`
++        stage = 'DURABLE_OWNER_PLACE_READ';
++        const ownerPlaceRows = await db.getAllAsync<{ journey_id: string; owner_place_name: string; owner_place_context: string; owner_latitude: number; owner_longitude: number }>(`
+         SELECT application.journey_id, revision.owner_place_name, revision.owner_place_context, revision.owner_latitude, revision.owner_longitude
+         FROM journey_correction_application application
+         JOIN journey_correction_revision revision ON revision.revision_id = application.revision_id
+         WHERE application.run_id = ? AND application.target_kind = 'journey'
+           AND revision.action = 'place' AND revision.state = 'effective'
+         ORDER BY revision.created_at_millis DESC`, completed.run_id);
+-      const ownerPlaceByJourney = new Map<string, { name: string; context: string; latitude: number; longitude: number }>();
+-      for (const row of ownerPlaceRows) {
+-        if (!ownerPlaceByJourney.has(row.journey_id) && row.owner_place_name && row.owner_place_context && Number.isFinite(row.owner_latitude) && Number.isFinite(row.owner_longitude)) {
+-          ownerPlaceByJourney.set(row.journey_id, { name: row.owner_place_name, context: row.owner_place_context, latitude: row.owner_latitude, longitude: row.owner_longitude });
++        const ownerPlaceByJourney = new Map<string, { name: string; context: string; latitude: number; longitude: number }>();
++        for (const row of ownerPlaceRows) {
++          if (!ownerPlaceByJourney.has(row.journey_id) && row.owner_place_name && row.owner_place_context && Number.isFinite(row.owner_latitude) && Number.isFinite(row.owner_longitude)) {
++            ownerPlaceByJourney.set(row.journey_id, { name: row.owner_place_name, context: row.owner_place_context, latitude: row.owner_latitude, longitude: row.owner_longitude });
++          }
+         }
+-      }
+-      const labelsByJourney = new Map<string, string[]>();
+-      for (const row of countryRows) {
+-        const name = countryDisplayName(row.country_code);
+-        if (name) labelsByJourney.set(row.journey_id, [...new Set([...(labelsByJourney.get(row.journey_id) ?? []), name])].sort());
+-      }
+-      const statistics = await db.getFirstAsync<{ journey_count: number; place_count: number; country_count: number; resolved_count: number }>(`
++        const labelsByJourney = new Map<string, string[]>();
++        for (const row of countryRows) {
++          const name = countryDisplayName(row.country_code);
++          if (name) labelsByJourney.set(row.journey_id, [...new Set([...(labelsByJourney.get(row.journey_id) ?? []), name])].sort());
++        }
++        stage = 'DURABLE_STATISTICS_READ';
++        const statistics = await db.getFirstAsync<{ journey_count: number; place_count: number; country_count: number; resolved_count: number }>(`
+         WITH qualified_destinations AS (
+           SELECT DISTINCT visit.place_id
+           FROM reconstruction_link journey_visit
+@@ -1389,11 +1442,12 @@ export function createNativeReconstructionRepository() {
+           (SELECT COUNT(DISTINCT place.country_code) FROM qualified_destinations destination JOIN reconstruction_place place ON place.run_id = ? AND place.place_id = destination.place_id WHERE place.country_code IS NOT NULL AND place.country_dataset_version = ?) AS country_count,
+           (SELECT COUNT(*) FROM qualified_destinations destination JOIN reconstruction_place place ON place.run_id = ? AND place.place_id = destination.place_id WHERE place.country_dataset_version = ?) AS resolved_count
+       `, completed.run_id, completed.run_id, completed.run_id, NATURAL_EARTH_ADMIN_0_DATASET_VERSION, completed.run_id, NATURAL_EARTH_ADMIN_0_DATASET_VERSION);
+-      const diagnostics = await db.getFirstAsync<{
+-        assessed: number; supported: number; places: number; visits: number;
+-        missing_day: number; invalid_day: number; unavailable: number;
+-        duplicate_conflict: number; insufficient_location: number; excluded: number;
+-      }>(`
++        stage = 'DURABLE_DIAGNOSTICS_READ';
++        const diagnostics = await db.getFirstAsync<{
++          assessed: number; supported: number; places: number; visits: number;
++          missing_day: number; invalid_day: number; unavailable: number;
++          duplicate_conflict: number; insufficient_location: number; excluded: number;
++        }>(`
+         SELECT
+           COUNT(*) AS assessed,
+           COALESCE(SUM(CASE WHEN disposition_state = 'supported' THEN 1 ELSE 0 END), 0) AS supported,
+@@ -1407,55 +1461,74 @@ export function createNativeReconstructionRepository() {
+           COALESCE(SUM(CASE WHEN reasons_json = '["owner-excluded"]' THEN 1 ELSE 0 END), 0) AS excluded
+         FROM reconstruction_disposition WHERE run_id = ?
+       `, completed.run_id, completed.run_id, completed.run_id);
+-      const journeys = new Map<string, DurableRevealRecord['journeys'][number]>();
+-      const destinationLabels = await readDestinationLabels(db, completed.run_id);
+-      const pendingReviewJourneys = new Set<string>();
+-      const pendingCandidates = (await db.getAllAsync<{ revision_id: string; reviewed_support_json: string; reviewed_family_snapshot_json: string | null }>(
+-        `SELECT candidate.revision_id, revision.reviewed_support_json, revision.reviewed_family_snapshot_json
++        const journeys = new Map<string, DurableRevealRecord['journeys'][number]>();
++        stage = 'DURABLE_DESTINATION_READ';
++        const destinationLabels = await readDestinationLabels(db, completed.run_id);
++        const pendingReviewJourneys = new Set<string>();
++        stage = 'DURABLE_CORRECTION_READ';
++        const pendingCandidates = (await db.getAllAsync<{ revision_id: string; reviewed_support_json: string; reviewed_family_snapshot_json: string | null }>(
++          `SELECT candidate.revision_id, revision.reviewed_support_json, revision.reviewed_family_snapshot_json
+          FROM journey_correction_candidate candidate
+          JOIN journey_correction_revision revision ON revision.revision_id = candidate.revision_id
+          WHERE candidate.state = 'pending_remap'`,
+-      )) ?? [];
+-      if (pendingCandidates.length) {
+-        const familyRows = await db.getAllAsync<EvidenceRow>('SELECT evidence_id, captured_at_millis, captured_day, has_precise_offset, availability, latitude, longitude, reported_accuracy_meters, platform_duplicate_family_id, source_origin, support_eligible, duplicate_tuple_version, duplicate_tuple_fingerprint FROM canonical_evidence');
+-        const families = resolveVerifiedDuplicateFamilies(familyRows ?? []);
+-        const supportRows = await db.getAllAsync<{ journey_id: string; evidence_id: string }>(`
++        )) ?? [];
++        if (pendingCandidates.length) {
++          stage = 'DURABLE_FAMILY_READ';
++          const familyRows = await db.getAllAsync<EvidenceRow>('SELECT evidence_id, captured_at_millis, captured_day, has_precise_offset, availability, latitude, longitude, reported_accuracy_meters, platform_duplicate_family_id, source_origin, support_eligible, duplicate_tuple_version, duplicate_tuple_fingerprint FROM canonical_evidence');
++          const families = resolveVerifiedDuplicateFamilies(familyRows ?? []);
++          stage = 'DURABLE_SUPPORT_READ';
++          const supportRows = await db.getAllAsync<{ journey_id: string; evidence_id: string }>(`
+           SELECT DISTINCT journey.parent_id AS journey_id, support.child_id AS evidence_id
+           FROM reconstruction_link journey
+           JOIN reconstruction_link support ON support.run_id = journey.run_id
+             AND support.link_kind = 'visit-support' AND support.parent_id = journey.child_id
+           WHERE journey.run_id = ? AND journey.link_kind = 'journey-visit'`, completed.run_id);
+-        const journeysByEvidence = new Map<string, Set<string>>();
+-        for (const support of supportRows) {
+-          const ids = journeysByEvidence.get(support.evidence_id) ?? new Set<string>();
+-          ids.add(support.journey_id); journeysByEvidence.set(support.evidence_id, ids);
++          const journeysByEvidence = new Map<string, Set<string>>();
++          for (const support of supportRows) {
++            const ids = journeysByEvidence.get(support.evidence_id) ?? new Set<string>();
++            ids.add(support.journey_id); journeysByEvidence.set(support.evidence_id, ids);
++          }
++          for (const candidate of pendingCandidates) {
++            try {
++              const reviewed = JSON.parse(candidate.reviewed_support_json) as unknown;
++              if (!Array.isArray(reviewed) || !reviewed.every((key): key is string => typeof key === 'string')) continue;
++              const snapshots = correctionFamilySnapshots(candidate.reviewed_family_snapshot_json, candidate.revision_id);
++              for (const key of reviewed) for (const journeyId of journeysByEvidence.get(resolveReviewedSupportKey(key, candidate.revision_id, snapshots, families)) ?? []) pendingReviewJourneys.add(journeyId);
++            } catch {
++              // A malformed candidate remains protected but cannot be attached to
++              // a current journey without a verified support mapping.
++            }
++          }
++        }
++        stage = 'DURABLE_PROJECTION';
++        displayedJourneys.clear();
++        for (const row of rows) {
++          const displayId = opaqueJourneyDisplayId(row.journey_id);
++          displayedJourneys.set(displayId, { runId: row.run_id, journeyId: row.journey_id });
++          const existing = journeys.get(displayId);
++          if (existing) { if (row.year !== null) existing.years.push(row.year); continue; }
++          const names = labelsByJourney.get(row.journey_id) ?? [];
++          const supportedLabel = destinationLabels.get(row.journey_id);
++          const ownerPlace = ownerPlaceByJourney.get(row.journey_id);
++          const label = ownerPlace ? `${ownerPlace.name}, ${ownerPlace.context}` : supportedLabel && supportedLabel !== 'Private journey' ? supportedLabel : names.length === 1 ? names[0] : names.length === 2 ? `${names[0]} & ${names[1]}` : names.length > 2 ? 'Multi-country trip' : 'Private journey';
++          journeys.set(displayId, { displayId, state: row.journey_state, anchor: ownerPlace ? coarseMapAnchor(ownerPlace.latitude, ownerPlace.longitude) : coarseMapAnchor(row.latitude, row.longitude), years: row.year === null ? [] : [row.year], periodLabel: monthRangeLabel(row.first_day, row.last_day, row.first_year, row.last_year), ordering: row.ordering, label, locationKind: ownerPlace ? 'owner-confirmed' : 'inferred', needsReview: pendingReviewJourneys.has(row.journey_id) });
+         }
+-        for (const candidate of pendingCandidates) {
++        return { journeys: [...journeys.values(), ...manualJourneys], statistics: statistics ? { journeyCount: statistics.journey_count, placeCount: statistics.place_count, supportedCountryCount: statistics.country_count, countryStatus: statistics.resolved_count === statistics.place_count ? 'supported' : 'unavailable' } : null,
++          diagnostics: diagnostics ? { assessed: diagnostics.assessed, supported: diagnostics.supported, places: diagnostics.places, visits: diagnostics.visits, missingDay: diagnostics.missing_day, invalidDay: diagnostics.invalid_day, unavailable: diagnostics.unavailable, duplicateConflict: diagnostics.duplicate_conflict, insufficientLocation: diagnostics.insufficient_location, excluded: diagnostics.excluded } : null };
++      } catch (error) {
++        if (db && stage === 'DURABLE_MANUAL_READ' && error instanceof Error && error.message.toLowerCase().includes('no such column')) {
+           try {
+-            const reviewed = JSON.parse(candidate.reviewed_support_json) as unknown;
+-            if (!Array.isArray(reviewed) || !reviewed.every((key): key is string => typeof key === 'string')) continue;
+-            const snapshots = correctionFamilySnapshots(candidate.reviewed_family_snapshot_json, candidate.revision_id);
+-            for (const key of reviewed) for (const journeyId of journeysByEvidence.get(resolveReviewedSupportKey(key, candidate.revision_id, snapshots, families)) ?? []) pendingReviewJourneys.add(journeyId);
++            // Only row presence is inspected. No owner-entered value leaves
++            // SQLite, and this diagnostic path never repairs or writes data.
++            const manualCount = await db.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM manual_journey');
++            if (manualCount?.count === 0) stage = 'DURABLE_MANUAL_EMPTY_LAYOUT';
++            else if (manualCount && manualCount.count > 0) stage = 'DURABLE_MANUAL_RETAINED_LAYOUT';
+           } catch {
+-            // A malformed candidate remains protected but cannot be attached to
+-            // a current journey without a verified support mapping.
++            // A failed optional probe must not mask the original read error.
+           }
+         }
++        throw new DurableRevealStageError(stage, error);
+       }
+-      displayedJourneys.clear();
+-      for (const row of rows) {
+-        const displayId = opaqueJourneyDisplayId(row.journey_id);
+-        displayedJourneys.set(displayId, { runId: row.run_id, journeyId: row.journey_id });
+-        const existing = journeys.get(displayId);
+-        if (existing) { if (row.year !== null) existing.years.push(row.year); continue; }
+-        const names = labelsByJourney.get(row.journey_id) ?? [];
+-        const supportedLabel = destinationLabels.get(row.journey_id);
+-        const ownerPlace = ownerPlaceByJourney.get(row.journey_id);
+-        const label = ownerPlace ? `${ownerPlace.name}, ${ownerPlace.context}` : supportedLabel && supportedLabel !== 'Private journey' ? supportedLabel : names.length === 1 ? names[0] : names.length === 2 ? `${names[0]} & ${names[1]}` : names.length > 2 ? 'Multi-country trip' : 'Private journey';
+-        journeys.set(displayId, { displayId, state: row.journey_state, anchor: ownerPlace ? coarseMapAnchor(ownerPlace.latitude, ownerPlace.longitude) : coarseMapAnchor(row.latitude, row.longitude), years: row.year === null ? [] : [row.year], periodLabel: monthRangeLabel(row.first_day, row.last_day, row.first_year, row.last_year), ordering: row.ordering, label, locationKind: ownerPlace ? 'owner-confirmed' : 'inferred', needsReview: pendingReviewJourneys.has(row.journey_id) });
+-      }
+-      return { journeys: [...journeys.values(), ...manualJourneys], statistics: statistics ? { journeyCount: statistics.journey_count, placeCount: statistics.place_count, supportedCountryCount: statistics.country_count, countryStatus: statistics.resolved_count === statistics.place_count ? 'supported' : 'unavailable' } : null,
+-        diagnostics: diagnostics ? { assessed: diagnostics.assessed, supported: diagnostics.supported, places: diagnostics.places, visits: diagnostics.visits, missingDay: diagnostics.missing_day, invalidDay: diagnostics.invalid_day, unavailable: diagnostics.unavailable, duplicateConflict: diagnostics.duplicate_conflict, insufficientLocation: diagnostics.insufficient_location, excluded: diagnostics.excluded } : null };
+     },
+     async rebuild(nowMillis = Date.now(), consumeQueuedChanges = false, canUseSource: () => Promise<boolean> = async () => true, transactionAlreadyOpen = false): Promise<ReconstructionGraph> {
+       const db = await open();
+diff --git "a/C:\\Users\\vothi\\Desktop\\Travel Life\\apps\\mobile\\.jest-cache-codex\\schema-recovery-baseline\\provider.tsx" "b/C:\\Users\\vothi\\Desktop\\Travel Life\\apps\\mobile\\src\\photo-access\\provider.tsx"
+index 92e2287..f196868 100644
+--- "a/C:\\Users\\vothi\\Desktop\\Travel Life\\apps\\mobile\\.jest-cache-codex\\schema-recovery-baseline\\provider.tsx"	
++++ "b/C:\\Users\\vothi\\Desktop\\Travel Life\\apps\\mobile\\src\\photo-access\\provider.tsx"	
+@@ -8,6 +8,7 @@ import type { OwnerPreview, PhotoAccessAdapter, PhotoAccessSnapshot } from './ty
+ import { createNativeImportRepository, type ImportCoverage, type ImportRepository, type MaintenanceRepository, type ReconciliationSnapshot, type ManualJourneyInput } from '@/import-record';
+ import { MaintenanceController, createExpoScheduler, type MaintenanceView } from '@/maintenance';
+ import { createNativeReconstructionRepository, ReconstructionController, type ReconstructionView } from '@/reconstruction';
++import { durableRevealFailureStage } from '@/reconstruction/repository';
+ import { AiProposalController, type AiReviewView } from '@/ai';
+ import { classifyAppDiagnosticError, createDiagnosticCorrelationId, recordAppDiagnostic } from '@/diagnostics/app-diagnostics';
+ import type { DurableRevealRecord, JourneyDetail, JourneyMediaPage } from '@/reveal/types';
+@@ -227,7 +228,7 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
+       if (canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state)) setDurableReveal(record);
+     }).catch((error) => {
+       if (canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state)) {
+-        recordAppDiagnostic({ operation: 'ATLAS_DURABLE_READ', reasonCode: classifyAppDiagnosticError(error), stage: null, retryable: true, durableOutcome: 'unchanged', correlationId: createDiagnosticCorrelationId() });
++        recordAppDiagnostic({ operation: 'ATLAS_DURABLE_READ', reasonCode: classifyAppDiagnosticError(error), stage: durableRevealFailureStage(error), retryable: true, durableOutcome: 'unchanged', correlationId: createDiagnosticCorrelationId() });
+         setReconstruction((current) => ({ ...current, status: 'error', message: 'The local Atlas could not be read. Try again when ready.' }));
+       }
+     });
+@@ -265,7 +266,7 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
+     } catch (error) {
+       // Preserve the last committed projection. The fixed copy is safe for
+       // Atlas; raw SQLite/native errors never cross this boundary.
+-      recordAppDiagnostic({ operation: 'ATLAS_DURABLE_READ', reasonCode: classifyAppDiagnosticError(error), stage: null, retryable: true, durableOutcome: 'unchanged', correlationId: createDiagnosticCorrelationId() });
++      recordAppDiagnostic({ operation: 'ATLAS_DURABLE_READ', reasonCode: classifyAppDiagnosticError(error), stage: durableRevealFailureStage(error), retryable: true, durableOutcome: 'unchanged', correlationId: createDiagnosticCorrelationId() });
+       setReconstruction((current) => ({ ...current, status: 'error', message: durableRevealFailureMessage(error) }));
+       return;
+     }
+@@ -389,7 +390,7 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
+       recordAppDiagnostic({ operation: 'ATLAS_REVEAL_RETRY', reasonCode: 'COMPLETE', stage: null, retryable: false, durableOutcome: 'complete', correlationId });
+       return true;
+     } catch (error) {
+-      recordAppDiagnostic({ operation: 'ATLAS_REVEAL_RETRY', reasonCode: classifyAppDiagnosticError(error), stage: null, retryable: true, durableOutcome: 'failed', correlationId });
++      recordAppDiagnostic({ operation: 'ATLAS_REVEAL_RETRY', reasonCode: classifyAppDiagnosticError(error), stage: durableRevealFailureStage(error), retryable: true, durableOutcome: 'failed', correlationId });
+       setReconstruction((current) => ({ ...current, status: 'error', message: durableRevealFailureMessage(error) }));
+       return false;
+     }
+diff --git "a/C:\\Users\\vothi\\Desktop\\Travel Life\\apps\\mobile\\.jest-cache-codex\\schema-recovery-baseline\\app-diagnostics.ts" "b/C:\\Users\\vothi\\Desktop\\Travel Life\\apps\\mobile\\src\\diagnostics\\app-diagnostics.ts"
+index 2b38d14..ac78ec5 100644
+--- "a/C:\\Users\\vothi\\Desktop\\Travel Life\\apps\\mobile\\.jest-cache-codex\\schema-recovery-baseline\\app-diagnostics.ts"	
++++ "b/C:\\Users\\vothi\\Desktop\\Travel Life\\apps\\mobile\\src\\diagnostics\\app-diagnostics.ts"	
+@@ -1,4 +1,4 @@
+-import type { ReconciliationStage } from '@/reconstruction/repository';
++import type { DurableRevealDiagnosticStage, ReconciliationStage } from '@/reconstruction/repository';
+ 
+ export type AppDiagnosticOperation =
+   | 'ATLAS_REBUILD'
+@@ -38,7 +38,7 @@ export type AppDiagnosticOutcome = 'complete' | 'unchanged' | 'paused' | 'blocke
+ export type AppDiagnosticEvent = Readonly<{
+   operation: AppDiagnosticOperation;
+   reasonCode: AppDiagnosticReasonCode;
+-  stage: ReconciliationStage | null;
++  stage: ReconciliationStage | DurableRevealDiagnosticStage | null;
+   retryable: boolean;
+   durableOutcome: AppDiagnosticOutcome;
+   correlationId: string;
+@@ -58,6 +58,7 @@ export function classifyAppDiagnosticError(error: unknown): AppDiagnosticReasonC
+     ? (error as Error & { originalError?: unknown }).originalError
+     : error;
+   if (!(source instanceof Error)) return 'UNKNOWN';
++  if (source.name === 'LocalAtlasSchemaRecoveryError') return 'SCHEMA';
+   const message = source.message.toLowerCase();
+   if (message.includes('no such column') || message.includes('no such table')) return 'SCHEMA';
+   if (message.includes('nullpointerexception') || message.includes('released native handle')) return 'NATIVE_HANDLE';
+diff --git "a/C:\\Users\\vothi\\Desktop\\Travel Life\\apps\\mobile\\.jest-cache-codex\\schema-recovery-baseline\\app-diagnostics.test.ts" "b/C:\\Users\\vothi\\Desktop\\Travel Life\\apps\\mobile\\src\\components\\__tests__\\app-diagnostics.test.ts"
+index 17c8fbf..b35bcf2 100644
+--- "a/C:\\Users\\vothi\\Desktop\\Travel Life\\apps\\mobile\\.jest-cache-codex\\schema-recovery-baseline\\app-diagnostics.test.ts"	
++++ "b/C:\\Users\\vothi\\Desktop\\Travel Life\\apps\\mobile\\src\\components\\__tests__\\app-diagnostics.test.ts"	
+@@ -1,6 +1,33 @@
+-import { createDiagnosticCorrelationId, recordAppDiagnostic } from '@/diagnostics/app-diagnostics';
++import { classifyAppDiagnosticError, createDiagnosticCorrelationId, recordAppDiagnostic } from '@/diagnostics/app-diagnostics';
++import { DurableRevealStageError, durableRevealFailureStage } from '@/reconstruction/repository';
+ 
+ describe('app diagnostics', () => {
++  it.each([
++    ['no such table: manual_journey', 'DURABLE_MANUAL_TABLE'],
++    ['no such column: date_start', 'DURABLE_MANUAL_START_FIELD'],
++    ['no such column: manual_journey.date_end', 'DURABLE_MANUAL_END_FIELD'],
++    ['no such column: owner_context', 'DURABLE_MANUAL_CONTEXT_FIELD'],
++    ['no such column: private_unknown_field', 'DURABLE_MANUAL_READ'],
++    ['no such column: date_start_extra', 'DURABLE_MANUAL_READ'],
++  ])('classifies known manual schema signatures without exposing native detail: %s', (message, stage) => {
++    const error = new DurableRevealStageError('DURABLE_MANUAL_READ', new Error(`${message}; private-sentinel`));
++    expect(durableRevealFailureStage(error)).toBe(stage);
++    expect(classifyAppDiagnosticError(error)).toBe('SCHEMA');
++    expect(error.message).not.toContain('private-sentinel');
++  });
++  it('keeps native schema detail in memory while reporting only the closed durable stage', () => {
++    const log = jest.spyOn(console, 'info').mockImplementation(() => {});
++    try {
++      const error = new DurableRevealStageError('DURABLE_OWNER_PLACE_READ', new Error('no such column: private_place_name SELECT secret_source_ref'));
++      expect(error.message).toBe('Local Atlas read did not finish.');
++      expect(classifyAppDiagnosticError(error)).toBe('SCHEMA');
++      expect(durableRevealFailureStage(new Error('DURABLE_OWNER_PLACE_READ'))).toBeNull();
++      expect(durableRevealFailureStage({ stage: 'DURABLE_OWNER_PLACE_READ', originalError: error.originalError })).toBeNull();
++      recordAppDiagnostic({ operation: 'ATLAS_DURABLE_READ', reasonCode: classifyAppDiagnosticError(error), stage: durableRevealFailureStage(error), retryable: true, durableOutcome: 'unchanged', correlationId: createDiagnosticCorrelationId() });
++      expect(log.mock.calls[0][1]).toMatchObject({ reasonCode: 'SCHEMA', stage: 'DURABLE_OWNER_PLACE_READ' });
++      expect(JSON.stringify(log.mock.calls)).not.toMatch(/private_place_name|SELECT|secret_source_ref|originalError/);
++    } finally { log.mockRestore(); }
++  });
+   it('emits only the fixed structured event shape', () => {
+     const log = jest.spyOn(console, 'info').mockImplementation(() => {});
+     try {
+diff --git "a/C:\\Users\\vothi\\Desktop\\Travel Life\\apps\\mobile\\.jest-cache-codex\\schema-recovery-baseline\\import-repository.ts" "b/C:\\Users\\vothi\\Desktop\\Travel Life\\apps\\mobile\\src\\import-record\\repository.ts"
+index 7c8eb44..d5b824d 100644
+--- "a/C:\\Users\\vothi\\Desktop\\Travel Life\\apps\\mobile\\.jest-cache-codex\\schema-recovery-baseline\\import-repository.ts"	
++++ "b/C:\\Users\\vothi\\Desktop\\Travel Life\\apps\\mobile\\src\\import-record\\repository.ts"	
+@@ -663,7 +663,7 @@ const migrationV32 = `
+ // Manual assertions deliberately do not reuse reconstruction_journey, visit,
+ // evidence, qualification, or correction rows.  They can therefore survive a
+ // replacement reconstruction without acquiring fabricated support.
+-const migrationV33 = `
++const manualJourneyTableSchema = `
+   CREATE TABLE IF NOT EXISTS manual_journey (
+     manual_id TEXT PRIMARY KEY NOT NULL,
+     command_key TEXT NOT NULL UNIQUE,
+@@ -676,6 +676,10 @@ const migrationV33 = `
+     date_end TEXT NOT NULL,
+     created_at_millis INTEGER NOT NULL
+   );
++`;
++
++const migrationV33 = `
++  ${manualJourneyTableSchema}
+   CREATE INDEX IF NOT EXISTS manual_journey_dates ON manual_journey (date_start, date_end);
+   UPDATE private_history_record SET schema_version = 33 WHERE record_id = 1;
+ `;
+@@ -690,6 +694,65 @@ type MaintenanceCheckpointRow = { scope: Extract<ImportScope, 'full' | 'limited'
+ type SourceRow = { modified_at_millis: number | null; availability: SourceCandidate['availability']; platform_duplicate_family_id?: string | null; duplicate_tuple_fingerprint?: string | null };
+ type ReconciliationStateRow = { status: ReconciliationSnapshot['status']; last_checked_at_millis: number | null; last_updated_at_millis: number | null; new_journey_count: number; updated_journey_count: number; message: string | null; queued_change_count: number; unresolved_remap_count: number };
+ 
++export class LocalAtlasSchemaRecoveryError extends Error {
++  constructor() {
++    super('Local Atlas schema recovery could not finish.');
++    this.name = 'LocalAtlasSchemaRecoveryError';
++  }
++}
++
++const retainedManualTable = 'manual_journey_retained_schema';
++type ManualLayout = 'current' | 'missing' | 'incompatible';
++
++async function readManualLayout(db: SqliteDatabase): Promise<ManualLayout> {
++  try {
++    // Preparing a zero-row query validates physical columns without reading
++    // owner values or trusting a potentially retained newer version marker.
++    await db.getAllAsync('SELECT manual_id, command_key, owner_label, owner_context, latitude, longitude, date_kind, date_start, date_end, created_at_millis FROM manual_journey LIMIT 0');
++    return 'current';
++  } catch (error) {
++    if (!(error instanceof Error)) throw error;
++    const message = error.message.toLowerCase();
++    if (/no such table:\s*manual_journey\b/.test(message)) return 'missing';
++    if (message.includes('no such column:')) return 'incompatible';
++    throw error;
++  }
++}
++
++async function assertEmptyManualRecovery(db: SqliteDatabase, layout: Exclude<ManualLayout, 'current'>) {
++  if (layout === 'incompatible') {
++    const rows = await db.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM manual_journey');
++    if (rows?.count !== 0) throw new LocalAtlasSchemaRecoveryError();
++  }
++  const archive = await db.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM sqlite_master WHERE name = ?', retainedManualTable);
++  if (archive?.count !== 0) throw new LocalAtlasSchemaRecoveryError();
++}
++
++async function ensureManualJourneyLayout(db: SqliteDatabase) {
++  const layout = await readManualLayout(db);
++  if (layout === 'current') return;
++  await assertEmptyManualRecovery(db, layout);
++  await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
++  try {
++    // Another writer may have repaired the table or populated it while this
++    // connection waited for its serialized writer turn. Recheck both facts.
++    const lockedLayout = await readManualLayout(db);
++    if (lockedLayout !== 'current') {
++      await assertEmptyManualRecovery(db, lockedLayout);
++      if (lockedLayout === 'incompatible') await db.execAsync(`ALTER TABLE manual_journey RENAME TO ${retainedManualTable}`);
++      await db.execAsync(manualJourneyTableSchema);
++      // The original date index remains attached to the archived empty table.
++      // A distinct fixed name creates an actual index on the canonical table.
++      await db.execAsync('CREATE INDEX manual_journey_recovery_dates ON manual_journey (date_start, date_end)');
++    }
++    await db.execAsync('COMMIT');
++  } catch (error) {
++    try { await db.execAsync('ROLLBACK'); }
++    catch { /* Preserve the primary failure if rollback also fails. */ }
++    throw error;
++  }
++}
++
+ /** Ensures independently opened repositories read the current private schema. */
+ export async function ensureNativeImportSchema(db: SqliteDatabase) {
+   let currentSchema: SchemaRow | null = null;
+@@ -701,7 +764,10 @@ export async function ensureNativeImportSchema(db: SqliteDatabase) {
+   // A device may retain an abandoned newer marker from a removed experimental
+   // migration. Its additive tables are harmless; never try to downgrade or
+   // rerun the full migration chain during a normal Atlas/import entry.
+-  if ((currentSchema?.version ?? 0) >= CURRENT_SCHEMA_VERSION) return;
++  if ((currentSchema?.version ?? 0) >= CURRENT_SCHEMA_VERSION) {
++    await ensureManualJourneyLayout(db);
++    return;
++  }
+   await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
+   try {
+     await db.execAsync('CREATE TABLE IF NOT EXISTS import_schema_version (version INTEGER NOT NULL)');
+@@ -747,6 +813,7 @@ export async function ensureNativeImportSchema(db: SqliteDatabase) {
+     await db.execAsync('ROLLBACK');
+     throw error;
+   }
++  await ensureManualJourneyLayout(db);
+ }
+ 
+ const DUPLICATE_TUPLE_VERSION = 1;
+diff --git "a/C:\\Users\\vothi\\Desktop\\Travel Life\\apps\\mobile\\.jest-cache-codex\\schema-recovery-baseline\\photo-access-provider.test.tsx" "b/C:\\Users\\vothi\\Desktop\\Travel Life\\apps\\mobile\\src\\components\\__tests__\\photo-access-provider.test.tsx"
+index a6e0b08..0a84bf3 100644
+--- "a/C:\\Users\\vothi\\Desktop\\Travel Life\\apps\\mobile\\.jest-cache-codex\\schema-recovery-baseline\\photo-access-provider.test.tsx"	
++++ "b/C:\\Users\\vothi\\Desktop\\Travel Life\\apps\\mobile\\src\\components\\__tests__\\photo-access-provider.test.tsx"	
+@@ -1,11 +1,13 @@
+ import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+-import { AppState, type AppStateStatus } from 'react-native';
++import { AppState, Text, type AppStateStatus } from 'react-native';
+ 
+ import ManualJourneyRoute from '@/app/manual-journey';
+ import { EmptyAtlasScreen, ImportScreen } from '@/components/mobile-screens';
+ import { canPublishJourneyDetail, hasVerifiedOwnerPlace, isCurrentDurableRevealRead, PhotoAccessProvider, usePhotoAccess, verifiedOwnerPlaceDisplayId } from '@/photo-access/provider';
+ import type { PermissionSnapshot, PhotoAccessAdapter } from '@/photo-access/types';
+ import type { ImportRepository } from '@/import-record';
++import { DurableRevealStageError } from '@/reconstruction/repository';
++import type { DurableRevealRecord } from '@/reveal/types';
+ 
+ const mockRouterPush = jest.fn();
+ jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockRouterPush, replace: jest.fn() }) }));
+@@ -40,7 +42,66 @@ const emptyRepository: ImportRepository = {
+   saveCorrectionOverlay: async () => {},
+ };
+ 
++function stagedFailureRepository(loadDurableReveal: () => Promise<DurableRevealRecord>) {
++  const graph = { ruleVersion: 'reconstruction-v1' as const, places: [], visits: [], journeys: [], possibleMerges: [], dispositions: [], memberships: [] };
++  return {
++    loadDurableReveal,
++    loadJourneyDetail: async () => ({ detail: null as never, previewSourceRefs: [], snapshotToken: 7 }),
++    loadJourneyMediaPage: async () => ({ items: [], previewSourceRefs: [], hasMore: false }),
++    loadUncertainMemories: async () => ({ memories: [], hasMore: false }),
++    saveJourneyCorrection: async () => ({ revisionId: 'synthetic-revision', state: 'confirmed' as const, graph }),
++    saveJourneyMemoryCorrection: async () => ({ revisionId: 'synthetic-memory', graph }),
++    discardJourneyCorrectionPending: async () => ({ graph }),
++    markJourneyCorrectionPending: async () => {},
++    saveConfiguredHomeAreaFromJourney: async () => {},
++    rebuild: jest.fn(async () => graph),
++    reconcileQueued: jest.fn(async () => ({ graph, newJourneyCount: 0, updatedJourneyCount: 0 })),
++  };
++}
++
+ describe('photo access provider and Import screen', () => {
++  for (const action of ['startup', 'catch-up', 'retry'] as const) {
++    it(`keeps the prior Atlas and emits only fixed durable-read diagnostics after ${action} failure`, async () => {
++      let access!: ReturnType<typeof usePhotoAccess>;
++      const sentinel = 'synthetic-private-durable-error-sentinel';
++      const error = new DurableRevealStageError('DURABLE_OWNER_PLACE_READ', new Error(`no such column: ${sentinel}`));
++      const prior: DurableRevealRecord = { journeys: [{ displayId: 'retained-display', state: 'inferred', anchor: { latitude: 1, longitude: 2 }, years: [2020], periodLabel: '2020', ordering: 'chronological', label: 'Retained journey' }], statistics: null };
++      const loadDurableReveal = jest.fn(async () => prior);
++      if (action === 'startup') loadDurableReveal.mockRejectedValueOnce(error);
++      const reconstructionRepository = stagedFailureRepository(loadDurableReveal);
++      const diagnostic = jest.spyOn(console, 'info').mockImplementation(() => {});
++      const Harness = () => { access = usePhotoAccess(); return <Text>{access.reconstruction.message}</Text>; };
++      try {
++        const view = await render(<PhotoAccessProvider adapter={adapterFor({ scope: 'full', canAskAgain: false })} repository={emptyRepository} reconstructionRepository={reconstructionRepository}><Harness /></PhotoAccessProvider>);
++        await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
++        await waitFor(() => expect(access.snapshot.scope).toBe('full'));
++        if (action !== 'startup') {
++          await waitFor(() => expect(access.durableReveal).toEqual(prior));
++          loadDurableReveal.mockRejectedValueOnce(error);
++          access.reconstructionController.resume();
++          await act(async () => {
++            if (action === 'catch-up') await access.catchUpHistory();
++            else expect(await access.retryJourneyCorrectionProjection()).toBe(false);
++          });
++        }
++        const safeCopy = action === 'startup'
++          ? 'The local Atlas could not be read. Try again when ready.'
++          : 'Local Atlas storage needs a safe schema recovery. Your last completed Atlas was kept.';
++        await waitFor(() => expect(view.getByText(safeCopy)).toBeOnTheScreen());
++        expect(access.reconstruction.status).toBe('error');
++        // A failed first read starts without a published projection; later
++        // owner operations must retain the previously published object.
++        expect(access.durableReveal).toEqual(action === 'startup' ? null : prior);
++        expect(diagnostic).toHaveBeenCalledWith('[Travel Life diagnostic]', expect.objectContaining({
++          operation: action === 'retry' ? 'ATLAS_REVEAL_RETRY' : 'ATLAS_DURABLE_READ',
++          reasonCode: 'SCHEMA', stage: 'DURABLE_OWNER_PLACE_READ', retryable: true,
++          durableOutcome: action === 'retry' ? 'failed' : 'unchanged',
++        }));
++        expect(JSON.stringify(diagnostic.mock.calls)).not.toContain(sentinel);
++        expect(JSON.stringify(view.toJSON())).not.toContain(sentinel);
++      } finally { diagnostic.mockRestore(); }
++    });
++  }
+   it('requires both final detail and durable Atlas projection before reporting a place as applied', () => {
+     const place = { id: 'phu-quoc', name: 'Phú Quốc', context: 'Kiên Giang, Vietnam', anchor: { latitude: 10.2, longitude: 103.9 } };
+     const detail = { id: 'trip', title: 'Phú Quốc', observedSpan: 'Observed', visits: [], memories: [], uncertainty: [], ownerPlace: place };
+diff --git a/apps/mobile/package.json b/apps/mobile/package.json
+index 6cd3e34..9c3e726 100644
+--- a/apps/mobile/package.json
++++ b/apps/mobile/package.json
+@@ -58,10 +58,11 @@
+     "android:device": "expo run:android --device",
+     "ios:device": "expo run:ios --device",
+     "test": "jest --runInBand",
++    "test:sqlite": "node --test scripts/atlas-sqlite.test.cjs",
+     "typecheck": "tsc --noEmit",
+     "lint": "expo lint",
+     "doctor": "npx expo-doctor",
+-    "check": "npm run test && npm run typecheck && npm run lint && npm run doctor"
++    "check": "npm run test && npm run test:sqlite && npm run typecheck && npm run lint && npm run doctor"
+   },
+   "jest": {
+     "preset": "jest-expo",
+diff --git "a/C:\\Users\\vothi\\Desktop\\Travel Life\\apps\\mobile\\.jest-cache-codex\\schema-recovery-baseline\\empty.cjs" "b/C:\\Users\\vothi\\Desktop\\Travel Life\\apps\\mobile\\scripts\\atlas-sqlite.test.cjs"
+index e69de29..3b4e12f 100644
+--- "a/C:\\Users\\vothi\\Desktop\\Travel Life\\apps\\mobile\\.jest-cache-codex\\schema-recovery-baseline\\empty.cjs"	
++++ "b/C:\\Users\\vothi\\Desktop\\Travel Life\\apps\\mobile\\scripts\\atlas-sqlite.test.cjs"	
+@@ -0,0 +1,482 @@
++/* Synthetic compatibility tests. Never opens an owner database or native app. */
++const assert = require('node:assert/strict');
++const fs = require('node:fs');
++const Module = require('node:module');
++const path = require('node:path');
++const { DatabaseSync } = require('node:sqlite');
++const { test } = require('node:test');
++const ts = require('typescript');
++
++const sourceRoot = path.resolve(__dirname, '../src');
++const importSource = fs.readFileSync(path.join(sourceRoot, 'import-record/repository.ts'), 'utf8');
++const canonicalManualSchema = importSource.match(/const manualJourneyTableSchema = `([\s\S]*?)`;/)?.[1];
++const migrationDefinitions = [...importSource.matchAll(/const migrationV(\d+) = `([\s\S]*?)`;/g)]
++  .map(([, version, sql]) => ({ version: Number(version), sql: sql.replace('${manualJourneyTableSchema}', () => {
++    assert.equal(typeof canonicalManualSchema, 'string', 'The v33 canonical table DDL must exist.');
++    return canonicalManualSchema;
++  }) }));
++const schemaVersion = Number(importSource.match(/const CURRENT_SCHEMA_VERSION = (\d+);/)[1]);
++assert.equal(migrationDefinitions.length, schemaVersion, 'Every schema version needs an executable fixture migration.');
++
++// Reuse the benchmark's installed TypeScript compiler; no new runtime packages.
++require.extensions['.ts'] = (compiledModule, filename) => {
++  compiledModule._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
++    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
++    fileName: filename,
++  }).outputText, filename);
++};
++let activeDatabase;
++const originalResolve = Module._resolveFilename;
++Module._resolveFilename = function resolveAlias(request, ...arguments_) {
++  return originalResolve.call(this, request.startsWith('@/') ? path.join(sourceRoot, request.slice(2)) : request, ...arguments_);
++};
++const originalLoad = Module._load;
++Module._load = function loadNativeBoundary(request, ...arguments_) {
++  if (request === 'expo-sqlite') return {
++    openDatabaseAsync: async (name) => {
++      assert.equal(name, 'travel-life-import-v1.db');
++      assert.ok(activeDatabase, 'A synthetic database must be selected before opening a repository.');
++      return activeDatabase;
++    },
++  };
++  return originalLoad.call(this, request, ...arguments_);
++};
++
++const { createNativeImportRepository, ensureNativeImportSchema } = require(path.join(sourceRoot, 'import-record/repository.ts'));
++const { createNativeReconstructionRepository } = require(path.join(sourceRoot, 'reconstruction/repository.ts'));
++const { classifyAppDiagnosticError } = require(path.join(sourceRoot, 'diagnostics/app-diagnostics.ts'));
++
++function syntheticDatabase() {
++  const sqlite = new DatabaseSync(':memory:');
++  const statements = [];
++  const failures = [];
++  let injectedFailure = null;
++  let beforeStatement = null;
++  function execute(sql, action) {
++    statements.push(sql);
++    if (beforeStatement && beforeStatement.pattern.test(sql)) {
++      const hook = beforeStatement.action;
++      beforeStatement = null;
++      hook();
++    }
++    if (injectedFailure && injectedFailure.pattern.test(sql)) {
++      const failure = injectedFailure.error;
++      injectedFailure = null;
++      throw failure;
++    }
++    try { return action(); }
++    catch (error) { failures.push(error); throw error; }
++  }
++  const adapter = {
++    execAsync: async (sql) => execute(sql, () => sqlite.exec(sql)),
++    runAsync: async (sql, ...parameters) => execute(sql, () => sqlite.prepare(sql).run(...parameters)),
++    getFirstAsync: async (sql, ...parameters) => execute(sql, () => sqlite.prepare(sql).get(...parameters) ?? null),
++    getAllAsync: async (sql, ...parameters) => execute(sql, () => sqlite.prepare(sql).all(...parameters)),
++  };
++  return { sqlite, adapter, statements, failures,
++    beforeNext: (pattern, action) => { beforeStatement = { pattern, action }; },
++    failOnce: (pattern, error = new Error('Synthetic SQLite operation failure.')) => { injectedFailure = { pattern, error }; } };
++}
++
++function retainHistoricalSchema(database, version) {
++  database.sqlite.exec('CREATE TABLE import_schema_version (version INTEGER NOT NULL)');
++  for (const migration of migrationDefinitions.filter((entry) => entry.version <= version)) database.sqlite.exec(migration.sql);
++  database.sqlite.prepare('INSERT INTO import_schema_version (version) VALUES (?)').run(version);
++}
++
++async function withDatabase(run) {
++  const database = syntheticDatabase();
++  activeDatabase = database.adapter;
++  try { await run(database); }
++  finally { activeDatabase = undefined; database.sqlite.close(); }
++}
++
++function syntheticCandidates() {
++  return [0, 1, 2].map((offset) => ({
++    assetId: `synthetic-source-${offset}`, mediaType: 'image',
++    capturedAtMillis: Date.UTC(2025, 0, 2 + offset), capturedDay: `2025-01-0${2 + offset}`,
++    hasPreciseOffset: true, modifiedAtMillis: null, locationAvailable: true,
++    latitude: 10, longitude: 100, reportedAccuracyMeters: 10, availability: 'available',
++  }));
++}
++
++async function importSyntheticEvidence(repository) {
++  await repository.commitPage({ scope: 'full', nextOffset: 3, scanned: 3, geotagged: 3, unavailable: 0, status: 'complete' }, syntheticCandidates());
++}
++
++function manualJourney() {
++  return {
++    commandKey: 'synthetic-manual-command', label: 'Synthetic journey', context: 'Synthetic context',
++    anchor: { latitude: 1, longitude: 2 }, date: { kind: 'exact', day: '2020-01-01' }, reviewedOverlapIds: [],
++  };
++}
++
++function insertCompatible(database, table, values) {
++  const columns = new Set(database.sqlite.prepare(`PRAGMA table_info(${table})`).all().map((column) => column.name));
++  const entries = Object.entries(values).filter(([column]) => columns.has(column));
++  database.sqlite.prepare(`INSERT INTO ${table} (${entries.map(([column]) => column).join(', ')}) VALUES (${entries.map(() => '?').join(', ')})`).run(...entries.map(([, value]) => value));
++}
++
++function seedRetainedProjection(database, version) {
++  insertCompatible(database, 'import_source_index', {
++    asset_id: 'synthetic-retained-source', media_type: 'image', availability: 'available', captured_at_millis: Date.UTC(2025, 0, 2),
++    modified_at_millis: null, location_available: 1, captured_day: '2025-01-02', has_precise_offset: 1, latitude: 10, longitude: 100, reported_accuracy_meters: 10,
++  });
++  if (version < 7) return;
++  insertCompatible(database, 'canonical_evidence', {
++    evidence_id: 'synthetic-retained-source', source_ref: 'synthetic-retained-source', media_type: 'image', availability: 'available',
++    captured_at_millis: Date.UTC(2025, 0, 2), modified_at_millis: null, location_available: 1,
++    captured_day: '2025-01-02', has_precise_offset: 1, latitude: 10, longitude: 100, reported_accuracy_meters: 10,
++  });
++  database.sqlite.exec(`INSERT INTO reconstruction_run (run_id, rule_version, evidence_revision, status, completed_at_millis) VALUES (1, 'reconstruction-v1', 0, 'complete', 1);
++    INSERT INTO reconstruction_place (place_id, run_id, representative_evidence_id, uncertainty_json) VALUES ('synthetic-retained-place', 1, 'synthetic-retained-source', '[]');
++    INSERT INTO reconstruction_visit (visit_id, run_id, place_id, ordering) VALUES ('synthetic-retained-visit', 1, 'synthetic-retained-place', 'chronological');
++    INSERT INTO reconstruction_journey (journey_id, run_id, journey_state) VALUES ('synthetic-retained-journey', 1, 'inferred');
++    INSERT INTO reconstruction_link (run_id, link_kind, parent_id, child_id) VALUES (1, 'journey-visit', 'synthetic-retained-journey', 'synthetic-retained-visit'), (1, 'visit-support', 'synthetic-retained-visit', 'synthetic-retained-source');
++    INSERT INTO reconstruction_disposition (run_id, evidence_id, disposition_state, reasons_json) VALUES (1, 'synthetic-retained-source', 'supported', '[]');`);
++  if (version >= 29) database.sqlite.exec("INSERT INTO reconstruction_trip_qualification (run_id, journey_id, classification, score, reasons_json) VALUES (1, 'synthetic-retained-journey', 'USER_CONFIRMED', 0, '[]')");
++  if (version >= 3) database.sqlite.exec("INSERT INTO maintenance_change_queue (asset_id, change_kind, source_revision) VALUES ('synthetic-retained-source', 'modified', 1)");
++}
++
++async function prepareConfirmedJourney(database, reconstruction) {
++  await importSyntheticEvidence(createNativeImportRepository());
++  await reconstruction.rebuild(3400);
++  // An existing owner-confirmed projection is fixture state; the actual
++  // confirmation API then creates the durable correction used by later runs.
++  database.sqlite.exec("UPDATE reconstruction_trip_qualification SET classification = 'USER_CONFIRMED'");
++  const existing = await reconstruction.loadDurableReveal();
++  const selected = await reconstruction.loadJourneyDetail(existing.journeys[0].displayId);
++  await reconstruction.saveJourneyCorrection(existing.journeys[0].displayId, 'confirm', selected.snapshotToken, selected.detail, 'synthetic-confirm-command', 3450);
++  const confirmed = await reconstruction.loadDurableReveal();
++  assert.ok(confirmed.journeys.length > 0);
++  return { displayId: confirmed.journeys[0].displayId, review: await reconstruction.loadJourneyDetail(confirmed.journeys[0].displayId) };
++}
++
++function seedPendingRemap(database) {
++  const journey = database.sqlite.prepare('SELECT journey_id, run_id FROM reconstruction_journey LIMIT 1').get();
++  database.sqlite.prepare(`INSERT INTO journey_correction_revision (revision_id, action, source_run_id, journey_id, reviewed_support_json, state, created_at_millis)
++    VALUES ('synthetic-pending-revision', 'confirm', ?, ?, ?, 'pending_remap', 1)`).run(journey.run_id, journey.journey_id, JSON.stringify(['E:synthetic-source-0']));
++  database.sqlite.prepare(`INSERT INTO journey_correction_candidate (candidate_id, revision_id, base_run_id, state, reason, created_at_millis)
++    VALUES ('synthetic-pending-candidate', 'synthetic-pending-revision', ?, 'pending_remap', 'Synthetic review required.', 1)`).run(journey.run_id);
++}
++
++test('fresh import, reconstruction, and durable Atlas read execute real SQLite', async () => withDatabase(async ({ sqlite }) => {
++  const importer = createNativeImportRepository();
++  await importSyntheticEvidence(importer);
++  const reconstruction = createNativeReconstructionRepository();
++  const graph = await reconstruction.rebuild(1000);
++  assert.ok(graph.journeys.length > 0, 'Synthetic evidence must exercise nonempty graph writes.');
++  const revealed = await reconstruction.loadDurableReveal();
++  assert.ok(Array.isArray(revealed.journeys));
++  assert.equal(sqlite.prepare('SELECT COUNT(*) AS count FROM canonical_evidence').get().count, 3);
++  assert.equal(sqlite.prepare('SELECT version FROM import_schema_version').get().version, schemaVersion);
++}));
++
++for (const version of [1, 12, 17, 28, 32, 33]) {
++  for (const entry of ['loadDurableReveal', 'rebuild', 'reconcileQueued']) {
++  test(`retained v${version} enters ${entry} directly without a preparatory migration`, async () => withDatabase(async (database) => {
++    retainHistoricalSchema(database, version);
++    seedRetainedProjection(database, version);
++    const reconstruction = createNativeReconstructionRepository();
++    await reconstruction[entry](2000);
++    assert.equal(database.sqlite.prepare('SELECT version FROM import_schema_version').get().version, schemaVersion);
++    assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS count FROM canonical_evidence').get().count, 1);
++    if (entry === 'loadDurableReveal' && version >= 7) {
++      assert.equal(database.sqlite.prepare("SELECT COUNT(*) AS count FROM reconstruction_journey WHERE journey_id = 'synthetic-retained-journey'").get().count, 1);
++      const retainedRead = await reconstruction.loadDurableReveal();
++      if (version >= 29) assert.equal(retainedRead.journeys.length, 1);
++    }
++    await reconstruction.rebuild(2000);
++    await reconstruction.loadDurableReveal();
++  }));
++  }
++}
++
++test('retained correction revision and manual journey survive upgrade and rebuild', async () => withDatabase(async (database) => {
++  retainHistoricalSchema(database, 28);
++  database.sqlite.exec(`INSERT INTO journey_correction_revision
++    (revision_id, action, source_run_id, journey_id, reviewed_support_json, state, created_at_millis, owner_title)
++    VALUES ('synthetic-revision', 'claim', 1, 'synthetic-prior-journey', '[]', 'superseded', 10, 'Synthetic retained title')`);
++  const before = database.sqlite.prepare('SELECT * FROM journey_correction_revision').get();
++  await ensureNativeImportSchema(database.adapter);
++  const importer = createNativeImportRepository();
++  await importSyntheticEvidence(importer);
++  const reconstruction = createNativeReconstructionRepository();
++  await reconstruction.createManualJourney(manualJourney());
++  const storedManual = database.sqlite.prepare('SELECT * FROM manual_journey').get();
++  await reconstruction.rebuild(3000);
++  const reveal = await reconstruction.loadDurableReveal();
++  const after = database.sqlite.prepare('SELECT * FROM journey_correction_revision').get();
++  for (const key of Object.keys(before)) assert.equal(after[key], before[key], `Retained revision field ${key} changed.`);
++  assert.deepEqual(database.sqlite.prepare('SELECT * FROM manual_journey').get(), storedManual);
++  assert.ok(reveal.journeys.some((journey) => journey.displayId.startsWith('manual:')));
++  assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS count FROM canonical_evidence').get().count, 3);
++}));
++
++test('a committed owner place correction survives queued reconstruction and durable read', async () => withDatabase(async (database) => {
++  const reconstruction = createNativeReconstructionRepository();
++  const { displayId, review } = await prepareConfirmedJourney(database, reconstruction);
++  const place = { id: 'synthetic-owner-place', name: 'Synthetic owner place', context: 'Synthetic context', anchor: { latitude: 1, longitude: 2 } };
++  const saved = await reconstruction.saveJourneyCorrection(displayId, 'place', review.snapshotToken, review.detail, 'synthetic-place-command', place, 3600);
++  assert.equal(saved.state, 'claimed');
++  const stored = database.sqlite.prepare('SELECT * FROM journey_correction_revision WHERE revision_id = ?').get(saved.revisionId);
++  assert.equal(stored.owner_place_name, place.name);
++  assert.ok((await reconstruction.loadDurableReveal()).journeys.some((journey) => journey.label.includes(place.name)));
++  database.sqlite.exec("INSERT INTO maintenance_change_queue (asset_id, change_kind, source_revision) VALUES ('synthetic-source-0', 'modified', 2)");
++  await reconstruction.reconcileQueued(3700);
++  const rebuilt = await reconstruction.loadDurableReveal();
++  assert.ok(rebuilt.journeys.some((journey) => journey.label === `${place.name}, ${place.context}` && journey.anchor.latitude === 1 && journey.anchor.longitude === 2));
++  assert.equal(database.sqlite.prepare("SELECT COUNT(*) AS count FROM journey_correction_application WHERE revision_id = ? AND run_id = (SELECT MAX(run_id) FROM reconstruction_run) AND application_state = 'effective'").get(saved.revisionId).count, 1);
++  assert.deepEqual(database.sqlite.prepare('SELECT * FROM journey_correction_revision WHERE revision_id = ?').get(saved.revisionId), stored);
++  assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS count FROM maintenance_change_queue').get().count, 0);
++}));
++
++test('a fresh repository reads retained v33 manual history and effective correction before replacement', async () => withDatabase(async (database) => {
++  const original = createNativeReconstructionRepository();
++  await prepareConfirmedJourney(database, original);
++  await original.createManualJourney(manualJourney());
++  const prior = await original.loadDurableReveal();
++  const revisions = database.sqlite.prepare('SELECT * FROM journey_correction_revision ORDER BY revision_id').all();
++  assert.ok(revisions.some((revision) => revision.state === 'effective'));
++  const manual = database.sqlite.prepare('SELECT * FROM manual_journey').all();
++  const statementStart = database.statements.length;
++  const retained = await createNativeReconstructionRepository().loadDurableReveal();
++  assert.deepEqual(retained, prior);
++  assert.ok(retained.journeys.some((journey) => journey.displayId.startsWith('manual:')));
++  assert.deepEqual(database.sqlite.prepare('SELECT * FROM journey_correction_revision ORDER BY revision_id').all(), revisions);
++  assert.deepEqual(database.sqlite.prepare('SELECT * FROM manual_journey').all(), manual);
++  assert.ok(database.statements.slice(statementStart).every((sql) => !/^\s*(BEGIN|INSERT|UPDATE|DELETE)/i.test(sql)));
++}));
++
++test('pending remap candidates execute real family and support reads and mark the visible journey', async () => withDatabase(async (database) => {
++  const reconstruction = createNativeReconstructionRepository();
++  await prepareConfirmedJourney(database, reconstruction);
++  seedPendingRemap(database);
++  const statementStart = database.statements.length;
++  const reveal = await reconstruction.loadDurableReveal();
++  assert.ok(reveal.journeys.some((journey) => journey.needsReview === true));
++  const executed = database.statements.slice(statementStart).join('\n');
++  assert.match(executed, /SELECT evidence_id, captured_at_millis, captured_day/);
++  assert.match(executed, /SELECT DISTINCT journey.parent_id AS journey_id, support.child_id AS evidence_id/);
++}));
++
++for (const [stage, pattern, pending] of [
++  ['DURABLE_SCHEMA', /^SELECT version FROM import_schema_version/, false],
++  ['DURABLE_JOURNEY_READ', /^\s*WITH journey_anchor AS/, false],
++  ['DURABLE_DESTINATION_READ', /^\s*SELECT DISTINCT journey.parent_id AS journey_id, visit.place_id,/, false],
++  ['DURABLE_FAMILY_READ', /^SELECT evidence_id, captured_at_millis, captured_day/, true],
++  ['DURABLE_SUPPORT_READ', /^\s*SELECT DISTINCT journey.parent_id AS journey_id, support.child_id AS evidence_id/, true],
++]) {
++  test(`a ${stage} failure reports only its fixed boundary and preserves stored history`, async () => withDatabase(async (database) => {
++    const reconstruction = createNativeReconstructionRepository();
++    await prepareConfirmedJourney(database, reconstruction);
++    if (pending) seedPendingRemap(database);
++    const stored = database.sqlite.prepare('SELECT * FROM reconstruction_journey ORDER BY journey_id').all();
++    const sentinel = 'synthetic-private-schema-sentinel';
++    const nativeError = new Error(`no such column: ${sentinel}`);
++    database.failOnce(pattern, nativeError);
++    await assert.rejects(() => reconstruction.loadDurableReveal(), (error) => {
++      assert.equal(error.stage, stage);
++      assert.equal(error.message, 'Local Atlas read did not finish.');
++      assert.equal(error.originalError, nativeError);
++      assert.ok(!error.message.includes(sentinel));
++      return true;
++    });
++    assert.deepEqual(database.sqlite.prepare('SELECT * FROM reconstruction_journey ORDER BY journey_id').all(), stored);
++    await reconstruction.loadDurableReveal();
++  }));
++}
++
++test('a failed projection write rolls back committed Atlas, corrections, and queued changes', async () => withDatabase(async (database) => {
++  const reconstruction = createNativeReconstructionRepository();
++  await prepareConfirmedJourney(database, reconstruction);
++  await reconstruction.createManualJourney(manualJourney());
++  await reconstruction.rebuild(4000);
++  database.sqlite.exec("INSERT INTO maintenance_change_queue (asset_id, change_kind, source_revision) VALUES ('synthetic-source-0', 'modified', 2)");
++  const before = {
++    journeys: database.sqlite.prepare('SELECT * FROM reconstruction_journey ORDER BY journey_id').all(),
++    runs: database.sqlite.prepare('SELECT * FROM reconstruction_run ORDER BY run_id').all(),
++    queue: database.sqlite.prepare('SELECT * FROM maintenance_change_queue ORDER BY asset_id').all(),
++    manual: database.sqlite.prepare('SELECT * FROM manual_journey').all(),
++    corrections: database.sqlite.prepare('SELECT * FROM journey_correction_revision ORDER BY revision_id').all(),
++    applications: database.sqlite.prepare('SELECT * FROM journey_correction_application ORDER BY revision_id, run_id').all(),
++  };
++  database.failOnce(/^INSERT INTO reconstruction_visit/);
++  await assert.rejects(() => reconstruction.rebuild(5000, true), /Synthetic SQLite operation failure/);
++  assert.deepEqual(database.sqlite.prepare('SELECT * FROM reconstruction_journey ORDER BY journey_id').all(), before.journeys);
++  assert.deepEqual(database.sqlite.prepare('SELECT * FROM reconstruction_run ORDER BY run_id').all(), before.runs);
++  assert.deepEqual(database.sqlite.prepare('SELECT * FROM maintenance_change_queue ORDER BY asset_id').all(), before.queue);
++  assert.deepEqual(database.sqlite.prepare('SELECT * FROM manual_journey').all(), before.manual);
++  assert.ok(before.corrections.length > 0 && before.applications.length > 0);
++  assert.deepEqual(database.sqlite.prepare('SELECT * FROM journey_correction_revision ORDER BY revision_id').all(), before.corrections);
++  assert.deepEqual(database.sqlite.prepare('SELECT * FROM journey_correction_application ORDER BY revision_id, run_id').all(), before.applications);
++  await reconstruction.loadDurableReveal();
++}));
++
++test('failed retained migration rolls back and supports a successful retry', async () => withDatabase(async (database) => {
++  retainHistoricalSchema(database, 32);
++  database.failOnce(/CREATE TABLE IF NOT EXISTS manual_journey/);
++  await assert.rejects(() => ensureNativeImportSchema(database.adapter), /Synthetic SQLite operation failure/);
++  assert.equal(database.sqlite.prepare('SELECT version FROM import_schema_version').get().version, 32);
++  assert.equal(database.sqlite.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE name = 'manual_journey'").get().count, 0);
++  await ensureNativeImportSchema(database.adapter);
++  assert.equal(database.sqlite.prepare('SELECT version FROM import_schema_version').get().version, schemaVersion);
++  await createNativeReconstructionRepository().loadDurableReveal();
++}));
++
++test('missing owner display column distinguishes durable read from a completed rebuild', async () => withDatabase(async (database) => {
++  await importSyntheticEvidence(createNativeImportRepository());
++  const reconstruction = createNativeReconstructionRepository();
++  await reconstruction.rebuild(6000);
++  database.sqlite.exec('ALTER TABLE journey_correction_revision RENAME COLUMN owner_place_name TO synthetic_missing_name');
++  await assert.rejects(() => reconstruction.loadDurableReveal(), (error) => {
++    assert.equal(error.name, 'DurableRevealStageError');
++    assert.equal(error.stage, 'DURABLE_OWNER_PLACE_READ');
++    assert.equal(error.message, 'Local Atlas read did not finish.');
++    assert.match(error.originalError.message, /no such column/);
++    return true;
++  });
++  assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS count FROM reconstruction_run').get().count, 1);
++}));
++
++const retainedManualTable = 'manual_journey_retained_schema';
++function manualSchemaSnapshot(database) {
++  return database.sqlite.prepare("SELECT type, name, tbl_name, sql FROM sqlite_master WHERE name LIKE 'manual_journey%' ORDER BY name").all();
++}
++function preservedRecordSnapshot(database) {
++  const tables = ['canonical_evidence', 'import_source_index', 'reconstruction_run', 'reconstruction_journey', 'reconstruction_place', 'reconstruction_visit', 'reconstruction_link', 'reconstruction_disposition', 'reconstruction_trip_qualification', 'journey_correction_revision', 'journey_correction_application', 'private_history_record', 'import_schema_version'];
++  return tables.map((table) => ({ table, rows: database.sqlite.prepare(`SELECT * FROM ${table}`).all() }));
++}
++function seedLegacyManualRow(database) {
++  insertCompatible(database, 'manual_journey', {
++    manual_id: 'synthetic-legacy-manual', command_key: 'synthetic-legacy-command', owner_label: 'Synthetic retained owner label', owner_context: 'Synthetic context',
++    latitude: 1, longitude: 2, date_kind: 'exact', synthetic_legacy_start: '2020-01-01', date_end: '2020-01-01', created_at_millis: 1,
++  });
++}
++for (const marker of [33, 34]) {
++  for (const entry of ['loadDurableReveal', 'rebuild', 'reconcileQueued']) {
++    test(`empty incompatible v${marker} manual layout recovers at direct ${entry} without losing private record data`, async () => withDatabase(async (database) => {
++      const original = createNativeReconstructionRepository();
++      await prepareConfirmedJourney(database, original);
++      database.sqlite.exec(`UPDATE import_schema_version SET version = ${marker}; UPDATE private_history_record SET schema_version = ${marker};
++        ALTER TABLE manual_journey RENAME COLUMN date_start TO synthetic_legacy_start`);
++      const before = preservedRecordSnapshot(database);
++      const oldIndex = database.sqlite.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'index' AND name = 'manual_journey_dates'").get();
++      const reconstruction = createNativeReconstructionRepository();
++      await reconstruction[entry](7000);
++      assert.equal(database.sqlite.prepare(`SELECT COUNT(*) AS count FROM ${retainedManualTable}`).get().count, 0);
++      assert.ok(database.sqlite.prepare(`PRAGMA table_info(${retainedManualTable})`).all().some((column) => column.name === 'synthetic_legacy_start'));
++      const archivedIndex = database.sqlite.prepare("SELECT name, tbl_name FROM sqlite_master WHERE name = 'manual_journey_dates'").get();
++      assert.equal(archivedIndex.name, oldIndex.name);
++      assert.equal(archivedIndex.tbl_name, retainedManualTable);
++      const dateIndexes = database.sqlite.prepare("PRAGMA index_list('manual_journey')").all();
++      assert.ok(dateIndexes.some((index) => {
++        const columns = database.sqlite.prepare(`PRAGMA index_info('${index.name}')`).all().map((column) => column.name);
++        return columns.join(',') === 'date_start,date_end';
++      }));
++      if (entry === 'loadDurableReveal' || entry === 'reconcileQueued') assert.deepEqual(preservedRecordSnapshot(database), before);
++      else {
++        for (const table of ['canonical_evidence', 'import_source_index', 'journey_correction_revision', 'private_history_record', 'import_schema_version']) {
++          assert.deepEqual(preservedRecordSnapshot(database).find((record) => record.table === table), before.find((record) => record.table === table));
++        }
++      }
++      await reconstruction.createManualJourney(manualJourney());
++      assert.ok((await reconstruction.loadDurableReveal()).journeys.some((journey) => journey.displayId.startsWith('manual:')));
++    }));
++  }
++}
++
++test('healthy manual layout with actual owner data does not acquire a schema writer', async () => withDatabase(async (database) => {
++  const reconstruction = createNativeReconstructionRepository();
++  await prepareConfirmedJourney(database, reconstruction);
++  await reconstruction.createManualJourney(manualJourney());
++  const before = preservedRecordSnapshot(database);
++  const manualBefore = database.sqlite.prepare('SELECT * FROM manual_journey').all();
++  const statementStart = database.statements.length;
++  await ensureNativeImportSchema(database.adapter);
++  assert.ok(database.statements.slice(statementStart).every((sql) => !/^\s*(BEGIN|COMMIT|INSERT|UPDATE|DELETE|ALTER|CREATE)/i.test(sql)));
++  assert.deepEqual(preservedRecordSnapshot(database), before);
++  assert.deepEqual(database.sqlite.prepare('SELECT * FROM manual_journey').all(), manualBefore);
++}));
++
++for (const hasCompletedRun of [false, true]) {
++  test(`absent manual table recovers with completed run ${hasCompletedRun}`, async () => withDatabase(async (database) => {
++    await ensureNativeImportSchema(database.adapter);
++    if (hasCompletedRun) await createNativeReconstructionRepository().rebuild(7500);
++    database.sqlite.exec('DROP TABLE manual_journey');
++    const before = preservedRecordSnapshot(database);
++    await createNativeReconstructionRepository().loadDurableReveal();
++    assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS count FROM manual_journey').get().count, 0);
++    assert.deepEqual(preservedRecordSnapshot(database), before);
++  }));
++}
++
++for (const reason of ['populated', 'archive-conflict', 'count-unavailable']) {
++  test(`incompatible manual layout refuses ${reason} without modifying any schema or record`, async () => withDatabase(async (database) => {
++    await prepareConfirmedJourney(database, createNativeReconstructionRepository());
++    database.sqlite.exec('ALTER TABLE manual_journey RENAME COLUMN date_start TO synthetic_legacy_start');
++    if (reason === 'populated') seedLegacyManualRow(database);
++    if (reason === 'archive-conflict') database.sqlite.exec(`CREATE TABLE ${retainedManualTable} (synthetic_sentinel TEXT)`);
++    const schemaBefore = manualSchemaSnapshot(database);
++    const manualBefore = database.sqlite.prepare('SELECT * FROM manual_journey').all();
++    const before = preservedRecordSnapshot(database);
++    if (reason === 'count-unavailable') database.failOnce(/^\s*SELECT COUNT\(\*\).*FROM manual_journey/i);
++    await assert.rejects(() => createNativeReconstructionRepository().loadDurableReveal(), (error) => {
++      assert.equal(error.stage, 'DURABLE_SCHEMA');
++      assert.equal(error.originalError.name, reason === 'count-unavailable' ? 'Error' : 'LocalAtlasSchemaRecoveryError');
++      assert.equal(error.originalError.message, reason === 'count-unavailable' ? 'Synthetic SQLite operation failure.' : 'Local Atlas schema recovery could not finish.');
++      assert.equal(classifyAppDiagnosticError(error), reason === 'count-unavailable' ? 'UNKNOWN' : 'SCHEMA');
++      return true;
++    });
++    assert.deepEqual(manualSchemaSnapshot(database), schemaBefore);
++    assert.deepEqual(database.sqlite.prepare('SELECT * FROM manual_journey').all(), manualBefore);
++    assert.deepEqual(preservedRecordSnapshot(database), before);
++  }));
++}
++
++test('manual recovery rechecks for retained data after acquiring its serialized writer', async () => withDatabase(async (database) => {
++  await ensureNativeImportSchema(database.adapter);
++  database.sqlite.exec('ALTER TABLE manual_journey RENAME COLUMN date_start TO synthetic_legacy_start');
++  const schemaBefore = manualSchemaSnapshot(database);
++  database.beforeNext(/^BEGIN IMMEDIATE TRANSACTION$/, () => seedLegacyManualRow(database));
++  await assert.rejects(() => ensureNativeImportSchema(database.adapter), (error) => error.name === 'LocalAtlasSchemaRecoveryError');
++  assert.deepEqual(manualSchemaSnapshot(database), schemaBefore);
++  assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS count FROM manual_journey').get().count, 1);
++}));
++
++test('failed canonical recreation rolls back the retained table rename and permits a later retry', async () => withDatabase(async (database) => {
++  await prepareConfirmedJourney(database, createNativeReconstructionRepository());
++  database.sqlite.exec('ALTER TABLE manual_journey RENAME COLUMN date_start TO synthetic_legacy_start');
++  const schemaBefore = manualSchemaSnapshot(database);
++  const before = preservedRecordSnapshot(database);
++  const primaryFailure = new Error('Synthetic canonical table creation failure.');
++  database.failOnce(/CREATE TABLE IF NOT EXISTS manual_journey/, primaryFailure);
++  await assert.rejects(() => ensureNativeImportSchema(database.adapter), (error) => error === primaryFailure);
++  assert.deepEqual(manualSchemaSnapshot(database), schemaBefore);
++  assert.deepEqual(preservedRecordSnapshot(database), before);
++  await ensureNativeImportSchema(database.adapter);
++  assert.ok(database.sqlite.prepare('PRAGMA table_info(manual_journey)').all().some((column) => column.name === 'date_start'));
++  assert.equal(database.sqlite.prepare(`SELECT COUNT(*) AS count FROM ${retainedManualTable}`).get().count, 0);
++}));
++
++for (const [reasonCode, nativeMessage] of [['DATABASE_BUSY', 'SQLITE_BUSY: synthetic native read contention'], ['NATIVE_HANDLE', 'released native handle: synthetic native failure']]) {
++  for (const [boundary, query] of [['layout', /^SELECT manual_id.*FROM manual_journey LIMIT 0/], ['row-count', /^SELECT COUNT\(\*\) AS count FROM manual_journey/]]) {
++    test(`manual recovery preserves ${reasonCode} classification at its ${boundary} read`, async () => withDatabase(async (database) => {
++      await prepareConfirmedJourney(database, createNativeReconstructionRepository());
++      database.sqlite.exec('ALTER TABLE manual_journey RENAME COLUMN date_start TO synthetic_legacy_start');
++      const schemaBefore = manualSchemaSnapshot(database);
++      const before = preservedRecordSnapshot(database);
++      const nativeError = new Error(nativeMessage);
++      database.failOnce(query, nativeError);
++      await assert.rejects(() => createNativeReconstructionRepository().loadDurableReveal(), (error) => {
++        assert.equal(error.stage, 'DURABLE_SCHEMA');
++        assert.equal(error.originalError, nativeError);
++        assert.equal(classifyAppDiagnosticError(error), reasonCode);
++        assert.equal(error.message, 'Local Atlas read did not finish.');
++        return true;
++      });
++      assert.deepEqual(manualSchemaSnapshot(database), schemaBefore);
++      assert.deepEqual(preservedRecordSnapshot(database), before);
++    }));
++  }
++}
