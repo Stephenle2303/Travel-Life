@@ -12,6 +12,8 @@
 
 - **Historical-worktree integration correction:** Cherry-picking the clean dimensional Atlas commit produced conflicts with newer Atlas components and shared decision/project records. The preserved responsiveness history also has fourteen simulated conflicts with the later accepted performance/privacy delivery. Abort the conflicting cherry-pick and preserve those commits rather than resolving in favor of obsolete code. Compare semantic scope and current delivery ancestry before treating a clean, unique historical commit as an integration candidate.
 
+- **Remote-publication approval boundary:** The automatic approval service rejected the attempted `git push origin main`: the request was interpreted as authorization to commit locally, but not to publish private changes to GitHub's default branch. No remote change occurred. Keep the verified local commits ready and obtain explicit push confirmation before retrying; do not bypass the rejection through another transport.
+
 ## Replay delivery-record lookup correction (2026-10-23)
 
 - **Evidence/cause:** A verification read targeted the correct M4.7 delivery-record path but `rg` returned no match and exited 1, so it did not supply the intended evidence.
