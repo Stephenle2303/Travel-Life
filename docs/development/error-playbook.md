@@ -10,6 +10,8 @@
 
 - **Staged-review formatting correction:** The first staged whitespace audit found a blank line at EOF in the generated M4.7 review artifact. Remove only that final blank line, restage the artifact and rerun `git diff --cached --check` before committing. Generated review records are part of the delivery surface and need the same staged audit as source.
 
+- **Historical-worktree integration correction:** Cherry-picking the clean dimensional Atlas commit produced conflicts with newer Atlas components and shared decision/project records. The preserved responsiveness history also has fourteen simulated conflicts with the later accepted performance/privacy delivery. Abort the conflicting cherry-pick and preserve those commits rather than resolving in favor of obsolete code. Compare semantic scope and current delivery ancestry before treating a clean, unique historical commit as an integration candidate.
+
 ## Replay delivery-record lookup correction (2026-10-23)
 
 - **Evidence/cause:** A verification read targeted the correct M4.7 delivery-record path but `rg` returned no match and exited 1, so it did not supply the intended evidence.

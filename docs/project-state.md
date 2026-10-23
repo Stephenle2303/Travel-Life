@@ -1,5 +1,20 @@
 # Project state
 
+## GitHub and local-worktree comparison (2026-10-23)
+
+`origin/main` was refreshed and matches the local baseline that preceded the
+current Replay delivery. The cartography and destination-label worktree heads
+are already ancestors of `main`, and all four secondary worktrees are clean.
+Two preserved histories remain outside `main`: dimensional Atlas `aac320e` and
+local responsiveness `f4699c4`/`e904e4f`. They were compared before
+integration. Dimensional Atlas conflicts with the newer MapLibre/reference
+cartography surface; local responsiveness conflicts across fourteen files with
+the later accepted performance/privacy delivery `4af3a76`. Both histories stay
+preserved in their existing worktrees and named references; neither is applied
+because doing so would replace current behavior. The verified Replay delivery
+is committed separately as `7820f5d`; local screenshots, review scratch files
+and Jest cache remain untracked and excluded from Git.
+
 ## Replay ordering and trip-separator specification (2026-10-23)
 
 The owner chose **oldest first** as the default private Replay timeline. The
