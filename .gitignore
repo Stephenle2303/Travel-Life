@@ -7,6 +7,9 @@ __pycache__/
 coverage/
 apps/mobile/.jest-cache-codex/
 .jest-cache-codex/
+.local/
+.review-artifacts/
+apps/mobile/.jest-cache/
 
 # Credentials and personal framework answers
 .env

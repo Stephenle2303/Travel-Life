@@ -1,5 +1,11 @@
 # Error and improvement playbook
 
+## Runtime audit transport and archive enumeration (2026-10-23)
+
+- **Evidence:** Sandboxed TCP/process inspection was denied CIM access. A local Metro source-map request was denied socket access; its dependent file read then failed because no map existed. The elevated full-map request did not finish and was interrupted. Source-map equality is unverified; APK hash equality and the current source diff were verified independently.
+- **Correction/prevention:** Use the approved host boundary for local process/network inspection, stop dependent reads after failed downloads, and bound map requests with a timeout. Never equate a running server or matching native APK with byte equality of already-loaded development JavaScript.
+- **Archive enumeration:** Git's prefix pattern did not enumerate the five preservation heads on the first archive pass; only the consolidation branch was retired. Enumerating all heads and filtering their exact names completed the archive. Verify the final branch/worktree inventories rather than assuming a wildcard selector matched.
+
 ## GitHub comparison fetch sandbox boundary (2026-10-23)
 
 - **Evidence/cause:** The requested `git fetch origin --prune` could not create `.git/FETCH_HEAD` inside the filesystem sandbox and stopped before refreshing remote tracking data.

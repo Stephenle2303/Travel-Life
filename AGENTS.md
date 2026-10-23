@@ -18,6 +18,16 @@ resume the same task through completion.
 
 ## Scope and decisions
 
+### Retired development history
+
+Only the primary checkout is active after the 2026-10-23 worktree retirement.
+Local tags under `retired/2026-10-23/` are recovery archives, not pending delivery.
+Directories containing `RETIRED-WORKTREE.txt` or `.git.retired-2026-10-23`
+must never be used for builds, copied into main, reattached, merged, or
+cherry-picked without explicit user authorization and a fresh semantic audit.
+Conflicts or unique historical commits do not establish missing functionality.
+See `docs/development/worktree-retirement-2026-10-23.md` for the disposition.
+
 The current product goal is **Minimum Lovable Product (MLP)**, not Minimum Viable
 Product. Decision 0009 defines the required first loop: private lifetime map reveal,
 replay video, then owner-selected sharing. Use its acceptance bar when coding.

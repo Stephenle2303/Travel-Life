@@ -1,5 +1,18 @@
 # Project state
 
+## Runtime audit and historical worktree retirement (2026-10-23)
+
+The mobile working tree equals local main `fc72600`, including the three
+Replay/audit commits. The installed Android APK hash matches the local build;
+Metro runs from this checkout with the connected Travel Life client. Already
+loaded JavaScript byte equality is unverified because the complete source-map
+request did not finish. All four obsolete worktrees are deregistered and their
+Git entry points disabled, with every file preserved. Their commits and the six
+backup/consolidation branches are retained as local retired tags. Only main
+remains an active local branch/worktree. The retirement record is
+`docs/development/worktree-retirement-2026-10-23.md`; explicit authorization and
+a fresh audit are required to recover or integrate archived histories.
+
 ## GitHub and local-worktree comparison (2026-10-23)
 
 `origin/main` was refreshed and matches the local baseline that preceded the
