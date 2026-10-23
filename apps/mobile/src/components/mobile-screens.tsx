@@ -154,10 +154,10 @@ export function ReplayAvailabilityScreen() {
   </Screen>;
   return <Screen>
     <Eyebrow>Private Replay</Eyebrow>
-    <Title>Replay is preparing.</Title>
+    <Title>Replay needs its local renderer.</Title>
     <InsetPanel>
       <Body>Replay can use observed destinations from your private revealed record. It does not draw a travelled route or export anything from this screen.</Body>
-      <Body>The renderer and export controls arrive in the Replay story. Nothing is published or shared here.</Body>
+      <Body>Local video rendering has not yet passed the required device checks. Nothing is prepared, published, or shared here.</Body>
     </InsetPanel>
     <ActionButton accessibilityLabel="Return to private Atlas" onPress={() => openRoute(router, appRoutes.atlas, 'replace')}>Return to Atlas</ActionButton>
   </Screen>;

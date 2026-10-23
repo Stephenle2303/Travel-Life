@@ -1,3 +1,3 @@
-import { ReplayAvailabilityScreen } from '@/components/mobile-screens';
+import { ReplayScreen } from '@/components/replay-screen';
 
-export default ReplayAvailabilityScreen;
+export default ReplayScreen;

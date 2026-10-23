@@ -369,13 +369,13 @@ Users can repair history and deliberately share a journey or selected lifetime h
 
 **Acceptance criteria:**
 
-- **AC-M4.7-1:** Render a 30–60 second (target 45-second) 720p silent MP4 from chronological observed destinations and owner-visible eligible memories across the selected lifetime scope, with preview, cancel and unavailable-media handling.
-- **AC-M4.7-2:** Validate the selected renderer, playback and export on iOS and Android; preserve visibility/metadata rules, bound memory/render work and use destination transitions rather than invented travelled routes, narration or music.
+- **AC-M4.7-1:** One Replay action automatically prepares/verifies/plays every policy-visible scoped trip as an adaptively timed curated chapter (one memory about4-6s, two about6-10s, enough distinct moments usually15-20s; no filler), with no fixed total duration. Choose a meaningful subset from effective attached photos/videos using owner intent, supported moment/scene variety, redundancy and usable quality; AI is optional/local-first and provider visual processing requires purpose-specific consent. Preserve missing dates/corrections/precision, honest clip/still/technical states and the full album. Optional persistent Replace/Add/Remove/Reorder edits regenerate affected chapters; no mandatory Prepare, rebuild or scope narrowing solely for trip count (decision 0009 amendments, 2026-10-23).
+- **AC-M4.7-2:** Validate local silent720p chapter rendering, video-window/still fallback, progressive long playback, bounded memory/cache/background expiration and exact long export on iOS and Android. Retain visibility/metadata rules and destination transitions without invented travelled routes, presence, narration or music. Measure curation preference and optional AI benefit separately from native correctness.
 - **AC-M4.7-3:** Support explicit native video export/share and optional deliberate publication to the selected shared highlight; no automatic upload occurs and previously exported copies cannot be revoked.
 
 **AI/eval impact:** No new generative inference task. Verify selected-content provenance, visibility, snapshot/media isolation and revocation; exported video is a deliberate, non-revocable copy.
 
-**Delivery evidence:** Not executed. Record actual implementation, tests and limitations here or link a single delivery record.
+**Replay delivery evidence:** In progress; product acceptance pending. The [single M4.7 record](../implementation-artifacts/spec-m4-7-preview-and-export-the-travel-life-replay.md) holds the active D0–D6 one-action/editing plan, partial implementation evidence and remaining physical-platform gates. Scheduled preparation and durable editing are specified, not implemented.
 
 ## Epic M5: Release the MLP and learn from real use
 

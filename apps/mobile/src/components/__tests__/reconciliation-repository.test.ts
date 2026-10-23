@@ -291,6 +291,23 @@ describe('durable local reconciliation repository', () => {
     expect(read).not.toContain('source_ref');
   });
 
+  it('retains the last qualified projection from the current evidence revision after an empty completed pass', async () => {
+    const previous = mockGetFirstAsync.getMockImplementation()!;
+    mockGetFirstAsync.mockImplementation(async (sql: string, ...args: unknown[]) => {
+      if (sql.includes('MAX(run_id)')) return { run_id: 13 };
+      if (sql.includes('SELECT evidence_revision FROM reconstruction_run')) return { evidence_revision: 8 };
+      if (sql.includes('FROM reconstruction_run run') && args[0] === 8) return { run_id: 11 };
+      return previous(sql, ...args);
+    });
+
+    await createNativeReconstructionRepository().loadDurableReveal();
+
+    const selection = mockGetFirstAsync.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('FROM reconstruction_run run'));
+    expect(selection?.[0]).toContain("qualification.classification IN ('AUTO_CONFIRMED', 'USER_CONFIRMED')");
+    const journeyRead = mockGetAllAsync.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('WITH journey_anchor AS'));
+    expect(journeyRead?.[1]).toBe(11);
+  });
+
   it('reads aggregate counts from one completed run without memberships or country detail', async () => {
     mockGetAllAsync.mockResolvedValueOnce([]);
     const display = await createNativeReconstructionRepository().loadDurableReveal();

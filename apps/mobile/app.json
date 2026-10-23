@@ -42,6 +42,8 @@
     "plugins": [
       "expo-router",
       "expo-background-task",
+      "expo-sharing",
+      "munim-ffmpeg",
       "@maplibre/maplibre-react-native",
       [
         "expo-media-library",

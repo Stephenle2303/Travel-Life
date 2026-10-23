@@ -8,6 +8,7 @@ export const appRoutes = {
   manualJourney: '/manual-journey',
   journey: '/journey/[id]',
   replay: '/replay',
+  replayS0: '/replay-s0',
   settings: '/settings',
 } as const;
 

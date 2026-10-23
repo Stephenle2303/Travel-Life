@@ -19,6 +19,7 @@
     "expo-linking": "~57.0.12",
     "expo-media-library": "~57.0.5",
     "expo-router": "~57.0.25",
+    "expo-sharing": "57.0.24",
     "expo-splash-screen": "~57.0.9",
     "expo-sqlite": "~57.0.4",
     "expo-status-bar": "~57.0.1",
@@ -27,10 +28,12 @@
     "expo-task-manager": "^57.0.21",
     "expo-video": "~57.0.5",
     "expo-web-browser": "~57.0.3",
+    "munim-ffmpeg": "0.9.2",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.86.3",
     "react-native-gesture-handler": "~2.32.0",
+    "react-native-nitro-modules": "0.37.1",
     "react-native-reanimated": "4.5.1",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",
@@ -71,6 +74,7 @@
     ],
     "moduleNameMapper": {
       "^@maplibre/maplibre-react-native$": "<rootDir>/src/test/maplibre-react-native.tsx",
+      "^munim-ffmpeg$": "<rootDir>/src/test/munim-ffmpeg.ts",
       "^@/(.*)$": "<rootDir>/src/$1"
     }
   },

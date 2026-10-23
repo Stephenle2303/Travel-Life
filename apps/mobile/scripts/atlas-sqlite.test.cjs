@@ -160,6 +160,50 @@ test('reviewed privacy filters all inferred reads, visible statistics and stale 
   assert.equal((await repository.loadDurableReveal()).journeys.length, 1);
 }));
 
+test('Replay manifest input follows the completed policy-visible Journey List and withholds hidden media', async () => withDatabase(async (database) => {
+  const repository = createNativeReconstructionRepository();
+  const { displayId, review } = await prepareConfirmedJourney(database, repository);
+  const current = database.sqlite.prepare("SELECT journey_id, run_id FROM reconstruction_journey WHERE run_id = (SELECT MAX(run_id) FROM reconstruction_run WHERE status = 'complete') LIMIT 1").get();
+  database.sqlite.exec(`INSERT INTO reconstruction_journey (journey_id, run_id, journey_state) VALUES ('replay-journey', ${current.run_id}, 'inferred');
+    INSERT INTO reconstruction_trip_qualification (run_id, journey_id, classification, score, reasons_json) VALUES (${current.run_id}, 'replay-journey', 'USER_CONFIRMED', 0, '[]');
+    INSERT INTO reconstruction_place (place_id, run_id, representative_evidence_id, uncertainty_json) VALUES ('replay-place', ${current.run_id}, 'synthetic-source-0', '[]');
+    INSERT INTO reconstruction_visit (visit_id, run_id, place_id, ordering) VALUES ('replay-visit', ${current.run_id}, 'replay-place', 'chronological');
+    INSERT INTO reconstruction_link (run_id, link_kind, parent_id, child_id) VALUES (${current.run_id}, 'journey-visit', 'replay-journey', 'replay-visit'), (${current.run_id}, 'visit-support', 'replay-visit', 'synthetic-source-0'), (${current.run_id}, 'membership:primary', 'replay-journey', 'synthetic-source-0');`);
+  const before = await repository.loadReplayManifestInput();
+  assert.equal(before.snapshotToken, review.snapshotToken);
+  assert.equal(before.groups.length, 2);
+  assert.ok(before.groups.every((group) => typeof group.key === 'string' && !group.key.includes('replay-journey')));
+  const orderedDraft = [before.memories[1].key, before.memories[0].key];
+  await assert.rejects(repository.saveReplayDraft(orderedDraft, before.snapshotToken + 1, before.privacyRevision), /Replay draft is stale/);
+  await repository.saveReplayDraft(orderedDraft, before.snapshotToken, before.privacyRevision, 'newest-first');
+  const afterDraft = await repository.loadReplayManifestInput();
+  assert.equal(afterDraft.memories.filter((memory) => memory.intent === 'keep').length, 2);
+  assert.deepEqual(afterDraft.memories.filter((memory) => memory.intent === 'keep').sort((left, right) => (left.order ?? 0) - (right.order ?? 0)).map((memory) => memory.key), orderedDraft);
+  assert.equal(afterDraft.direction, 'newest-first');
+  assert.ok(afterDraft.memories.every((memory) => !memory.key.includes('synthetic-source')));
+  await repository.resetReplayDraft(afterDraft.snapshotToken, afterDraft.privacyRevision);
+  const resetDraft = await repository.loadReplayManifestInput();
+  assert.ok(resetDraft.memories.every((memory) => memory.intent === undefined && memory.order === undefined));
+  assert.equal(resetDraft.direction, 'oldest-first');
+  // Gallery access can still resolve an asset whose import-time availability is
+  // unknown and whose original capture date is absent. Replay must retain that
+  // effective attachment for the provider's local access check instead of
+  // misreporting an empty memory set.
+  database.sqlite.exec("UPDATE canonical_evidence SET availability = 'unknown', captured_day = NULL WHERE evidence_id = 'synthetic-source-0'");
+  const unresolved = await repository.loadReplayManifestInput();
+  assert.equal(unresolved.memories.length, 4);
+  assert.ok(unresolved.memories.some((memory) => memory.available === false && memory.capture === undefined));
+  const scope = await repository.reviewJourneyPrivacy(displayId, review.snapshotToken);
+  await repository.saveJourneyPrivacy(scope.reviewId, 'hide', 'replay-hidden');
+  const hidden = await repository.loadReplayManifestInput();
+  // The policy scope propagates across shared supporting evidence, so neither
+  // synthetic journey remains visible after this hide.
+  assert.equal(hidden.groups.length, 0);
+  // Both synthetic journeys deliberately share the same supporting item. Hiding
+  // its first journey suppresses that item from the surviving trip as well.
+  assert.equal(hidden.memories.length, 0);
+}));
+
 test('reviewed privacy excludes inputs and membership and preserves failed-write atomicity', async () => withDatabase(async (database) => {
   const repository = createNativeReconstructionRepository();
   const { displayId, review } = await prepareConfirmedJourney(database, repository);
@@ -1000,7 +1044,7 @@ test('healthy manual layout with actual owner data does not acquire a schema wri
 
 test('a forward marker repairs an empty manual layout before local-history deletion and clears abandoned continuity data', async () => withDatabase(async (database) => {
   await ensureNativeImportSchema(database.adapter);
-  database.sqlite.exec(`UPDATE import_schema_version SET version = 34;
+  database.sqlite.exec(`UPDATE import_schema_version SET version = 35;
     ALTER TABLE manual_journey RENAME COLUMN date_start TO synthetic_legacy_start;
     CREATE TABLE legacy_atlas_continuity (legacy_id TEXT NOT NULL);
     INSERT INTO legacy_atlas_continuity (legacy_id) VALUES ('synthetic-only');`);

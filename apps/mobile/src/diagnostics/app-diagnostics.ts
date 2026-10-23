@@ -12,7 +12,9 @@ export type AppDiagnosticOperation =
   | 'MAINTENANCE_RECONCILIATION'
   | 'JOURNEY_PLACE_SAVE'
   | 'JOURNEY_PRIVACY_SAVE'
-  | 'JOURNEY_PRIVACY_READ';
+  | 'JOURNEY_PRIVACY_READ'
+  | 'REPLAY_RENDER'
+  | 'REPLAY_EXPORT';
 
 export type AppDiagnosticReasonCode =
   | 'START'
@@ -43,7 +45,7 @@ export type AppDiagnosticOutcome = 'complete' | 'unchanged' | 'paused' | 'blocke
 export type AppDiagnosticEvent = Readonly<{
   operation: AppDiagnosticOperation;
   reasonCode: AppDiagnosticReasonCode;
-  stage: ReconciliationStage | DurableRevealDiagnosticStage | AtlasProfileStage | 'PRIVACY_REVIEW_DETAIL' | 'PRIVACY_REVIEW_SCOPE' | 'PRIVACY_POLICY_LIST' | null;
+  stage: ReconciliationStage | DurableRevealDiagnosticStage | AtlasProfileStage | 'PRIVACY_REVIEW_DETAIL' | 'PRIVACY_REVIEW_SCOPE' | 'PRIVACY_POLICY_LIST' | 'REPLAY_ACCESS' | 'REPLAY_SCOPE' | 'REPLAY_DECODE' | 'REPLAY_ENCODE' | 'REPLAY_OUTPUT' | 'REPLAY_STALE' | 'REPLAY_UNAVAILABLE' | null;
   retryable: boolean;
   durableOutcome: AppDiagnosticOutcome;
   correlationId: string;

@@ -1,5 +1,545 @@
 # Error and improvement playbook
 
+## GitHub comparison fetch sandbox boundary (2026-10-23)
+
+- **Evidence/cause:** The requested `git fetch origin --prune` could not create `.git/FETCH_HEAD` inside the filesystem sandbox and stopped before refreshing remote tracking data.
+- **Correction/status:** Rerun the same read-only remote comparison fetch through the approved host boundary, then compare the refreshed `origin/main` ref before any staging or commit.
+- **Prevention:** Git fetch updates repository metadata even when it does not change project files. On this workspace, use the approved host boundary after the known sandbox metadata-write denial rather than treating stale tracking refs as current GitHub evidence.
+
+- **Worktree inventory correction:** A status command relied on an external-worktree execution directory that the sandbox did not enter, so Git reported it was not in a worktree. Run each external inspection from the primary checkout with `git -C <exact-discovered-worktree-path>` and retain only those direct results for the comparison.
+
+- **Staged-review formatting correction:** The first staged whitespace audit found a blank line at EOF in the generated M4.7 review artifact. Remove only that final blank line, restage the artifact and rerun `git diff --cached --check` before committing. Generated review records are part of the delivery surface and need the same staged audit as source.
+
+## Replay delivery-record lookup correction (2026-10-23)
+
+- **Evidence/cause:** A verification read targeted the correct M4.7 delivery-record path but `rg` returned no match and exited 1, so it did not supply the intended evidence.
+- **Correction/status:** Enumerated the workspace with `rg --files`, read the exact discovered literal path, then updated the record with the current implementation, validation, device-build, and pending-review facts.
+- **Prevention:** For a generated or untracked delivery artifact, enumerate first and use a direct content read for evidence; treat an empty search result as a failed lookup rather than as proof that the artifact is missing.
+
+## Replay Android ADB path correction (2026-10-23)
+
+- **Evidence/cause:** The final relaunch check invoked `adb.exe` through PATH even though this Windows workspace has no ADB PATH entry; PowerShell stopped before any device operation.
+- **Correction/status:** Use the verified absolute Android SDK platform-tools `adb.exe` path already established for this task, then enumerate the named device before addressing it.
+- **Prevention:** On this host, never rediscover ADB through PATH after a known successful absolute SDK path; keep device claims tied to the explicit command result.
+
+- **Sandbox-boundary recurrence:** The absolute ADB invocation then could not start its daemon inside the filesystem sandbox, so it could not enumerate or relaunch the connected device. Retry the same narrow read/force-stop/deep-link command through the approved host boundary; this transport limitation is not Android build or Replay evidence.
+
+## Replay chapter-card type contract omission (2026-10-23)
+
+- **Evidence/cause:** Adding the private chapter-card field as required broke TypeScript in existing legacy renderer fixtures and in the fallback manifest path, which intentionally do not contain a card.
+- **Correction/status:** The field is optional for legacy manifests and required by the current planner. The renderer types its fallback chapter shape explicitly and renders a card only when the manifest carries one. Typecheck is rerun after this correction.
+- **Prevention:** When extending an immutable manifest, search both fixture literals and fallback construction paths before making a field required; retain a documented compatibility boundary where old persisted or test manifests are valid.
+- **Test follow-up:** The first card assertion searched the first `-vf` call, but shared mocked native calls include earlier slate renders. It now selects the command containing the expected sanitized draw-text token. Focused Replay tests pass after the correction.
+
+## Replay preparation feedback gap (2026-10-23)
+
+- **Evidence/cause:** On the installed Android build, the owner reported that Replay stayed on the static `Your Replay is starting` copy while local media resolution and rendering could take a noticeable time. The screen did not expose active work or distinguish resolving from video composition, unlike the accepted Atlas update state.
+- **Correction/status:** Replay now uses the same accessible activity pattern as Atlas: a citrus spinner, busy semantics, explicit local `Finding your Replay moments` then `Rendering your private Replay` phases, concrete non-identifying source/scene counts, final verification, and a determinate accessible percentage bar during rendering. A deferred screen regression proves both phases and the 50% rendering state before playback. Focused Replay tests, renderer/controller tests, TypeScript, and lint pass; install/owner validation remains next.
+- **Prevention:** Any user-visible local operation that can exceed immediate feedback must show an active accessible progress state and a truthful phase label. Reuse the Atlas activity pattern where it fits rather than leaving a static status sentence.
+
+## Replay video-timing and verification-search correction (2026-10-23)
+
+- **Evidence/cause:** The initial moving-video panel padded a short source with a cloned final frame to fill its still-image chapter budget. That contradicted the accepted sparse-video rule and could make a half-second clip appear as five seconds of frozen filler. During the follow-up test search, a literal Windows wildcard path also produced OS error 123 rather than limiting the search with an rg glob.
+- **Correction/status:** The renderer now probes the staged local video duration, uses only its bounded available frames, verifies the resulting duration, and returns the measured manifest duration. The first slate regression exposed a second empty-media guard after the intended slate branch; it was changed to reject only an actually empty group scope. A visible qualified trip with no usable attachment now renders its neutral local slate instead of being reclassified as an empty scope. Renderer and selection regressions cover both cases. Use `rg ... <directory> -g '<pattern>'` on Windows rather than embedding `*` in a path operand.
+- **Prevention:** Never pad, loop, freeze, or slow an owner video to satisfy a photo timing target. Any timeline change must assert the rendered duration and inspect the exact filter arguments; keep Windows searches directory-based with explicit rg globs.
+
+- **Verification limitation:** `npm --prefix apps/mobile run doctor` again emitted only its `npx expo-doctor` start line before the bounded command window elapsed. No active Doctor process remained afterward, but there is no terminal result to classify as passing or failing. Retain Doctor as unverified; do not replace it with an assumed network or dependency diagnosis.
+
+- **Device-build invocation correction:** `npm --prefix apps/mobile run android:device` invokes Expo's interactive device picker, which exits in this non-interactive command session before compiling. A connected device was established separately through the absolute ADB path. Pass its serial directly to `npx expo run:android --device <serial>` for unattended development installation; do not interpret the picker failure as a Gradle or application build failure.
+
+## Replay draft ordering parser correction (2026-10-23)
+
+- **Evidence/cause:** The first persisted-order parser declared its map with `var` inside a `try` block, then read it after the block. TypeScript correctly reported that the value could be unassigned and lint rejected `var`.
+- **Correction/status:** Initialize a typed empty map before parsing and replace it only after validated JSON input. The fallback retains an empty map. Typecheck and lint must pass before the editor order flow is considered verified.
+- **Prevention:** For optional persisted state, initialize the typed safe default outside parsing or I/O boundaries; never rely on a declaration inside a `try` being definitely assigned afterward.
+
+- **Test-fixture recurrence:** Expanding the Replay screen fixture to two usable memories invalidated assertions that removing one makes the private selection empty, and a replacement target has to be an unselected candidate. Remove both memories for the empty-selection case and remove the replacement candidate before asserting the replacement action. Keep interaction fixtures aligned with the selection state they are intended to prove.
+
+- **Regression-suite recurrence:** The schema bump left one manual-journey migration expectation at 34, and the new renderer import exposed `munim-ffmpeg` ESM to the router-tree test. Update every migration-version assertion and map the native-only renderer dependency to the shared Jest stub so route discovery never executes native module code.
+
+- **Replay cleanup ownership correction:** Adding provider-unmount cleanup read mutable replay refs directly from a React effect cleanup, producing exhaustive-deps warnings because those refs could point elsewhere at cleanup time. Capture the controller and artifact map inside the effect before registering cleanup, then dispose only that captured session.
+
+- **Replay duplicate-attachment persistence correction:** The first draft format keyed choices only by evidence ID. The real SQLite replay fixture showed that one evidence item can attach to two visible journeys, which made its saved ordering ambiguous. Persist an internal JSON journey-plus-evidence reference for each draft item, retain legacy evidence-ID drafts as a compatible fallback, and require a real SQLite save/reopen assertion for duplicate attachments.
+
+- **Replay share-test timing correction:** The duplicate-share regression pressed a Share option immediately after navigation, before React committed the share-review surface. Await the option's accessibility label before interacting with it; screen-state transitions are asynchronous in this harness.
+
+- **Replay stale-draft contract follow-up:** Adding snapshot and privacy revision arguments to draft writes left one screen import and one ordered-edit assertion on the old API shape. Update all call sites and expectations together, then run typecheck before relying on focused test results.
+
+## Replay schema verification command correction (2026-10-23)
+
+- **Evidence/cause:** After adding the additive Replay-draft migration, a verification command guessed `npm --prefix apps/mobile run sqlite:test`. The package exposes the real SQLite harness as `test:sqlite`, so npm stopped before running any test.
+- **Correction/status:** Read `apps/mobile/package.json`; use `npm --prefix apps/mobile run test:sqlite` for this repository. TypeScript and diff checks that followed passed; the correct SQLite harness remains to be run.
+- **Prevention:** Inspect the package scripts before invoking a named verification target. Do not invent a script name from its purpose.
+
+- **Migration recurrence:** Raising `CURRENT_SCHEMA_VERSION` from 34 to 35 made a real-SQLite fixture's hard-coded forward marker (`34`) equal the current version. The schema fast path correctly skipped recovery, but the fixture then failed expecting a repair. Update the fixture marker to 35 whenever the current schema advances, and run the full real-SQLite suite after every migration-version change.
+
+- **Editor-test recurrence:** The new Replay editor test asserted the option immediately after `fireEvent.press`, before React committed the `editing` state. The implementation had not rerendered yet. Use `waitFor` for post-press asynchronous screen assertions; do not interpret a pre-commit tree as a missing control.
+
+- **Verification recurrence:** A full `npm --prefix apps/mobile run check` used Jest's protected default Temp cache and failed every suite before test execution with the known sandbox `EPERM` transform-cache rename. This was an agent invocation error: the Replay playbook already requires the quoted repository-local `.jest-cache` path. Rerun Jest directly with that cache, then run the remaining SQLite/type/lint/Doctor checks individually; do not claim the package-script failure is an application regression.
+
+## Replay plan generation and Windows search corrections (2026-10-23)
+
+- **Evidence/cause:** A read-only rg search used the shell-style literal `apps/mobile/src/maintenance/*`, rejected with Windows OS error 123. A planning-generation Python script then failed parsing because a replacement string crossed a newline without triple quotes; Python parsed before execution, so that failed script made no writes.
+- **Validator correction (2026-10-23):** A direct whitespace probe over the existing decision document misclassified its intentional two-space Markdown hard break as invalid trailing whitespace. The first probe did not append validation events. Reran a Markdown-aware check that permits exactly two trailing spaces; eight companion paths, links, CAP-1..5 and R1-R24 then passed. Classify existing Markdown syntax before treating it as a generated-file defect.
+- **Correction/verification:** Discovered concrete paths with `rg --files`, read task.ts/reconcile-runner.ts, generated the delivery plan using one triple-quoted payload, and applied other document alignment as structured patches. No application source changed. Document/root verification is recorded in the delivery record.
+- **Recurrence (2026-10-23, curated Replay planning):** A later search repeated the same literal-wildcard mistake with `docs/decisions/*ai*`. Corrected to `rg ... docs/decisions -g '*.md'`; no source changed. Apple documentation Markdown retrieval also returned an unsupported content-type; retained official capability references without claiming the unread response established details.
+- **Prevention:** Before external Windows searches, inspect the exact path argument and reject shell-style `*` path operands; use an actual directory plus rg glob flags; keep multiline document payloads triple-quoted or use apply_patch, and validate resulting links/contracts before declaring planning complete.
+
+## Replay preparation interaction mismatch (2026-10-23)
+
+- **Evidence/cause:** The owner rejected the required preparation steps and requested tap-to-play with optional editing. The current Replay screen opens idle with a Prepare Replay action and does not call playback automatically or expose editing. Engineering preparation stages became mandatory product interactions.
+- **Status/correction:** Open implementation gap. Recorded the owner's accepted interaction direction in decision 0009 and project state; no runtime fix or device result is claimed.
+- **Planning correction (2026-10-23):** Re-derived CAP-1..5 and five companions, updated the single delivery record with D0-D6, specified durable editor/schema/cache and task ownership, and added R11-R18. Runtime mismatch remains open until implementation and physical acceptance.
+- **Later planning refinement (2026-10-23):** Owner-approved sparse timing removes mandatory15-20s holds for one/two memories; timing-contract.md and R25-R28 now require no filler, simple product editor labels, an early one-trip watch/replace/reopen proof and unchanged per-trip cache reuse after global revision changes. Earlier automatic curation/long-Replay acceptance R19-R24 remains. These are plan corrections, not runtime fixes; verify the actual user path before closing the mismatch.
+- **Next action/prevention:** Execute D0-D6. Acceptance must exercise one-tap playback, restart-persistent edits and scheduled preparation rather than treating successful encoding as sufficient.
+
+## BMAD party activation UV cache recurrence (2026-10-23)
+
+- **Evidence/cause:** Party activation encountered the previously documented Windows sandbox UV interpreter-cache access denial before resolver execution. A batched invocation also began the next resolver against the same cache boundary; it was interrupted. No application code executed through these commands.
+- **Correction/status:** Read shipped party customization and core configuration directly and use the inline session fallback. Sandbox execution remains an environment limitation.
+- **Inventory correction:** A guessed `_bmad/_config/agent-manifest.csv` read found no file. Use the available installed skill roster for this discussion; discover actual manifest paths before future reads.
+- **Prevention:** Consult the existing UV-cache lesson before activation; stop dependent resolver commands after the first failure and read configuration inputs directly when sufficient for discussion.
+
+- **Spec-workflow recurrence (2026-10-23):** Initial bmad-spec configuration
+  resolution hit the same sandbox-local UV interpreter/cache access denial. The
+  elevated local `uv run` retry completed and did not run application code. Use
+  the approved local UV execution path for BMAD resolver/memlog work after this
+  environment-specific failure; do not classify it as a Replay application or
+  specification defect.
+
+- **Specification validation correction (2026-10-23):** The first static
+  contract probe searched for the simplified phrase `chapter budget`, while the
+  authored contract correctly says `chapter's frame budget`; it stopped before
+  `git diff --check` and the required foundation check. Correct the probe to
+  validate the authored wording, then rerun the complete validation chain. Keep
+  validation terms aligned with the contract instead of treating a wording alias
+  as a missing requirement.
+
+- **Replay direction save correction (2026-10-23):** The first editor
+  regression pressed Newest first and Done in the same React turn, exposing that
+  the save handler could capture the previous direction state. Keep the current
+  private direction in a ref updated by the control handler, and save that ref
+  while the rendered state catches up. The original test failed only in the
+  host harness; the failure identified a real rapid-interaction correctness
+  risk. Re-run the focused screen suite, TypeScript and lint after the fix.
+
+- **Android build target correction (2026-10-23):** The first post-change
+  `expo run:android --device 9cb47ed9` command rejected the valid ADB serial as
+  an Expo device *name*, so no build or installation started. Query ADB first,
+  then pass the reported model name (`2211133G`) to Expo's device selector.
+  Treat command acceptance as a build prerequisite, not evidence of a device
+  install or Replay rendering result.
+
+- **Review-diff generation correction (2026-10-23):** The first full-diff
+  review command attempted to inline every untracked file, including generated
+  local-cache material, and exceeded its command window before producing the
+  review path. Build the review diff from tracked changes plus the relevant
+  source, test, documentation, and delivery artifacts; exclude generated local
+  caches that cannot be reviewed or shipped. Keep the actual product diff under
+  review without staging or altering unrelated work.
+
+- **Review-diff PowerShell correction (2026-10-23):** The narrowed review-diff
+  script put `-and` inside a `Test-Path` argument list, so PowerShell reported
+  an unknown parameter and wrote only tracked changes. Parenthesize each command
+  expression before combining it with logical operators, then regenerate the
+  review artifact before dispatching reviewers. Do not review a diff that omits
+  the untracked Replay implementation files.
+
+- **Review-worker artifact-path correction (2026-10-23):** Review workers cannot
+  read this session's sandbox-temporary diff path, so two mandatory review layers
+  returned unreadable-content responses and the third was interrupted. Regenerate
+  the non-staged review artifact under the workspace before dispatching reviewers,
+  then discard the unusable responses and rerun every layer. A missing review
+  artifact is not a clean review result.
+
+- **Independent-review capacity limitation (2026-10-23):** After the review
+  artifact was rebuilt inside the workspace, both independent reviewers stopped
+  with an account usage-limit response before inspecting it. Their earlier
+  unreadable-diff responses were discarded. This is an external review-capacity
+  blocker, not a review pass; the delivery remains subject to later independent
+  review. The local diff audit and executable checks continue, with no claim
+  that they substitute for those lenses.
+
+## M4.7 Replay manifest was erased by unrelated Atlas reads (2026-10-22)
+
+- **Evidence/cause:** After Atlas visibly restored nine journeys and its Replay control, the owner saw `found 0 visible trips and 0 attached memories`. Replay used the global durable-reveal generation gate after reading its manifest. Atlas detail reads and routine maintenance refreshes advance that UI-publication gate without changing the private Journey List scope, so the provider replaced an otherwise valid manifest with an empty one.
+- **Correction/verification:** Replay now invalidates its manifest only on a privacy mutation or private-record lifecycle loss. The repository remains responsible for the snapshot token and current privacy read; routine Atlas refreshes no longer empty its result.
+- **Prevention:** Do not reuse a display-publication generation counter as a data-scope token. Regression coverage must exercise an unrelated Atlas read during Replay preparation and require the current Journey List scope to survive.
+
+## M4.7 Replay access failure was reported as renderer unavailable (2026-10-22)
+
+- **Evidence/cause:** The owner again received `The local Replay renderer is unavailable on this device`. Fixed Android diagnostics showed a Replay start followed immediately by `REPLAY_UNAVAILABLE`, while the native FFmpeg hybrid object had loaded and the synthetic encode had already passed. Source tracing showed that a rejection while resolving current native media handles escaped the provider as an untyped error; the screen's fail-closed fallback labeled it as renderer unavailability.
+- **Correction/verification:** The provider now maps manifest-read and native-handle-resolution failures to the closed `REPLAY_ACCESS` stage, retaining native messages in memory and keeping them out of UI, diagnostics, and records. A focused provider regression covers that boundary; mobile TypeScript, lint, provider, and Replay screen tests pass. Physical confirmation of the corrected message and subsequent render result remains pending.
+- **Prevention:** Every Replay boundary must map its own failure to a fixed stage before crossing into screen state. Do not use the renderer-unavailable message for an untyped access or manifest error.
+- **Recurrence (2026-10-22):** After the first correction, the owner still saw the renderer-unavailable copy while the current development process had a Replay start event and the device's synthetic renderer completed. The only remaining catch-all was `instanceof ReplayPreparationError`; a Fast Refresh/native realm boundary can retain an earlier error prototype and fail that identity check. The classifier now accepts only the closed, fixed Replay-stage vocabulary from such an error object, while unknown values still fail closed to renderer-unavailable. Provider prerequisites now classify privacy/lifecycle loss as stale and missing manifest/media resolution as access. Renderer, screen, provider, lint, and TypeScript checks pass; physical preparation is pending.
+- **Recurrence (2026-10-22):** The current-device event still emitted an actual `REPLAY_UNAVAILABLE` before private media access, so it was not only a stale screen classifier. Munim documents `libopenh264` as the bundled cross-platform fallback, but its dynamic codec-discovery report can be absent or delayed. Replay now treats discovery as advisory, attempts `libopenh264` when it returns no candidate, and uses Android's required `nv12` output format when `h264_mediacodec` is selected. An actual FFmpeg failure now reaches the encode stage instead of being rejected before composition. Mobile lint, TypeScript, and focused tests pass; device confirmation remains open.
+- **Recurrence (2026-10-22):** The exact current Android build then passed both synthetic S0 checks, including a verified local MP4, proving cache access, native response, and encoder availability. The Replay screen nevertheless still had a generic unavailable path before `preparePrivateReplay`: its initial `loadReplayManifestInput` call let native manifest and preview-resolution failures escape as untyped errors. That boundary now maps both failures to `REPLAY_ACCESS`; a provider regression covers the screen-first call. The next device result must be the actual access outcome or render result, never renderer availability for that path.
+
+## M4.7 Atlas recovery hid the Replay entry (2026-10-22)
+
+- **Evidence:** The owner reported that Replay disappeared from Atlas. The Android accessibility tree showed Atlas in recovery with `Journeys · 0`, the retained-journey message, and the fixed reason `Replay is unavailable while the local record needs recovery.` The database inventory still showed the private SQLite record; no private rows, media, locations, or raw errors were inspected or emitted.
+- **Cause:** The durable reveal selected only the newest completed reconstruction run. A transient native-source failure may write a same-revision completed pass with no qualified journeys, leaving the UI with no retained projection even though an earlier qualified projection remains durable.
+- **Correction/verification:** Durable Atlas and Replay reads now select the latest qualified completed run for the newest evidence revision, then apply the current privacy filter. This cannot resurrect a hidden journey, and a later authoritative projection still replaces the retained one. Mobile TypeScript, lint, and the 52-case reconciliation repository suite pass; physical recheck is pending.
+- **Prevention:** A recovery-state test must prove the Replay entry remains reachable from a retained qualified projection and a new empty pass cannot erase it without a new evidence revision or current privacy exclusion.
+
+## M4.7 Android development-server IPv4 recovery (2026-10-22)
+
+- **Evidence/cause:** The connected Android development build remained on a
+  reload/error surface because it retained an unreachable LAN packager address.
+  A replacement Expo server started with `--localhost` listened only on IPv6
+  loopback, while the device's ADB-reversed connection reached IPv4 loopback;
+  the launcher therefore received no complete bundle response. A diagnostic
+  filter also initially used PowerShell's reserved `$PID` variable, so it
+  inspected the shell process instead of the application process.
+- **Correction/verification:** Restarted Expo with its localhost host type and
+  `NODE_OPTIONS=--dns-result-order=ipv4first`, which listens on
+  `127.0.0.1:8081` without exposing the private server to the LAN. Re-applied
+  `adb reverse`, cold-launched the development build at that loopback endpoint,
+  and observed Metro bundle `node_modules/expo-router/entry.js` successfully.
+  The device displays the Travel Life Welcome screen with no fresh loader or
+  application crash entry.
+- **Prevention:** For physical Android checks on this host, use the private
+  IPv4-loopback Metro start plus ADB reverse; preflight both the listener address
+  and an HTTP status response before opening the dev client. Use `$appPid`, not
+  PowerShell's reserved `$PID`, in device-log commands. Do not broaden to a LAN
+  server unless its data-exposure boundary is explicitly approved.
+- **Recurrence (2026-10-22):** A later device reload command assumed `adb` was
+  still on the active shell's `PATH`, so every requested device action stopped
+  before execution. The Android SDK binary is present at the standard local SDK
+  location. Invoke that absolute executable or establish the session PATH before
+  a device check; do not report a reload as having occurred until the command
+  returns its device result. The corrected command then assumed the obsolete
+  `com.travellife.app` package, so its cold launch aborted. A process/package
+  query established the active development package as `com.anonymous.travellife`;
+  the subsequent reverse, force-stop, launch, and Atlas deep link completed.
+  Query the active package before replaying a device lifecycle command instead
+  of carrying a package identifier across builds.
+- **Recurrence (2026-10-22):** A later fixed-diagnostic command again used the
+  case-insensitive PowerShell `$pid` name and stopped before reading the current
+  process. The immediate retry used `$appPid` and returned the current closed
+  `REPLAY_UNAVAILABLE` event. Keep the preflight variable name in the command
+  template; do not use `$PID` in any casing.
+- **Tooling correction:** An initial broad `rg` invocation included generated
+  dependencies and emitted megabytes of irrelevant map data while locating the
+  S0 route. No source or device state changed. Restrict route and component
+  lookups to `apps/mobile/src` with explicit TypeScript globs.
+- **S0 route correction:** Treating `/replay-s0` as part of the Expo development
+  manifest URL opened the Dev Launcher error surface because that URL is a
+  manifest endpoint, not a Router navigation endpoint. No renderer probe ran.
+  Restored the private root manifest URL and observed the app's Welcome screen
+  with a successful Android bundle. Keep the physical S0 status unpassed until
+  the probe is reached through a supported in-app route and the owner taps it.
+- **Device-input limitation:** Android denied the host's synthetic scroll event
+  because this device does not grant `INJECT_EVENTS`. The development-only S0
+  entry was initially placed on Welcome, which was the wrong product surface.
+  It now appears only in the fail-closed Replay state after Prepare Replay;
+  the owner navigates there and taps it. This is an environment permission
+  boundary, not a renderer result.
+- **Owner-confirmed S0 availability:** The owner observed both terminal messages:
+  `Renderer responded on this phone` and `Check complete`. This passes only the
+  synthetic native-module response gate. No encode command, MP4 output,
+  FFprobe validation, preview, or sharing was part of that probe, so no Replay
+  video is expected yet. The next synthetic encode/output-validation gate is
+  implemented and awaits a physical-device result. **Update:** the owner
+  confirmed the synthetic-video terminal success. This proves only synthetic
+  cached MP4 encoding and FFprobe validation; it does not authorize a claim
+  that private Replay composition, preview, or sharing works. Keep production
+  rendering fail-closed while attachment materialization is built.
+
+## M4.7 Replay preview test native-module boundary (2026-10-22)
+
+- **Evidence/cause:** The first screen test after adding the real Replay preview
+  imported `expo-video` through Jest's native-less shell and failed before any
+  assertion because its native player class is unavailable there. This was a
+  test harness boundary, not an Android/iOS playback result.
+- **Correction/verification:** Mock the player hook and view in the Replay
+  screen test, then assert the sanitized local-artifact preview state. Native
+  playback remains a required physical-device acceptance check.
+- **Prevention:** Every component that directly imports a native view/player
+  needs a narrow test adapter or module mock before it is added to an existing
+  Jest-only screen harness.
+- **Recurrence:** Provider tests import the renderer indirectly. Its native
+  FFmpeg package publishes an ESM entry that this Jest configuration does not
+  transform, so the suite failed during module loading. Mock that closed native
+  boundary in provider tests as well; this does not constitute renderer proof.
+- **Type correction:** The export acknowledgement initially introduced a
+  non-existent diagnostic reason code, which TypeScript rejected. Use the
+  closed `RESTRICTED` code for an unavailable share API. Typecheck must run
+  after every diagnostics change, even when the screen test passes.
+
+## M4.7 Android screenshot capture command correction (2026-10-22)
+
+- **Evidence/cause:** A device-screen capture piped the PNG stream to
+  PowerShell `Set-Content -Encoding Byte`; this PowerShell version does not
+  support that encoding value, so no screenshot was written. The app and
+  device state were unchanged.
+- **Correction/prevention:** Use `Set-Content -AsByteStream` for binary ADB
+  output and inspect the resulting local file. Keep screenshot output ignored
+  and use it only to confirm current UI state.
+- **Recurrence/cause:** Native command output is surfaced as strings by this
+  PowerShell host, so `-AsByteStream` also cannot preserve it. Redirect
+  `adb exec-out` directly through one `cmd.exe` process for a binary-safe
+  local capture; do not pipe that stream through PowerShell.
+- **Invocation correction:** Escaping the nested command directly in the tool
+  command string introduced literal backslashes for `cmd.exe`. Launch cmd with
+  its arguments as a PowerShell argument array so the quoted ADB executable and
+  output path reach its own parser intact.
+- **Fallback:** The host still rejected the nested redirection path and created
+  a zero-byte ignored file. Stop retrying screenshot redirection. Use Android's
+  XML UI dump for text-only current-screen verification; it avoids binary
+  transport and does not inject input.
+
+## M4.7 Android private-store inventory command correction (2026-10-22)
+
+- **Evidence/cause:** The app-private SQLite directory listing succeeded and
+  confirmed the local database, but a follow-up `find -printf` format was
+  malformed by PowerShell escaping and failed after that useful result.
+- **Correction/prevention:** Use the successful bounded directory listing for
+  inventory evidence. Do not add an unnecessary second formatting command when
+  filenames and byte sizes are already present; never read private rows merely
+  to prove file existence.
+
+## M4.7 Android XML label extraction quoting correction (2026-10-22)
+
+- **Evidence/cause:** A shell `grep` expression for parsing the Android XML
+  accessibility dump was interpreted by PowerShell before reaching Android and
+  failed without affecting the device or app.
+- **Correction/prevention:** Read the local S0 component source for its known
+  navigation controls rather than sending regex-heavy nested shell syntax
+  through PowerShell. Keep XML inspection to plain dumps when needed.
+
+## M4.7 synthetic S0 navigation trap (2026-10-22)
+
+- **Evidence/cause:** The owner reached the development-only S0 screen and
+  completed both synthetic checks, but that route rendered no Replay or Atlas
+  return action. It stranded the owner in a diagnostic path instead of letting
+  them continue to the actual private Replay flow.
+- **Correction/verification:** Add explicit replace-navigation controls for
+  private Replay and Atlas to the S0 screen. The controls do not expose media,
+  change private data, or imply that S0 is product acceptance.
+- **Prevention:** Every development-only diagnostic route must include a clear
+  return to its product entry point and must never become the terminal owner
+  path after a successful probe.
+
+## M4.7 Replay fixed-failure test boundary (2026-10-22)
+
+- **Evidence/cause:** Adding the closed failure-stage mapper made the screen
+  test import `renderer.ts` directly, exposing the native FFmpeg package's ESM
+  entry to Jest. A separate assertion still expected the retired raw renderer
+  failure name. These were test-only failures; no Android behavior changed.
+- **Correction/prevention:** Mock the native module at the screen test boundary
+  and assert the new fixed `REPLAY_UNAVAILABLE` stage. Add a visible fixed-stage
+  screen assertion so generic failure copy cannot return unnoticed.
+
+## M4.7 Replay production encoder allowlist mismatch (2026-10-22)
+
+- **Evidence/cause:** Owner replay preparation reached the fixed
+  `REPLAY_UNAVAILABLE` state. The synthetic Android S0 had successfully
+  encoded a local MP4 using the ordered candidate set that includes
+  `libopenh264`, while production preparation omitted that candidate and could
+  therefore find no encoder on this phone. No private media was rendered.
+- **Correction:** Use the same closed ordered local encoder allowlist for
+  production composition. Real private output remains subject to strict stream,
+  size and duration verification; if it fails, the next fixed stage will be
+  recorded without native logs or source data.
+- **Prevention:** Synthetic S0 and production candidate allowlists must be
+  compared before declaring a renderer unavailable. A synthetic encode does not
+  complete the full platform S0 or acceptance matrix.
+
+## M4.7 Replay manifest RED/typing correction (2026-10-22)
+
+- **Evidence/cause:** The first real-SQLite reproducer asserted every manifest
+  memory would become unknown after changing one shared synthetic source; the
+  fixture also contained independent available attachments. The first provider
+  implementation passed a readonly source-ref array to the mutable native-adapter
+  interface, so TypeScript rejected it.
+- **Correction/verification:** The regression now asserts that at least one
+  unknown, undated effective attachment survives. Provider passes a copied array
+  and strips source references before returning to a screen. The focused SQLite,
+  provider and TypeScript checks pass.
+- **Prevention:** Test the targeted fixture identity/property, not a broad shared
+  set; preserve adapter parameter mutability at the provider boundary.
+- **Tooling recurrence:** A combined source-inspection command passed multiple
+  paths to one `Get-Content -LiteralPath` invocation and PowerShell rejected its
+  positional arguments before reading the final files. No source changed.
+  Prevention: use one `Get-Content` invocation per literal path or a loop when
+  inspecting independent files.
+
+## M4.7 Replay and journey album scope mismatch (2026-10-22)
+
+- **Evidence/status:** Owner reports Prepare Replay finds nine visible trips and zero usable attached memories. Open: the precise device-data cause is unverified. Source inspection shows Replay requires stored `availability === 'available'`, while the album passes unknown items to the owner-preview resolver. Replay also uses a separate membership query and omits media without a captured day; equivalence with the album is not established.
+- **Required correction:** Consume the same effective journey-media membership and access-resolution behavior as the album, preserving owner corrections and privacy. Resolve unknown access before reporting unavailable media; an absent capture day must not alone remove an attached memory from private replay scope. Do not merely relabel unknown as available.
+- **Verification/next action:** Add parity cases for unknown-but-resolvable media, mixed photos/videos, undated attachments and membership corrections, then verify the owner-reported flow on device. No application fix or device acceptance is claimed by this discussion.
+- **Investigation tooling:** An initial search assumed root `src`/`app` directories and reported missing paths. File discovery located the implementation under `apps/mobile/src`; the corrected search succeeded. Prevention: discover repository paths with `rg --files` before scoped searches.
+
+
+## M4.7 Android development-launcher crash recovery (2026-10-22)
+
+- **Evidence/cause:** After repeated deep-link reload attempts, the device showed the development launcher's error screen. Android's crash buffer attributes the failure to Expo Dev Launcher rejecting a second React-context creation during activity startup. There was no fresh Replay JavaScript error, renderer error, or application-process crash tied to the Journey List change.
+- **Correction/verification:** Rebuilt and reinstalled the Android development build. Gradle completed successfully, installed the APK, opened the development URL, and `MainActivity` is the current resumed activity with no new crash entry. This does not establish the owner-visible Replay behavior.
+- **Prevention:** Use one stable Metro endpoint and one normal launcher start for physical acceptance; do not repeatedly deep-link a running Dev Launcher instance. Distinguish its lifecycle crash from app-feature failures before changing product code.
+
+## M4.7 Journey List verification fixture and invocation correction (2026-10-22)
+
+- **Evidence/cause:** The initial Journey List real-SQLite assertion expected media to remain after hiding one synthetic trip, but its surviving trip intentionally reused the same supporting evidence. Privacy correctly withheld it. A compound Jest command also exposed the existing asynchronous Replay screen-harness timeout when that screen suite ran beside another suite.
+- **Correction/verification:** The SQLite expectation now reflects shared-evidence withholding; its positive assertion remains before hide. Run the Replay screen suite in its existing isolated invocation with its repository-local cache, and run the selection suite separately.
+- **Prevention:** Fixtures that reuse media across journeys must assert privacy propagation, not independence. Keep this React Native screen suite isolated until the shared act configuration is repaired.
+
+## M4.7 BMAD workflow sandbox retry (2026-10-22)
+
+- **Evidence/cause:** The required `bmad-build` workflow renderer first failed before reading project state because Windows denied its `uv` interpreter-inspection temporary-file write. No source or delivery artifact changed in that failed attempt.
+- **Correction/verification:** Re-ran the exact renderer through the approved host boundary; it produced the workflow path successfully. The owner amendment is now being implemented through that workflow.
+- **Prevention:** Treat this as a host sandbox temporary-file limitation, preserve the failed output, and use one approved host retry for the same required BMAD renderer rather than substituting an unrendered workflow.
+- **Recurrence (Replay planning):** Spec activation using uv's default cache hit
+  the same interpreter-cache persistence denial. Setting `UV_CACHE_DIR` to the
+  writable workspace `.local/uv-cache` allowed the exact config/customization and
+  memlog commands to succeed without escalation. Prefer a writable local cache
+  before host escalation for these Python workflow helpers.
+
+## M4.7 planning patch context correction (2026-10-22)
+
+- **Evidence/cause:** One renderer-document patch expected a sentence to be a
+  standalone line, although it was part of a longer paragraph. The patch tool
+  rejected it before any writes.
+- **Correction/verification:** Reissued the patch with the exact paragraph
+  context; it applied. Validate the resulting canonical companion links, limits
+  and whitespace before handing off the plan.
+- **Prevention:** Match actual complete Markdown lines when patching paragraphs;
+  do not treat wrapped display text as source line boundaries.
+
+## M4.7 Android S0 launch corrections (2026-10-22)
+
+- **Evidence/cause:** The first device lookup selected the literal `adb` command before proving it existed; the next PowerShell collection indexed a string as a character. After resolving the SDK executable, the sandbox could not start its ADB server. Expo then rejected the ADB serial as a `--device` name.
+- **Correction/status:** Use the confirmed SDK `adb.exe` with host access and Expo's detected model name (`2211133G`). The Android development build succeeds and installs with the native renderer module; a development-only synthetic S0 route is open for the owner to tap. No renderer result is recorded until that interaction completes.
+- **Prevention:** Resolve executable paths before invocation, preserve array shape in PowerShell, use host ADB for device actions, and pass Expo its device name rather than its serial.
+
+## M4.7 Android S0 terminal-feedback correction (2026-10-22)
+
+- **Evidence/cause:** The owner tapped the synthetic renderer control and perceived no response. Fixed Android diagnostics prove the action entered and completed the synthetic native query, and Android's loader recorded `libmunimffmpeg.so` loading successfully. The original terminal text was too visually subtle to constitute reliable owner acknowledgement.
+- **Correction/status:** The S0 screen now changes its heading, adds a `Check complete` panel, and disables/relabels the action after a successful response. This is a synthetic module-response pass only; it does not prove encoding, MP4 validation, cleanup, or share handoff. The owner must reload the updated JavaScript and confirm the visible state.
+- **Prevention:** A physical probe must have both a closed diagnostic outcome and a distinct visible terminal state before it can be counted as click-and-wait evidence.
+
+## M4.7 Replay sparse-state test interaction correction (2026-10-22)
+
+- **Evidence/cause:** Adding a second asynchronous screen interaction after the existing cancellation flow produced overlapping React `act` scopes in this repository's React Native test harness. A follow-up attempt treated the project's asynchronous `render` helper as synchronous, so the result no longer exposed query methods. Neither failure exercised device rendering or altered product state.
+- **Correction/verification:** Removed the unstable duplicate interaction from the screen-flow test and retained the qualified-group threshold in selection and SQLite repository tests. The established screen test, TypeScript, and lint pass. The app's sparse message now reports the exact qualified group count and offers photo-access recovery.
+- **Prevention:** Keep one asynchronous Replay screen flow per harness render until the shared React Native test setup is made act-safe; cover a second branch in a separate isolated suite only after that setup is repaired.
+
+## M4.7 device verification environment limitation (2026-10-22)
+
+- **Evidence/cause:** The local Android-device inventory command could not start because `adb` is not installed or not on this host's PATH. No emulator, device, native development build, renderer encode, or share handoff was attempted.
+- **Correction/status:** Keep Android and iOS S0 acceptance open. Local automated checks remain separate from physical-device evidence.
+- **Prevention:** Verify the available Android/iOS toolchain before scheduling owner click-and-wait validation; do not infer device reachability from Expo JavaScript checks.
+
+## M4.7 Expo permission diagnosis correction (2026-10-22)
+
+- **Evidence/cause:** A first reading of resolved Expo config attributed `android.permission.WRITE_EXTERNAL_STORAGE` to the newly added renderer plugin. Comparison with the committed pre-Replay `app.json` and inspection of the plugin show the app already blocked that permission and the renderer plugin only configures packaging and iOS simulator settings.
+- **Correction/verification:** Preserve the existing explicit blocked-permission and `savePhotosPermission: false` policy. The Replay change adds no Android permission declaration; resolved-config output is not treated as proof that a renderer plugin introduced one.
+- **Prevention:** Before attributing a generated manifest/config permission to a new dependency, compare the prior source configuration and inspect the plugin implementation.
+
+## M4.7 Expo Doctor verification limitation (2026-10-22)
+
+- **Evidence/cause:** After installing the Replay-native dependencies, sandboxed Expo Doctor could not resolve the npm registry. The approved host retry reached the registry and completed 20/21 checks; its only failure is the already-recorded nine Expo SDK patch-version mismatches (`@expo/ui`, Expo, asset, constants, linking, router, splash-screen, dev-client and jest-expo).
+- **Correction/status:** The new `expo-sharing`, `munim-ffmpeg`, and Nitro bridge packages were not listed as mismatches. No SDK patch upgrade is included in this Replay change because it would broaden the native acceptance scope.
+- **Prevention:** Distinguish a sandbox DNS failure from an Expo compatibility result, then rerun the same read-only diagnostic with the required registry access before reporting its outcome.
+
+## M4.7 Replay SQLite fixture correction (2026-10-22)
+
+- **Evidence/cause:** The first Replay manifest-input SQLite fixture reused a confirmed journey that intentionally retained an uncertain visit. The Replay chronology gate correctly returned no group; adding one chronological visit to that journey did not make all its support certain.
+- **Correction/verification:** The fixture now creates a separate current-run journey with exclusively chronological observed support and `membership:primary` media. The full real-SQLite suite passes 86/86, including its privacy-hide assertion.
+- **Prevention:** Fixture data for a strict all-support ordering gate must isolate the positive case from intentionally uncertain source data instead of mutating a broad generic journey.
+
+## M4.7 Replay UI test correction (2026-10-22)
+
+- **Evidence/cause:** The first Replay screen test treated the asynchronous React Native render helper as synchronous and referenced a non-prefixed mock from a Jest factory, so typecheck and Jest stopped before product assertions.
+- **Correction/verification:** Await rendering and use the allowed `mock`-prefixed factory binding. Rerun the focused screen suite and typecheck before accepting the UI test.
+- **Prevention:** Follow the established async render/mocking pattern from the provider tests before adding discoverable React Native cases.
+
+## M4.7 Replay renderer mock correction (2026-10-22)
+
+- **Evidence/cause:** The first renderer/share test supplied a hoisted Jest mock factory that did not expose `isAvailableAsync` to the namespace import at runtime, so the adapter test stopped with a type error before its assertions. This is a test-double wiring failure, not native share or renderer evidence.
+- **Correction/verification:** The factory now creates functions directly and the test configures the imported module mock. With an explicit repository-local Jest cache, `replay-renderer.test.ts` passes 2/2.
+- **Prevention:** For hoisted module mocks, configure the imported mocked function after the mock declaration rather than closing over test-local factories.
+
+## M4.7 sandboxed Jest cache verification limitation (2026-10-22)
+
+- **Evidence/cause:** The parent replay-suite verification could not initialize any suite because sandboxed Jest was denied an atomic rename in its temporary transform cache (`EPERM`). This is a host sandbox limitation, not evidence of a product-test failure.
+- **Correction/status:** Keep the subagent's host test result separate from this failed parent rerun. Parent verification remains blocked until the same command is executed with a repository-local writable cache or approved host execution.
+- **Prevention:** For Windows sandbox runs, set an explicit repository-local Jest cache directory or obtain host execution before treating a rerun as verification.
+- **Recurrence (selection amendment):** A focused Replay Jest command again used
+  the sandbox default cache and failed before test discovery with the same
+  atomic-rename `EPERM`; TypeScript still passed. Re-run focused suites with
+  `--cacheDirectory=./.jest-cache-codex` and do not count the failed sandbox
+  invocation as product-test evidence.
+
+## M4.7 Replay implementation test-harness corrections (2026-10-22)
+
+- **Evidence/cause:** The first new Replay screen test failed before rendering because the existing Jest environment did not provide `expo-video`; after adding that mock it incorrectly treated the asynchronous React Native `render` helper as synchronous. These were test-harness mistakes, not product-renderer behavior.
+- **Correction/verification:** The test supplies the narrow native-video double and awaits render. The four required discovered Replay suites then pass on the host boundary: 7 tests across selection, controller, renderer gate and screen.
+- **Prevention:** Reuse the established native-module mocks when a shared screen imports a native viewer, and inspect the test helper's async signature before writing assertions.
+
+## M4.7 specification readiness correction (2026-10-22)
+
+- **Revision tooling:** A document regeneration patch combined delete/add for the
+  same path; the patch tool rejected the operation atomically before writes.
+  Reissued as explicit update operations and separate new companion additions.
+  Prevention: replace an existing document using Update File, not delete/add.
+
+- **Evidence/cause:** Review of the agent-authored draft found undefined selected
+  export scope, chronology, per-memory eligibility and resource limits; ambiguous
+  library-save versus native-share behavior; incomplete artifact/export lifecycle;
+  an unresolved renderer spike; and proposed Replay tests outside Jest's configured
+  discovery. The earlier coherence/preservation verdict overstated readiness and
+  did not account for the source story's optional hosted-publication handoff.
+- **Correction/status:** Recorded the concrete gaps and resolutions in
+  `_bmad-output/implementation-artifacts/review-m4-7-replay-spec-2026-10-22.md`.
+  Draft remains unapproved; spec corrections and renderer validation are open.
+  No application fix or device result is claimed by this review.
+- **Prevention:** Before a ready-for-development verdict, trace each source AC
+  into the delivery contract, check actual test discovery, define state transitions
+  through preview/export/disposal, and distinguish unresolved feasibility from
+  measured evidence. Validate selection, chronology and memory eligibility separately.
+- **Review tooling recurrence:** Combined parallel result output exceeded the
+  response budget. Re-read the complete lens instructions and targeted callee/spec
+  slices before concluding. Bound the aggregate output, not only each subprocess.
+- **Measurement correction:** The earlier word count used a different counter;
+  the editorial script measures 1,005 words in the implementation spec. Neither
+  measurement establishes the workflow's token target. Report units explicitly.
+- **Revision verification:** Owner-authorized spec revision now maps all A1–A10
+  and E1–E9 into concrete selection, renderer and verification contracts, including
+  test discovery and the optional hosted handoff. Document links, capability
+  IDs/shape, source mappings, timing bounds and whitespace checks pass; root
+  `npm run check` passes 20 tests and eval smoke. Document omissions are corrected;
+  native feasibility, implementation and both-platform acceptance remain open.
+
+## M4.7 replay specification tooling (2026-10-21)
+
+- **Evidence/cause:** The initial BMad customization/configuration commands used
+  the sandboxed `uv` runtime and could not persist its interpreter-cache probe,
+  ending with access denied before either resolver returned data. A combined
+  context read also exceeded the tool output limit, so it did not prove every
+  requested source was read.
+- **Correction:** Applied the documented direct-TOML fallback for customization
+  and configuration, then switched to bounded source reads. Use an approved
+  unrestricted `uv` invocation only where the BMad workflow requires its
+  atomic memlog writer or rendered build workflow.
+- **Prevention:** Do not batch whole project-state/playbook files with planning
+  sources. Keep `uv` cache-sensitive BMad commands isolated and request the
+  least privilege needed before treating their output as workflow evidence.
+- **Recurrence:** A subsequent broad `rg` crossed generated world-geometry data
+  and again exceeded the output budget. It made no source change. Prevention:
+  search known application roots with explicit file globs and filenames before
+  widening any repository search.
+- **Second recurrence:** A scoped capability lookup still named the nonexistent
+  `apps/mobile/app` directory and returned an error, while an unbounded match
+  emitted oversized test/source context. No code or check ran against that
+  missing path. Prevention: discover route roots before searching, then inspect
+  named replay files one at a time with a match cap.
+- **Third recurrence:** A combined error-playbook/config/provider inspection
+  exceeded the response limit before the provider context could be consumed as
+  a complete read. No source changed. Prevention: read one provider slice or
+  symbol window per command, never concatenate it with a large lessons search.
+
 ## Accepted-work publication verification (2026-10-21)
 
 - **Next-step lookup recurrence:** A roadmap lookup passed a literal directory

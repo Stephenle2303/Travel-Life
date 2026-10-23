@@ -22,7 +22,7 @@ type CheckpointRow = {
   status: ImportCheckpoint['status'];
 };
 
-const CURRENT_SCHEMA_VERSION = 34;
+const CURRENT_SCHEMA_VERSION = 35;
 const validCivilDay = (day: string | null) => Boolean(day && /^\d{4}-(0[1-9]|1[0-2])-([0-2]\d|3[01])$/.test(day)
   && new Date(`${day}T00:00:00.000Z`).toISOString().slice(0, 10) === day);
 
@@ -703,6 +703,20 @@ const migrationV34 = `
   UPDATE private_history_record SET schema_version = MAX(schema_version, 34) WHERE record_id = 1;
 `;
 
+/**
+ * Replay preferences are presentation-only private state. Evidence identifiers
+ * stay in this native database; React receives opaque Replay tokens only.
+ */
+const migrationV35 = `
+  CREATE TABLE IF NOT EXISTS replay_draft (
+    record_id INTEGER PRIMARY KEY CHECK (record_id = 1),
+    revision INTEGER NOT NULL,
+    committed_overrides_json TEXT NOT NULL CHECK (json_valid(committed_overrides_json) AND json_type(committed_overrides_json) = 'object'),
+    updated_at_millis INTEGER NOT NULL
+  );
+  UPDATE private_history_record SET schema_version = MAX(schema_version, 35) WHERE record_id = 1;
+`;
+
 /** Canonical constraints are required for immutable revisions and command identity. */
 export const journeyPrivacyTableDefinition = migrationV34.slice(0, migrationV34.indexOf(';') + 1).trim();
 function normalizePrivacyDefinition(sql: string) {
@@ -852,6 +866,7 @@ export async function ensureNativeImportSchema(db: SqliteDatabase) {
     if (version < 32) await db.execAsync(migrationV32);
     if (version < 33) await db.execAsync(migrationV33);
     if (version < 34) await db.execAsync(migrationV34);
+    if (version < 35) await db.execAsync(migrationV35);
     if (version === 0) await db.runAsync('INSERT INTO import_schema_version (version) VALUES (?)', CURRENT_SCHEMA_VERSION);
     else if (version < CURRENT_SCHEMA_VERSION) await db.runAsync('UPDATE import_schema_version SET version = ?', CURRENT_SCHEMA_VERSION);
     await db.execAsync('COMMIT');
@@ -952,7 +967,8 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
           if (version < 31) await db.execAsync(migrationV31);
           if (version < 32) await db.execAsync(migrationV32);
           if (version < 33) await db.execAsync(migrationV33);
-    if (version < 34) await db.execAsync(migrationV34);
+          if (version < 34) await db.execAsync(migrationV34);
+          if (version < 35) await db.execAsync(migrationV35);
           if (version === 0) await db.runAsync('INSERT INTO import_schema_version (version) VALUES (?)', CURRENT_SCHEMA_VERSION);
           else if (version < CURRENT_SCHEMA_VERSION) await db.runAsync('UPDATE import_schema_version SET version = ?', CURRENT_SCHEMA_VERSION);
           await db.execAsync('COMMIT');

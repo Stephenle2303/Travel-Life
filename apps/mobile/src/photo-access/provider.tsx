@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState, type PropsWithChildren } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type PropsWithChildren } from 'react';
 import { AppState } from 'react-native';
 
 import { HistoryRecordController, type LifecycleSnapshot } from '@/history-record';
@@ -13,6 +13,10 @@ import { AiProposalController, type AiReviewView } from '@/ai';
 import { classifyAppDiagnosticError, createDiagnosticCorrelationId, recordAppDiagnostic } from '@/diagnostics/app-diagnostics';
 import type { DurableRevealRecord, JourneyDetail, JourneyMediaPage } from '@/reveal/types';
 import type { JourneyPrivacyReview, JourneyPrivacyPolicy } from '@/history-record/privacy';
+import { createExportManifest, orderedReplayGroups, planPrivateReplay } from '@/replay/selection';
+import { ReplayController } from '@/replay/controller';
+import { munimReplayRenderer, ReplayPreparationError, shareReplayArtifact, type ReplayArtifact, type ReplayRenderProgress } from '@/replay/renderer';
+import type { ReplayPreparedPreview, ReplayRenderSource } from '@/replay/types';
 
 class PrivacyCommandRuntime {
   private tail: Promise<unknown> = Promise.resolve();
@@ -108,6 +112,12 @@ type PhotoAccessContextValue = {
   loadJourneyPrivacyPolicies(): Promise<JourneyPrivacyPolicy[]>;
   restoreJourneyPrivacy(policyId: string, revision: number, commandKey: string): Promise<void>;
   loadJourneyEligibility(displayId: string, snapshotToken: number, purpose: import('@/reveal/types').PrivateSelectionPurpose, privacyRevision?: number): Promise<import('@/reveal/types').JourneyEligibility>;
+  loadReplayManifestInput(): Promise<import('@/replay/types').ReplayManifestInput>;
+  saveReplayDraft(memoryKeys: readonly string[], snapshotToken: number, privacyRevision: number, direction: import('@/replay/types').ReplayDirection): Promise<void>;
+  resetReplayDraft(snapshotToken: number, privacyRevision: number): Promise<void>;
+  preparePrivateReplay(selectedMemoryKeys?: readonly string[], onProgress?: ReplayRenderProgress): Promise<ReplayPreparedPreview>;
+  exportPrivateReplay(uri: string): Promise<'unavailable' | 'closed'>;
+  discardPrivateReplay(uri: string): Promise<void>;
   findManualJourneyOverlaps(input: ManualJourneyInput): Promise<{ id: string; label: string; editable: boolean }[]>;
   createManualJourney(input: ManualJourneyInput): Promise<string>;
   loadJourneyDetail(displayId: string): Promise<{ detail: JourneyDetail; previews: OwnerPreview[]; snapshotToken: number }>;
@@ -126,7 +136,7 @@ type PhotoAccessContextValue = {
   aiProposalController: AiProposalController;
 };
 
-type OptionalRepositoryMethods = 'findManualJourneyOverlaps' | 'createManualJourney' | 'reviewJourneyPrivacy' | 'saveJourneyPrivacy' | 'loadJourneyPrivacyPolicies' | 'restoreJourneyPrivacy' | 'loadJourneyEligibility' | 'applyJourneyPrivacyToRecord';
+type OptionalRepositoryMethods = 'findManualJourneyOverlaps' | 'createManualJourney' | 'reviewJourneyPrivacy' | 'saveJourneyPrivacy' | 'loadJourneyPrivacyPolicies' | 'restoreJourneyPrivacy' | 'loadJourneyEligibility' | 'loadReplayManifestInput' | 'saveReplayDraft' | 'resetReplayDraft' | 'applyJourneyPrivacyToRecord';
 type ReconstructionRepositoryProp = Omit<ReturnType<typeof createNativeReconstructionRepository>, OptionalRepositoryMethods>
   & Partial<Pick<ReturnType<typeof createNativeReconstructionRepository>, OptionalRepositoryMethods>>;
 
@@ -160,6 +170,14 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
   const [durableRevealGate] = useState(() => new DurableRevealGate());
   const [privacyRuntime] = useState(() => new PrivacyCommandRuntime());
   const [aiReview, setAiReview] = useState<AiReviewView>({ status: 'idle', message: 'Optional AI suggestions are not requested.', proposals: [] });
+  const replayArtifacts = useRef(new Map<string, ReplayArtifact>());
+  const replayController = useRef(new ReplayController(munimReplayRenderer));
+  const clearReplayArtifacts = useCallback(async () => {
+    replayController.current.invalidate();
+    const artifacts = [...replayArtifacts.current.values()];
+    replayArtifacts.current.clear();
+    await Promise.all(artifacts.map((artifact) => munimReplayRenderer.dispose?.(artifact)));
+  }, []);
   const [sharedRepository] = useState(() => repository ?? (adapter === nativePhotoAccess ? createNativeImportRepository() : unavailableRepository()));
   const [durableMaintenanceRepository] = useState(() => maintenanceRepository(sharedRepository));
   const [nativeReconstructionRepository] = useState(() => reconstructionRepository ? {
@@ -178,6 +196,9 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
   useEffect(() => {
     durablePublicationRuntime.setLifecycle(privateRecord.state);
   }, [durablePublicationRuntime, privateRecord.state]);
+  useEffect(() => {
+    if (privateRecord.state !== 'connected') void clearReplayArtifacts();
+  }, [clearReplayArtifacts, privateRecord.state]);
   const [reconstructionController] = useState(() => new ReconstructionController(nativeReconstructionRepository, (view) => {
     setReconstruction(view);
   }));
@@ -209,6 +230,8 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
   ));
 
   useEffect(() => {
+    const currentReplayController = replayController.current;
+    const currentReplayArtifacts = replayArtifacts.current;
     void controller.refresh();
     void privateRecordController.refresh();
     void maintenanceController.refresh();
@@ -227,6 +250,10 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     return () => {
       controller.interrupt();
       subscription?.remove();
+      currentReplayController.cancel();
+      const artifacts = [...currentReplayArtifacts.values()];
+      currentReplayArtifacts.clear();
+      void Promise.all(artifacts.map((artifact) => munimReplayRenderer.dispose?.(artifact)));
     };
   }, [controller, privateRecordController, maintenanceController, durableMaintenanceRepository]);
 
@@ -459,6 +486,7 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
       throw new Error('Reconnect the private record before changing a privacy choice.');
     }
     durableRevealGate.invalidate(); privacyRuntime.mutating = true;
+    await clearReplayArtifacts();
     try {
       await command();
       // Keep unrelated committed journeys browseable if the next read fails.
@@ -484,7 +512,7 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
       recordAppDiagnostic({ operation: 'JOURNEY_PRIVACY_SAVE', reasonCode: classifyAppDiagnosticError(error), stage: durableRevealFailureStage(error), retryable: true, durableOutcome: 'failed', correlationId: createDiagnosticCorrelationId() });
       throw new Error('Privacy action was saved. The local Atlas refresh needs a retry; protected content remains withheld.');
     }
-  }), [controller, durableReveal, durableRevealGate, maintenanceController, nativeReconstructionRepository, privacyRuntime, refreshDurableReveal, sharedRepository]);
+  }), [clearReplayArtifacts, controller, durableReveal, durableRevealGate, maintenanceController, nativeReconstructionRepository, privacyRuntime, refreshDurableReveal, sharedRepository]);
   const saveJourneyPrivacy = useCallback(async (reviewId: string, action: 'hide' | 'exclude', commandKey: string, displayId: string) => {
     if (!nativeReconstructionRepository.saveJourneyPrivacy) throw new Error('Privacy controls are unavailable.');
     await runPrivacyCommand(() => nativeReconstructionRepository.saveJourneyPrivacy!(reviewId, action, commandKey), displayId);
@@ -500,6 +528,102 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     if (privacyRuntime.mutating || !canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state)) return { ...result, eligible: false, reason: 'stale' as const };
     return result;
   }, [durableRevealGate, nativeReconstructionRepository, privateRecord.state, privacyRuntime]);
+  const loadReplayManifestInput = useCallback(async () => {
+    if (privacyRuntime.mutating || !nativeReconstructionRepository.loadReplayManifestInput) return { snapshotToken: 0, privacyRevision: 0, groups: [], memories: [] };
+    let result: import('@/replay/types').ReplayManifestInput;
+    try {
+      result = await nativeReconstructionRepository.loadReplayManifestInput();
+    } catch {
+      // This is the screen's first Replay boundary. Keep native/SQLite details
+      // in memory and report the closed local-access outcome to the screen.
+      throw new ReplayPreparationError('REPLAY_ACCESS');
+    }
+    // Atlas detail reads and background refreshes advance the visual read gate,
+    // but do not change Replay scope. Only an actual privacy mutation or
+    // lifecycle loss can invalidate this repository-snapshotted manifest.
+    if (privacyRuntime.mutating || privateRecord.state !== 'connected') return { ...result, groups: [], memories: [] };
+    // Replay resolves the same current local source references used by the
+    // Journey album. Import-time `unknown` is not a zero-memory verdict.
+    if (!result.previewSourceRefs || !adapter.resolveOwnerPreviews) {
+      return result.previewSourceRefs ? { ...result, previewSourceRefs: undefined } : result;
+    }
+    let previews: OwnerPreview[];
+    try {
+      previews = await adapter.resolveOwnerPreviews([...result.previewSourceRefs], result.previewSourceRefs.length);
+    } catch {
+      throw new ReplayPreparationError('REPLAY_ACCESS');
+    }
+    if (privacyRuntime.mutating || privateRecord.state !== 'connected') return { ...result, groups: [], memories: [] };
+    return { ...result, previewSourceRefs: undefined, memories: result.memories.map((memory, index) => ({ ...memory, available: previews[index]?.availability === 'available' })) };
+  }, [adapter, nativeReconstructionRepository, privateRecord.state, privacyRuntime]);
+  const preparePrivateReplay = useCallback(async (selectedMemoryKeys?: readonly string[], onProgress?: ReplayRenderProgress): Promise<ReplayPreparedPreview> => {
+    if (privacyRuntime.mutating || privateRecord.state !== 'connected') throw new ReplayPreparationError('REPLAY_STALE');
+    if (!nativeReconstructionRepository.loadReplayManifestInput || !adapter.resolveOwnerPreviews) throw new ReplayPreparationError('REPLAY_ACCESS');
+    let input: import('@/replay/types').ReplayManifestInput;
+    try {
+      input = await nativeReconstructionRepository.loadReplayManifestInput();
+    } catch {
+      // The manifest reader touches the current private record only. Its
+      // native failure is an access failure, never a renderer availability
+      // verdict; the original exception stays in memory.
+      throw new ReplayPreparationError('REPLAY_ACCESS');
+    }
+    if (privacyRuntime.mutating || privateRecord.state !== 'connected' || !input.previewSourceRefs) throw new ReplayPreparationError('REPLAY_STALE');
+    let previews: OwnerPreview[];
+    try {
+      previews = await adapter.resolveOwnerPreviews([...input.previewSourceRefs], input.previewSourceRefs.length);
+    } catch {
+      // Keep the failing provider/native message out of UI and diagnostics.
+      throw new ReplayPreparationError('REPLAY_ACCESS');
+    }
+    if (privacyRuntime.mutating || privateRecord.state !== 'connected') throw new ReplayPreparationError('REPLAY_STALE');
+    const memories = input.memories.map((memory, index) => ({ ...memory, available: previews[index]?.availability === 'available' && Boolean(previews[index]?.uri) }));
+    const direction = input.direction ?? 'oldest-first';
+    const automaticPlan = planPrivateReplay(input.groups, memories, undefined, direction);
+    const selectedKeys = selectedMemoryKeys ? [...new Set(selectedMemoryKeys)] : automaticPlan.memories.map((memory) => memory.key);
+    const selectedSet = new Set(selectedKeys);
+    const selectedMemories = selectedKeys.map((key) => memories.find((memory) => memory.key === key)).filter((memory): memory is typeof memories[number] => Boolean(memory));
+    // Automatic Replay keeps each visible Journey List item, including a
+    // qualified trip whose current album has no usable media. The renderer
+    // emits a neutral local slate for that group. Explicit sharing stays
+    // exact-media-only and is rejected before it can render an empty export.
+    const selectedGroups = selectedMemoryKeys
+      ? orderedReplayGroups(input.groups, undefined, direction).filter((group) => selectedMemories.some((memory) => memory.groupKey === group.key))
+      : automaticPlan.groups;
+    if (!selectedGroups.length || selectedMemories.length !== selectedSet.size || (selectedMemoryKeys && !selectedMemories.length)) throw new ReplayPreparationError('REPLAY_ACCESS');
+    const sources: ReplayRenderSource[] = selectedMemories.flatMap((memory) => {
+      const index = input.memories.findIndex((candidate) => candidate.key === memory.key);
+      const preview = previews[index];
+      return preview?.uri ? [{ memoryKey: memory.key, groupKey: memory.groupKey, kind: preview.kind, uri: preview.uri }] : [];
+    });
+    if (sources.length !== selectedMemories.length) throw new ReplayPreparationError('REPLAY_ACCESS');
+    const manifest = createExportManifest(input.snapshotToken, selectedGroups, selectedMemories, direction);
+    const artifact = await replayController.current.prepare(manifest, sources, onProgress);
+    if (privacyRuntime.mutating || privateRecord.state !== 'connected') {
+      await munimReplayRenderer.dispose?.(artifact); throw new ReplayPreparationError('REPLAY_STALE');
+    }
+    replayArtifacts.current.set(artifact.uri, artifact);
+    return { uri: artifact.uri, durationSeconds: artifact.manifest.durationSeconds, renderedMemoryCount: sources.length, omittedMemoryCount: input.memories.length - sources.length };
+  }, [adapter, nativeReconstructionRepository, privateRecord.state, privacyRuntime]);
+  const saveReplayDraft = useCallback(async (memoryKeys: readonly string[], snapshotToken: number, privacyRevision: number, direction: import('@/replay/types').ReplayDirection) => {
+    if (privacyRuntime.mutating || privateRecord.state !== 'connected' || !nativeReconstructionRepository.saveReplayDraft) throw new ReplayPreparationError('REPLAY_STALE');
+    await nativeReconstructionRepository.saveReplayDraft(memoryKeys, snapshotToken, privacyRevision, direction);
+  }, [nativeReconstructionRepository, privateRecord.state, privacyRuntime]);
+  const resetReplayDraft = useCallback(async (snapshotToken: number, privacyRevision: number) => {
+    if (privacyRuntime.mutating || privateRecord.state !== 'connected' || !nativeReconstructionRepository.resetReplayDraft) throw new ReplayPreparationError('REPLAY_STALE');
+    await nativeReconstructionRepository.resetReplayDraft(snapshotToken, privacyRevision);
+  }, [nativeReconstructionRepository, privateRecord.state, privacyRuntime]);
+  const exportPrivateReplay = useCallback(async (uri: string) => {
+    const artifact = replayArtifacts.current.get(uri);
+    if (!artifact || privacyRuntime.mutating || privateRecord.state !== 'connected') throw new Error('REPLAY_STALE');
+    return shareReplayArtifact(artifact);
+  }, [privateRecord.state, privacyRuntime]);
+  const discardPrivateReplay = useCallback(async (uri: string) => {
+    const artifact = replayArtifacts.current.get(uri);
+    replayArtifacts.current.delete(uri);
+    if (replayController.current.snapshot().artifact?.uri === uri) replayController.current.cancel();
+    if (artifact) await munimReplayRenderer.dispose?.(artifact);
+  }, []);
   const saveConfiguredHomeArea = useCallback(async (displayId: string, visitId: string, ownerLabel: string, effectiveStartDay: string | null, effectiveEndDay: string | null) => {
     if (privateRecord.state !== 'connected') throw new Error('Private record is unavailable.');
     await nativeReconstructionRepository.saveConfiguredHomeAreaFromJourney(displayId, `home:${displayId}:${visitId}`, visitId, ownerLabel, effectiveStartDay, effectiveEndDay);
@@ -524,7 +648,7 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     if (projection.status !== 'complete') throw new Error('Home base removed but local history rebuild did not complete.');
     await refreshDurableReveal();
   }, [privateRecord.state, sharedRepository, refreshHomeBases, reconstructionController, refreshDurableReveal]);
-  return <PhotoAccessContext.Provider value={{ snapshot, controller, importCoverage, privateRecord, privateRecordController, maintenance, maintenanceController, reconciliation, catchUpHistory, reconstruction, durableReveal, reviewJourneyPrivacy, saveJourneyPrivacy, loadJourneyPrivacyPolicies, restoreJourneyPrivacy, loadJourneyEligibility, findManualJourneyOverlaps, createManualJourney, homeBases, loadJourneyDetail, loadJourneyMediaPage, loadUncertainMemories, saveJourneyCorrection, saveJourneyMemoryCorrection, discardJourneyCorrectionPending, retryJourneyCorrectionProjection, saveConfiguredHomeArea, renameConfiguredHomeArea, removeConfiguredHomeArea, reconstructionController, aiReview, aiProposalController }}>{children}</PhotoAccessContext.Provider>;
+  return <PhotoAccessContext.Provider value={{ snapshot, controller, importCoverage, privateRecord, privateRecordController, maintenance, maintenanceController, reconciliation, catchUpHistory, reconstruction, durableReveal, reviewJourneyPrivacy, saveJourneyPrivacy, loadJourneyPrivacyPolicies, restoreJourneyPrivacy, loadJourneyEligibility, loadReplayManifestInput, saveReplayDraft, resetReplayDraft, preparePrivateReplay, exportPrivateReplay, discardPrivateReplay, findManualJourneyOverlaps, createManualJourney, homeBases, loadJourneyDetail, loadJourneyMediaPage, loadUncertainMemories, saveJourneyCorrection, saveJourneyMemoryCorrection, discardJourneyCorrectionPending, retryJourneyCorrectionProjection, saveConfiguredHomeArea, renameConfiguredHomeArea, removeConfiguredHomeArea, reconstructionController, aiReview, aiProposalController }}>{children}</PhotoAccessContext.Provider>;
 }
 
 export function usePhotoAccess() {

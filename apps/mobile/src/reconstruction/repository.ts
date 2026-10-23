@@ -715,6 +715,11 @@ export function createNativeReconstructionRepository() {
   const displayedJourneys = new Map<string, { runId: number; journeyId: string }>();
   const displayedVisits = new Map<string, { visitId: string; capturedAtMillis: number | null; ordering: 'chronological' | 'uncertain' }>();
   const displayedMemories = new Map<string, { evidenceId: string; availability: 'available' | 'unavailable' | 'unknown' }>();
+  // A Replay attachment is scoped to both its journey and evidence. The same
+  // evidence can legitimately support more than one visible journey, so an
+  // evidence ID alone cannot preserve an owner's per-chapter edit.
+  const displayedReplayMemories = new Map<string, { journeyId: string; evidenceId: string }>();
+  let displayedReplaySnapshot: { snapshotToken: number; privacyRevision: number } | null = null;
   const displayedPendingRemaps = new Map<string, { candidateId: string; revisionId: string; runId: number; kind: 'journey' | 'memory' }>();
   const privacyReviews = new Map<string, { displayId: string; runId: number; label: string; manualId: string | null; evidence: string[]; families: string[]; hideEvidence: string[]; hideFamilies: string[]; revision: number }>();
   let privacyReviewSequence = 0;
@@ -917,6 +922,33 @@ export function createNativeReconstructionRepository() {
     } catch (error) { await db.execAsync('ROLLBACK'); throw error; }
   }
 
+  /**
+   * A transient native-source failure can complete a reconstruction pass with
+   * no qualified journeys.  Keep the last non-empty projection for the same
+   * evidence revision available until a later authoritative pass replaces it.
+   * Current privacy filters are still applied by each caller.
+   */
+  async function loadPublishedRun(db: Database) {
+    const latest = await db.getFirstAsync<{ run_id: number }>("SELECT MAX(run_id) AS run_id FROM reconstruction_run WHERE status = 'complete'");
+    if (!latest) return null;
+    const latestRevision = await db.getFirstAsync<{ evidence_revision: number }>('SELECT evidence_revision FROM reconstruction_run WHERE run_id = ?', latest.run_id);
+    if (!latestRevision) return latest;
+    const retained = await db.getFirstAsync<{ run_id: number }>(`
+      SELECT run.run_id
+      FROM reconstruction_run run
+      WHERE run.status = 'complete'
+        AND run.evidence_revision = ?
+        AND EXISTS (
+          SELECT 1 FROM reconstruction_trip_qualification qualification
+          WHERE qualification.run_id = run.run_id
+            AND qualification.classification IN ('AUTO_CONFIRMED', 'USER_CONFIRMED')
+        )
+      ORDER BY run.run_id DESC
+      LIMIT 1
+    `, latestRevision.evidence_revision);
+    return retained ?? latest;
+  }
+
   return {
     async applyJourneyPrivacyToRecord(record: DurableRevealRecord): Promise<DurableRevealRecord> {
       const db = await open();
@@ -950,6 +982,118 @@ export function createNativeReconstructionRepository() {
       const settledRevision = (await db.getFirstAsync<{ revision: number | null }>('SELECT MAX(revision) AS revision FROM journey_privacy_revision'))?.revision ?? 0;
       if (settledRevision !== privacyRevision) return { eligible: false, reason: 'stale', privacyRevision: settledRevision };
       return { eligible: true, reason: 'eligible', privacyRevision };
+    },
+    /** Builds Replay input from the completed, policy-visible projection only. */
+    async loadReplayManifestInput(): Promise<import('@/replay/types').ReplayManifestInput> {
+      const db = await open(); await ensureNativeImportSchema(db);
+      const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
+      const completed = await loadPublishedRun(db);
+      const privacyRevision = (await db.getFirstAsync<{ revision: number | null }>('SELECT MAX(revision) AS revision FROM journey_privacy_revision'))?.revision ?? 0;
+      if (lifecycle?.state !== 'connected' || !completed?.run_id) return { snapshotToken: 0, privacyRevision, groups: [], memories: [] };
+      // Reuse the committed Journey List projection as the sole scope authority.
+      // It already withholds hidden, excluded and pending-review records and
+      // preserves the list's presentation order/precision without promoting it
+      // to observed chronology.
+      const visibleRecord = await this.loadDurableReveal();
+      const filter = await privacyFilter(db, completed.run_id);
+      const rows = await db.getAllAsync<{ journey_id: string; start_day: string | null; end_day: string | null; uncertain: number }>(`SELECT journey.journey_id, MIN(evidence.captured_day) AS start_day, MAX(evidence.captured_day) AS end_day,
+        MAX(CASE WHEN visit.ordering <> 'chronological' THEN 1 ELSE 0 END) AS uncertain
+        FROM reconstruction_journey journey
+        JOIN reconstruction_link journey_visit ON journey_visit.run_id = journey.run_id AND journey_visit.link_kind = 'journey-visit' AND journey_visit.parent_id = journey.journey_id
+        JOIN reconstruction_visit visit ON visit.run_id = journey.run_id AND visit.visit_id = journey_visit.child_id
+        JOIN reconstruction_link support ON support.run_id = visit.run_id AND support.link_kind = 'visit-support' AND support.parent_id = visit.visit_id
+        JOIN canonical_evidence evidence ON evidence.evidence_id = support.child_id
+        WHERE journey.run_id = ? GROUP BY journey.journey_id`, completed.run_id);
+      const rowsByDisplayId = new Map(rows.map((row) => [opaqueJourneyDisplayId(row.journey_id), row]));
+      const groups: import('@/replay/types').ReplayGroup[] = [];
+      for (const journey of visibleRecord.journeys) {
+        if (journey.needsReview) continue;
+        const row = rowsByDisplayId.get(journey.displayId);
+        // Manual journeys can be visible but have no reconstructed membership
+        // rows. They remain in the private scene list rather than being
+        // fabricated as observed destinations.
+        const interval = row?.start_day && row.end_day
+          ? { startDay: row.start_day, endDay: row.end_day }
+          : undefined;
+        groups.push({ key: journey.displayId, label: journey.label ?? 'Private journey', interval, inferred: journey.locationKind === 'inferred', eligible: true, orderCertain: journey.ordering === 'chronological', state: journey.state === 'owner-entered' ? 'owner-entered' : journey.locationKind === 'owner-confirmed' ? 'confirmed' : 'inferred' });
+      }
+      const memories: import('@/replay/types').ReplayMemory[] = [];
+      const draft = await db.getFirstAsync<{ committed_overrides_json: string }>('SELECT committed_overrides_json FROM replay_draft WHERE record_id = 1');
+      let keptEvidence = new Set<string>();
+      let excludedEvidence = new Set<string>();
+      let keptMemoryRefs = new Set<string>();
+      let excludedMemoryRefs = new Set<string>();
+      let draftOrder = new Map<string, number>();
+      let replayDirection: import('@/replay/types').ReplayDirection = 'oldest-first';
+      try {
+        const parsed = draft ? JSON.parse(draft.committed_overrides_json) as { keptEvidenceIds?: unknown; excludedEvidenceIds?: unknown; orderedEvidenceIds?: unknown; keptMemoryRefs?: unknown; excludedMemoryRefs?: unknown; orderedMemoryRefs?: unknown; direction?: unknown } : {};
+        if (Array.isArray(parsed.keptEvidenceIds) && parsed.keptEvidenceIds.every((value) => typeof value === 'string')) keptEvidence = new Set(parsed.keptEvidenceIds);
+        if (Array.isArray(parsed.excludedEvidenceIds) && parsed.excludedEvidenceIds.every((value) => typeof value === 'string')) excludedEvidence = new Set(parsed.excludedEvidenceIds);
+        if (Array.isArray(parsed.keptMemoryRefs) && parsed.keptMemoryRefs.every((value) => typeof value === 'string')) keptMemoryRefs = new Set(parsed.keptMemoryRefs);
+        if (Array.isArray(parsed.excludedMemoryRefs) && parsed.excludedMemoryRefs.every((value) => typeof value === 'string')) excludedMemoryRefs = new Set(parsed.excludedMemoryRefs);
+        const orderedReferences = Array.isArray(parsed.orderedMemoryRefs) && parsed.orderedMemoryRefs.every((value) => typeof value === 'string') ? parsed.orderedMemoryRefs : Array.isArray(parsed.orderedEvidenceIds) && parsed.orderedEvidenceIds.every((value) => typeof value === 'string') ? parsed.orderedEvidenceIds : [];
+        draftOrder = new Map(orderedReferences.map((id, index) => [id, index]));
+        if (parsed.direction === 'newest-first') replayDirection = 'newest-first';
+      } catch { keptEvidence = new Set(); excludedEvidence = new Set(); keptMemoryRefs = new Set(); excludedMemoryRefs = new Set(); draftOrder = new Map(); replayDirection = 'oldest-first'; }
+      displayedReplayMemories.clear();
+      // Aligned one-for-one with `memories` for the provider's local resolver.
+      // These source references never reach a React screen or diagnostic event.
+      const previewSourceRefs: (string | null)[] = [];
+      for (const [groupIndex, group] of groups.entries()) {
+        const row = rowsByDisplayId.get(group.key);
+        if (!row || filter.blocked.has(row.journey_id)) continue;
+        const selected = displayedJourneys.get(group.key) ?? { runId: completed.run_id, journeyId: row.journey_id };
+        displayedJourneys.set(group.key, selected);
+        const media = await db.getAllAsync<{ evidence_id: string; source_ref: string; captured_day: string | null; availability: 'available' | 'unavailable' | 'unknown'; media_type: 'image' | 'video'; disposition: string | null }>(`SELECT DISTINCT evidence.evidence_id, evidence.source_ref, evidence.captured_day, evidence.availability, evidence.media_type, disposition.disposition_state AS disposition
+          FROM canonical_evidence evidence
+          LEFT JOIN reconstruction_disposition disposition ON disposition.run_id = ? AND disposition.evidence_id = evidence.evidence_id
+          WHERE evidence.evidence_id IN (
+            SELECT membership.child_id FROM reconstruction_link membership
+            WHERE membership.run_id = ? AND membership.parent_id = ?
+              AND (membership.link_kind LIKE 'membership:inferred:%' OR membership.link_kind LIKE 'membership:owner:%')
+            UNION
+            SELECT support.child_id FROM reconstruction_link journey_visit
+            JOIN reconstruction_link support ON support.run_id = journey_visit.run_id AND support.parent_id = journey_visit.child_id AND support.link_kind = 'visit-support'
+            WHERE journey_visit.run_id = ? AND journey_visit.parent_id = ? AND journey_visit.link_kind = 'journey-visit'
+          )
+          ORDER BY evidence.captured_day IS NULL, evidence.captured_day, evidence.evidence_id`, completed.run_id, completed.run_id, selected.journeyId, completed.run_id, selected.journeyId);
+        let itemIndex = 0;
+        for (const item of media) if (item.disposition !== 'rejected') {
+          // An unknown import-time status is a candidate for native resolution.
+          // A null capture date remains honest metadata, not a reason to drop an
+          // attachment from the owner-visible Journey List scope.
+          const key = `replay-memory-${groupIndex}-${itemIndex++}`;
+          const reference = JSON.stringify([selected.journeyId, item.evidence_id]);
+          displayedReplayMemories.set(key, { journeyId: selected.journeyId, evidenceId: item.evidence_id });
+          memories.push({ key, groupKey: group.key, kind: item.media_type === 'video' ? 'video' : 'photo', available: item.availability === 'available', eligible: true, ...(keptMemoryRefs.has(reference) || keptEvidence.has(item.evidence_id) ? { intent: 'keep' as const } : excludedMemoryRefs.has(reference) || excludedEvidence.has(item.evidence_id) ? { intent: 'exclude' as const } : {}), ...(draftOrder.has(reference) || draftOrder.has(item.evidence_id) ? { order: draftOrder.get(reference) ?? draftOrder.get(item.evidence_id) } : {}), capture: item.captured_day ? { startDay: item.captured_day, endDay: item.captured_day } : undefined });
+          previewSourceRefs.push(item.availability === 'unavailable' ? null : item.source_ref);
+        }
+      }
+      await assertPrivacyReadCurrent(db, filter.revision);
+      displayedReplaySnapshot = { snapshotToken: completed.run_id, privacyRevision };
+      return { snapshotToken: completed.run_id, privacyRevision, direction: replayDirection, groups, memories, previewSourceRefs };
+    },
+    async saveReplayDraft(memoryKeys: readonly string[], snapshotToken?: number, privacyRevision?: number, direction: import('@/replay/types').ReplayDirection = 'oldest-first') {
+      const db = await open(); await ensureNativeImportSchema(db);
+      const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
+      if (lifecycle?.state !== 'connected') throw new Error('Replay draft is stale.');
+      const completed = await loadPublishedRun(db);
+      const currentPrivacyRevision = (await db.getFirstAsync<{ revision: number | null }>('SELECT MAX(revision) AS revision FROM journey_privacy_revision'))?.revision ?? 0;
+      if (!displayedReplaySnapshot || snapshotToken !== displayedReplaySnapshot.snapshotToken || privacyRevision !== displayedReplaySnapshot.privacyRevision || completed?.run_id !== snapshotToken || currentPrivacyRevision !== privacyRevision) throw new Error('Replay draft is stale.');
+      const keptMemoryRefs = memoryKeys.map((key) => displayedReplayMemories.get(key)).filter((value): value is { journeyId: string; evidenceId: string } => Boolean(value)).map((value) => JSON.stringify([value.journeyId, value.evidenceId]));
+      if (keptMemoryRefs.length !== memoryKeys.length) throw new Error('Replay draft is stale.');
+      const excludedMemoryRefs = [...displayedReplayMemories.values()].map((value) => JSON.stringify([value.journeyId, value.evidenceId])).filter((reference) => !keptMemoryRefs.includes(reference));
+      const current = await db.getFirstAsync<{ revision: number }>('SELECT revision FROM replay_draft WHERE record_id = 1');
+      await db.runAsync('INSERT INTO replay_draft (record_id, revision, committed_overrides_json, updated_at_millis) VALUES (1, ?, ?, ?) ON CONFLICT(record_id) DO UPDATE SET revision = excluded.revision, committed_overrides_json = excluded.committed_overrides_json, updated_at_millis = excluded.updated_at_millis', (current?.revision ?? 0) + 1, JSON.stringify({ keptMemoryRefs, excludedMemoryRefs, orderedMemoryRefs: keptMemoryRefs, direction: direction === 'newest-first' ? 'newest-first' : 'oldest-first' }), Date.now());
+    },
+    async resetReplayDraft(snapshotToken?: number, privacyRevision?: number) {
+      const db = await open(); await ensureNativeImportSchema(db);
+      const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
+      if (lifecycle?.state !== 'connected') throw new Error('Replay draft is stale.');
+      const completed = await loadPublishedRun(db);
+      const currentPrivacyRevision = (await db.getFirstAsync<{ revision: number | null }>('SELECT MAX(revision) AS revision FROM journey_privacy_revision'))?.revision ?? 0;
+      if (!displayedReplaySnapshot || snapshotToken !== displayedReplaySnapshot.snapshotToken || privacyRevision !== displayedReplaySnapshot.privacyRevision || completed?.run_id !== snapshotToken || currentPrivacyRevision !== privacyRevision) throw new Error('Replay draft is stale.');
+      await db.runAsync('DELETE FROM replay_draft WHERE record_id = 1');
     },
     async reviewJourneyPrivacy(displayId: string, snapshotToken: number): Promise<JourneyPrivacyReview> {
       const loaded = await this.loadJourneyDetail(displayId);
@@ -1606,7 +1750,7 @@ export function createNativeReconstructionRepository() {
         const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
         if (lifecycle?.state !== 'connected') throw new Error('Private record is not connected.');
         stage = 'DURABLE_RUN_READ'; profile.next(stage);
-        const completed = await db.getFirstAsync<{ run_id: number }>('SELECT MAX(run_id) AS run_id FROM reconstruction_run WHERE status = \'complete\'');
+        const completed = await loadPublishedRun(db);
         const privateFilter = await privacyFilter(db, completed?.run_id ?? 0);
         if (!completed?.run_id) {
           stage = 'DURABLE_MANUAL_READ'; profile.next(stage);

@@ -1,5 +1,455 @@
 # Project state
 
+## Replay ordering and trip-separator specification (2026-10-23)
+
+The owner chose **oldest first** as the default private Replay timeline. The
+optional editor will persist a newest-first presentation choice. Every visible
+trip chapter will open with a brief local title card containing only the current
+private Journey List label/destination and its existing time precision. These
+are presentation-only changes: uncertain chronology retains stable Journey
+List-relative placement, and cards never imply routes, exact dates, presence or
+new observations. The canonical spec and M4.7 delivery plan now require safe
+local text rendering, cache invalidation for label/time/order changes, SQLite
+reopen/reset tests, and Android/iOS card legibility/order evidence. This is a
+plan/spec update; the runtime behavior and device evidence remain pending.
+
+## Replay order and chapter cards implemented (2026-10-23)
+
+Replay now defaults to oldest-first, offers a private newest-first editor choice,
+and persists that choice in the existing local Replay draft alongside media
+overrides. It restores after reopening, participates in exact manifest/cache
+identity, and is used by private playback and exact selected sharing. Only
+supported non-overlapping chronology is reordered; unknown/overlapping blocks
+retain Journey List-relative order. Each trip chapter now starts with a bounded
+one-second local title card using a sanitized current label/destination and
+coarse existing time precision inside the accepted chapter budget.
+
+Focused Replay tests (31), the real-SQLite suite (86), TypeScript, lint, full
+mobile Jest, root `npm run check`, and `git diff --check` pass. The Android
+development APK built successfully for connected device 2211133G and the app
+was launched against the existing development server. Owner-operated rendering,
+card legibility, order persistence after restart, and exact selected-share output
+remain pending; native device evidence is not inferred from the build/install.
+
+## Replay implementation started: automatic local chapter baseline (2026-10-23)
+
+Android development build evidence: `npx expo run:android --device 2211133G`
+completed a Debug build successfully, installed it on the connected device, opened
+the Travel Life development URL, and Metro bundled `expo-router/entry.js`. This
+establishes build/install/launch transport only; owner-operated Replay watch,
+edit/reopen, share, and scheduled-preparation acceptance remain pending.
+
+The owner identified a Replay preparation feedback gap on that build: static
+startup copy gave no indication that local source resolution and video rendering
+were underway. Replay now mirrors the active Atlas update treatment with an
+accessible spinner and distinct resolving/rendering labels. The focused screen
+regression, TypeScript, and lint pass; the rebuilt Android validation is pending.
+
+The owner then requested a simple percentage indicator. Renderer work now reports
+non-identifying private-media and scene counts to Replay, which displays a
+determinate accessible progress bar and percentage during composition and final
+verification. Focused Replay screen/renderer/controller tests, TypeScript, and
+lint pass; the development device reload remains the owner validation step.
+
+M4.7 implementation now starts Replay on entry, autoplays the verified private
+artifact, and removes the retired Prepare action and global 25-panel planning
+refusal. The local metadata fallback retains every allowed attachment as an
+editorial candidate, selects up to six stable day representatives per trip, and
+uses the accepted initial 3/5/8/15/16/18/20-second chapter budgets. The renderer
+now composes selected moments sequentially at those per-chapter frame budgets
+instead of contact sheets plus a fixed global intro/outro.
+
+The first private editor now supports Replace/Add/Remove/Reorder and Done:
+committed selections and their order are stored in an additive local SQLite draft
+table using internal evidence IDs, then returned to the screen as opaque Replay
+tokens and regenerated. The editor does not modify journey evidence. Sharing now opens a separate empty-first
+selection/review surface; the owner must explicitly choose the exact private
+moments to render before the native share sheet can open. The mobile Jest suite passes
+when run in two bounded local-cache batches (the full command exceeds the shell
+window), alongside schema unit tests, the 86-case real-SQLite suite, mobile
+TypeScript, lint, and root foundation checks. Expo Doctor did not complete inside
+the local command window, so it remains unverified.
+
+Replay preparation now passes through one provider-owned `ReplayController`, so a
+new request cancels an in-flight older render and provider cleanup disposes the
+captured private artifacts. This is host-verified ownership only; native task
+handoff, cache reuse, and physical playback remain open acceptance work.
+
+The durable Replay draft now keys each edit by an internal journey-plus-evidence
+reference, rather than evidence alone. This preserves independent edits when one
+attachment supports more than one visible trip. The real SQLite suite verifies
+save/reopen order and keeps these references behind opaque screen tokens.
+
+The private editor also has Reset automatic selection. It deletes only the
+local Replay-draft row, regenerates from the current policy-visible Journey List,
+and has real SQLite reset/read-back coverage. It never changes journey evidence.
+
+Replay video selections now retain a bounded local moving clip in the native
+panel renderer; stills remain single-frame panels. A short video retains only
+its measured available frames: it is never padded, frozen, looped, or slowed to
+reach a still-image budget. A qualified visible trip with no usable attachment
+gets a neutral three-second local slate instead of being relabelled as an empty
+Replay. The exact export review remains empty-first but now offers an explicit
+Select all moments control alongside individual selections. This is host-tested
+only; native decode behavior and actual clip timing still need owner-operated
+Android and iOS acceptance.
+
+On 2026-10-23, the full mobile Jest suite passed (44 suites, 433 tests) with the
+repository-local cache, the real SQLite suite passed (86 tests), and mobile
+TypeScript/lint plus root `npm run check` passed. `git diff --check` has no
+whitespace errors. Expo Doctor remains unverified because it has not completed
+in this environment; physical Android/iOS watch, edit/reopen, native share, and
+scheduled preparation remain the final acceptance gates.
+Multi-trip progressive cache/task ownership, video interval validation, AI
+evaluation, and physical
+Android/iOS R25-R28 acceptance remain pending. The local selector is deliberately
+metadata-only; no private media left the device or was sent to a model provider.
+
+## Replay sparse timing and implementation spec (2026-10-23)
+
+The owner accepts shorter sparse chapters and requested the final plan/spec:
+one memory about4-6s, two about6-10s, enough distinct content usually15-20s.
+No filler; title/transitions count; video and explicit additions can justify
+longer. The new timing-contract.md makes exact initial frame budgets, chosen-
+source counting, decode-loss recovery and sparse/normal exceptions executable.
+CAP-1..5 stay stable; acceptance is R1-R28. Earlier strict15-20s minima are retired.
+
+The single M4.7 delivery record starts with a one-trip automatic watch -> Replace
+-> regenerate -> reopen slice, then expands selection, chapter service/background,
+editor and exact long export. Product editor labels are Replace/Add/Remove/Reorder;
+internal intent persists. Per-trip content fingerprints allow safe unchanged-byte
+reuse despite broader history revisions, after current privacy/access checks.
+No runtime/model/native work was performed by this spec update. Implementation
+and physical Android/iOS acceptance remain pending; next work is D0/D1.
+
+## Replay chapter timing and memory curation (2026-10-23)
+
+The owner now requires15-20 seconds per trip initially, an overall Replay that
+grows with all scoped trips, and a wisely selected subset of photos/videos.
+This supersedes previous30-60s/global25-panel/all-media-in-pixels and forced
+narrowing limits. Decision0009 and the canonical spec are updated; the new
+memory-selection-contract.md defines proposed criteria, owner overrides,
+local/optional consented AI, video-window validation and an evaluation plan.
+
+Use a progressive verified chapter sequence with bounded work/cache; full chosen
+video export is a separate streaming/storage gate. The active delivery plan now
+adds curated selection/clip/AI-consent evidence and R19-R24 to the existing
+one-tap/editing work.18s,4-6 shots, ranking/defaults and native clip capability
+remain implementation proposals/unmeasured; no code/dependency/model processing
+was performed in this planning update. Next is D0/D1 plus a local-selector
+baseline; model choice follows measured benefit and actual consent boundaries.
+
+## Replay implementation plan (2026-10-23)
+
+The single [M4.7 delivery record](../_bmad-output/implementation-artifacts/spec-m4-7-preview-and-export-the-travel-life-replay.md)
+now plans D0 baseline, D1 durable drafts/cache, D2 shared automatic service,
+D3 one-action player, D4 optional editor, D5 separate exact share and D6
+Android/iOS acceptance, with platform S0 evidence collected alongside host work.
+Canonical CAP-1..4 are retained; CAP-5 covers durable optional editing. Read the
+new interaction-contract companion for revision/CAS/remap, native task ownership,
+cache retention and invalidation. Initial inclusion/order controls are
+agent-selected editor defaults; full editing/timing tools are not implied.
+
+This is a planning update only. Provider preparation still bypasses the separate
+controller and export directly shares the private preview; selected-export
+acceptance is not established. The earlier ephemeral-only/no-schema assumption
+is superseded by a justified additive private-draft/cache migration. P>25 remains
+an explicit full-scope limit; no sampling/longer-video decision was inferred.
+Next work is D0/D1. Both-platform scheduled preparation, one-tap playback,
+restart-persistent edits and native export still require implementation/evidence.
+
+## Replay interaction direction (2026-10-23)
+
+The owner explicitly rejects the multi-step Replay preparation flow: tap Replay
+and it runs, with optional editing whenever desired. Preparation, media access
+resolution, composition and verification belong behind that single action;
+there must be no separate mandatory Prepare or review wizard before private
+playback. Offer editing from the playback experience and preserve owner edits
+when refreshing generated content. Sharing remains a separate deliberate action.
+This direction is recorded in decision 0009. The current screen still requires
+Prepare and lacks the requested editing experience; implementation and physical
+device verification remain pending. Background preparation must respect native
+scheduling and must not promise immediate playback when no valid artifact exists.
+
+## M4.7 Replay manifest scope correction (2026-10-22)
+
+The owner then reached Replay and saw `0 visible trips` and `0 attached
+memories` immediately after Atlas had shown nine journeys. Replay had reused an
+Atlas display-refresh generation as though it were a private data-scope token;
+an unrelated detail read advanced that display counter while Replay's manifest
+was still loading. Replay now retains its current Journey List manifest across
+ordinary Atlas reads and invalidates it only for a privacy mutation or private
+record lifecycle loss. The repository remains responsible for current-run and
+privacy filtering.
+
+Mobile lint, TypeScript, the focused 87-test provider/Replay/repository suite,
+root `npm run check`, and `git diff --check` pass. The corrected Android bundle
+has been cold-reloaded and is now on private Atlas; its Replay control may be
+below the initial viewport. The owner must now reopen Replay and prepare it once
+more to verify the real-device manifest and render result. Export and sharing
+have not run; M4.7 remains incomplete.
+
+## M4.7 Replay fixed-stage refresh correction (2026-10-22)
+
+The owner again received the renderer-unavailable message after a device
+synthetic encode had completed. The screen classifier depended only on a
+JavaScript `instanceof` identity; Fast Refresh can retain an earlier error
+prototype and turn a closed access/decode/stale stage into the generic fallback.
+It now accepts only the fixed Replay stage vocabulary across that boundary, and
+the provider now reports lifecycle loss as stale and unavailable private manifest
+or media resolution as access. No native or private error text reaches UI,
+diagnostics, or project records.
+
+Mobile lint, TypeScript, and the 38-test focused renderer/screen/provider suite
+pass. A fresh physical preparation is required to establish the actual remaining
+stage or a real Replay preview; M4.7 is still incomplete.
+
+## M4.7 Android renderer warm-up correction (2026-10-22)
+
+The current Android process emitted an actual `REPLAY_UNAVAILABLE` stage before
+private media handling, although an earlier synthetic S0 had shown that the
+native module could respond. Real preparation now runs the same closed native
+version query before selecting its codec inventory, allowing a freshly started
+hybrid module to initialize before any personal media is accessed. A failed
+query still fails closed as renderer-unavailable.
+
+Mobile lint, TypeScript, and focused Replay renderer/screen tests pass. The
+fresh device reload and owner preparation remain required; no preview, export,
+or sharing claim has been established.
+
+## M4.7 codec-discovery fallback correction (2026-10-22)
+
+The same Android device continued to fail at Replay's pre-media renderer gate.
+The installed native package documents `libopenh264` as its portable bundled
+encoder, but its asynchronous discovery result is advisory rather than proof
+that the encoder cannot run. Replay now falls back to that supported encoder
+when discovery produces no candidate and uses `nv12` for an Android MediaCodec
+selection. This makes FFmpeg's real encode result the gate instead of a codec
+reporting race.
+
+Mobile lint, TypeScript, and focused Replay tests pass. Physical real-media
+composition still requires confirmation; no output or sharing claim is made.
+
+## M4.7 screen-first manifest-stage correction (2026-10-22)
+
+The exact current Android build passed both development-only native S0 gates,
+including a verified local synthetic MP4. This proved that the native renderer,
+cache, and an encoder are available on the device. The remaining generic message
+was instead from Replay's first manifest/preview read, which preceded the
+provider preparation boundary and escaped untyped. That first read now maps to
+the closed `REPLAY_ACCESS` stage, with a regression test for the screen-first
+path.
+
+Mobile lint, TypeScript, and 39 focused provider/renderer/screen tests pass.
+The next physical preparation must establish media access or real composition;
+no personal media has been exported or shared.
+
+## M4.7 Replay access-stage correction (2026-10-22)
+
+The prior Android Replay attempt reported renderer unavailability even though
+the native renderer module and synthetic encode were present. The failure
+occurred before rendering, while resolving the current attached-media handles.
+Manifest and handle-resolution rejections now publish the fixed `REPLAY_ACCESS`
+stage instead of the renderer-unavailable fallback; raw native details remain
+in memory only. The owner-facing copy asks for current local-photo access rather
+than incorrectly sending the owner to the synthetic renderer check.
+
+Focused provider and Replay screen tests, TypeScript, and lint pass. The app was
+restarted from the private localhost Metro bundle; Atlas shows all nine retained
+journeys and the `Explore Replay availability` control. Android denies host
+input injection, so the owner must tap that control and `Prepare Replay` for the
+next physical observation. No export or sharing action has run.
+
+## M4.7 Atlas Replay-retention recovery (2026-10-22)
+
+An Android owner report found the Replay entry absent while Atlas displayed a
+recovery notice and zero journeys, despite saying the last committed journeys
+remained available. The durable reader had chosen the newest completed run even
+when it was an empty transient pass. It now retains the latest qualified run at
+the same evidence revision, then applies the current privacy filter; hidden
+journeys cannot return through this fallback. The same selection is used by the
+Replay manifest input.
+
+Mobile TypeScript, lint, the 52-case reconstruction repository suite, root
+`npm run check`, and `git diff --check` pass. Metro is reachable through the
+Android device's localhost tunnel and the new bundle has been loaded. The reload
+returned to the normal Welcome route; direct Atlas route verification and the
+owner's Replay preparation/preview remain open. The story is not complete.
+
+## M4.7 private Replay preview and deliberate export implementation (2026-10-22)
+
+Replay preparation now resolves the effective Journey List attachments inside
+PhotoAccessProvider, keeps their local handles out of React state and diagnostics,
+materializes anonymous app-cache inputs, uses every decodable photo/video still
+in bounded 1–4 tile panels, and validates an H.264/yuv420p 1280×720 silent MP4
+before publishing a local player handle. The preview screen receives only that
+artifact URI and coarse counts. Export is a second explicit action from the
+verified preview and uses the native OS share sheet; closing the Replay removes
+the local artifact lease.
+
+Focused Replay/provider tests (36 assertions), TypeScript, lint and root
+`npm run check` pass. The tests use narrow native mocks and do not prove native
+composition, playback or sharing. Android owner verification and all iOS S0/
+acceptance evidence remain open; the story is not complete until those checks
+are observed on physical devices.
+
+## Android development-app load recovery (2026-10-22)
+
+The connected Android development build could not load because its retained LAN
+packager address was unreachable. Restarting Expo in ordinary localhost mode
+initially bound only IPv6 loopback, which ADB reverse could not reach through
+the device's IPv4 loopback endpoint. Expo now runs privately at
+`127.0.0.1:8081` using IPv4-first localhost resolution and the device is
+connected through ADB reverse. Metro bundled the Expo Router entry successfully
+and the owner-visible Welcome screen is loaded. This proves the development
+transport and startup path only; the owner still needs to navigate to Replay and
+click Prepare Replay for the requested media-parity acceptance evidence.
+The development build exposes the synthetic Replay S0 probe only after Prepare
+Replay reaches its fail-closed renderer state. It is excluded from release
+builds and uses no private media. Android blocks host input injection on this
+phone, so the owner must navigate to Replay and tap it; S0 remains unpassed
+until its visible terminal state and closed diagnostic outcome are observed.
+**Update:** The owner observed `Renderer responded on this phone` and `Check
+complete`, passing the synthetic availability response. It does not prove an
+encode, output validation, preview, or sharing; therefore no video has been
+created and production Replay rendering remains fail-closed. A synthetic MP4
+encode plus file/FFprobe validation is now available on the physical device;
+its owner result is required before private media composition can begin.
+**Update:** The owner confirmed synthetic-video success. Android can now encode
+and FFprobe-validate a cache-only MP4, but private attachment materialization,
+composition, preview and sharing remain unimplemented and must not be implied.
+
+## M4.7 Replay media parity slice (2026-10-22)
+
+Implemented the first media-gap slice on the retained dirty checkout. Replay's
+current-run manifest now preserves effective unknown and undated attached media,
+keeps aligned provider-only source references, and resolves them through the same
+local adapter path as the Journey album. References are stripped before the
+screen receives the manifest. This replaces the prior zero-memory outcome caused
+by treating import-time unknown status and null capture date as ineligible.
+
+Real SQLite covers the retained unknown/undated attachment and privacy withholding;
+provider coverage proves adapter resolution makes an unknown attachment usable.
+Focused provider, Replay and SQLite tests plus TypeScript pass. The native renderer
+still correctly reports unavailable until S0 proves encoding; this slice does not
+claim preview/export/device acceptance. Next remains full shared-query extraction,
+materialization/compositor and physical S0 under the M4.7 delivery record.
+
+## Replay decision amended; media-gap development plan (2026-10-22)
+
+Owner requested the decision update and a solid development plan. Decision 0009
+now records current Journey List scope + shared effective album media/access,
+automatic private preparation, undated-media retention and a separate empty-first
+exact export flow. The M4.7 canonical spec retains CAP-1..4 and adds
+media-pipeline-contract.md; epics and the working MLP spec are synchronized.
+
+The single M4.7 delivery record contains D1 shared attachment SQL, D2 shared local
+resolution/opaque handles, D3 automatic full-scope composition, parallel synthetic
+S0, D4 production preview, D5 deliberate export and D6 both-platform acceptance.
+R1–R10 cover the reported nine-trip mismatch, album parity across pages/corrections,
+unknown access, null dates, mixed media, fit limits, stale work and exact export.
+No reconstruction/schema migration or AI change is planned. Full-scope composition
+must not silently sample: the initial four-tile/two-second panel default offers
+explicit scope narrowing when a readable 30–60 second artifact cannot fit. This
+default is unmeasured; no unlimited-library rendering promise is made.
+
+This turn changes documents only. The production renderer still fails closed;
+Android build/module response is not encoding/export acceptance. Native output,
+layout readability, provenance and physical iOS remain technical gates. Start
+D1–D3 without another product decision; integrate each native platform only after
+its S0 evidence, and do not complete M4.7 without both-platform owner acceptance.
+
+Planning validation passes root `npm run check`, whitespace checks, local links,
+CAP/AC/task/test mappings and the full panel/frame boundary calculation. Mobile
+and physical checks were not rerun for document changes; no runtime fix is claimed.
+
+
+## Replay owner clarification and open media mismatch (2026-10-22)
+
+Owner clarifies the private Replay source contract: use the journeys they chose
+to show in the Journey List and the photos/videos/media attached to those
+journeys to construct a meaningful replay. Do not require another independent
+trip qualification or attachment-curation step for private preparation. Selected
+sharing remains a separate deliberate action under the existing privacy contract.
+
+Owner reports Prepare Replay finds nine visible trips but zero usable attached
+memories. Read-only inspection identifies separate album/Replay media queries,
+Replay's strict stored-availability check without the album's access resolver,
+and a captured-day requirement. These are concrete parity gaps; the exact device
+cause remains unverified. Next implementation must share effective album media
+scope and resolve access before reporting omissions, then demonstrate the same
+selected journeys and accessible media in an owner click-and-wait Replay flow.
+This party discussion changes no application source or native acceptance status.
+
+
+## M4.7 native adapter state (2026-10-22)
+
+`munim-ffmpeg@0.9.2`, `react-native-nitro-modules@0.37.1`, and SDK-57
+`expo-sharing` are installed with a fail-closed adapter and synthetic S0 entry
+point. The Expo config plugins are declared and Android/iOS native directories
+exist. npm reported an install-script approval warning, so binary provenance has
+not been independently verified. A physical Android development build now
+compiles, links, installs and opens with the module present; the synthetic S0
+owner tap, codec result, output verification and share result are still unrun.
+
+Local implementation now includes a current-run/privacy-gated Replay manifest
+read, empty-first private export selection/review UI, native-sharing adapter
+boundary, and real SQLite coverage. Mobile Jest, the 86-test SQLite suite,
+TypeScript and lint pass; root `npm run check` passes. Expo Doctor reaches the
+registry and passes 20/21, retaining the existing nine SDK patch-version
+mismatches; no SDK update is part of this delivery. Physical Android/iOS
+development-build S0 and owner click-and-wait evidence remain required. iOS
+environment availability is unproven. **Update:** Android SDK ADB was found
+outside PATH, the connected Xiaomi 2211133G (Android 16) accepted a successful
+development build with the Munim module linked. The product Replay screen now
+sources its scope from the current policy-visible Journey List: one visible trip
+with usable attachments is enough, and all effective available photos/videos
+from selected visible trips remain in scope. It no longer requires a fresh
+permission/import/rebuild action or a two-observed-destination gate. A synthetic
+S0 route is open and awaits a reload plus owner acknowledgement of its strengthened visible
+terminal state. The previous tap did invoke and complete the synthetic native
+query, with the Android loader resolving `libmunimffmpeg.so`; the original UI
+feedback was too subtle and has been corrected. This is not a codec/export/share
+acceptance result. **Latest Android incident:** repeated development-client deep
+links crashed Expo Dev Launcher while it attempted a second React-context setup.
+A clean development-build reinstall succeeded and resumed the app without a new
+crash; owner replay acceptance remains pending.
+
+## M4.7 spec revision after review (2026-10-22)
+
+Owner requested revising the reviewed M4.7 specification. The delivery draft and
+canonical contract now define separate private preview/empty-first selected export,
+observed-interval ordering, individual memory membership, deterministic coverage,
+quantitative rendering limits, exact-preview binding, native share handoff and
+artifact cancellation/retention/startup cleanup. Stable CAP-1..3 are retained;
+CAP-4 preserves optional selected-highlight attachment through M4.5/M4.6.
+Selection, renderer and verification companions include A1–A10/E1–E9 resolution
+trace and AC-M4.7-1/2/3 evidence allocation. The historical review is retained.
+
+The first implementation task is a synthetic, both-platform native feasibility
+gate; compatibility and product/device acceptance remain unmeasured. Assumed
+defaults include a two-observed-group minimum, at most 12 scenes/stills and
+explicit sampling/omission disclosure; they change no reconstruction thresholds.
+Root `npm run check` passes framework integrity, 20 foundation tests and eval
+smoke. Companion paths, capability IDs/shape, review/source mappings, timing
+bounds and whitespace checks pass. Only documentation changed. Delivery record:
+`_bmad-output/implementation-artifacts/spec-m4-7-preview-and-export-the-travel-life-replay.md`.
+Draft status does not imply owner approval or implementation completion.
+
+## M4.7 Replay spec review (2026-10-22)
+
+The requested M4.7 specification and build planning produced a draft delivery
+record plus canonical Replay spec/renderer companion. Owner-requested review
+finds the draft is not ready for development: selected export scope, chronological
+ordering, per-memory eligibility, resource limits, native save/share semantics,
+artifact lifecycle, renderer feasibility and Jest discovery need explicit contracts.
+The optional hosted-highlight handoff in the source AC also needs a recorded
+disposition. Detailed findings and source evidence:
+`_bmad-output/implementation-artifacts/review-m4-7-replay-spec-2026-10-22.md`.
+No application source, dependency or native build changes were made. Device
+rendering/export remains untested. Next work is to resolve the draft findings
+before implementing against it; this review does not approve the specification.
+
 ## Accepted-work GitHub main delivery (2026-10-21)
 
 The owner requested scanning and publishing all agreed/completed work before

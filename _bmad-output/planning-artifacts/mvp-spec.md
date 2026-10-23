@@ -321,12 +321,29 @@ existing Supabase backend/storage and Google Maps JavaScript for browser map
 interaction. These are working defaults, not already configured services.
 The mobile app remains the core product.
 
-The P0 replay is a 30–60 second (target 45-second) 720p silent MP4 using only
-chronological observed destinations and owner-visible eligible photos. Preview and
-cancel before native export; any upload to the hosted highlight is a separate owner
-action. It uses destination transitions rather than claiming travelled routes, and
-does not require AI narration or music. Sparse or uncertain libraries receive an
-honest partial reveal, never synthetic history.
+The P0 Replay builds an adaptive chapter for every scoped trip: one usable
+memory about4-6s, two about6-10s, enough distinct moments usually15-20s, with
+titles/transitions included and no repeated-photo or video filler. Useful video
+or explicit kept additions may justify longer. Total duration grows with the trips.
+Automatically choose meaningful memories instead of rendering every attachment;
+all effective attached photos/videos remain candidates and the full album stays
+intact. Use owner Keep/Exclude, supported moment/scene diversity, near-duplicate
+suppression and usable quality. Optional local/consented visual AI may assist;
+metadata-only reconstruction consent does not authorise provider image/video use.
+
+One Replay action automatically prepares/verifies/plays through progressive local
+silent720p chapters. Durable optional Replace/Add/Remove/Reorder edits regenerate
+affected chapters; no new import/rebuild/private confirmation or25-panel/60s gate.
+Use validated useful short video clips where supported, otherwise labelled stills.
+Show honest access/technical/resource recovery without inventing history or forcing
+trip narrowing solely for duration. No narration, music or fabricated presence/routes.
+
+Selected export remains separate, empty-first and exact-previewed, with deliberate
+native handoff. Long single-file export needs measured streaming/storage/native
+acceptance; no arbitrary32MiB whole-video cap or unlimited-storage claim. Hosted
+upload remains a separate owner action. Canonical M4.7 companions define curation,
+identity/privacy, chapter budgets and both-platform acceptance (decision0009's
+later2026-10-23 timing/curation amendment supersedes older complete-scope limits).
 
 ## Rollout instrumentation and hypotheses
 
