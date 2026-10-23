@@ -1,5 +1,16 @@
 # Project state
 
+## Expo SDK compatibility CI repair (2026-10-23)
+
+The owner-reported GitHub failure reproduced online as nine Expo SDK 57 patch
+mismatches. Applied Expo's recommended dependency patch updates and regenerated
+the mobile lockfile. Online dependency validation now passes; Expo Doctor is
+21/21. Full mobile Jest passes 44 suites/439 tests, SQLite 86 tests, TypeScript,
+lint and root foundation checks. CI dependency validation remains enabled.
+These are host compatibility results; the previously installed development APK
+predates the native patch updates, so physical acceptance is not transferred to
+the new dependencies. Existing npm audit advisories remain outside this repair.
+
 ## Runtime audit and historical worktree retirement (2026-10-23)
 
 The mobile working tree equals local main `fc72600`, including the three

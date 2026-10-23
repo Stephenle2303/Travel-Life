@@ -1,5 +1,12 @@
 # Error and improvement playbook
 
+## GitHub Expo dependency validation failure (2026-10-23)
+
+- **Evidence/cause:** Owner reports GitHub CI failing with nine outdated packages. Online `expo install --check` reproduces SDK 57 patch drift in UI, Expo, asset, constants, linking, router, splash screen, dev client and jest-expo. This was a previously recorded unresolved check, not a new Replay regression. Publishing the feature did not close it.
+- **Correction verified:** Applied Expo's recommended SDK 57 patch versions and regenerated the lockfile. Online `expo install --check` passes and Doctor passes 21/21. All 44 mobile Jest suites (439 tests), 86 SQLite tests, TypeScript, lint and root checks pass. No dependency-check exclusion was added. Native rebuild/device acceptance after the patch update remains separate. npm still reports existing dependency advisories; no forced audit fix was applied.
+- **Invocation correction:** A framework-guidance read incorrectly used the mobile working directory for a root-relative docs path; reread the actual root path. The sandboxed version check fell back to an explicitly unreliable offline map and reported success. Only the online reproduction establishes the mismatch; never use offline fallback to declare the CI gate fixed.
+- **Prevention:** Require an online terminal Doctor result for dependency-maintenance delivery and preserve unresolved CI gates explicitly until their actual check passes.
+
 ## Runtime audit transport and archive enumeration (2026-10-23)
 
 - **Evidence:** Sandboxed TCP/process inspection was denied CIM access. A local Metro source-map request was denied socket access; its dependent file read then failed because no map existed. The elevated full-map request did not finish and was interrupted. Source-map equality is unverified; APK hash equality and the current source diff were verified independently.
