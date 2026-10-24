@@ -11,37 +11,23 @@ function inside(interval: ReplayInterval | undefined, filter?: ReplayInterval) {
  * Journey List ordering is presentation metadata. It deliberately does not
  * derive chronology, routes, or owner presence from the attached evidence.
  */
-function comparable(group: ReplayGroup) {
-  return Boolean(group.orderCertain && group.interval && Number.isFinite(day(group.interval.startDay)) && Number.isFinite(day(group.interval.endDay)));
-}
-
-function overlap(left: ReplayGroup, right: ReplayGroup) {
-  if (!left.interval || !right.interval) return true;
-  return day(left.interval.startDay) <= day(right.interval.endDay) && day(right.interval.startDay) <= day(left.interval.endDay);
-}
-
-/**
- * Only established non-overlapping intervals are sorted. Unknown or overlapping
- * runs deliberately retain the current Journey List-relative order so a Replay
- * card cannot imply an itinerary that the record does not support.
- */
 export function orderedReplayGroups(groups: readonly ReplayGroup[], filter?: ReplayInterval, direction: ReplayDirection = 'oldest-first'): ReplayGroup[] {
   const visible = groups.filter((group) => group.eligible && inside(group.interval, filter));
-  const blocks: ReplayGroup[][] = [];
-  for (let index = 0; index < visible.length;) {
-    const first = visible[index]!;
-    if (!comparable(first)) { blocks.push([first]); index += 1; continue; }
-    const block: ReplayGroup[] = [first];
-    index += 1;
-    while (index < visible.length && comparable(visible[index]!)) {
-      block.push(visible[index]!);
-      index += 1;
+  const monthKey = (group: ReplayGroup) => {
+    const startDay = group.interval?.startDay;
+    if (!startDay || !/^\d{4}-(0[1-9]|1[0-2])(?:-\d{2})?$/.test(startDay)) return undefined;
+    return Number(startDay.slice(0, 4)) * 12 + Number(startDay.slice(5, 7));
+  };
+  // Replay presentation deliberately uses the Journey List's effective start
+  // month only. It does not infer a day, route, or chronology from overlap.
+  return visible.map((group, index) => ({ group, index, month: monthKey(group) })).sort((left, right) => {
+    if (left.month === undefined || right.month === undefined) {
+      if (left.month === undefined && right.month === undefined) return left.index - right.index;
+      return left.month === undefined ? 1 : -1;
     }
-    const uncertain = block.some((group, blockIndex) => block.slice(0, blockIndex).some((prior) => overlap(prior, group)));
-    blocks.push(uncertain ? block : block.sort((left, right) => day(left.interval!.startDay) - day(right.interval!.startDay) || left.key.localeCompare(right.key)));
-  }
-  const orderedBlocks = direction === 'newest-first' ? [...blocks].reverse() : blocks;
-  return orderedBlocks.flatMap((block) => direction === 'newest-first' && block.every(comparable) && !block.some((group, index) => block.slice(0, index).some((prior) => overlap(prior, group))) ? [...block].reverse() : block);
+    const order = left.month - right.month;
+    return (direction === 'newest-first' ? -order : order) || left.index - right.index;
+  }).map(({ group }) => group);
 }
 
 export function suggestedReplayGroups(groups: readonly ReplayGroup[]): ReplayGroup[] {
@@ -105,7 +91,7 @@ function chapterFor(group: ReplayGroup, memoryKeys: readonly string[]): ReplayCh
     groupKey: group.key,
     memoryKeys,
     frames,
-    card: { labelToken: sanitizeCardToken(group.label, 'Private journey'), timeToken: cardTimeToken(group), frames: Math.min(24, frames) },
+    card: { labelToken: sanitizeCardToken(group.label, 'Private journey'), timeToken: cardTimeToken(group), frames: Math.min(72, frames) },
   };
 }
 

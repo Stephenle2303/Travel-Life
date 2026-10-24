@@ -35,7 +35,7 @@ new facts from automatic curation. Owner-entered labels retain their existing
 provenance and are never presented as observations.
 
 The separator is part of the chapter's frame budget. The initial implementation
-allocates no more than one second from that budget, including its transition;
+allocates three seconds (72 frames at 24fps) from that budget, including its transition;
 the timing planner owns the final frame allocation. Sparse chapters stay short
 instead of extending duration or repeating media to make room for a card.
 
@@ -44,8 +44,9 @@ instead of extending duration or repeating media to make room for a card.
 The immutable chapter manifest carries a sanitized display token and coarse time
 token alongside the opaque group identity and selected moments. Components see
 only display-safe values; repository/native boundaries retain local private
-identity references. Render text locally with a bundled or proven platform font
-path and an argument-safe text/image overlay implementation. Never interpolate a
+identity references. Render text locally with the bundled Noto Sans Regular font
+asset (Vietnamese/Latin Extended coverage and SIL Open Font License 1.1) through an argument-safe local
+FFmpeg `fontfile` path and an argument-safe text/image overlay implementation. Never interpolate a
 raw label into FFmpeg/native command syntax, logs, diagnostics, cache filenames,
 or test fixtures containing private data.
 

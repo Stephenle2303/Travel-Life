@@ -4,18 +4,25 @@ import type { ReplayGroup } from '@/replay/types';
 const group = (key: string, startDay: string, endDay = startDay): ReplayGroup => ({ key, label: key, interval: { startDay, endDay }, inferred: false, eligible: true, orderCertain: true });
 
 describe('Replay selection', () => {
-  it('retains visible Journey List order even when dates overlap or are uncertain', () => {
-    expect(orderedReplayGroups([group('later', '2024-02-01'), { ...group('first', '2024-01-01', '2024-01-05'), orderCertain: false }, group('overlap', '2024-01-05')]).map(({ key }) => key)).toEqual(['later', 'first', 'overlap']);
+  it('orders effective start months despite overlaps and uncertain interval flags', () => {
+    const groups = [group('february', '2024-02-01'), { ...group('december', '2023-12-05', '2024-01-12'), orderCertain: false }, group('january', '2024-01-05', '2024-02-09')];
+    expect(orderedReplayGroups(groups).map(({ key }) => key)).toEqual(['december', 'january', 'february']);
   });
-  it('uses oldest-first supported chronology while keeping uncertain blocks stable and reverses only supported blocks', () => {
-    const groups = [group('later', '2024-02-01'), group('earlier', '2024-01-01'), { ...group('unknown', '2024-03-01'), orderCertain: false }];
-    expect(orderedReplayGroups(groups).map(({ key }) => key)).toEqual(['earlier', 'later', 'unknown']);
-    expect(orderedReplayGroups(groups, undefined, 'newest-first').map(({ key }) => key)).toEqual(['unknown', 'later', 'earlier']);
+  it('keeps same-month Journey List ties stable and unknown times last in either direction', () => {
+    const unknown: ReplayGroup = { key: 'unknown', label: 'unknown', inferred: true, eligible: true, orderCertain: false };
+    const groups = [group('february', '2024-02-01'), group('january-first', '2024-01-20'), unknown, group('january-second', '2024-01-01')];
+    expect(orderedReplayGroups(groups).map(({ key }) => key)).toEqual(['january-first', 'january-second', 'february', 'unknown']);
+    expect(orderedReplayGroups(groups, undefined, 'newest-first').map(({ key }) => key)).toEqual(['february', 'january-first', 'january-second', 'unknown']);
   });
-  it('carries a sanitized private destination card inside each chapter budget', () => {
+  it('carries a three-second sanitized private destination card inside each chapter budget', () => {
     const plan = planPrivateReplay([{ ...group('a', '2024-01-01'), label: "A\nprivate: place" }], []);
-    expect(plan.chapters[0]).toMatchObject({ frames: 72, card: { labelToken: 'A private place', timeToken: '2024 01', frames: 24 } });
-    expect(createExportManifest(1, plan.groups, [], 'newest-first')).toMatchObject({ direction: 'newest-first', chapters: [{ card: { frames: 24 } }] });
+    expect(plan.chapters[0]).toMatchObject({ frames: 72, card: { labelToken: 'A private place', timeToken: '2024 01', frames: 72 } });
+    expect(createExportManifest(1, plan.groups, [], 'newest-first')).toMatchObject({ direction: 'newest-first', chapters: [{ frames: 72, card: { frames: 72 } }] });
+  });
+  it('preserves Vietnamese letters in the card token while keeping its existing frame budget', () => {
+    const plan = planPrivateReplay([{ ...group('a', '2024-01-01'), label: 'Thừa Thiên Huế' }], [{ key: 'photo', groupKey: 'a', kind: 'photo', available: true, eligible: true }]);
+    expect(plan.chapters[0]).toMatchObject({ frames: 120, card: { labelToken: 'Thừa Thiên Huế', frames: 72 } });
+    expect(plan.chapters[0].frames - (plan.chapters[0].card?.frames ?? 0)).toBe(48);
   });
   it('keeps an undated Journey List item in the unfiltered replay without inventing a date', () => {
     const undated: ReplayGroup = { key: 'undated', label: 'Private journey', inferred: true, eligible: true, orderCertain: false };

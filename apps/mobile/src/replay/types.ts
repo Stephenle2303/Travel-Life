@@ -26,6 +26,8 @@ export type ReplayGroup = Readonly<{
 }>;
 /** Private presentation only. It never changes Journey List facts or evidence. */
 export type ReplayDirection = 'oldest-first' | 'newest-first';
+/** Opaque private renderer input; never a source URI, name, or MIME value. */
+export type ReplaySoundtrack = Readonly<{ kind: 'bundled'; revision: 'happy-moments-1.4' }> | Readonly<{ kind: 'custom'; revision: string; localUri: string }>;
 export type ReplayChapterCard = Readonly<{
   /** Sanitized local text tokens only; never an identifier or a native source value. */
   labelToken: string;
@@ -55,6 +57,8 @@ export type ReplayChapter = Readonly<{
 }>;
 export type ReplayState = 'idle' | 'sparse' | 'preparing' | 'rendering' | 'preview-ready' | 'cancelled' | 'stale' | 'failed' | 'unavailable';
 export type ReplayManifest = Readonly<{
+  /** Fixed bundled score only; legacy manifests remain silent. */
+  music?: ReplaySoundtrack;
   generation: number;
   groupKeys: readonly string[];
   memoryKeys: readonly string[];
@@ -75,6 +79,13 @@ export type ReplayPreparedPreview = Readonly<{
   renderedMemoryCount: number;
   omittedMemoryCount: number;
 }>;
+/** Opaque durable-cache metadata. It never contains a media URI or source reference. */
+export type ReplayPreparedArtifactRecord = Readonly<{
+  identity: string;
+  fileKey: string;
+  durationSeconds: number;
+  renderedMemoryCount: number;
+}>;
 /**
  * Provider-only current-run input. `previewSourceRefs` is consumed immediately
  * by the local photo adapter and is never exposed to a screen or diagnostics.
@@ -84,6 +95,8 @@ export type ReplayManifestInput = Readonly<{
   privacyRevision: number;
   /** Private draft preference; absent/invalid data deliberately defaults oldest-first. */
   direction?: ReplayDirection;
+  soundtrack?: ReplaySoundtrack;
+  preparedArtifact?: ReplayPreparedArtifactRecord;
   groups: readonly ReplayGroup[];
   memories: readonly ReplayMemory[];
   previewSourceRefs?: readonly (string | null)[];

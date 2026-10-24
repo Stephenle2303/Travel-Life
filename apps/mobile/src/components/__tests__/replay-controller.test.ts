@@ -33,4 +33,11 @@ describe('Replay controller', () => {
     const controller = new ReplayController({ render: async () => ({ uri: 'file:///private.mp4', digest: 'digest', manifest }) });
     expect(controller.exportManifest([{ key: 'a', label: 'Private journey', inferred: true, eligible: true, orderCertain: true }], [], 'newest-first').direction).toBe('newest-first');
   });
+  it('does not reuse a silent artifact when bundled music is requested', async () => {
+    const render = jest.fn(async (requested: ReplayManifest) => ({ uri: 'file:///private.mp4', digest: 'digest', manifest: requested }));
+    const controller = new ReplayController({ render });
+    await controller.prepare({ ...manifest, music: { kind: 'custom', revision: 'silent-v1', localUri: 'file:///custom.ogg' } } as ReplayManifest, []);
+    await controller.prepare({ ...manifest, music: { kind: 'bundled', revision: 'happy-moments-1.4' } } as ReplayManifest, []);
+    expect(render).toHaveBeenCalledTimes(2);
+  });
 });

@@ -3,24 +3,62 @@ import { ReplayScreen } from '@/components/replay-screen';
 import { ReplayPreparationError } from '@/replay/renderer';
 
 const mockLoadReplayManifestInput = jest.fn();
+const mockLoadPreparedReplay = jest.fn();
 const mockPreparePrivateReplay = jest.fn();
 const mockSaveReplayDraft = jest.fn();
 const mockResetReplayDraft = jest.fn();
 const mockExportPrivateReplay = jest.fn();
-jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn(), replace: jest.fn() }) }));
+const mockNavigationAddListener = jest.fn();
+let mockBeforeRemove: ((event: { preventDefault(): void }) => void) | undefined;
+jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn(), replace: jest.fn() }), useNavigation: () => ({ addListener: mockNavigationAddListener }) }));
 jest.mock('expo-video', () => ({ useVideoPlayer: jest.fn(() => ({})), VideoView: 'VideoView' }));
 jest.mock('munim-ffmpeg', () => ({ execute: jest.fn(), getMediaInformation: jest.fn(), pickEncoder: jest.fn() }));
-jest.mock('@/photo-access/provider', () => ({ usePhotoAccess: () => ({ loadReplayManifestInput: mockLoadReplayManifestInput, saveReplayDraft: mockSaveReplayDraft, resetReplayDraft: mockResetReplayDraft, preparePrivateReplay: mockPreparePrivateReplay, exportPrivateReplay: mockExportPrivateReplay, discardPrivateReplay: jest.fn() }) }));
+jest.mock('@/photo-access/provider', () => ({ usePhotoAccess: () => ({ loadReplayManifestInput: mockLoadReplayManifestInput, loadPreparedReplay: mockLoadPreparedReplay, saveReplayDraft: mockSaveReplayDraft, resetReplayDraft: mockResetReplayDraft, preparePrivateReplay: mockPreparePrivateReplay, exportPrivateReplay: mockExportPrivateReplay, discardPrivateReplay: jest.fn() }) }));
 
 describe('Replay screen', () => {
-  afterEach(async () => { await cleanup(); mockLoadReplayManifestInput.mockReset(); mockPreparePrivateReplay.mockReset(); mockSaveReplayDraft.mockReset(); mockResetReplayDraft.mockReset(); mockExportPrivateReplay.mockReset(); });
-  beforeEach(() => mockLoadReplayManifestInput.mockResolvedValue({ snapshotToken: 7, privacyRevision: 1, memories: [
+  afterEach(async () => { await cleanup(); mockLoadReplayManifestInput.mockReset(); mockLoadPreparedReplay.mockReset(); mockPreparePrivateReplay.mockReset(); mockSaveReplayDraft.mockReset(); mockResetReplayDraft.mockReset(); mockExportPrivateReplay.mockReset(); mockNavigationAddListener.mockReset(); mockBeforeRemove = undefined; });
+  beforeEach(() => { mockNavigationAddListener.mockImplementation((_event, listener) => { mockBeforeRemove = listener; return jest.fn(); }); mockLoadPreparedReplay.mockResolvedValue(null); return mockLoadReplayManifestInput.mockResolvedValue({ snapshotToken: 7, privacyRevision: 1, memories: [
     { key: 'memory-a', groupKey: 'a', kind: 'photo', available: true, eligible: true },
     { key: 'memory-b', groupKey: 'b', kind: 'video', available: true, eligible: true },
   ], groups: [
     { key: 'a', label: 'Observed destination', interval: { startDay: '2024-01-01', endDay: '2024-01-02' }, inferred: true, eligible: true, orderCertain: true },
     { key: 'b', label: 'Observed destination', interval: { startDay: '2024-02-01', endDay: '2024-02-02' }, inferred: true, eligible: true, orderCertain: true },
-  ] }));
+  ] }); });
+  it('opens a verified durable Replay without rendering again', async () => {
+    mockLoadPreparedReplay.mockResolvedValue({ uri: 'file:///documents/replay-previews/saved.mp4', renderedMemoryCount: 2, omittedMemoryCount: 0, durationSeconds: 8 });
+    const view = await render(<ReplayScreen />);
+    await waitFor(() => expect(view.getByLabelText('Re-render private Replay')).toBeOnTheScreen());
+    expect(mockPreparePrivateReplay).not.toHaveBeenCalled();
+  });
+  it('returns from native navigation in Edit Replay to the prepared preview', async () => {
+    mockPreparePrivateReplay.mockResolvedValue({ uri: 'file:///private-replay.mp4', renderedMemoryCount: 2, omittedMemoryCount: 0, durationSeconds: 8 });
+    const view = await render(<ReplayScreen />);
+    await waitFor(() => expect(view.getByLabelText('Edit private Replay')).toBeOnTheScreen());
+    fireEvent.press(view.getByLabelText('Edit private Replay'));
+    await waitFor(() => expect(view.getByLabelText('Save Replay edits')).toBeOnTheScreen());
+    const preventDefault = jest.fn();
+    mockBeforeRemove?.({ preventDefault });
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(view.getByLabelText('Edit private Replay')).toBeOnTheScreen());
+  });
+  it('mutes and unmutes the existing player without preparing another Replay', async () => {
+    mockPreparePrivateReplay.mockResolvedValue({ uri: 'file:///private-replay.mp4', renderedMemoryCount: 1, omittedMemoryCount: 0, durationSeconds: 5 });
+    mockExportPrivateReplay.mockResolvedValue('closed');
+    const view = await render(<ReplayScreen />);
+    await waitFor(() => expect(view.getByLabelText('Mute Replay audio')).toBeOnTheScreen());
+    expect(mockPreparePrivateReplay).toHaveBeenLastCalledWith(undefined, expect.any(Function), { kind: 'bundled', revision: 'happy-moments-1.4' });
+    fireEvent.press(view.getByLabelText('Mute Replay audio'));
+    await waitFor(() => expect(view.getByLabelText('Unmute Replay audio')).toBeOnTheScreen());
+    fireEvent.press(view.getByLabelText('Unmute Replay audio'));
+    await waitFor(() => expect(view.getByLabelText('Mute Replay audio')).toBeOnTheScreen());
+    expect(mockPreparePrivateReplay).toHaveBeenCalledTimes(1);
+    fireEvent.press(view.getByLabelText('Choose Replay for sharing'));
+    await waitFor(() => expect(view.getByLabelText('Select photo 1 for sharing')).toBeOnTheScreen());
+    fireEvent.press(view.getByLabelText('Select photo 1 for sharing'));
+    await waitFor(() => expect(view.getByLabelText('Open Replay share sheet')).not.toBeDisabled());
+    fireEvent.press(view.getByLabelText('Open Replay share sheet'));
+    await waitFor(() => expect(mockPreparePrivateReplay).toHaveBeenLastCalledWith(['memory-a'], undefined, { kind: 'bundled', revision: 'happy-moments-1.4' }));
+  });
   it('starts a private Replay on entry without a Prepare action and permits cancellation', async () => {
     mockPreparePrivateReplay.mockResolvedValue({ uri: 'file:///private-replay.mp4', renderedMemoryCount: 1, omittedMemoryCount: 0, durationSeconds: 5 });
     const view = await render(<ReplayScreen />);
@@ -34,7 +72,7 @@ describe('Replay screen', () => {
     await waitFor(() => expect(view.getByLabelText('Open Replay share sheet')).not.toBeDisabled());
     fireEvent.press(view.getByLabelText('Open Replay share sheet'));
     await waitFor(() => expect(view.getByText(/Share sheet closed/)).toBeOnTheScreen());
-    expect(mockPreparePrivateReplay).toHaveBeenLastCalledWith(['memory-a']);
+    expect(mockPreparePrivateReplay).toHaveBeenLastCalledWith(['memory-a'], undefined, { kind: 'bundled', revision: 'happy-moments-1.4' });
     expect(view.queryByText(/0 selected/)).toBeNull();
     fireEvent.press(view.getByLabelText('Cancel Replay preparation'));
     await waitFor(() => expect(view.getByText(/Your private Replay/)).toBeOnTheScreen());
@@ -102,7 +140,7 @@ describe('Replay screen', () => {
     mockSaveReplayDraft.mockResolvedValue(undefined);
     await waitFor(() => expect(view.getByLabelText('Save Replay edits')).not.toBeDisabled());
     fireEvent.press(view.getByLabelText('Save Replay edits'));
-    await waitFor(() => expect(mockSaveReplayDraft).toHaveBeenCalledWith(['memory-a'], 7, 1, 'oldest-first'));
+    await waitFor(() => expect(mockSaveReplayDraft).toHaveBeenCalledWith(['memory-a'], 7, 1, 'oldest-first', { kind: 'bundled', revision: 'happy-moments-1.4' }));
     await waitFor(() => expect(mockPreparePrivateReplay).toHaveBeenCalledTimes(2));
   });
   it('clears only the private Replay draft before regenerating automatic selection', async () => {
@@ -134,7 +172,7 @@ describe('Replay screen', () => {
     await waitFor(() => expect(view.getByLabelText('Move photo 1 earlier')).toBeDisabled());
     mockSaveReplayDraft.mockResolvedValue(undefined);
     fireEvent.press(view.getByLabelText('Save Replay edits'));
-    await waitFor(() => expect(mockSaveReplayDraft).toHaveBeenCalledWith(['memory-a', 'memory-b'], 7, 1, 'oldest-first'));
+    await waitFor(() => expect(mockSaveReplayDraft).toHaveBeenCalledWith(['memory-a', 'memory-b'], 7, 1, 'oldest-first', { kind: 'bundled', revision: 'happy-moments-1.4' }));
   });
   it('persists a newest-first private timeline choice and regenerates Replay', async () => {
     mockPreparePrivateReplay.mockResolvedValue({ uri: 'file:///private-replay.mp4', renderedMemoryCount: 2, omittedMemoryCount: 0, durationSeconds: 8 });
@@ -144,7 +182,7 @@ describe('Replay screen', () => {
     await waitFor(() => expect(view.getByLabelText('Use newest-first Replay timeline')).toBeOnTheScreen());
     fireEvent.press(view.getByLabelText('Use newest-first Replay timeline'));
     fireEvent.press(view.getByLabelText('Save Replay edits'));
-    await waitFor(() => expect(mockSaveReplayDraft).toHaveBeenCalledWith(['memory-a', 'memory-b'], 7, 1, 'newest-first'));
+    await waitFor(() => expect(mockSaveReplayDraft).toHaveBeenCalledWith(['memory-a', 'memory-b'], 7, 1, 'newest-first', { kind: 'bundled', revision: 'happy-moments-1.4' }));
     await waitFor(() => expect(mockPreparePrivateReplay).toHaveBeenCalledTimes(2));
   });
 });

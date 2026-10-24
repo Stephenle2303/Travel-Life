@@ -24,3 +24,4 @@ The current product direction and provisional defaults are recorded below.
 - [0011 — Prototype screens as product UI](0011-prototype-screens-as-product-ui.md): adopts the agreed prototype screens, including the video welcome, as production UI targets.
 - [0012 — Dimensional Atlas and minimal list](0012-dimensional-atlas-and-minimal-list.md): adopts subtle 3D visual polish without terrain and a simple, uncluttered journey list; development plan only.
 - [0013 — Reference-faithful Atlas cartography](0013-reference-faithful-atlas-cartography.md): prioritizes the supplied map's actual appearance, permits flat geographic relief texture, defers specified chrome and requires visual acceptance before integration.
+- [0014 — Lean self-serve UX and visual Replay editing](0014-lean-self-serve-replay-editor.md): requires user-centered, reference-led UI, concise copy, few steps, truthful progress and trip-based visual media selection.

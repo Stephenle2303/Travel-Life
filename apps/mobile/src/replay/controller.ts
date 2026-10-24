@@ -39,6 +39,9 @@ export class ReplayController {
   canExport(manifest: ReplayManifest) { return this.state === 'preview-ready' && this.artifactKey === replayManifestKey(manifest); }
 }
 
-function replayManifestKey(manifest: ReplayManifest) {
-  return JSON.stringify([manifest.generation, manifest.direction ?? 'oldest-first', manifest.groupKeys, manifest.memoryKeys, manifest.durationSeconds, manifest.chapters]);
+/** Stable local identity for a verified private artifact; it is never logged or sent remotely. */
+export function replayManifestIdentity(manifest: ReplayManifest) {
+  return JSON.stringify([manifest.generation, manifest.direction ?? 'oldest-first', manifest.music?.revision ?? 'happy-moments-1.4', manifest.groupKeys, manifest.memoryKeys, manifest.durationSeconds, manifest.chapters]);
 }
+
+function replayManifestKey(manifest: ReplayManifest) { return replayManifestIdentity(manifest); }

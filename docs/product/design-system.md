@@ -21,6 +21,61 @@ experience with fictional local data. Its demo atlas, simulated permissions,
 in-memory corrections, preview-only replay and sharing, and generated imagery
 are **not** production capabilities or required implementation technologies.
 
+## Mandatory experience principles (owner direction, 2026-10-24)
+
+Design from the owner's task and what they can see, recognize and do. Every new
+screen, build or rebuild must reference this system and its closest approved
+screen pattern before implementation. This amendment governs interaction where
+an older prototype or agent-selected control layout conflicts with it.
+
+- **Lean and self-serve:** one obvious primary action per state; familiar controls,
+  simple navigation and short contextual labels. Prefer recognizable content and
+  visible state to instructions. Keep necessary privacy/error explanations close
+  to their action; do not replace clarity with unexplained icons.
+- **Few steps:** expose the task in its existing context. Avoid setup wizards,
+  confirmation chains and separate technical preparation screens. Use progressive
+  disclosure for secondary options without hiding the core task.
+- **Visual decisions:** show the actual photo, video poster or relevant preview
+  beside a choice. A date, item number, media type or source ID cannot substitute
+  for recognizable media. Selected state must be visible and accessible.
+- **Responsive work:** acknowledge taps immediately. Resolve, prepare, render and
+  verify automatically behind the user's task. Long operations show an updating
+  progress bar and measured percentage when total work is known; use an
+  indeterminate bar with a brief activity label while the total is unknown.
+  Never invent progress or show completion before verification finishes.
+- **Safe continuity:** retain trip, scroll and working selection on contextual
+  returns. Make ordinary edits reversible; reserve confirmation for genuinely
+  destructive actions. Editing a Replay never deletes source media or trip facts.
+- **User review is the bar:** verify the actual phone layout, media recognition,
+  selection state, return navigation, large text and loading/recovery behavior.
+  Source review, host tests and mockups alone do not establish intuitive UX.
+
+For each UI delivery, record the reference used, the short user action path and
+the actual viewport evidence in its existing story/spec. More explanatory text
+is not a remedy for controls whose purpose or target cannot be recognized.
+
+### Replay Edit: a visual trip editor
+
+Keep the Replay preview and a compact trip strip in context. Selecting a trip
+reveals its photo/video grid directly in the editor, following Journey List's
+`See photos` gallery language. Show recognizable thumbnails, video posters,
+selection checkmarks and a concise selected count. Tap a tile to include/exclude;
+provide a distinct accessible expand control to inspect the item without changing
+selection. Keep Done reachable. Secondary order and soundtrack settings must not
+push media below a wall of text or per-item action buttons.
+
+The grid starts from the current effective private composition, not an empty
+selection or every eligible candidate. Selected means included in the committed
+Replay after Done; explicit choices must not be silently dropped by automatic
+curation. Browse all currently eligible attached candidates for the selected trip
+without mounting or decoding the entire lifetime library. Album membership and
+Replay inclusion remain separate. Reuse gallery patterns, extending video posters
+and selection behavior where existing production components lack them.
+
+See [decision 0014](../decisions/0014-lean-self-serve-replay-editor.md) and the
+[Replay interaction contract](../../_bmad-output/specs/spec-m4-7-travel-life-replay/interaction-contract.md)
+for behavior and acceptance. This is accepted direction, not a shipped editor.
+
 ## Official screen set
 
 The following prototype screens define the product's intended composition,

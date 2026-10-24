@@ -5,6 +5,15 @@ Status: accepted from the user's explicit direction.
 
 ## Context
 
+### Owner amendment: bundled Replay music (2026-10-23)
+
+The owner explicitly selected bundled background music for Replay, superseding
+the silent-only/music-excluded requirements below for Replay output. The initial
+track is Meadow Thoughts by Écrivain (CC0), enabled by default with an on/off
+control. The selected export uses the same music choice as the private preview.
+Owner-video source audio remains excluded. Welcome motion stays silent. Music
+is presentation only and never evidence of observed events or travel.
+
 Decision 0008 replaced the Minimum Viable Product release bar with a Minimum
 Lovable Product bar, but deliberately left its first experience to be defined.
 The user has now defined the intended reaction: when people see their whole

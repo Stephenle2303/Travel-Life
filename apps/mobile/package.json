@@ -11,6 +11,7 @@
     "expo-background-task": "^57.0.21",
     "expo-constants": "~57.0.21",
     "expo-device": "~57.0.2",
+    "expo-document-picker": "~57.0.3",
     "expo-font": "~57.0.4",
     "expo-glass-effect": "~57.0.4",
     "expo-image": "~57.0.5",
@@ -73,6 +74,7 @@
       "<rootDir>/src/components/__tests__/**/*.test.ts?(x)"
     ],
     "moduleNameMapper": {
+      "\\.ogg$": "<rootDir>/src/test/audio-asset.ts",
       "^@maplibre/maplibre-react-native$": "<rootDir>/src/test/maplibre-react-native.tsx",
       "^munim-ffmpeg$": "<rootDir>/src/test/munim-ffmpeg.ts",
       "^@/(.*)$": "<rootDir>/src/$1"

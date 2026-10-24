@@ -13,6 +13,170 @@ context:
   - '{project-root}/_bmad-output/specs/spec-m4-7-travel-life-replay/SPEC.md'
 ---
 
+## Owner UX amendment: visual Replay Edit (2026-10-24)
+
+Detailed CAP-5/D4 contract is now registered in the canonical SPEC through
+`editor-experience.md` and `editor-delivery-and-acceptance.md`. D4.1-D4.5 cover
+working revision/identity, bounded local gallery, first visual slice, secondary
+controls/recovery and actual platform review. E01-E16 map to existing R gates.
+New editor APIs/schema remain proposals; physical acceptance and implementation
+are pending. Use these details over earlier generic Add/Remove/Replace labels.
+
+Specification checks (2026-10-24): coherence/preservation self-validation passes;
+CAP-1..5 retained, 15 companion paths resolve, E01-E16 are unique/complete, and
+local links/Markdown whitespace pass. Root `npm run check` passes pinned framework
+integrity, 20 foundation tests and eval smoke. One over-specific exact-word check
+was corrected and recorded in the error playbook. These are documentation and
+foundation results, not E01-E16 runtime or owner UX acceptance.
+
+Apply decision 0014, the mandatory experience principles in
+`docs/product/design-system.md`, and the visual editor amendment/acceptance in
+`interaction-contract.md` to D4. They supersede the older flat per-media
+Add/Remove/Replace/Move button presentation in this record. Retain preview context,
+select a trip in a compact strip, and toggle recognizable photo/video tiles in an
+inline grid patterned after Journey List's See photos. Secondary music/order
+settings remain compact. Selection reflects the actual chosen composition;
+explicit additions/removals survive replan and Done triggers automatic regeneration
+with truthful progress. Keep working/committed draft, privacy and sharing gates.
+
+Source review: the current `replay-screen.tsx` maps the whole eligible list to
+text buttons without thumbnails or trip grouping; `journey-media-viewer.tsx`
+provides a paged gallery reference but lacks video posters. This is a confirmed
+design mismatch, not a measured parsing-performance diagnosis. D4 remains open:
+implement the contract, run meaningful host/persistence/paging checks, and obtain
+physical Android/iOS visual and owner usability evidence. No runtime changes in
+this amendment. This remains the sole M4.7 delivery record.
+
+## Replay rendering performance implementation plan (2026-10-23)
+
+Status: planned; no measured speedup or visual acceptance yet. This amendment
+implements the owner's request for significantly faster rendering with preserved
+quality inside M4.7. It refines D0/D1/D3/D5/D6 below; it does not replace their
+product acceptance or introduce another backlog. Execute P0-P5 in order, with
+bounded experiments inside each phase. Existing chapter-card legibility work is
+an integration dependency: record its exact source snapshot and preserve its
+accepted composition rather than overwriting overlapping renderer edits.
+
+### Baseline and boundaries
+
+Source inspection establishes these candidates, not their timing contribution:
+`photo-access/provider.tsx` resolves all candidate previews before selection;
+`replay/renderer.ts` stages every selected source and converts stills into PNGs
+before scene rendering; each card/memory has a serial native encode call; the
+controller returns playback only after complete assembly/verification. Final
+assembly already uses `-c copy`. The controller has same-manifest in-memory
+artifact reuse, but no durable independent chapter cache. Its key includes a
+global generation. A whole-output 32MiB rejection also remains in the renderer;
+resolve that existing conflict with the accepted long-Replay storage contract
+in P4, rather than treating the limit as a performance optimization.
+
+Keep current selection, owner overrides, all scoped trips, direction, card
+legibility, sparse timing, short real-video behavior, evidence uncertainty,
+local privacy and separate exact selected sharing. Preserve 1280x720/24fps silent
+H.264 output. Codec, bitrate, intermediate format or filter changes additionally
+require visual validation; dimensions/frame rate alone do not establish quality.
+No model/selector redesign, cloud processing, unrelated reconstruction/schema
+optimization or unbounded parallel encoding belongs in this performance slice.
+
+### Measurement and acceptance
+
+Initial engineering targets below are provisional planning assumptions, not
+owner-approved preferences or achieved results. Freeze the fixture matrix and
+targets before comparing candidates; retain a missed target explicitly rather
+than lowering it after measurement.
+
+| Measure | Definition and initial target |
+| --- | --- |
+| Cold render completion | Tap Replay to every scoped chapter verified and ready; at least 50% lower median than baseline for the matched normal/many-trip fixtures on each platform. |
+| Cold first playback | Tap to first actually displayed video frame, including source resolution and player startup; at least 50% lower median for multi-trip fixtures, with no regression on the one-trip sparse case. |
+| Unchanged reopen | Fresh eligibility validation then valid cached playback, including after app restart; zero native chapter re-encodes. Record absolute latency and validation cost. |
+| One-trip edit | Done to affected chapter verified; re-encode only that changed chapter and reuse every still-valid unaffected chapter. Record latency and bytes rewritten. |
+| Continuous watch | Report stall count and total/max stall duration; no new stalls against matched baseline on the acceptance matrix. Faster startup cannot conceal buffering regressions. |
+| Quality and resources | Same intended memories/order/cards/timing; owner visual acceptance and strict output checks. No crash, resource-limit breach, leaked files or non-settling cancellation. Record peak memory/disk and thermal limitations. |
+
+Use synthetic fixtures: one still; two stills; a normal 4-6-moment chapter;
+mixed still/video including a sub-second clip; high-resolution/rotated photos;
+multiple trips and a long many-trip sequence; large candidate pool with few
+selected moments; unavailable/denied sources and a visible empty-media trip.
+Record exact fixture hash, source snapshot plus dirty diff identity, build type,
+device/OS, native/library version, selected encoder/configuration, cache state,
+output duration and thermal/power conditions. Compare baseline and candidate on
+the same physical device and fixed render manifest. Compare release/profile
+builds without Metro overhead for performance acceptance; keep development
+results separately labelled. Run at least five paired trials per normal case,
+alternate baseline/candidate order, and report median/range and every failure.
+Do not describe a five-run maximum as a reliable p95. Cold means disposable
+benchmark cache misses; never clear the owner's library, database or edits.
+
+Development-only local measurements cover manifest load, access resolution,
+selection, staging, still conversion, native startup, per-scene encode,
+assembly, verification, player startup and first frame. Also record aggregate
+native-call count, copied bytes, cache hits/misses and resource peaks. Account
+for overlapping spans without double-counting. Production console diagnostics
+retain their closed schema; no new timing fields, raw native logs, source IDs,
+paths, labels or personal metadata. Keep private benchmark material in existing
+ignored local directories; committed reports use synthetic aggregates only.
+
+### Executable work packages
+
+| Phase | Implementation and files (relative to apps/mobile/) | Exit evidence |
+| --- | --- | --- |
+| P0 Baseline | Add injectable development measurement hooks around provider/controller/renderer and actual player first-frame observation in `components/replay-screen.tsx`. Reuse existing S0/native harness and native mocks. Freeze baseline manifests/output and collect the matrix above. Reconcile overlapping card work before capturing the baseline. | Stage timings identify the dominant cold cost; baseline actually renders and plays on each measured platform. An unavailable renderer is a functional prerequisite failure, not a slow timing sample. |
+| P1 Cold path | In `replay/renderer.ts` and the existing native adapter, benchmark output-sized still preparation once versus current full-size PNG conversion/repeated scaling; bound local video reads/staging to actual clip work where platform access permits. If measurements show resolution dominates, page/coalesce shared local resolution while preserving complete candidate accounting, selection equivalence and current access checks. If native-call overhead dominates, compare bounded per-chapter composition against per-scene calls. Adopt only individually measured improvements; keep one native encode owner. | Identical fixed-manifest content/timing; actual decode/playback, visual gate and lower dominant-stage/cold-completion times. Record rejected experiments and resource tradeoffs. Do not assume a filter or decoder handles HEIC, orientation or HDR correctly. |
+| P2 Chapter reuse | Extend `replay/types.ts`, `controller.ts` and renderer boundary to independently verified chapter artifacts. Add durable cache records through the existing import-record schema owner only if needed; add real SQLite upgrade/reopen coverage. Fingerprint source content/version or validated local revision, chosen windows/order, timing, card text/time, renderer/filter/font/encoder configuration and format versions. Separate sequence direction/global revision from unchanged chapter content. | Unchanged reopen encodes zero chapters; editing one trip encodes only its changed chapter. Label/card/media/config changes invalidate their chapter; global-only sequence changes can reuse safe bytes. Missing source freshness proof causes conservative regeneration. |
+| P3 Progressive playback | Extend the provider-owned job/controller with ordered pending/rendering/verified/failed chapter states and a playlist contract. Resolve complete selection semantics, then prioritize first chapter materialization/encode and bounded next buffering. Publish only verified chapters after fresh eligibility checks; prefetch within measured memory/disk limits. Wire player chapter completion, previous/next and buffering/retry in the existing Replay screen. | Actual first-frame target plus full cold-completion target; no skipped pending/failed trips, lost ordering, chapter boundary glitches or new stalls. Navigating/back/backgrounding respects existing ownership and platform lifecycle. |
+| P4 Recovery and exact export | Add dirty/coalesced maintenance integration, restart checkpoints, cancellation settlement, orphan cleanup and bounded chapter LRU/leases using existing scheduler patterns. Replace the remaining whole-output 32MiB gate with measured storage admission per the accepted contract. Remux compatible exact selected chapters; render newly selected subsets separately. Verify compatible codec parameters/time bases, timestamps, exact selection/duration and output metadata before review/share. | Privacy hide/exclude/access-revoke races stop stale playback/export; eviction cannot delete active leased files. Low disk/OS expiration/restart recover honestly. Long exact export passes admission, decode and native share tests on both platforms. No automatic publication. |
+| P5 Acceptance | Execute software checks, fixed-manifest visual comparisons and physical Android/iOS owner tap-and-wait, repeat/restart, edit and selected-share flows. Update this delivery record with baseline/candidate table, quality decisions, outstanding incidents and platform evidence. | All targets and quality gates have evidence, or delivery remains explicitly partial with the precise missed target/blocker. Host tests cannot close physical playback or iOS gates. |
+
+P1 must improve actual cold completion before cache/progressive results are
+reported as the speedup. P2 precedes P3 so playback consumes the same validated
+chapter ownership model. P4 durability work can build on P2 while P3 playback
+is verified, but there is only one native render owner and one delivery record.
+Do not require completion of unrelated visual-AI selection experiments to start
+these fixed-manifest performance improvements.
+
+### Quality, regression and rollout gates
+
+Compare baseline/candidate frames at card boundaries, representative stills,
+video start/middle/end and chapter joins. Check text legibility, framing,
+orientation, color/HDR conversion, gradients, fine detail and compression
+artifacts through actual playback as well as extracted frames. Automated
+frame/perceptual differences are supporting evidence; unexplained differences
+need review and no arbitrary score alone establishes equivalent quality.
+Any existing baseline defect is identified separately; do not preserve a defect
+merely to match a frame. Reuse existing fixtures and assert invariant behavior.
+
+Required regressions: source-permission changes during resolution and cache
+reuse; same attachment in two trips; stale job completing after replacement;
+hidden/excluded media while playback/share is queued; label/font/order change;
+edited short video without freeze/loop; failed kept media; corrupt/missing cache;
+restart after partial render; cancellation during an active native call; storage
+exhaustion, LRU eviction with playback/export leases and OS task expiration.
+Verify native cancellation/settlement explicitly: an aborted JS signal alone
+does not prove that FFmpeg has stopped before another job starts.
+
+Use a versioned internal renderer strategy and cache namespace for incremental
+rollout. Keep a known working strategy available until physical comparison
+passes, retaining current privacy checks on either path. Fallback must use the
+same approved manifest/selection and never mask an encode failure as success.
+Retire incompatible derived cache entries safely; preserve originals and drafts.
+
+For implementation, run focused Replay renderer/controller/provider/screen tests
+(screen suite separately), then mobile Jest with an explicit quoted absolute
+repository-local cache, `npm --prefix apps/mobile run test:sqlite`, `typecheck`,
+`lint` and `doctor`; root `npm run check`; and `git diff --check`. Review actual
+package scripts first and record unrun/blocked checks. No native dependency
+change is assumed: research exact installed capabilities before changing native
+arguments or choosing a new integration. Obtain physical iOS evidence when an
+iOS environment is available; continue independent host/Android work meanwhile.
+
+Planning verification: root `npm run check` passes framework integrity, 20
+foundation tests and eval infrastructure smoke; `git diff --check` passes.
+Source/plan coherence was checked against the existing provider, controller,
+renderer, D0-D6 boundaries and package scripts. Application/native checks are
+inapplicable to this documentation-only change. All P0-P5 implementation and
+performance results remain pending.
+
 ## Active implementation plan: adaptive curated Replay (2026-10-23)
 
 Accepted experience: **tap Replay -> watch -> optional edit.** Each trip uses

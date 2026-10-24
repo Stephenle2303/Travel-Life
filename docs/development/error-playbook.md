@@ -1,5 +1,73 @@
 # Error and improvement playbook
 
+## Replay editor specification validator wording mismatch (2026-10-24)
+
+- **Evidence/cause:** The first document validator required the literal word
+  `unloaded` in the experience companion, although it specified the complete
+  current album versus loaded/visible cells and E06 used `unloaded` in the
+  acceptance companion. This was an over-specific validator, not missing scope.
+- **Correction/prevention:** Check complete-album semantics in the experience
+  and unloaded-page coverage in E06 separately. Re-run capability/companion,
+  acceptance/link/whitespace checks; do not rewrite correct product requirements
+  just to satisfy an arbitrary exact-word assertion. Corrected validation passes
+  all five capabilities, 15 companion paths, E01-E16, links and whitespace.
+- **Patch follow-up:** A diagram insertion used an inaccurate context line and
+  failed without changing files. Read the exact paragraph and apply the matching
+  hunk; keep optional diagram edits separate from validation/result recording.
+
+## Replay cached-artifact persistence mismatch (2026-10-24)
+
+- **Owner evidence:** After rendering and returning to Atlas, reopening Replay rendered again; closing and reopening the app also lost the prepared video. The prior change only reused the in-memory provider artifact.
+- **Cause/status:** The accepted requirement needs a verified persistent private artifact and manifest identity, not a React/provider-session cache. This is open; do not claim Replay reuse survives navigation or app restart until durable cache lookup, freshness gates, and device evidence pass.
+- **Prevention:** Distinguish an in-memory controller reuse test from navigation/restart acceptance. Exercise Atlas-to-Replay return and cold app restart before describing prepared Replay as persisted.
+- **Verification environment:** The first focused Jest run could not rename its sandbox Temp transform cache (`EPERM`) and therefore ran zero tests. Re-run it with the repository-local `--cacheDirectory .jest-cache-codex`; keep this cache ignored and report the sandbox failure separately from product test results.
+- **Control placement correction:** Owner device evidence found the mute overlay occupying the same bottom-right space as the native fullscreen control. The player now hides that native fullscreen button and renders a single bottom-right control row with speaker and fullscreen buttons. The speaker action remains player-only and does not prepare or replace a Replay. Device visual confirmation remains required.
+
+## Replay Edit recognition and navigation mismatch (2026-10-24)
+
+- **Owner evidence:** Editing media feels confusing; users cannot see the media
+  they are adding/removing/replacing. Source review of `replay-screen.tsx` confirms
+  an ungrouped eligible-media `.map()` with date/type buttons, per-item move/replace
+  controls and no thumbnails. This is an existing product mismatch, not evidence
+  that parsing alone is the measured performance bottleneck.
+- **Cause:** The earlier agent-selected editor exposed operations and metadata
+  instead of recognizable media in trip context. The design lacked an explicit
+  recognition/self-serve acceptance gate. Exact original authorship is unaudited.
+- **Correction/status:** Decision 0014, design-system principles and the M4.7
+  interaction contract now require retained preview, trip-based selectable grid,
+  video posters, compact secondary settings and truthful progress. Documentation
+  corrected; runtime UI defect remains open pending implementation and owner review.
+- **Prevention:** Every UI build/rebuild cites its approved reference and tests the
+  user's task. D4 must assert thumbnails/posters, actual-manifest checkmarks,
+  per-trip intent, bounded paging and return context; require actual Android/iOS
+  visual evidence. Passing button-action tests cannot establish usable editing.
+
+## Replay specification party-review tooling recurrence (2026-10-24)
+
+- **Evidence:** Party activation through `uv run` repeatedly encountered sandbox interpreter-cache access denial. The wrapper was stopped; no build, server or device was changed. A subsequent assumed `_bmad/_config/agent-manifest.csv` read also failed because that file is absent.
+- **Cause/correction:** The uv sandbox-cache restriction recurs from the 2026-10-23 entry; the missing manifest was an incorrect path assumption. Read the skill's documented fallback customization/configuration and installed persona sources instead. Resolver execution was not claimed successful; the review continued using session-mode personas.
+- **Prevention/status:** For read-only reviews under this boundary, use the documented fallback after the first cache denial rather than retrying unchanged uv commands. Discover manifest paths with `rg --files` before reading them. Review tooling bypassed; sandbox uv-cache restriction remains unresolved.
+
+## Replay soundtrack/order owner mismatch specification (2026-10-23)
+
+- **Owner evidence:** Rendered Replay is still inaudible and newest-first. Existing host tests and successful asset export did not establish audible native playback or real chapter order. External Music on/off re-rendering did not match the requested player speaker behavior.
+- **Status:** Open implementation defects, specified in `spec-replay-soundtrack-and-month-order`; no fix/device acceptance claimed. Month/year ordering supersedes the interval-comparability sorting policy for presentation. Track selection is now Happy Moments 1.4 and local replacement files are limited to 5 MB.
+- **Prevention:** Test the renderer's chapter/concat order and actual output audio, separate player mute from soundtrack selection, and include size/decode/cancel/cache cases. Spec tooling again encountered sandbox uv-cache denial; approved-host resolver/logging succeeded. This tooling failure did not affect app source or device.
+
+## Bundled Replay music verification (2026-10-23)
+
+- **Asset correction:** Initial OGG import failed Jest parsing and was absent from Metro's default asset extension list. Add OGG to the composed Expo Metro config and map OGG to a numeric test asset. Android export then included the 2.4 MB recording successfully.
+- **Host boundary:** Initial Hermes export could not write bytecode in sandbox Temp. The same export through the approved host boundary completed with 1,535 modules; no device or dev server was changed.
+- **Test correction:** The new music-off UI regression initially pressed the sharing selection before React committed that screen. Await the selection and enabled share action before pressing. Existing act-environment warnings remain a harness limitation.
+- **Editing/tooling:** Two multi-file patches failed because their final context did not match; reapply exact scoped hunks. A dependency-doc search used an absent Jest path; rely on discovered paths. No production code changed from failed patches.
+- **Review status:** Independent reviewer exhausted its usage limit before producing findings. No independent-review pass is claimed; owner listening/native AAC export acceptance remains pending. Keep review evidence distinct from host tests and bundle compilation.
+
+## Android incident causal and isolation audit (2026-10-23)
+
+- **Evidence:** See `android-startup-trace-2026-10-23.md`. Metro timestamps establish a conflict-marker compilation failure at 14:50:57, preceding the 15:15 Expo patch update. Its writer remains unknown. Recovery later installed a shared-package arm64 debug APK with default endpoint 8084, then removed its 8083/8084 servers/routes. Closing the activity did not restore app launchability.
+- **Correction:** Retract the proven-cache explanation for continued 8083 loading, the inference that a generic 8081 error required a native-port rebuild, and claims that source changes were exonerated by host compilation. The original post-conflict device failure remains unresolved. An idle wrapper was also insufficient reason to terminate the first build. The BMAD resolver initially hit sandbox uv-cache access warnings in this audit; the approved-host resolver succeeded.
+- **Prevention:** Port separation alone is not isolation. Assign ownership of checkout, cache, build outputs, package, and phone; preserve the previous binary/endpoint and a restoration path before reinstalling. Establish a complete manifest-to-bundle response before diagnosing the device lifecycle or rebuilding for a port. Retain transient-write authorship as unknown unless tool history proves it.
+
 ## GitHub Expo dependency validation failure (2026-10-23)
 
 - **Evidence/cause:** Owner reports GitHub CI failing with nine outdated packages. Online `expo install --check` reproduces SDK 57 patch drift in UI, Expo, asset, constants, linking, router, splash screen, dev client and jest-expo. This was a previously recorded unresolved check, not a new Replay regression. Publishing the feature did not close it.
@@ -18,6 +86,8 @@
 - **Evidence/cause:** The requested `git fetch origin --prune` could not create `.git/FETCH_HEAD` inside the filesystem sandbox and stopped before refreshing remote tracking data.
 - **Correction/status:** Rerun the same read-only remote comparison fetch through the approved host boundary, then compare the refreshed `origin/main` ref before any staging or commit.
 - **Prevention:** Git fetch updates repository metadata even when it does not change project files. On this workspace, use the approved host boundary after the known sandbox metadata-write denial rather than treating stale tracking refs as current GitHub evidence.
+
+- **Recurrence (2026-10-24):** The same sandbox denial occurred while preparing the owner-authorized Replay commit. The approved host-boundary fetch completed and confirmed local `main` and `origin/main` have no divergence before the new commit. Do not retry the sandboxed form for this workspace.
 
 - **Worktree inventory correction:** A status command relied on an external-worktree execution directory that the sandbox did not enter, so Git reported it was not in a worktree. Run each external inspection from the primary checkout with `git -C <exact-discovered-worktree-path>` and retain only those direct results for the comparison.
 
@@ -2923,3 +2993,61 @@ fixture's contextual contract and extend it narrowly instead of removing its typ
 - **Reconnection verification:** Enumeration now succeeds. Restored USB Metro routing and reopened only the app process on the verified consolidated modules; no storage reset or reinstall. Owner import/Atlas result is the remaining evidence.
 - **Diagnostic-format limitation:** `logcat -v monotonic` produced `dmesg: klogctl: Permission denied` on this device. Switched to supported epoch formatting without changing permissions; fixed-event reads returned no matching fresh events yet. Do not infer a completed operation, duration, or application defect from that empty capture. Prefer supported timestamp formats and preserve the owner's actual click-and-wait result separately.
 - **Final acceptance evidence:** Owner confirmed `Import and Atlas check both complete`; fresh epoch-format events now corroborate `METADATA_IMPORT COMPLETE`, `ATLAS_UPDATED`, and `ATLAS_REVEAL_RETRY COMPLETE` with matching parent correlations. This closes the connection/acceptance blocker for those Android flows. The observed 41.6 s import, 104.6 s import-through-Atlas and 65.7 s recheck are one-run baselines, not a speed improvement or proof of a particular bottleneck. Profile the post-rebuild read/publication interval before choosing another performance patch.
+
+## Replay legibility spec frontmatter patch mismatch (2026-10-23)
+
+- **Status:** Corrected before implementation.
+- **Symptom/evidence:** The first approved-spec frontmatter patch attempted to change the same `status` line twice, so `apply_patch` rejected it without modifying the file.
+- **Cause:** The patch was composed against an impossible duplicate context rather than the verified single current frontmatter block.
+- **Correction / verification:** Re-read the current spec, then applied separate baseline and status patches using exact context. The spec now records baseline `7d3f44257d8f8510f2aabb323388fab112f6150f` and status `in-progress`.
+- **Prevention:** For sequential frontmatter mutations, re-read the current block and make each replacement against one existing line; do not combine a transition with its own pre-transition context.
+
+## Replay legibility staged-diff sandbox boundary (2026-10-23)
+
+- **Status:** Environment rerun required.
+- **Symptom/evidence:** The required `git add -A` audit could not create `.git/index.lock` inside the filesystem sandbox, so staging did not occur and the attempted temporary cached diff was empty.
+- **Cause:** The sandbox does not permit the Git index lock write for this repository; no source, asset, or Git index change was made by the failed attempt.
+- **Correction / next action:** Rerun the same narrow staging and cached-diff audit through the approved host boundary, then inspect its uniquely named temporary diff before relying on it.
+- **Prevention:** Treat a pre-staging index-lock denial as an environment boundary, not source evidence; do not inspect or report an empty post-failure diff as an implementation audit.
+- **Implementation recurrence:** A combined source/test/contract patch used an imprecise line wrap for the chapter contract and was rejected atomically; no file changed. Re-read the exact contract lines and split the patch by file. A later font-header probe used an unsupported PowerShell `Get-Content -Encoding Byte` value after the asset hash had already verified the downloaded TTF. Use `Get-Content -AsByteStream` when a binary header is actually needed; do not retry a failed multi-file patch without exact context.
+- **Verification recurrence:** The first focused Replay Jest command again hit the known sandbox transform-cache `EPERM` before test collection. It was rerun with the repository-local `.jest-cache-codex` cache and passed. The first renderer assertion overfit a generated panel URI and failed despite the expected frame allocation; it now asserts the card and remaining-media frame values directly. Keep cache configuration explicit and test the command contract rather than nondeterministic output paths.
+
+## Replay Android launcher URL scheme mismatch (2026-10-23)
+
+- **Status:** Investigating the installed development-client route.
+- **Symptom/evidence:** After confirming the device was displaying the Expo development-launcher home screen and Metro was available through the existing USB reverse mapping, an attempted automated `VIEW` intent using `exp+com.anonymous.travellife://expo-development-client/?url=...` was rejected because no activity resolved that scheme.
+- **Cause:** The connection URL was inferred from the Android package identifier instead of first verifying the custom scheme registered by the installed build.
+- **Correction / next action:** Inspect the app manifest and installed package intent filters, then send at most one connection intent using the verified scheme. No storage reset, reinstall, app-data mutation, or application source mutation occurred.
+- **Prevention:** Before automating an Expo development-client handoff, derive the URL scheme from the built manifest or package metadata; do not guess it from the package name or repeat an unresolved intent.
+- **Investigation recurrence:** The first manifest search had an incorrectly escaped regular expression; its replacement also named two optional app-config files that do not exist. Both commands were read-only and made no application change. Use fixed-string `rg -e` patterns and enumerate candidate paths with `rg --files` before passing optional files explicitly.
+- **Host-diagnostic recurrence:** A combined listener/process inspection relied on `Get-NetTCPConnection` and `Get-CimInstance`; this host denies their CIM access, terminating the pipeline before later observations. A sandbox-local HTTP probe also could not reach the host-bound Metro listener, while Expo's own start command confirmed the port was occupied. **Correction:** read Metro's project log and use the device connection/bundle events as the authoritative local-server evidence. **Prevention:** do not infer a stopped Metro server from a sandbox-local loopback probe or protected CIM API; use a command that succeeds in this host context before attempting a replacement server.
+- **Temporary-log recurrence:** An isolated Metro process deliberately wrote its logs to the host Temp directory, but the next sandboxed read expanded `$env:TEMP` to the sandbox-specific directory and could not find the file. **Correction:** use the explicit host Temp path for files created by a host-launched process. **Prevention:** do not carry environment-derived temporary paths across host and sandbox command boundaries without resolving and preserving the absolute path.
+- **Temporary-log follow-up:** The assumed host Temp path was also absent because the server inherited the sandbox Temp value when it was launched. This second read was diagnostic-only. **Correction:** verify server readiness through its bound TCP port rather than attempting to infer the child process environment. **Prevention:** preserve a process's explicit redirected paths only when they are accessible in the same execution boundary; otherwise choose a boundary-independent readiness signal.
+- **Metro transport recurrence:** The first isolated Metro invocation used `--localhost`, which bound to IPv6 loopback. Android USB reverse requested IPv4 loopback, producing an incomplete response; a host-bound retry then correctly failed with the occupied-port diagnostic. **Correction / next action:** identify the exact port listener, replace only that temporary server, and start Metro with a host reachable through ADB reverse. **Prevention:** when pairing Expo with `adb reverse`, verify the listener address family before choosing `--localhost`; do not diagnose it as an application bundle failure.
+- **Port-owner inspection recurrence:** The `netstat` and `tasklist` combination did not reveal a listener in this restricted host context; `tasklist` returned a credential error and no process was stopped. **Correction:** use the accessible Node process list and launch timestamps to identify only the temporary server created in this task. **Prevention:** confirm that a Windows process-inspection command can return a result in the current permission boundary before using it to select a process target.
+- **Replay device-recovery network-boundary escalation (2026-10-23):** A proposed clean Expo server with the normal LAN listener was rejected before execution because it could expose the private development bundle beyond the existing USB-reverse scope. No listener was started and no source, dependency, device-data, or network configuration changed. **Status:** blocked pending explicit owner approval for this broader, temporary development-server exposure, or an alternative local-network recovery route. **Prevention:** do not try to circumvent a rejected network-scope safeguard through indirect binding, port forwarding, or a substitute launcher; explain the exposure and obtain a scoped decision first.
+- **Resolution:** The owner authorized a temporary LAN listener. An isolated Metro server on port 8083 was started only for this recovery, and Android USB reverse maps that port to the connected device. It is an active temporary diagnostic server and must not be treated as a product-networking configuration.
+- **Device HTTP-probe utility mismatch:** The device's `toybox` provides `nc` but not `wget`; the attempted diagnostic exited 127 without changing the app, route, or server. **Correction:** use the already verified `nc` utility for the narrow HTTP response probe. **Prevention:** check `toybox --help` or use a previously confirmed device utility before choosing a shell HTTP client.
+- **Device raw-HTTP probe formatting mistake:** The first `nc` request used a shell string whose escaped CRLF delimiters did not yield a usable HTTP response. It was read-only and did not alter the process, server, or application. **Correction:** inspect the app process's socket table instead of repeating a manually composed raw request. **Prevention:** when exact wire framing is not essential, prefer an OS-visible connection-state check over shell-escaped protocol construction.
+
+## Replay Android development-client React context remains unready (2026-10-23)
+
+- **Party audit correction:** The preceding recovery narrative repeatedly promoted hypotheses to confirmed root causes. Historical Metro errors do not establish the cause of the current screen; no evidence identifies who introduced the earlier conflict markers or who removed them. A context-not-ready soft exception identifies an incomplete lifecycle state, not a defective installed binary. Successful host bundle compilation does not prove the device received or executed that same bundle. The bare-URL `index.bundle` 404 is insufficient to condemn the standard Expo manifest launch route without inspecting its manifest response. Retract claims that the native binary is proven faulty, that Replay changes are exonerated, or that a reinstall is established as necessary. The exact current startup cause and authorship remain unknown. **Prevention:** label each observation, hypothesis, and causal test explicitly; correlate fresh device PID/time, manifest/bundle requests, and first JS execution on one stable endpoint before choosing another recovery action.
+
+- **Status:** Unresolved Android recovery blocker; the current debug client was not replaced.
+- **Symptom/evidence:** The original white/blank page corresponded first to an unresolved `atlas-reveal.tsx` conflict marker and an expired USB reverse route. After the conflict was removed externally, USB reverse was restored, and a clean isolated Metro server delivered `node_modules/expo-router/entry.js` successfully. A bare launcher URL was also shown to resolve to `index.bundle` (404); the verified Router entry URL returns and Metro reports a successful Android bundle. Yet the installed development client remains on its launcher shell and logs `ReactHost` context-not-ready soft exceptions without a JS error or native crash.
+- **Cause:** The application source and Metro bundle path are no longer failing; the installed native development client is not completing React-host initialization after bundle delivery. The precise native lifecycle cause is not yet established.
+- **Recovery attempt (2026-10-23):** The owner approved one normal `:app:installDebug` recovery install. Gradle entered the Expo native C/C++ compile, then ceased writing its daemon log while its wrapper remained idle for several minutes. It produced neither an APK nor a changed package `lastUpdateTime`; the wrapper was stopped without touching the installed app or device data. This does not establish whether a fresh binary would solve the React-host state.
+- **Verified build failure (2026-10-23):** A subsequent tracked `:app:installDebug --no-daemon --stacktrace` completed its native C/C++ steps but failed in `:app:packageDebug` with `java.lang.OutOfMemoryError: Java heap space`. The project currently packages four ABI variants into the debug APK. **Correction:** target the connected arm64 device with `-PreactNativeArchitectures=arm64-v8a` for this recovery install instead of increasing heap or repeating the all-ABI package. **Prevention:** preserve final Gradle output for a long-running build; do not infer a native-build failure from an idle wrapper or CMake warnings.
+- **Recovery verification errors (2026-10-23):** Two PowerShell screenshot writes used an unsupported encoding and invalid `cmd` quoting, and a diagnostic used reserved `$PID`; none changed the app or device data. The subsequent binary-safe capture succeeded. It initially appeared to show the app blank, but Android accessibility and policy dumps establish that the device is currently locked and displaying System UI keyguard, while Travel Life remains the resumed activity behind it. **Correction:** use a dedicated process variable and a binary stream for ADB screenshots; confirm foreground/keyguard state before interpreting a capture. **Prevention:** never infer an app-rendering result from a locked-device screenshot.
+- **Metro exposure safeguard recurrence (2026-10-23):** Starting a replacement Metro with `--host lan` was blocked before execution because it would expose the project bundle to the local network. **Correction:** use a localhost-only Metro endpoint with USB `adb reverse`, leaving the shared port 8081 untouched. **Prevention:** when a private development bundle needs a replacement endpoint, choose the narrowest listener first; do not treat a prior, time-bounded network authorization as blanket approval.
+- **Android development-client transport remains unresolved (2026-10-23):** The all-ABI debug package initially failed with heap exhaustion; an arm64-only debug install succeeded. The USB-local Metro path then exposed three distinct conditions: IPv4-to-IPv6 localhost mismatch produced EOF, Expo's manifest rewrote the bundle URL to port 8083, and a temporary USB mapping of device 8083 to the loopback bridge still left the launcher indefinitely loading without an Android bundle request reaching Metro. The temporary localhost Metro/proxy and only their 8083/8084 reverse routes were removed; shared 8081/8082 routes, app data, and concurrent work were not touched. **Status:** unresolved dev-client transport blocker; do not claim the app render is fixed. **Prevention:** verify a device-originated Android bundle request reaches Metro before changing native ports or source code. Separately, user-supplied screen photos show vertical colored display lines, a device-display hardware issue outside the app's control; do not attribute those lines to software.
+- **Next action / owner decision:** Do not repeat the install blindly. Diagnose the stalled native build from a bounded, reproducible Gradle invocation before requesting another binary replacement, then correlate one stable development endpoint with fresh device process, manifest/bundle requests, and first JS execution.
+- **Prevention:** Separate source-bundle evidence from native-client lifecycle evidence. Do not call a blank screen fixed merely because Metro compiles, TCP connects, or the launcher accepts a URL; require the actual React surface to appear.
+
+## Replay soundtrack selection test cache recurrence (2026-10-24)
+
+- **Status:** Environment rerun required.
+- **Symptom/evidence:** The first focused Replay selection Jest command failed before collecting tests because its default sandbox transform cache returned `EPERM` while renaming a cache map.
+- **Cause/correction:** The command omitted the repository-local Jest cache required by the established Windows sandbox workaround. No source or test result was produced by that failed run.
+- **Prevention:** Pass a writable repository-local `--cacheDirectory` for sandboxed Jest invocations, then assess source behavior only from the successful rerun.

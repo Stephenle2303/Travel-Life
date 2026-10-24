@@ -1,6 +1,7 @@
 import type { ReplayManifest, ReplayRenderSource } from './types';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
+import { Asset } from 'expo-asset';
 import { execute, getMediaInformation, pickEncoder } from 'munim-ffmpeg';
 
 export type ReplayArtifact = Readonly<{ uri: string; digest: string; manifest: ReplayManifest }>;
@@ -33,6 +34,26 @@ type ReplayEncoder = Readonly<{ name: string; pixelFormat: 'nv12' | 'yuv420p' }>
 /** Defense in depth for manifests restored or constructed outside the planner. */
 function nativeCardToken(value: string) {
   return value.normalize('NFKC').replace(/[^\p{L}\p{N} ,.\-&]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Private journey';
+}
+
+const replayFontAsset = require('../../assets/fonts/NotoSans-Regular.ttf');
+// Metro requires a literal asset reference to bundle the recording offline.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const replayMusicAsset = require('../../assets/audio/meadow-thoughts.ogg');
+
+/** Resolves only the bundled, vetted font to an FFmpeg filter-safe local path. */
+async function resolveReplayFontFile(): Promise<string> {
+  try {
+    const asset = Asset.fromModule(replayFontAsset);
+    await asset.downloadAsync();
+    const localUri = asset.localUri;
+    if (!localUri || !localUri.startsWith('file:///')) throw new ReplayPreparationError('REPLAY_UNAVAILABLE');
+    const localPath = decodeURI(localUri.slice('file://'.length));
+    if (!/^\/[A-Za-z0-9._/-]+\.ttf$/.test(localPath)) throw new ReplayPreparationError('REPLAY_UNAVAILABLE');
+    return localPath.replace(/:/g, '\\:');
+  } catch (error) {
+    throw error instanceof ReplayPreparationError ? error : new ReplayPreparationError('REPLAY_UNAVAILABLE');
+  }
 }
 
 /**
@@ -107,12 +128,15 @@ export const munimReplayRenderer: ReplayRenderer = {
         const cardFrames = Math.min(chapter.card?.frames ?? 0, chapter.frames);
         const card = cardFrames ? [{ groupKey: chapter.groupKey, items: [], frames: cardFrames, card: chapter.card }] : [];
         const contentFrames = chapter.frames - cardFrames;
-        if (!items.length) return card.length ? card : [{ groupKey: chapter.groupKey, items, frames: chapter.frames }];
+        if (!items.length) return card.length
+          ? contentFrames > 0 ? [...card, { groupKey: chapter.groupKey, items: [], frames: contentFrames }] : card
+          : [{ groupKey: chapter.groupKey, items, frames: chapter.frames }];
         const baseFrames = Math.floor(contentFrames / items.length);
         const remainder = contentFrames % items.length;
         return [...card, ...items.map((item, index) => ({ groupKey: chapter.groupKey, items: [item], frames: baseFrames + (index < remainder ? 1 : 0) }))];
       });
       if (!panels.length) throw new ReplayPreparationError('REPLAY_SCOPE');
+      const fontFile = panels.some((panel) => panel.card) ? await resolveReplayFontFile() : null;
       const panelUris: string[] = [];
       const actualChapterFrames = new Map<string, number>();
       const totalWork = Math.max(1, sources.length + panels.length + 1);
@@ -134,7 +158,7 @@ export const munimReplayRenderer: ReplayRenderer = {
         if (!panel.items.length) {
           // Tokens are normalized before this boundary; raw labels never enter
           // a command, log, filename, or diagnostic payload.
-          const drawCard = panel.card ? `drawtext=text='${nativeCardToken(panel.card.labelToken)}':fontcolor=0xF3EEDD:fontsize=42:x=(w-text_w)/2:y=(h-text_h)/2-30,drawtext=text='${nativeCardToken(panel.card.timeToken)}':fontcolor=0xB4C6B5:fontsize=24:x=(w-text_w)/2:y=(h-text_h)/2+36` : 'null';
+          const drawCard = panel.card && fontFile ? `drawtext=fontfile='${fontFile}':text='${nativeCardToken(panel.card.labelToken)}':fontcolor=0xF3EEDD:fontsize=42:x=(w-text_w)/2:y=(h-text_h)/2-30,drawtext=fontfile='${fontFile}':text='${nativeCardToken(panel.card.timeToken)}':fontcolor=0xB4C6B5:fontsize=24:x=(w-text_w)/2:y=(h-text_h)/2+36` : 'null';
           const result = await execute(['-y', '-f', 'lavfi', '-i', 'color=c=#102C26:s=1280x720:r=24', '-vf', drawCard, '-frames:v', String(frames), '-c:v', encoder.name, '-pix_fmt', encoder.pixelFormat, panelUri]);
           if (!result.success) throw new ReplayPreparationError('REPLAY_ENCODE');
           actualChapterFrames.set(groupKey, (actualChapterFrames.get(groupKey) ?? 0) + frames);
@@ -158,9 +182,25 @@ export const munimReplayRenderer: ReplayRenderer = {
       const listUri = `${staging}concat.txt`;
       onProgress?.({ message: 'Joining and checking your private Replay.', completed: totalWork - 1, total: totalWork });
       await FileSystem.writeAsStringAsync(listUri, panelUris.map((uri) => `file '${uri.replace(/'/g, "'\\''")}'`).join('\n'));
-      const joined = await execute(['-y', '-f', 'concat', '-safe', '0', '-i', listUri, '-c', 'copy', '-movflags', '+faststart', outputUri]);
       const actualDurationSeconds = [...actualChapterFrames.values()].reduce((total, frames) => total + frames, 0) / 24;
-      if (!joined.success || cancelled() || !(await verifyReplayOutput(outputUri, actualDurationSeconds))) throw new ReplayPreparationError(cancelled() ? 'REPLAY_STALE' : 'REPLAY_OUTPUT');
+      const joinArgs = ['-y', '-f', 'concat', '-safe', '0', '-i', listUri];
+      if (manifest.music) {
+        const bundled = manifest.music.kind === 'bundled';
+        const track = bundled ? Asset.fromModule(replayMusicAsset) : null;
+        if (track) await track.downloadAsync();
+        const trackUri = bundled ? track?.localUri : manifest.music.localUri;
+        const trackInfo = trackUri ? await FileSystem.getInfoAsync(trackUri) : null;
+        if (!trackUri?.startsWith('file:///') || !trackInfo?.exists || !trackInfo.size) throw new ReplayPreparationError('REPLAY_UNAVAILABLE');
+        const duration = actualDurationSeconds.toFixed(6);
+        const fade = Math.min(1, actualDurationSeconds / 2).toFixed(6);
+        const fadeOut = Math.max(0, actualDurationSeconds - Number(fade)).toFixed(6);
+        joinArgs.push('-stream_loop', '-1', '-i', trackUri, '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '128k', '-af', `volume=0.25,afade=t=in:st=0:d=${fade},afade=t=out:st=${fadeOut}:d=${fade}`, '-t', duration);
+      } else {
+        joinArgs.push('-map', '0:v:0', '-c:v', 'copy', '-an');
+      }
+      if (cancelled()) throw new ReplayPreparationError('REPLAY_STALE');
+      const joined = await execute([...joinArgs, '-movflags', '+faststart', outputUri]);
+      if (!joined.success || cancelled() || !(await verifyReplayOutput(outputUri, actualDurationSeconds, Boolean(manifest.music)))) throw new ReplayPreparationError(cancelled() ? 'REPLAY_STALE' : 'REPLAY_OUTPUT');
       const info = await FileSystem.getInfoAsync(outputUri);
       if (!info.exists || (info.size ?? 0) > 32 * 1024 * 1024) throw new ReplayPreparationError('REPLAY_OUTPUT');
       await FileSystem.deleteAsync(staging, { idempotent: true });
@@ -171,14 +211,16 @@ export const munimReplayRenderer: ReplayRenderer = {
   async dispose(artifact) { await FileSystem.deleteAsync(artifact.uri, { idempotent: true }); },
 };
 
-export async function verifyReplayOutput(uri: string, expectedDuration?: number): Promise<boolean> {
+export async function verifyReplayOutput(uri: string, expectedDuration?: number, music = false): Promise<boolean> {
   try {
     const media = await getMediaInformation(uri);
     const video = media.streams?.filter((stream) => stream.codec_type === 'video') ?? [];
-    const disallowed = media.streams?.some((stream) => ['audio', 'data', 'subtitle', 'attachment'].includes(stream.codec_type ?? ''));
+    const audio = media.streams?.filter((stream) => stream.codec_type === 'audio') ?? [];
+    const disallowed = media.streams?.some((stream) => !['video', 'audio'].includes(stream.codec_type ?? ''));
+    const validAudio = music ? audio.length === 1 && audio[0]?.codec_name === 'aac' : audio.length === 0;
     const duration = Number(media.format?.duration ?? 0);
     return video.length === 1 && video[0]?.codec_name === 'h264' && video[0]?.width === 1280 && video[0]?.height === 720
-      && video[0]?.pix_fmt === 'yuv420p' && !disallowed && Number.isFinite(duration) && duration > 0
+      && video[0]?.pix_fmt === 'yuv420p' && validAudio && !disallowed && Number.isFinite(duration) && duration > 0
       && (expectedDuration === undefined || Math.abs(duration - expectedDuration) <= 1 / 24 + 0.01);
   } catch { return false; }
 }

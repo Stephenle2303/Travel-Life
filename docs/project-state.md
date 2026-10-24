@@ -1,5 +1,140 @@
 # Project state
 
+## Detailed Replay Edit specification (2026-10-24)
+
+The existing M4.7 SPEC retains CAP-1..5 and now registers `editor-experience.md`
+and `editor-delivery-and-acceptance.md`: full screen composition, actual-output
+checkmarks, per-trip automatic/explicit selection, complete-album bulk operations,
+working/committed save and Back semantics, truthful progress and recovery.
+D4.1-D4.5 and E01-E16 remain inside the sole M4.7 delivery record. Existing
+soundtrack/month-year direction is adopted to remove stale silent/day-order
+defaults from the kernel. Source boundaries and new API/schema gaps are explicit;
+implementation, latency/memory measurements and Android/iOS owner acceptance are
+pending. This task changes specifications only and preserves concurrent cache work.
+Spec coherence/preservation, five capability IDs, 15 companion links, E01-E16 and
+Markdown checks pass; root `npm run check` passes framework integrity, 20 tests
+and eval smoke. Runtime/editor acceptance remains unverified.
+
+## Replay durable prepared-artifact correction (2026-10-24)
+
+Owner device evidence showed that returning from Atlas or restarting the app
+discarded a rendered Replay and started rendering again. The former cache was
+only an in-memory provider map while renderer output lived in the OS cache.
+Replay now copies an inspected automatic owner preview into private app document
+storage and stores only an opaque file key plus manifest identity, duration and
+count in the local Replay draft. On entry it re-reads the current policy-visible
+Journey List and media availability, recreates the expected identity, and uses
+the saved MP4 only when all gates match and the file exists. A manual Re-render
+invalidates the renderer's in-memory result and replaces the durable record;
+selected sharing artifacts remain temporary. Native back/swipe from Edit or
+sharing returns to the preview instead of popping to Atlas. Focused Replay UI
+and controller tests pass with a repository-local Jest cache after the sandbox
+Temp cache failed before running tests; TypeScript, renderer/selection tests,
+86 SQLite contract tests, and root `npm run check` pass. Device confirmation
+of Atlas return and cold-restart reuse is still required.
+
+The Replay preview controls now use one bottom-right row: a speaker icon beside
+an explicit fullscreen icon. The conflicting native fullscreen button is hidden
+in embedded playback, while fullscreen itself uses Expo Video's supported view
+API. Mobile lint, TypeScript and focused Replay-screen tests pass; owner visual
+confirmation on the device remains required.
+
+## Lean UX and Replay Edit owner amendment (2026-10-24)
+
+Decision 0014 and `docs/product/design-system.md` now require reference-led,
+user-centered, lean self-serve UI for every build/rebuild: concise contextual copy,
+few steps, recognizable visual choices, retained navigation and truthful updating
+progress bars/percentages. The Replay interaction contract replaces the flat
+per-media button list with preview context, a trip strip and a selectable media
+grid based on Journey List's See photos. Selection means actual composition
+inclusion; preparation runs automatically after Done. Secondary music/order
+controls stay compact. The existing M4.7 record remains the sole delivery plan.
+Source inspection confirms the current editor lacks thumbnails and trip grouping;
+the gallery reference also needs video posters for this use. Design/contracts only:
+runtime rebuild and physical Android/iOS visual/usability acceptance remain open.
+
+## Replay soundtrack and month-order specification (2026-10-23)
+
+The owner selected Happy Moments 1.4, requested in-player speaker mute, local
+custom soundtrack selection in Edit Replay with a 5 MB limit, and oldest-first
+trip presentation using start month/year rather than days. The complete contract
+is `_bmad-output/specs/spec-replay-soundtrack-and-month-order/SPEC.md` plus its
+behavior companion. This supersedes the earlier bundled-music delivery intent;
+current implementation still needs these corrections. Spec only: no app/runtime
+changes or device validation were performed.
+
+## Replay bundled music (2026-10-23)
+
+The owner replaced silent-only Replay with bundled instrumental music. Replay
+now defaults to the CC0 Meadow Thoughts harp recording, offers music on/off,
+and carries that choice into selected exports and the artifact cache identity.
+FFmpeg adds a quiet AAC track with fades at final mux; personal source audio is
+excluded. No new native dependencies, device install, Metro launch, or port changes.
+Android offline export includes the OGG asset; typecheck and root check pass.
+Independent review was unavailable due to reviewer quota. Native listening and
+export acceptance remain pending; the owner already confirmed the earlier app
+startup recovered using normal Windows PowerShell Expo build/device selection.
+
+## Android recovery isolation audit (2026-10-23)
+
+`docs/development/android-startup-trace-2026-10-23.md` supersedes earlier causal
+claims below. Metro records a transient Atlas conflict-marker failure at 14:50:57,
+before the 15:15 Expo patch update. The conflict writer remains unknown. Recovery
+subsequently installed an arm64 debug binary whose default endpoint is 8084,
+then removed that endpoint's temporary server/routes without restoring the prior
+binary. Port separation did not isolate the shared checkout, build outputs, or
+device package. App launchability remains unresolved; closing the launcher was
+not a recovery. No runtime mutation was performed in this audit.
+
+## Android startup incident evidence correction (2026-10-23)
+
+Owner still reports an app that cannot open. Recovery observed a missing USB
+reverse rule and historical Metro compilation failures; current source has no
+conflict markers and the isolated host Android bundle and mobile typecheck pass.
+The device remains without a verified Travel Life React surface. Context-not-ready
+native soft exceptions do not establish a faulty binary or rule out application
+startup code. Earlier root-cause and reinstall-necessity claims are retracted in
+the error playbook. Exact cause and authorship of the historical conflict remain
+unknown. Next diagnosis must correlate one stable endpoint, fresh device process,
+manifest/bundle requests, and first JS execution before choosing a repair.
+One owner-approved `:app:installDebug` attempt entered the native C/C++ build but
+stopped producing progress and never changed the device package; its wrapper was
+stopped without altering the installed app or device data. Treat native-build
+diagnosis as a separate bounded blocker rather than repeating installs.
+The tracked retry established the build-side cause: packaging all four Android
+ABIs exhausts the configured Gradle heap. Recovery now targets only the
+connected arm64 device, avoiding a global heap change and the unneeded ABIs.
+The arm64 install succeeded, but a localhost-only Metro/USB-reverse recovery
+still never delivered an Android bundle to the dev client; its temporary server,
+proxy, and 8083/8084 reverse routes were removed. Shared 8081/8082 routes were
+left intact. Android device rendering remains unverified; a user-reported
+vertical-line display defect is hardware scope, not an app conclusion.
+
+## Replay rendering performance plan (2026-10-23)
+
+The M4.7 delivery record now includes a source-grounded P0-P5 performance plan:
+measure the current cold path, optimize its dominant cost, add safe independent
+chapter reuse, progressively play verified chapters, then complete recovery and
+exact long export acceptance. Provisional targets are 50% lower median cold
+completion and multi-trip first-playback latency on matched device fixtures;
+unchanged reopen must encode zero chapters and one-trip edits regenerate only
+the affected chapter. Fixed-manifest visual comparison, continuous playback,
+privacy/access revalidation and both-platform owner evidence gate delivery.
+No speedup is measured yet. Existing renderer/card edits remain untouched;
+next work is P0 baseline capture against their reconciled source snapshot.
+
+## Replay chapter-card legibility host implementation (2026-10-23)
+
+Replay chapter cards now reserve 48 frames (two seconds at 24fps) from their
+existing sparse and normal chapter budgets, including exact export manifests;
+they do not add runtime or pad short videos. Rendering resolves the bundled
+SIL Open Font License 1.1 Noto Sans Regular asset to a local, filter-safe FFmpeg `fontfile`
+path for both title and time overlays, while retaining the closed Unicode-aware
+token sanitizer. Focused selection (13 tests) and renderer (6 tests) suites,
+TypeScript, and lint pass. Android and iOS owner-operated 720p legibility
+validation, including a Vietnamese-labelled chapter, remains pending and is not
+inferred from host tests.
+
 ## Expo SDK compatibility CI repair (2026-10-23)
 
 The owner-reported GitHub failure reproduced online as nine Expo SDK 57 patch

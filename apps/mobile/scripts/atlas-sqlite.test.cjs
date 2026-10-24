@@ -175,6 +175,8 @@ test('Replay manifest input follows the completed policy-visible Journey List an
   assert.ok(before.groups.every((group) => typeof group.key === 'string' && !group.key.includes('replay-journey')));
   const orderedDraft = [before.memories[1].key, before.memories[0].key];
   await assert.rejects(repository.saveReplayDraft(orderedDraft, before.snapshotToken + 1, before.privacyRevision), /Replay draft is stale/);
+  database.sqlite.exec("INSERT INTO replay_draft (record_id, revision, committed_overrides_json, updated_at_millis) VALUES (1, 1, '{\"direction\":\"newest-first\"}', 0)");
+  assert.equal((await repository.loadReplayManifestInput()).direction, 'oldest-first');
   await repository.saveReplayDraft(orderedDraft, before.snapshotToken, before.privacyRevision, 'newest-first');
   const afterDraft = await repository.loadReplayManifestInput();
   assert.equal(afterDraft.memories.filter((memory) => memory.intent === 'keep').length, 2);

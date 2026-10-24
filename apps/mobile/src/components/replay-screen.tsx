@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { useRouter } from 'expo-router';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system/legacy';
+import { getMediaInformation } from 'munim-ffmpeg';
+import { useNavigation, useRouter } from 'expo-router';
 import { ActionButton, Body, Eyebrow, InsetPanel, palette, Screen, Title } from '@/components/ui';
 import { openRoute, appRoutes } from '@/navigation/app-contract';
 import { usePhotoAccess } from '@/photo-access/provider';
 import { planPrivateReplay } from '@/replay/selection';
-import { type ReplayDirection, type ReplayManifestInput } from '@/replay/types';
+import { type ReplayDirection, type ReplayManifestInput, type ReplaySoundtrack } from '@/replay/types';
 import { createDiagnosticCorrelationId, recordAppDiagnostic } from '@/diagnostics/app-diagnostics';
 import { ReplayPreparationError, replayFailureStage, type ReplayFailureStage } from '@/replay/renderer';
 
@@ -22,14 +25,30 @@ const failureCopy: Record<ReplayFailureStage, string> = {
 };
 
 function ReplayPreview({ uri }: { uri: string }) {
-  const player = useVideoPlayer(uri, (video) => { video.muted = true; video.staysActiveInBackground = false; video.play(); });
-  return <VideoView player={player} style={styles.preview} nativeControls contentFit="contain" />;
+  const player = useVideoPlayer(uri, (video) => { video.muted = false; video.staysActiveInBackground = false; video.play(); });
+  const videoView = useRef<VideoView>(null);
+  const [muted, setMuted] = useState(false);
+  const toggleMuted = () => {
+    // This is player-only listening state: no preparation, cache invalidation,
+    // artifact replacement, or seek is involved.
+    // eslint-disable-next-line react-hooks/immutability -- expo-video exposes mutable player controls by design.
+    player.muted = !muted;
+    setMuted(!muted);
+  };
+  return <View style={styles.previewShell}>
+    <VideoView ref={videoView} player={player} style={styles.preview} nativeControls fullscreenOptions={{ enable: false }} contentFit="contain" />
+    <View style={styles.playerControls}>
+      <Pressable accessibilityRole="button" accessibilityLabel={muted ? 'Unmute Replay audio' : 'Mute Replay audio'} accessibilityState={{ selected: muted }} onPress={toggleMuted} style={styles.playerControl}><Text style={styles.playerIcon}>{muted ? '🔇' : '🔊'}</Text></Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel="Open Replay fullscreen" onPress={() => { void videoView.current?.enterFullscreen(); }} style={styles.playerControl}><Text style={styles.playerIcon}>⛶</Text></Pressable>
+    </View>
+  </View>;
 }
 
 /** Private UI state only; it never receives native source references or creates an export. */
 export function ReplayScreen() {
   const router = useRouter();
-  const { loadReplayManifestInput, saveReplayDraft, resetReplayDraft, preparePrivateReplay, exportPrivateReplay, discardPrivateReplay } = usePhotoAccess();
+  const navigation = useNavigation();
+  const { loadReplayManifestInput, loadPreparedReplay, saveReplayDraft, resetReplayDraft, preparePrivateReplay, exportPrivateReplay, discardPrivateReplay } = usePhotoAccess();
   const [input, setInput] = useState<ReplayManifestInput | null>(null);
   const [preview, setPreview] = useState<{ uri: string; renderedMemoryCount: number; durationSeconds: number } | null>(null);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
@@ -43,21 +62,42 @@ export function ReplayScreen() {
   const [replacementTarget, setReplacementTarget] = useState<string | null>(null);
   const [shareMemoryKeys, setShareMemoryKeys] = useState<readonly string[]>([]);
   const [sharing, setSharing] = useState(false);
+  const [music, setMusic] = useState<ReplaySoundtrack>({ kind: 'bundled', revision: 'happy-moments-1.4' });
+  const [musicError, setMusicError] = useState<string | null>(null);
   const started = useRef(false);
   const exportInProgress = useRef(false);
   const timelineDirectionRef = useRef<ReplayDirection>('oldest-first');
   const setReplayTimelineDirection = (direction: ReplayDirection) => { timelineDirectionRef.current = direction; setTimelineDirection(direction); };
-  const prepare = async () => {
+  const chooseMusic = async () => {
+    setMusicError(null);
+    const result = await DocumentPicker.getDocumentAsync({ type: ['audio/mpeg', 'audio/mp4', 'audio/aac', 'audio/wav', 'audio/ogg'], copyToCacheDirectory: true, multiple: false });
+    if (result.canceled) return;
+    const source = result.assets[0];
+    const info = source && await FileSystem.getInfoAsync(source.uri);
+    if (!source || !info?.exists || !info.size || info.size > 5_000_000 || !FileSystem.documentDirectory) { setMusicError('That audio file could not be used. Choose a readable audio file up to 5 MB.'); return; }
+    try {
+      const media = await getMediaInformation(source.uri);
+      if (!(Number(media.format?.duration) > 0)) throw new Error();
+      const revision = `custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+      const localUri = `${FileSystem.documentDirectory}replay-${revision}.audio`;
+      await FileSystem.copyAsync({ from: source.uri, to: localUri });
+      const copied = await FileSystem.getInfoAsync(localUri);
+      if (!copied.exists || !copied.size || copied.size > 5_000_000) throw new Error();
+      setMusic({ kind: 'custom', revision, localUri });
+    } catch { setMusicError('That audio file could not be used. Choose a readable audio file up to 5 MB.'); }
+  };
+  const prepare = async (soundtrack = music) => {
     recordAppDiagnostic({ operation: 'REPLAY_RENDER', reasonCode: 'START', stage: null, retryable: false, durableOutcome: 'unchanged', correlationId: createDiagnosticCorrelationId() });
     setFailure(null); setPreparationPhase('resolving'); setPreparationDetail('Checking the visible trips and locally available memories you can use right now.'); setPreparationProgress(null); setState('checking');
     try {
       const next = await loadReplayManifestInput();
       const direction = next.direction ?? 'oldest-first';
       const plan = planPrivateReplay(next.groups, next.memories, undefined, direction);
-      setInput(next); setReplayTimelineDirection(direction); setEditedMemoryKeys(plan.memories.map((memory) => memory.key));
+      setInput(next); setMusic(next.soundtrack ?? { kind: 'bundled', revision: 'happy-moments-1.4' }); setReplayTimelineDirection(direction); setEditedMemoryKeys(plan.memories.map((memory) => memory.key));
       if (!plan.groups.length) { setState('sparse'); return; }
       setPreparationPhase('rendering'); setPreparationDetail('Starting the local video renderer.');
-      const prepared = await preparePrivateReplay(undefined, (progress) => { setPreparationDetail(progress.message); setPreparationProgress({ completed: progress.completed, total: progress.total }); });
+      const prepared = await preparePrivateReplay(undefined, (progress) => { setPreparationDetail(progress.message); setPreparationProgress({ completed: progress.completed, total: progress.total }); }, soundtrack);
+      if (preview && preview.uri !== prepared.uri) await discardPrivateReplay(preview.uri);
       setPreview(prepared); setState('preview-ready');
     } catch (error) {
       const stage = replayFailureStage(error);
@@ -66,7 +106,8 @@ export function ReplayScreen() {
     }
   };
   const cancel = () => {
-    if (preview) void discardPrivateReplay(preview.uri);
+    // Closing the view does not discard a verified automatic Replay. It is
+    // deliberately available when the owner returns from Atlas or restarts.
     setPreview(null); setExportMessage(null); setShareMemoryKeys([]); setReplacementTarget(null); setState('idle'); recordAppDiagnostic({ operation: 'REPLAY_RENDER', reasonCode: 'SKIPPED', stage: null, retryable: false, durableOutcome: 'skipped', correlationId: createDiagnosticCorrelationId() });
   };
   const exportReplay = async () => {
@@ -79,7 +120,7 @@ export function ReplayScreen() {
     try {
       if (state === 'share-review') {
         if (!shareMemoryKeys.length) return;
-        selectedArtifact = await preparePrivateReplay(shareMemoryKeys);
+        selectedArtifact = await preparePrivateReplay(shareMemoryKeys, undefined, music);
       }
       const result = await exportPrivateReplay(selectedArtifact?.uri ?? preview.uri);
       setExportMessage(result === 'closed' ? 'Share sheet closed. Travel Life cannot confirm whether a recipient saved or received a copy.' : 'Sharing is unavailable on this device. Your private preview is still here.');
@@ -117,7 +158,7 @@ export function ReplayScreen() {
     setFailure(null); setPreparationPhase('resolving'); setState('checking');
     try {
       if (!input) throw new ReplayPreparationError('REPLAY_STALE');
-      await saveReplayDraft(editedMemoryKeys, input.snapshotToken, input.privacyRevision, timelineDirectionRef.current);
+      await saveReplayDraft(editedMemoryKeys, input.snapshotToken, input.privacyRevision, timelineDirectionRef.current, music);
       if (preview) await discardPrivateReplay(preview.uri);
       setPreview(null);
       await prepare();
@@ -142,8 +183,34 @@ export function ReplayScreen() {
   useEffect(() => {
     if (started.current) return;
     started.current = true;
-    void prepare();
-  });
+    let active = true;
+    void loadPreparedReplay().then((cached) => {
+      if (!active) return;
+      if (cached) { setPreview(cached); setState('preview-ready'); return; }
+      void prepare();
+    }).catch(() => { if (active) void prepare(); });
+    return () => { active = false; };
+  // The screen entry transaction intentionally runs once; adding `prepare`
+  // would restart playback after every local state update.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadPreparedReplay]);
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (state === 'editing' || state === 'share-review') { setReplacementTarget(null); setMusicError(null); setState('preview-ready'); return true; }
+      return false;
+    });
+    return () => subscription.remove();
+  }, [state]);
+  useEffect(() => {
+    // Android gesture/back and iOS interactive swipe both dispatch
+    // `beforeRemove`. Keep the owner in the Replay preview when an optional
+    // subflow is open instead of popping the whole Replay route to Atlas.
+    return navigation.addListener('beforeRemove', (event) => {
+      if (state !== 'editing' && state !== 'share-review') return;
+      event.preventDefault();
+      setReplacementTarget(null); setMusicError(null); setState('preview-ready');
+    });
+  }, [navigation, state]);
   return <Screen>
     <Eyebrow>Private Replay</Eyebrow><Title>{state === 'sparse' ? 'Replay needs available memories.' : state === 'checking' ? 'Getting your Replay ready.' : 'Your private Replay.'}</Title>
     {state === 'idle' && <InsetPanel><Body>Replay uses your current private Journey List and available attached memories. Journey order is presentation only: it does not claim a route, presence, or travel duration.</Body></InsetPanel>}
@@ -164,7 +231,7 @@ export function ReplayScreen() {
       <Body>Nothing is shared while Replay is getting ready.</Body>
     </InsetPanel>}
     {state === 'preview-ready' && preview && <InsetPanel><Title>Playing your private Replay.</Title><ReplayPreview uri={preview.uri} /><Body>Built locally from {preview.renderedMemoryCount} selected memories. It stays private while you watch.</Body>{exportMessage && <Body>{exportMessage}</Body>}</InsetPanel>}
-    {state === 'editing' && input && <InsetPanel><Title>Edit this Replay</Title><Body>Choose, replace, and order the available moments to use. These choices change only your private Replay, never your journey evidence.</Body><Body>Timeline order changes chapter presentation only. It does not claim a route, exact dates, or travel duration.</Body><ActionButton accessibilityLabel="Use oldest-first Replay timeline" onPress={() => setReplayTimelineDirection('oldest-first')} disabled={timelineDirection === 'oldest-first'} variant="secondary">Oldest first</ActionButton><ActionButton accessibilityLabel="Use newest-first Replay timeline" onPress={() => setReplayTimelineDirection('newest-first')} disabled={timelineDirection === 'newest-first'} variant="secondary">Newest first</ActionButton>{replacementTarget && <Body>Choose an available moment to replace the selected one.</Body>}{input.memories.filter((memory) => memory.available && memory.eligible).map((memory, index) => {
+    {state === 'editing' && input && <InsetPanel><Title>Edit this Replay</Title><Body>Choose, replace, and order the available moments to use. These choices change only your private Replay, never your journey evidence.</Body><Body>Background music: {music.kind === 'bundled' ? 'Happy Moments 1.4' : 'Custom audio'}. Choose a readable audio file up to 5 MB; it stays on this device.</Body>{musicError && <Body>{musicError}</Body>}<ActionButton accessibilityLabel="Choose Replay audio file" onPress={() => void chooseMusic()} variant="secondary">Choose audio file</ActionButton><ActionButton accessibilityLabel="Use default Replay music" onPress={() => { setMusic({ kind: 'bundled', revision: 'happy-moments-1.4' }); setMusicError(null); }} variant="secondary">Use default music</ActionButton><Body>Timeline order changes chapter presentation only. It does not claim a route, exact dates, or travel duration.</Body><ActionButton accessibilityLabel="Use oldest-first Replay timeline" onPress={() => setReplayTimelineDirection('oldest-first')} disabled={timelineDirection === 'oldest-first'} variant="secondary">Oldest first</ActionButton><ActionButton accessibilityLabel="Use newest-first Replay timeline" onPress={() => setReplayTimelineDirection('newest-first')} disabled={timelineDirection === 'newest-first'} variant="secondary">Newest first</ActionButton>{replacementTarget && <Body>Choose an available moment to replace the selected one.</Body>}{input.memories.filter((memory) => memory.available && memory.eligible).map((memory, index) => {
       const included = editedMemoryKeys.includes(memory.key);
       const selectedIndex = editedMemoryKeys.indexOf(memory.key);
       const date = memory.capture?.startDay ?? 'Date unknown';
@@ -172,7 +239,9 @@ export function ReplayScreen() {
     })}</InsetPanel>}
     {state === 'share-review' && preview && input && <InsetPanel><Title>Choose moments to share</Title><Body>Sharing may create a copy outside Travel Life. Select the exact moments to render before opening the system share sheet.</Body>{sharing && <Body>Preparing your selected private Replay.</Body>}<ActionButton accessibilityLabel="Select all Replay moments for sharing" disabled={sharing} onPress={toggleAllShareMemories} variant="secondary">{shareMemoryKeys.length === input.memories.filter((memory) => memory.available && memory.eligible).length ? 'Clear all moments' : 'Select all moments'}</ActionButton>{input.memories.filter((memory) => memory.available && memory.eligible).map((memory, index) => { const selected = shareMemoryKeys.includes(memory.key); return <ActionButton key={memory.key} accessibilityLabel={`${selected ? 'Remove' : 'Select'} ${memory.kind} ${index + 1} for sharing`} disabled={sharing} onPress={() => setShareMemoryKeys((current) => selected ? current.filter((key) => key !== memory.key) : [...current, memory.key])} variant="secondary">{selected ? 'Selected' : 'Select'} {memory.kind} {index + 1}</ActionButton>; })}{exportMessage && <Body>{exportMessage}</Body>}</InsetPanel>}
     {state === 'failed' && <InsetPanel><Title>Replay could not be prepared.</Title><Body>{failure ? failureCopy[failure] : failureCopy.REPLAY_UNAVAILABLE}</Body><Body>Your current private Journey List and attached media were kept unchanged.</Body></InsetPanel>}
+    {state === 'share-review' && <Body>Your exported video includes Happy Moments 1.4 background music.</Body>}
     {state === 'preview-ready' && <ActionButton accessibilityLabel="Choose Replay for sharing" onPress={() => { setShareMemoryKeys([]); setExportMessage(null); setState('share-review'); }}>Share Replay</ActionButton>}
+    {state === 'preview-ready' && <ActionButton accessibilityLabel="Re-render private Replay" onPress={() => { if (preview) void discardPrivateReplay(preview.uri).then(() => void prepare()); }} variant="secondary">Re-render Replay</ActionButton>}
     {state === 'preview-ready' && <ActionButton accessibilityLabel="Edit private Replay" onPress={() => setState('editing')} variant="secondary">Edit Replay</ActionButton>}
     {state === 'editing' && <ActionButton accessibilityLabel="Save Replay edits" onPress={() => void saveEdits()} disabled={!editedMemoryKeys.length}>Done</ActionButton>}
     {state === 'editing' && <ActionButton accessibilityLabel="Reset Replay edits" onPress={() => void resetEdits()} variant="secondary">Reset automatic selection</ActionButton>}
@@ -188,7 +257,11 @@ export function ReplayScreen() {
 }
 
 const styles = StyleSheet.create({
-  preview: { width: '100%', aspectRatio: 16 / 9, marginVertical: 12, borderRadius: 12 },
+  previewShell: { width: '100%', aspectRatio: 16 / 9, marginVertical: 12, borderRadius: 12, overflow: 'hidden' },
+  preview: { width: '100%', height: '100%' },
+  playerControls: { position: 'absolute', right: 8, bottom: 8, flexDirection: 'row', alignItems: 'center', gap: 4, padding: 2, borderRadius: 22, backgroundColor: 'rgba(16,44,38,0.88)' },
+  playerControl: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderRadius: 21 },
+  playerIcon: { color: palette.limestone, fontSize: 21, lineHeight: 24 },
   preparingHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   preparingTitle: { color: palette.limestone, fontSize: 18, fontWeight: '800' },
   progressBlock: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4 },

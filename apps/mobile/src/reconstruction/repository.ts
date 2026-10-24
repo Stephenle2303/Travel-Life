@@ -1025,15 +1025,29 @@ export function createNativeReconstructionRepository() {
       let excludedMemoryRefs = new Set<string>();
       let draftOrder = new Map<string, number>();
       let replayDirection: import('@/replay/types').ReplayDirection = 'oldest-first';
+      let replaySoundtrack: import('@/replay/types').ReplaySoundtrack = { kind: 'bundled', revision: 'happy-moments-1.4' };
+      let preparedArtifact: import('@/replay/types').ReplayPreparedArtifactRecord | undefined;
       try {
-        const parsed = draft ? JSON.parse(draft.committed_overrides_json) as { keptEvidenceIds?: unknown; excludedEvidenceIds?: unknown; orderedEvidenceIds?: unknown; keptMemoryRefs?: unknown; excludedMemoryRefs?: unknown; orderedMemoryRefs?: unknown; direction?: unknown } : {};
+        const parsed = draft ? JSON.parse(draft.committed_overrides_json) as { keptEvidenceIds?: unknown; excludedEvidenceIds?: unknown; orderedEvidenceIds?: unknown; keptMemoryRefs?: unknown; excludedMemoryRefs?: unknown; orderedMemoryRefs?: unknown; direction?: unknown; directionPreferenceVersion?: unknown; soundtrack?: unknown; preparedArtifact?: unknown } : {};
         if (Array.isArray(parsed.keptEvidenceIds) && parsed.keptEvidenceIds.every((value) => typeof value === 'string')) keptEvidence = new Set(parsed.keptEvidenceIds);
         if (Array.isArray(parsed.excludedEvidenceIds) && parsed.excludedEvidenceIds.every((value) => typeof value === 'string')) excludedEvidence = new Set(parsed.excludedEvidenceIds);
         if (Array.isArray(parsed.keptMemoryRefs) && parsed.keptMemoryRefs.every((value) => typeof value === 'string')) keptMemoryRefs = new Set(parsed.keptMemoryRefs);
         if (Array.isArray(parsed.excludedMemoryRefs) && parsed.excludedMemoryRefs.every((value) => typeof value === 'string')) excludedMemoryRefs = new Set(parsed.excludedMemoryRefs);
         const orderedReferences = Array.isArray(parsed.orderedMemoryRefs) && parsed.orderedMemoryRefs.every((value) => typeof value === 'string') ? parsed.orderedMemoryRefs : Array.isArray(parsed.orderedEvidenceIds) && parsed.orderedEvidenceIds.every((value) => typeof value === 'string') ? parsed.orderedEvidenceIds : [];
         draftOrder = new Map(orderedReferences.map((id, index) => [id, index]));
-        if (parsed.direction === 'newest-first') replayDirection = 'newest-first';
+        // Drafts written before oldest-first became the product default did not
+        // distinguish a saved value from an explicit owner choice. Treat those
+        // legacy values as the new default; future editor saves mark the choice.
+        if (parsed.directionPreferenceVersion === 1 && parsed.direction === 'newest-first') replayDirection = 'newest-first';
+        if (parsed.soundtrack && typeof parsed.soundtrack === 'object') {
+          const soundtrack = parsed.soundtrack as { kind?: unknown; revision?: unknown; localUri?: unknown };
+          if (soundtrack.kind === 'bundled' && soundtrack.revision === 'happy-moments-1.4') replaySoundtrack = { kind: 'bundled', revision: 'happy-moments-1.4' };
+          if (soundtrack.kind === 'custom' && typeof soundtrack.revision === 'string' && typeof soundtrack.localUri === 'string') replaySoundtrack = { kind: 'custom', revision: soundtrack.revision, localUri: soundtrack.localUri };
+        }
+        const cached = parsed.preparedArtifact as { identity?: unknown; fileKey?: unknown; durationSeconds?: unknown; renderedMemoryCount?: unknown } | undefined;
+        if (typeof cached?.identity === 'string' && typeof cached.fileKey === 'string' && typeof cached.durationSeconds === 'number' && typeof cached.renderedMemoryCount === 'number' && Number.isFinite(cached.durationSeconds) && Number.isInteger(cached.renderedMemoryCount) && cached.durationSeconds > 0 && cached.renderedMemoryCount >= 0) {
+          preparedArtifact = { identity: cached.identity, fileKey: cached.fileKey, durationSeconds: cached.durationSeconds, renderedMemoryCount: cached.renderedMemoryCount };
+        }
       } catch { keptEvidence = new Set(); excludedEvidence = new Set(); keptMemoryRefs = new Set(); excludedMemoryRefs = new Set(); draftOrder = new Map(); replayDirection = 'oldest-first'; }
       displayedReplayMemories.clear();
       // Aligned one-for-one with `memories` for the provider's local resolver.
@@ -1071,9 +1085,9 @@ export function createNativeReconstructionRepository() {
       }
       await assertPrivacyReadCurrent(db, filter.revision);
       displayedReplaySnapshot = { snapshotToken: completed.run_id, privacyRevision };
-      return { snapshotToken: completed.run_id, privacyRevision, direction: replayDirection, groups, memories, previewSourceRefs };
+      return { snapshotToken: completed.run_id, privacyRevision, direction: replayDirection, soundtrack: replaySoundtrack, preparedArtifact, groups, memories, previewSourceRefs };
     },
-    async saveReplayDraft(memoryKeys: readonly string[], snapshotToken?: number, privacyRevision?: number, direction: import('@/replay/types').ReplayDirection = 'oldest-first') {
+    async saveReplayDraft(memoryKeys: readonly string[], snapshotToken?: number, privacyRevision?: number, direction: import('@/replay/types').ReplayDirection = 'oldest-first', soundtrack?: import('@/replay/types').ReplaySoundtrack) {
       const db = await open(); await ensureNativeImportSchema(db);
       const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
       if (lifecycle?.state !== 'connected') throw new Error('Replay draft is stale.');
@@ -1084,7 +1098,7 @@ export function createNativeReconstructionRepository() {
       if (keptMemoryRefs.length !== memoryKeys.length) throw new Error('Replay draft is stale.');
       const excludedMemoryRefs = [...displayedReplayMemories.values()].map((value) => JSON.stringify([value.journeyId, value.evidenceId])).filter((reference) => !keptMemoryRefs.includes(reference));
       const current = await db.getFirstAsync<{ revision: number }>('SELECT revision FROM replay_draft WHERE record_id = 1');
-      await db.runAsync('INSERT INTO replay_draft (record_id, revision, committed_overrides_json, updated_at_millis) VALUES (1, ?, ?, ?) ON CONFLICT(record_id) DO UPDATE SET revision = excluded.revision, committed_overrides_json = excluded.committed_overrides_json, updated_at_millis = excluded.updated_at_millis', (current?.revision ?? 0) + 1, JSON.stringify({ keptMemoryRefs, excludedMemoryRefs, orderedMemoryRefs: keptMemoryRefs, direction: direction === 'newest-first' ? 'newest-first' : 'oldest-first' }), Date.now());
+      await db.runAsync('INSERT INTO replay_draft (record_id, revision, committed_overrides_json, updated_at_millis) VALUES (1, ?, ?, ?) ON CONFLICT(record_id) DO UPDATE SET revision = excluded.revision, committed_overrides_json = excluded.committed_overrides_json, updated_at_millis = excluded.updated_at_millis', (current?.revision ?? 0) + 1, JSON.stringify({ keptMemoryRefs, excludedMemoryRefs, orderedMemoryRefs: keptMemoryRefs, direction: direction === 'newest-first' ? 'newest-first' : 'oldest-first', directionPreferenceVersion: 1, soundtrack }), Date.now());
     },
     async resetReplayDraft(snapshotToken?: number, privacyRevision?: number) {
       const db = await open(); await ensureNativeImportSchema(db);
@@ -1093,7 +1107,25 @@ export function createNativeReconstructionRepository() {
       const completed = await loadPublishedRun(db);
       const currentPrivacyRevision = (await db.getFirstAsync<{ revision: number | null }>('SELECT MAX(revision) AS revision FROM journey_privacy_revision'))?.revision ?? 0;
       if (!displayedReplaySnapshot || snapshotToken !== displayedReplaySnapshot.snapshotToken || privacyRevision !== displayedReplaySnapshot.privacyRevision || completed?.run_id !== snapshotToken || currentPrivacyRevision !== privacyRevision) throw new Error('Replay draft is stale.');
-      await db.runAsync('DELETE FROM replay_draft WHERE record_id = 1');
+      const prior = await db.getFirstAsync<{ revision: number; committed_overrides_json: string }>('SELECT revision, committed_overrides_json FROM replay_draft WHERE record_id = 1');
+      let soundtrack: import('@/replay/types').ReplaySoundtrack = { kind: 'bundled', revision: 'happy-moments-1.4' };
+      try {
+        const parsed = prior ? JSON.parse(prior.committed_overrides_json) as { soundtrack?: unknown } : {};
+        const value = parsed.soundtrack as { kind?: unknown; revision?: unknown; localUri?: unknown } | undefined;
+        if (value?.kind === 'custom' && typeof value.revision === 'string' && typeof value.localUri === 'string') soundtrack = { kind: 'custom', revision: value.revision, localUri: value.localUri };
+      } catch { /* Reset keeps the safe default soundtrack. */ }
+      await db.runAsync('INSERT INTO replay_draft (record_id, revision, committed_overrides_json, updated_at_millis) VALUES (1, ?, ?, ?) ON CONFLICT(record_id) DO UPDATE SET revision = excluded.revision, committed_overrides_json = excluded.committed_overrides_json, updated_at_millis = excluded.updated_at_millis', (prior?.revision ?? 0) + 1, JSON.stringify({ soundtrack }), Date.now());
+    },
+    async saveReplayPreparedArtifact(record: import('@/replay/types').ReplayPreparedArtifactRecord, snapshotToken?: number, privacyRevision?: number) {
+      const db = await open(); await ensureNativeImportSchema(db);
+      const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
+      const completed = await loadPublishedRun(db);
+      const currentPrivacyRevision = (await db.getFirstAsync<{ revision: number | null }>('SELECT MAX(revision) AS revision FROM journey_privacy_revision'))?.revision ?? 0;
+      if (lifecycle?.state !== 'connected' || !displayedReplaySnapshot || snapshotToken !== displayedReplaySnapshot.snapshotToken || privacyRevision !== displayedReplaySnapshot.privacyRevision || completed?.run_id !== snapshotToken || currentPrivacyRevision !== privacyRevision) throw new Error('Replay artifact is stale.');
+      const prior = await db.getFirstAsync<{ revision: number; committed_overrides_json: string }>('SELECT revision, committed_overrides_json FROM replay_draft WHERE record_id = 1');
+      let overrides: Record<string, unknown> = {};
+      try { overrides = prior ? JSON.parse(prior.committed_overrides_json) as Record<string, unknown> : {}; } catch { /* Preserve only validated new cache data. */ }
+      await db.runAsync('INSERT INTO replay_draft (record_id, revision, committed_overrides_json, updated_at_millis) VALUES (1, ?, ?, ?) ON CONFLICT(record_id) DO UPDATE SET revision = excluded.revision, committed_overrides_json = excluded.committed_overrides_json, updated_at_millis = excluded.updated_at_millis', (prior?.revision ?? 0) + 1, JSON.stringify({ ...overrides, preparedArtifact: record }), Date.now());
     },
     async reviewJourneyPrivacy(displayId: string, snapshotToken: number): Promise<JourneyPrivacyReview> {
       const loaded = await this.loadJourneyDetail(displayId);
