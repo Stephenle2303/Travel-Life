@@ -106,7 +106,7 @@ export function ReplayScreen() {
   const [exportMessage, setExportMessage] = useState<string | null>(null);
   const [failure, setFailure] = useState<ReplayFailureStage | null>(null);
   const [state, setState] = useState<ViewState>('idle');
-  const [preparationPhase, setPreparationPhase] = useState<'resolving' | 'rendering'>('resolving');
+  const [preparationPhase, setPreparationPhase] = useState<'opening' | 'resolving' | 'rendering'>('opening');
   const [preparationDetail, setPreparationDetail] = useState('Checking the visible trips and locally available memories you can use right now.');
   const [preparationProgress, setPreparationProgress] = useState<{ completed: number; total: number } | null>(null);
   const [editedMemoryKeys, setEditedMemoryKeys] = useState<readonly string[]>([]);
@@ -605,18 +605,33 @@ export function ReplayScreen() {
     if (started.current) return;
     started.current = true;
     let active = true;
-    void loadPreparedReplay().then(async (cached) => {
+    // A prepared Replay is already a verified private output. Publish it as
+    // soon as the provider confirms the current cache/scope gate, then hydrate
+    // the optional Edit gallery in the background. Waiting for preview tiles
+    // here needlessly makes a cache hit look like a full render.
+    setPreparationPhase('opening');
+    setPreparationDetail('Checking your saved private Replay on this device.');
+    setPreparationProgress(null);
+    setEditorManifestReady(false);
+    setState('checking');
+    void loadPreparedReplay().then((cached) => {
       if (!active) return;
       if (cached) {
-        const current = await loadReplayManifestInput();
-        if (!active) return;
-        const plan = planPrivateReplay(current.groups, current.memories, undefined, current.direction ?? 'oldest-first', current.autoGroupKeys);
-        const working = current.workingDraft;
-        workingRevisionRef.current = working?.revision;
-        replaceResolvedEditorPreviews(current.memories.filter((memory) => memory.previewUri !== undefined).map((memory) => memory.key)); setEditorPreviewOverrides({}); setEditorPreviewError(false);
-        const hydratedIncluded = working?.includedGroupKeys ?? current.includedGroupKeys ?? current.groups.filter((group) => group.eligible).map((group) => group.key);
-        setInput(current); setShowSelectedMedia(false); setIncludedGroups(hydratedIncluded); setAutoGroups(working?.autoGroupKeys ?? current.autoGroupKeys ?? hydratedIncluded); setReplayMusic(working?.soundtrack ?? current.soundtrack ?? { kind: 'bundled', revision: 'happy-moments-1.4' }); setReplayTimelineDirection(working?.direction ?? current.direction ?? 'oldest-first'); setEditorSelection(working?.memoryKeys ?? plan.memories.map((memory) => memory.key)); setCommittedMemoryKeys(plan.memories.map((memory) => memory.key)); setEditorManifestReady(plan.groups.length > 0); setActiveGroupKey(plan.groups[0]?.key ?? current.groups[0]?.key ?? null);
-        setPreview(cached); setState('preview-ready'); return;
+        setPreview(cached); setState('preview-ready');
+        void loadReplayManifestInput().then((current) => {
+          if (!active) return;
+          const plan = planPrivateReplay(current.groups, current.memories, undefined, current.direction ?? 'oldest-first', current.autoGroupKeys);
+          const working = current.workingDraft;
+          workingRevisionRef.current = working?.revision;
+          replaceResolvedEditorPreviews(current.memories.filter((memory) => memory.previewUri !== undefined).map((memory) => memory.key)); setEditorPreviewOverrides({}); setEditorPreviewError(false);
+          const hydratedIncluded = working?.includedGroupKeys ?? current.includedGroupKeys ?? current.groups.filter((group) => group.eligible).map((group) => group.key);
+          setInput(current); setShowSelectedMedia(false); setIncludedGroups(hydratedIncluded); setAutoGroups(working?.autoGroupKeys ?? current.autoGroupKeys ?? hydratedIncluded); setReplayMusic(working?.soundtrack ?? current.soundtrack ?? { kind: 'bundled', revision: 'happy-moments-1.4' }); setReplayTimelineDirection(working?.direction ?? current.direction ?? 'oldest-first'); setEditorSelection(working?.memoryKeys ?? plan.memories.map((memory) => memory.key)); setCommittedMemoryKeys(plan.memories.map((memory) => memory.key)); setEditorManifestReady(plan.groups.length > 0); setActiveGroupKey(plan.groups[0]?.key ?? current.groups[0]?.key ?? null);
+        }).catch(() => {
+          // Cached private playback has already passed its scope gate. A failed
+          // optional Edit hydration must not take that verified preview away.
+          if (active) setEditorManifestReady(false);
+        });
+        return;
       }
       void prepare();
     }).catch(() => { if (active) void prepare(); });
@@ -775,9 +790,9 @@ export function ReplayScreen() {
       <Body>Nothing was rendered or shared. Return to your private Journey List to review which trips and attachments are currently visible; Travel Life will not invent missing memories.</Body>
     </InsetPanel>}
     {state === 'checking' && <InsetPanel>
-      <View style={styles.preparingHeader} accessibilityLabel={preparationPhase === 'resolving' ? 'Resolving private Replay memories' : `Rendering private Replay video${preparationProgress ? `, ${Math.min(100, Math.round(preparationProgress.completed / preparationProgress.total * 100))}% complete` : ''}`} accessibilityState={{ busy: true }}>
+      <View style={styles.preparingHeader} accessibilityLabel={preparationPhase === 'opening' ? 'Opening saved private Replay' : preparationPhase === 'resolving' ? 'Resolving private Replay memories' : `Rendering private Replay video${preparationProgress ? `, ${Math.min(100, Math.round(preparationProgress.completed / preparationProgress.total * 100))}% complete` : ''}`} accessibilityState={{ busy: true }}>
         <ActivityIndicator color={palette.citrus} />
-        <Text style={styles.preparingTitle}>{preparationPhase === 'resolving' ? 'Finding your Replay moments' : 'Rendering your private Replay'}</Text>
+        <Text style={styles.preparingTitle}>{preparationPhase === 'opening' ? 'Opening your private Replay' : preparationPhase === 'resolving' ? 'Finding your Replay moments' : 'Rendering your private Replay'}</Text>
       </View>
       <Body>{preparationDetail}</Body>
       {preparationPhase === 'rendering' && preparationProgress && <View style={styles.progressBlock} accessibilityLabel={`Replay rendering ${Math.min(100, Math.round(preparationProgress.completed / preparationProgress.total * 100))}% complete`} accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: Math.min(100, Math.round(preparationProgress.completed / preparationProgress.total * 100)) }}>

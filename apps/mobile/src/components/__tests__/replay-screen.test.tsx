@@ -54,6 +54,16 @@ describe('Replay screen', () => {
     await waitFor(() => expect(view.getByLabelText('Re-render private Replay')).toBeOnTheScreen());
     expect(mockPreparePrivateReplay).not.toHaveBeenCalled();
   });
+  it('plays a verified durable Replay before the optional Edit manifest finishes hydrating', async () => {
+    let resolveManifest!: (value: { snapshotToken: number; privacyRevision: number; memories: { key: string; groupKey: string; kind: 'photo'; available: boolean; eligible: boolean }[]; groups: { key: string; label: string; interval: { startDay: string; endDay: string }; inferred: boolean; eligible: boolean; orderCertain: boolean }[] }) => void;
+    mockLoadPreparedReplay.mockResolvedValue({ uri: 'file:///documents/replay-previews/saved.mp4', renderedMemoryCount: 1, omittedMemoryCount: 0, durationSeconds: 5 });
+    mockLoadReplayManifestInput.mockImplementation(() => new Promise((resolve) => { resolveManifest = resolve; }));
+    const view = await render(<ReplayScreen />);
+    await waitFor(() => expect(view.getByText(/Playing your private Replay/)).toBeOnTheScreen());
+    expect(mockPreparePrivateReplay).not.toHaveBeenCalled();
+    resolveManifest({ snapshotToken: 7, privacyRevision: 1, memories: [{ key: 'memory-a', groupKey: 'a', kind: 'photo', available: true, eligible: true }], groups: [{ key: 'a', label: 'Observed destination', interval: { startDay: '2024-01-01', endDay: '2024-01-02' }, inferred: true, eligible: true, orderCertain: true }] });
+    await waitFor(() => expect(view.getByLabelText('Edit private Replay')).toBeOnTheScreen());
+  });
   it('uses the same bounded video scene interval as the renderer frame allocation', () => {
     expect(replayVideoSceneSeconds(1, 0)).toBe(2);
     expect(replayVideoSceneSeconds(2, 0)).toBe(2.5);
