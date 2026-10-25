@@ -1073,9 +1073,17 @@ export function createNativeReconstructionRepository() {
           if (soundtrack.kind === 'bundled' && soundtrack.revision === 'happy-moments-1.4') replaySoundtrack = { kind: 'bundled', revision: 'happy-moments-1.4' };
           if (soundtrack.kind === 'custom' && typeof soundtrack.revision === 'string' && typeof soundtrack.localUri === 'string') replaySoundtrack = { kind: 'custom', revision: soundtrack.revision, localUri: soundtrack.localUri };
         }
-        const cached = parsed.preparedArtifact as { identity?: unknown; cacheVersion?: unknown; fileKey?: unknown; durationSeconds?: unknown; renderedMemoryCount?: unknown } | undefined;
+        const cached = parsed.preparedArtifact as { identity?: unknown; cacheVersion?: unknown; fileKey?: unknown; durationSeconds?: unknown; renderedMemoryCount?: unknown; chapters?: unknown } | undefined;
         if (typeof cached?.identity === 'string' && typeof cached.fileKey === 'string' && typeof cached.durationSeconds === 'number' && typeof cached.renderedMemoryCount === 'number' && Number.isFinite(cached.durationSeconds) && Number.isInteger(cached.renderedMemoryCount) && cached.durationSeconds > 0 && cached.renderedMemoryCount >= 0) {
-          preparedArtifact = { identity: cached.identity, ...(cached.cacheVersion === 2 ? { cacheVersion: 2 as const } : {}), fileKey: cached.fileKey, durationSeconds: cached.durationSeconds, renderedMemoryCount: cached.renderedMemoryCount };
+          const chapters = Array.isArray(cached.chapters) && cached.chapters.every((chapter) => {
+            if (!chapter || typeof chapter !== 'object') return false;
+            const value = chapter as { identity?: unknown; fileKey?: unknown; durationSeconds?: unknown; renderedMemoryCount?: unknown };
+            return typeof value.identity === 'string' && typeof value.fileKey === 'string' && typeof value.durationSeconds === 'number' && Number.isFinite(value.durationSeconds) && value.durationSeconds > 0 && typeof value.renderedMemoryCount === 'number' && Number.isInteger(value.renderedMemoryCount) && value.renderedMemoryCount >= 0;
+          }) ? cached.chapters.map((chapter) => {
+            const value = chapter as { identity: string; fileKey: string; durationSeconds: number; renderedMemoryCount: number };
+            return { identity: value.identity, fileKey: value.fileKey, durationSeconds: value.durationSeconds, renderedMemoryCount: value.renderedMemoryCount };
+          }) : undefined;
+          preparedArtifact = { identity: cached.identity, ...(cached.cacheVersion === 2 ? { cacheVersion: 2 as const } : {}), fileKey: cached.fileKey, durationSeconds: cached.durationSeconds, renderedMemoryCount: cached.renderedMemoryCount, ...(chapters ? { chapters } : {}) };
         }
       } catch { keptEvidence = new Set(); excludedEvidence = new Set(); keptMemoryRefs = new Set(); excludedMemoryRefs = new Set(); excludedGroupJourneyIds = new Set(); autoGroupJourneyIds = new Set(); committedAutoGroupKeysSpecified = false; draftOrder = new Map(); replayDirection = 'oldest-first'; }
       try {

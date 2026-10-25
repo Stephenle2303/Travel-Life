@@ -14,10 +14,10 @@ import { classifyAppDiagnosticError, createDiagnosticCorrelationId, recordAppDia
 import type { DurableRevealRecord, JourneyDetail, JourneyMediaPage } from '@/reveal/types';
 import type { JourneyPrivacyReview, JourneyPrivacyPolicy } from '@/history-record/privacy';
 import { createExportManifest, orderedReplayGroups, planPrivateReplay } from '@/replay/selection';
-import { ReplayController, replayManifestIdentity } from '@/replay/controller';
+import { ReplayController, replayChapterIdentity, replayManifestIdentity } from '@/replay/controller';
 import { ReplayDraftStaleError } from '@/replay/draft-error';
-import { munimReplayRenderer, ReplayPreparationError, shareReplayArtifact, verifyReplayOutput, type ReplayArtifact, type ReplayRenderProgress } from '@/replay/renderer';
-import type { ReplayManifestInput, ReplayPreparedPreview, ReplayRenderSource, ReplaySoundtrack } from '@/replay/types';
+import { assembleReplayChapters, munimReplayRenderer, renderReplayChapter, ReplayPreparationError, shareReplayArtifact, verifyReplayOutput, type ReplayArtifact, type ReplayRenderProgress } from '@/replay/renderer';
+import type { ReplayManifestInput, ReplayPreparedChapterRecord, ReplayPreparedPreview, ReplayRenderSource, ReplaySoundtrack } from '@/replay/types';
 import * as FileSystem from 'expo-file-system/legacy';
 
 class PrivacyCommandRuntime {
@@ -31,6 +31,11 @@ class PrivacyCommandRuntime {
 }
 
 class PrivacyReadCancelledError extends Error {}
+
+/** Durable cache records are local metadata, not authority to resolve paths. */
+function isReplayCacheFileKey(value: string) {
+  return /^(?:replay|chapter)-[a-z0-9]+-[a-z0-9]+\.mp4$/.test(value);
+}
 
 export function isCurrentDurableRevealRead(readGeneration: number, currentGeneration: number) {
   return readGeneration === currentGeneration;
@@ -120,7 +125,7 @@ type PhotoAccessContextValue = {
   saveReplayDraft(memoryKeys: readonly string[], snapshotToken: number, privacyRevision: number, direction: import('@/replay/types').ReplayDirection, soundtrack?: import('@/replay/types').ReplaySoundtrack, expectedWorkingRevision?: number, includedGroupKeys?: readonly string[], autoGroupKeys?: readonly string[]): Promise<void>;
   stageReplayWorkingDraft(memoryKeys: readonly string[], snapshotToken: number, privacyRevision: number, direction: import('@/replay/types').ReplayDirection, soundtrack: import('@/replay/types').ReplaySoundtrack, expectedWorkingRevision?: number, includedGroupKeys?: readonly string[], autoGroupKeys?: readonly string[]): Promise<number>;
   resetReplayDraft(snapshotToken: number, privacyRevision: number): Promise<void>;
-  preparePrivateReplay(selectedMemoryKeys?: readonly string[], onProgress?: ReplayRenderProgress, music?: import('@/replay/types').ReplaySoundtrack): Promise<ReplayPreparedPreview>;
+  preparePrivateReplay(selectedMemoryKeys?: readonly string[], onProgress?: ReplayRenderProgress, music?: import('@/replay/types').ReplaySoundtrack, onFirstTripReady?: (preview: ReplayPreparedPreview) => void): Promise<ReplayPreparedPreview>;
   exportPrivateReplay(uri: string): Promise<'unavailable' | 'closed'>;
   discardPrivateReplay(uri: string): Promise<void>;
   findManualJourneyOverlaps(input: ManualJourneyInput): Promise<{ id: string; label: string; editable: boolean }[]>;
@@ -622,7 +627,7 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     if (privacyRuntime.mutating || privateRecord.state !== 'connected') throw new ReplayPreparationError('REPLAY_STALE');
     return page.keys.map((key, index) => ({ key, available: previews[index]?.availability === 'available', ...(previews[index]?.uri ? { previewUri: previews[index]!.uri } : {}) }));
   }, [adapter, nativeReconstructionRepository, privateRecord.state, privacyRuntime]);
-  const preparePrivateReplay = useCallback(async (selectedMemoryKeys?: readonly string[], onProgress?: ReplayRenderProgress, music: ReplaySoundtrack = BUNDLED_REPLAY_SOUNDTRACK): Promise<ReplayPreparedPreview> => {
+  const preparePrivateReplay = useCallback(async (selectedMemoryKeys?: readonly string[], onProgress?: ReplayRenderProgress, music: ReplaySoundtrack = BUNDLED_REPLAY_SOUNDTRACK, onFirstTripReady?: (preview: ReplayPreparedPreview) => void): Promise<ReplayPreparedPreview> => {
     if (privacyRuntime.mutating || privateRecord.state !== 'connected') throw new ReplayPreparationError('REPLAY_STALE');
     if (!nativeReconstructionRepository.loadReplayManifestInput || !adapter.resolveOwnerPreviews) throw new ReplayPreparationError('REPLAY_ACCESS');
     let input: import('@/replay/types').ReplayManifestInput;
@@ -665,7 +670,62 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     });
     if (sources.length !== selectedMemories.length) throw new ReplayPreparationError('REPLAY_ACCESS');
     const manifest = { ...createExportManifest(input.snapshotToken, selectedGroups, selectedMemories, direction), music };
-    const artifact = await replayController.current.prepare(manifest, sources, onProgress);
+    let chapterRecords: readonly ReplayPreparedChapterRecord[] | undefined;
+    const createdChapterUris: string[] = [];
+    const artifact = selectedMemoryKeys
+      ? await replayController.current.prepare(manifest, sources, onProgress)
+      : await replayController.current.prepareWith(manifest, async (signal) => {
+        const documentDirectory = FileSystem.documentDirectory;
+        if (!documentDirectory) throw new ReplayPreparationError('REPLAY_UNAVAILABLE');
+        const chapterDirectory = `${documentDirectory}replay-previews/chapters/`;
+        await FileSystem.makeDirectoryAsync(chapterDirectory, { intermediates: true });
+        const reusable = input.preparedArtifact?.chapters ?? [];
+        const rendered: ReplayPreparedChapterRecord[] = [];
+        const chapterUris: string[] = [];
+        for (const [index, chapter] of (manifest.chapters ?? []).entries()) {
+          if (signal.aborted) throw new ReplayPreparationError('REPLAY_STALE');
+          const identity = replayChapterIdentity(manifest, chapter);
+          const matching = reusable.find((record) => record.identity === identity);
+          const chapterSources = sources.filter((source) => source.groupKey === chapter.groupKey && chapter.memoryKeys.includes(source.memoryKey));
+          let record = matching && isReplayCacheFileKey(matching.fileKey) ? matching : undefined;
+          let uri = record ? `${chapterDirectory}${record.fileKey}` : null;
+          // A short moving clip has a truthful shorter chapter duration.  The
+          // durable record is the verified duration for that exact visual
+          // chapter; a nominal frame budget is not a reason to reject it.
+          const valid = Boolean(record && uri && (await FileSystem.getInfoAsync(uri)).exists && await verifyReplayOutput(uri, record.durationSeconds, false));
+          if (!valid) {
+            if (uri) await FileSystem.deleteAsync(uri, { idempotent: true });
+            onProgress?.({ message: `Rendering private trip ${index + 1} of ${(manifest.chapters ?? []).length}.`, completed: index, total: Math.max(1, (manifest.chapters ?? []).length + 1) });
+            const chapterArtifact = await renderReplayChapter(manifest, chapter, chapterSources, signal, onProgress);
+            const fileKey = `chapter-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}.mp4`;
+            uri = `${chapterDirectory}${fileKey}`;
+            try {
+              await FileSystem.copyAsync({ from: chapterArtifact.uri, to: uri });
+              const durationSeconds = chapterArtifact.manifest.durationSeconds;
+              if (!(await verifyReplayOutput(uri, durationSeconds, false))) throw new ReplayPreparationError('REPLAY_OUTPUT');
+              record = { identity, fileKey, durationSeconds, renderedMemoryCount: chapterSources.length };
+              createdChapterUris.push(uri);
+            } catch (error) {
+              await FileSystem.deleteAsync(uri, { idempotent: true });
+              throw error instanceof ReplayPreparationError ? error : new ReplayPreparationError('REPLAY_OUTPUT');
+            } finally { await munimReplayRenderer.dispose?.(chapterArtifact); }
+          }
+          if (!record || !uri) throw new ReplayPreparationError('REPLAY_OUTPUT');
+          rendered.push(record); chapterUris.push(uri);
+          if (index === 0) onFirstTripReady?.({ uri, durationSeconds: record.durationSeconds, renderedMemoryCount: record.renderedMemoryCount, omittedMemoryCount: input.memories.length - record.renderedMemoryCount });
+          onProgress?.({ message: index === 0 ? 'Your first private trip is ready. Buffering the rest in order.' : `Verified private trip ${index + 1} of ${(manifest.chapters ?? []).length}.`, completed: index + 1, total: Math.max(1, (manifest.chapters ?? []).length + 1) });
+        }
+        chapterRecords = rendered;
+        onProgress?.({ message: 'Joining and checking your private Replay.', completed: (manifest.chapters ?? []).length, total: Math.max(1, (manifest.chapters ?? []).length + 1) });
+        const verifiedManifest = {
+          ...manifest,
+          chapters: (manifest.chapters ?? []).map((chapter, index) => ({ ...chapter, frames: Math.max(1, Math.round((rendered[index]?.durationSeconds ?? chapter.frames / 24) * 24)) })),
+        };
+        return assembleReplayChapters(verifiedManifest, chapterUris, signal);
+      }).catch(async (error) => {
+        await Promise.all(createdChapterUris.map((uri) => FileSystem.deleteAsync(uri, { idempotent: true })));
+        throw error;
+      });
     if (privacyRuntime.mutating || privateRecord.state !== 'connected') {
       await munimReplayRenderer.dispose?.(artifact); throw new ReplayPreparationError('REPLAY_STALE');
     }
@@ -690,9 +750,17 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
       if (!stored.exists || !stored.size) throw new Error('Replay artifact copy failed.');
       const cacheIdentity = preparedReplayCacheIdentity(input, music);
       if (!cacheIdentity) throw new Error('Replay cache composition is empty.');
-      await nativeReconstructionRepository.saveReplayPreparedArtifact({ identity: cacheIdentity, cacheVersion: 2, fileKey, durationSeconds: artifact.manifest.durationSeconds, renderedMemoryCount: sources.length }, input.snapshotToken, input.privacyRevision);
+      await nativeReconstructionRepository.saveReplayPreparedArtifact({ identity: cacheIdentity, cacheVersion: 2, fileKey, durationSeconds: artifact.manifest.durationSeconds, renderedMemoryCount: sources.length, ...(chapterRecords ? { chapters: chapterRecords } : {}) }, input.snapshotToken, input.privacyRevision);
+      // A completed CAS makes prior chapter bytes unreachable.  Reclaim only
+      // generated basenames after the new record is durable; never resolve an
+      // unvalidated draft value as a path.
+      const retained = new Set(chapterRecords?.map((record) => record.fileKey) ?? []);
+      await Promise.all((input.preparedArtifact?.chapters ?? [])
+        .filter((record) => isReplayCacheFileKey(record.fileKey) && !retained.has(record.fileKey))
+        .map((record) => FileSystem.deleteAsync(`${directory}chapters/${record.fileKey}`, { idempotent: true })));
     } catch {
       await FileSystem.deleteAsync(persistentUri, { idempotent: true });
+      await Promise.all(createdChapterUris.map((uri) => FileSystem.deleteAsync(uri, { idempotent: true })));
       await munimReplayRenderer.dispose?.(artifact);
       throw new ReplayPreparationError('REPLAY_OUTPUT');
     }
@@ -760,6 +828,7 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
       } catch { identityMatches = false; }
     }
     if (!identityMatches) return null;
+    if (!isReplayCacheFileKey(cached.fileKey)) return null;
     const uri = `${FileSystem.documentDirectory}replay-previews/${cached.fileKey}`;
     const file = await FileSystem.getInfoAsync(uri);
     if (!file.exists || !file.size || !(await verifyReplayOutput(uri, cached.durationSeconds, Boolean(music)))) return null;

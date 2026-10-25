@@ -1,4 +1,4 @@
-import { ReplayController } from '@/replay/controller';
+import { ReplayController, replayChapterIdentity } from '@/replay/controller';
 import type { ReplayManifest } from '@/replay/types';
 
 const manifest: ReplayManifest = { generation: 1, groupKeys: ['a', 'b'], memoryKeys: [], durationSeconds: 30 };
@@ -39,5 +39,16 @@ describe('Replay controller', () => {
     await controller.prepare({ ...manifest, music: { kind: 'custom', revision: 'silent-v1', localUri: 'file:///custom.ogg' } } as ReplayManifest, []);
     await controller.prepare({ ...manifest, music: { kind: 'bundled', revision: 'happy-moments-1.4' } } as ReplayManifest, []);
     expect(render).toHaveBeenCalledTimes(2);
+  });
+  it('binds a reusable chapter to its exact selected visual inputs and configuration', () => {
+    const chapter = { groupKey: 'a', memoryKeys: ['one'], frames: 120, card: { labelToken: 'Private journey', timeToken: '2026', frames: 48 } };
+    const base = { ...manifest, chapters: [chapter] };
+    expect(replayChapterIdentity(base, chapter)).toBe(replayChapterIdentity({ ...base, groupKeys: ['a'] }, chapter));
+    // Chapters are video-only.  Soundtrack changes remux the final playlist
+    // but must not re-encode otherwise-identical private visuals.
+    expect(replayChapterIdentity(base, chapter)).toBe(replayChapterIdentity({ ...base, music: { kind: 'bundled', revision: 'happy-moments-1.4' } }, chapter));
+    expect(replayChapterIdentity(base, chapter)).toBe(replayChapterIdentity({ ...base, generation: 999 }, chapter));
+    expect(replayChapterIdentity(base, chapter)).not.toBe(replayChapterIdentity(base, { ...chapter, memoryKeys: ['changed'] }));
+    expect(replayChapterIdentity(base, chapter)).not.toContain('file:');
   });
 });

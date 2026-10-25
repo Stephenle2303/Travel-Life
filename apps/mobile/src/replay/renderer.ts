@@ -1,4 +1,4 @@
-import type { ReplayManifest, ReplayRenderSource } from './types';
+import type { ReplayChapter, ReplayManifest, ReplayRenderSource } from './types';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Asset } from 'expo-asset';
@@ -115,10 +115,11 @@ export const munimReplayRenderer: ReplayRenderer = {
           media.push({ source, uri: input });
           continue;
         }
-        const still = `${staging}still-${index}.png`;
-        const result = await execute(['-y', '-i', input, '-frames:v', '1', still]);
-        if (cancelled()) throw new ReplayPreparationError('REPLAY_STALE');
-        if (result.success) media.push({ source, uri: still });
+        // FFmpeg's image demuxer can decode the staged original directly for
+        // the scene encode below.  Avoid materialising a full-resolution PNG:
+        // it was an extra decode/encode plus private cache I/O for every photo
+        // without changing the 720p, aspect-preserving result.
+        media.push({ source, uri: input });
       }
       if (!media.length && !manifest.groupKeys.length) throw new ReplayPreparationError('REPLAY_DECODE');
       const fallbackFrames = Math.max(1, Math.round(manifest.durationSeconds * 24 / Math.max(1, manifest.groupKeys.length)));
@@ -206,7 +207,7 @@ export const munimReplayRenderer: ReplayRenderer = {
       const joined = await execute([...joinArgs, '-movflags', '+faststart', outputUri]);
       if (!joined.success || cancelled() || !(await verifyReplayOutput(outputUri, actualDurationSeconds, Boolean(manifest.music)))) throw new ReplayPreparationError(cancelled() ? 'REPLAY_STALE' : 'REPLAY_OUTPUT');
       const info = await FileSystem.getInfoAsync(outputUri);
-      if (!info.exists || (info.size ?? 0) > 32 * 1024 * 1024) throw new ReplayPreparationError('REPLAY_OUTPUT');
+      if (!info.exists || !info.size) throw new ReplayPreparationError('REPLAY_OUTPUT');
       await FileSystem.deleteAsync(staging, { idempotent: true });
       const actualChapters = manifest.chapters?.map((chapter) => ({ ...chapter, frames: actualChapterFrames.get(chapter.groupKey) ?? chapter.frames }));
       return { uri: outputUri, digest: `${manifest.generation}:${manifest.memoryKeys.join(':')}`, manifest: { ...manifest, durationSeconds: actualDurationSeconds, chapters: actualChapters } };
@@ -214,6 +215,71 @@ export const munimReplayRenderer: ReplayRenderer = {
   },
   async dispose(artifact) { await FileSystem.deleteAsync(artifact.uri, { idempotent: true }); },
 };
+
+/** Render exactly one independently verifiable trip chapter.  The caller owns
+ * persistence and must still validate the current album scope before reuse. */
+export async function renderReplayChapter(
+  manifest: ReplayManifest,
+  chapter: ReplayChapter,
+  sources: readonly ReplayRenderSource[],
+  signal: AbortSignal,
+  onProgress?: ReplayRenderProgress,
+): Promise<ReplayArtifact> {
+  const chapterSources = sources.filter((source) => source.groupKey === chapter.groupKey && chapter.memoryKeys.includes(source.memoryKey));
+  return munimReplayRenderer.render({
+    ...manifest,
+    music: undefined,
+    groupKeys: [chapter.groupKey],
+    memoryKeys: chapter.memoryKeys,
+    durationSeconds: chapter.frames / 24,
+    chapters: [chapter],
+  }, chapterSources, signal, onProgress);
+}
+
+/**
+ * Joins only caller-verified local chapter files.  This is intentionally a
+ * bounded remux (video copy plus optional soundtrack), never a parallel
+ * FFmpeg fan-out or a way to make a partial chapter playable.
+ */
+export async function assembleReplayChapters(
+  manifest: ReplayManifest,
+  chapterUris: readonly string[],
+  signal: AbortSignal,
+): Promise<ReplayArtifact> {
+  if (signal.aborted) throw new ReplayPreparationError('REPLAY_STALE');
+  if (!chapterUris.length || !FileSystem.cacheDirectory) throw new ReplayPreparationError('REPLAY_SCOPE');
+  const job = `replay-playlist-${manifest.generation}-${Math.random().toString(36).slice(2)}`;
+  const listUri = `${FileSystem.cacheDirectory}${job}.txt`;
+  const outputUri = `${FileSystem.cacheDirectory}${job}.mp4`;
+  try {
+    await FileSystem.writeAsStringAsync(listUri, chapterUris.map((uri) => `file '${uri.replace(/'/g, "'\\''")}'`).join('\n'));
+    const expectedDuration = (manifest.chapters ?? []).reduce((total, chapter) => total + chapter.frames / 24, 0) || manifest.durationSeconds;
+    const args = ['-y', '-f', 'concat', '-safe', '0', '-i', listUri];
+    if (manifest.music) {
+      const bundled = manifest.music.kind === 'bundled';
+      const track = bundled ? Asset.fromModule(replayMusicAsset) : null;
+      if (track) await track.downloadAsync();
+      const trackUri = bundled ? track?.localUri : manifest.music.localUri;
+      const trackInfo = trackUri ? await FileSystem.getInfoAsync(trackUri) : null;
+      if (!trackUri?.startsWith('file:///') || !trackInfo?.exists || !trackInfo.size) throw new ReplayPreparationError('REPLAY_UNAVAILABLE');
+      const duration = expectedDuration.toFixed(6);
+      const fade = Math.min(1, expectedDuration / 2).toFixed(6);
+      const fadeOut = Math.max(0, expectedDuration - Number(fade)).toFixed(6);
+      args.push('-stream_loop', '-1', '-i', trackUri, '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '128k', '-af', `volume=0.25,afade=t=in:st=0:d=${fade},afade=t=out:st=${fadeOut}:d=${fade}`, '-t', duration);
+    } else args.push('-map', '0:v:0', '-c:v', 'copy', '-an');
+    if (signal.aborted) throw new ReplayPreparationError('REPLAY_STALE');
+    const joined = await execute([...args, '-movflags', '+faststart', outputUri]);
+    if (!joined.success || signal.aborted || !(await verifyReplayOutput(outputUri, expectedDuration, Boolean(manifest.music)))) throw new ReplayPreparationError(signal.aborted ? 'REPLAY_STALE' : 'REPLAY_OUTPUT');
+    const info = await FileSystem.getInfoAsync(outputUri);
+    if (!info.exists || !info.size) throw new ReplayPreparationError('REPLAY_OUTPUT');
+    return { uri: outputUri, digest: `playlist:${manifest.generation}:${manifest.memoryKeys.join(':')}`, manifest: { ...manifest, durationSeconds: expectedDuration } };
+  } catch (error) {
+    await FileSystem.deleteAsync(outputUri, { idempotent: true });
+    throw error instanceof ReplayPreparationError ? error : new ReplayPreparationError('REPLAY_OUTPUT');
+  } finally {
+    await FileSystem.deleteAsync(listUri, { idempotent: true });
+  }
+}
 
 export async function verifyReplayOutput(uri: string, expectedDuration?: number, music = false): Promise<boolean> {
   try {

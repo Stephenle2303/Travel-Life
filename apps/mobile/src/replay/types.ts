@@ -90,6 +90,18 @@ export type ReplayPreparedArtifactRecord = Readonly<{
   fileKey: string;
   durationSeconds: number;
   renderedMemoryCount: number;
+  /**
+   * Opaque independently verified chapter records.  These are deliberately
+   * metadata-only: the provider derives their private document URI from the
+   * file key after the current scope and privacy CAS gate succeeds.
+   */
+  chapters?: readonly ReplayPreparedChapterRecord[];
+}>;
+export type ReplayPreparedChapterRecord = Readonly<{
+  identity: string;
+  fileKey: string;
+  durationSeconds: number;
+  renderedMemoryCount: number;
 }>;
 /** Recoverable local editor intent. It never changes the committed Replay alone. */
 export type ReplayWorkingDraft = Readonly<{

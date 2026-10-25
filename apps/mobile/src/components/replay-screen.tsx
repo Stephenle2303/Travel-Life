@@ -235,7 +235,10 @@ export function ReplayScreen() {
       const prepared = await preparePrivateReplay(committedOverride, (progress) => {
         if (!isCurrent()) return;
         setPreparationDetail(progress.message); setPreparationProgress({ completed: progress.completed, total: progress.total });
-      }, soundtrack);
+      }, soundtrack, (firstChapter) => {
+        if (!isCurrent()) return;
+        setPreview(firstChapter); setState('preview-ready');
+      });
       if (!isCurrent()) {
         if (prepared.uri !== preview?.uri) await discardPrivateReplay(prepared.uri);
         return;
