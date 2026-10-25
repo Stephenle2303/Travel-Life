@@ -151,7 +151,10 @@ export const munimReplayRenderer: ReplayRenderer = {
           // timing budget, so probe its local staged duration before render.
           const sourceDuration = Number((await getMediaInformation(panel.items[0].uri)).format?.duration ?? 0);
           if (!Number.isFinite(sourceDuration) || sourceDuration <= 0) throw new ReplayPreparationError('REPLAY_DECODE');
-          frames = Math.min(frames, Math.max(1, Math.floor(sourceDuration * 24)));
+          const interval = panel.items[0].source.usedInterval;
+          const intervalSeconds = interval && interval.startSeconds >= 0 && interval.endSeconds > interval.startSeconds && interval.endSeconds <= sourceDuration
+            ? interval.endSeconds - interval.startSeconds : sourceDuration;
+          frames = Math.min(frames, Math.max(1, Math.floor(intervalSeconds * 24)));
         }
         const seconds = (frames / 24).toFixed(6);
         const panelUri = `${staging}panel-${panelIndex}.mp4`;
@@ -165,7 +168,8 @@ export const munimReplayRenderer: ReplayRenderer = {
           panelUris.push(panelUri); continue;
         }
         if (panel.items[0]?.source.kind === 'video') {
-          const result = await execute(['-y', '-ss', '0', '-t', seconds, '-i', panel.items[0].uri, '-filter_complex', `[0:v]fps=24,scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,trim=duration=${seconds},setpts=PTS-STARTPTS[out]`, '-map', '[out]', '-frames:v', String(frames), '-c:v', encoder.name, '-pix_fmt', encoder.pixelFormat, panelUri]);
+          const intervalStart = panel.items[0].source.usedInterval?.startSeconds ?? 0;
+          const result = await execute(['-y', '-ss', String(intervalStart), '-t', seconds, '-i', panel.items[0].uri, '-filter_complex', `[0:v]fps=24,scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,trim=duration=${seconds},setpts=PTS-STARTPTS[out]`, '-map', '[out]', '-frames:v', String(frames), '-c:v', encoder.name, '-pix_fmt', encoder.pixelFormat, panelUri]);
           if (!result.success) throw new ReplayPreparationError('REPLAY_DECODE');
           if (groupKey) actualChapterFrames.set(groupKey, (actualChapterFrames.get(groupKey) ?? 0) + frames);
           panelUris.push(panelUri); continue;

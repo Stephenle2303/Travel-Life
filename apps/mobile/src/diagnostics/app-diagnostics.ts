@@ -13,6 +13,7 @@ export type AppDiagnosticOperation =
   | 'JOURNEY_PLACE_SAVE'
   | 'JOURNEY_PRIVACY_SAVE'
   | 'JOURNEY_PRIVACY_READ'
+  | 'REPLAY_DRAFT_SAVE'
   | 'REPLAY_RENDER'
   | 'REPLAY_EXPORT';
 

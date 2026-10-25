@@ -25,7 +25,7 @@ through Edit Replay.
   - **success:** Mute/unmute changes immediately without rendering, losing playback position, or changing the exported soundtrack.
 - **CAP-3**
   - **intent:** The owner replaces the default soundtrack with their own audio file in Edit Replay.
-  - **success:** A valid file up to 5 MB becomes the soundtrack after Done and remains available for subsequent renders; cancellation or rejection preserves the previous selection. The owner can restore Happy Moments.
+  - **success:** A valid file up to 5 MB becomes the soundtrack after Done and remains available for subsequent renders. Picker cancellation or rejection preserves the previous working selection; Back retains acknowledged working music without changing committed playback. The owner can restore Happy Moments.
 - **CAP-4**
   - **intent:** Automatic Replay presents trips from oldest to newest by month/year.
   - **success:** Preview and selected-export chapter order use ascending start year/month regardless of Journey List input order or date-overlap flags; same-month ties are stable and unknown times are last. An explicit newest-first edit remains supported.

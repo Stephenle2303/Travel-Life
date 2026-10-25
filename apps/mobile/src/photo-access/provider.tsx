@@ -15,8 +15,9 @@ import type { DurableRevealRecord, JourneyDetail, JourneyMediaPage } from '@/rev
 import type { JourneyPrivacyReview, JourneyPrivacyPolicy } from '@/history-record/privacy';
 import { createExportManifest, orderedReplayGroups, planPrivateReplay } from '@/replay/selection';
 import { ReplayController, replayManifestIdentity } from '@/replay/controller';
+import { ReplayDraftStaleError } from '@/replay/draft-error';
 import { munimReplayRenderer, ReplayPreparationError, shareReplayArtifact, verifyReplayOutput, type ReplayArtifact, type ReplayRenderProgress } from '@/replay/renderer';
-import type { ReplayPreparedPreview, ReplayRenderSource } from '@/replay/types';
+import type { ReplayManifestInput, ReplayPreparedPreview, ReplayRenderSource, ReplaySoundtrack } from '@/replay/types';
 import * as FileSystem from 'expo-file-system/legacy';
 
 class PrivacyCommandRuntime {
@@ -114,8 +115,10 @@ type PhotoAccessContextValue = {
   restoreJourneyPrivacy(policyId: string, revision: number, commandKey: string): Promise<void>;
   loadJourneyEligibility(displayId: string, snapshotToken: number, purpose: import('@/reveal/types').PrivateSelectionPurpose, privacyRevision?: number): Promise<import('@/reveal/types').JourneyEligibility>;
   loadReplayManifestInput(): Promise<import('@/replay/types').ReplayManifestInput>;
+  loadReplayEditorPreviewPage(memoryKeys: readonly string[], snapshotToken: number, privacyRevision: number): Promise<readonly { key: string; available: boolean; previewUri?: string }[]>;
   loadPreparedReplay(): Promise<ReplayPreparedPreview | null>;
-  saveReplayDraft(memoryKeys: readonly string[], snapshotToken: number, privacyRevision: number, direction: import('@/replay/types').ReplayDirection, soundtrack?: import('@/replay/types').ReplaySoundtrack): Promise<void>;
+  saveReplayDraft(memoryKeys: readonly string[], snapshotToken: number, privacyRevision: number, direction: import('@/replay/types').ReplayDirection, soundtrack?: import('@/replay/types').ReplaySoundtrack, expectedWorkingRevision?: number, includedGroupKeys?: readonly string[], autoGroupKeys?: readonly string[]): Promise<void>;
+  stageReplayWorkingDraft(memoryKeys: readonly string[], snapshotToken: number, privacyRevision: number, direction: import('@/replay/types').ReplayDirection, soundtrack: import('@/replay/types').ReplaySoundtrack, expectedWorkingRevision?: number, includedGroupKeys?: readonly string[], autoGroupKeys?: readonly string[]): Promise<number>;
   resetReplayDraft(snapshotToken: number, privacyRevision: number): Promise<void>;
   preparePrivateReplay(selectedMemoryKeys?: readonly string[], onProgress?: ReplayRenderProgress, music?: import('@/replay/types').ReplaySoundtrack): Promise<ReplayPreparedPreview>;
   exportPrivateReplay(uri: string): Promise<'unavailable' | 'closed'>;
@@ -138,9 +141,47 @@ type PhotoAccessContextValue = {
   aiProposalController: AiProposalController;
 };
 
-type OptionalRepositoryMethods = 'findManualJourneyOverlaps' | 'createManualJourney' | 'reviewJourneyPrivacy' | 'saveJourneyPrivacy' | 'loadJourneyPrivacyPolicies' | 'restoreJourneyPrivacy' | 'loadJourneyEligibility' | 'loadReplayManifestInput' | 'saveReplayDraft' | 'resetReplayDraft' | 'saveReplayPreparedArtifact' | 'applyJourneyPrivacyToRecord';
+type OptionalRepositoryMethods = 'findManualJourneyOverlaps' | 'createManualJourney' | 'reviewJourneyPrivacy' | 'saveJourneyPrivacy' | 'loadJourneyPrivacyPolicies' | 'restoreJourneyPrivacy' | 'loadJourneyEligibility' | 'loadReplayManifestInput' | 'loadReplayEditorPreviewPage' | 'saveReplayDraft' | 'stageReplayWorkingDraft' | 'resetReplayDraft' | 'saveReplayPreparedArtifact' | 'applyJourneyPrivacyToRecord';
 type ReconstructionRepositoryProp = Omit<ReturnType<typeof createNativeReconstructionRepository>, OptionalRepositoryMethods>
   & Partial<Pick<ReturnType<typeof createNativeReconstructionRepository>, OptionalRepositoryMethods>>;
+
+/** Opening Edit must not decode every candidate original before the owner can act. */
+const REPLAY_EDITOR_INITIAL_PREVIEW_LIMIT = 48;
+const BUNDLED_REPLAY_SOUNDTRACK: ReplaySoundtrack = { kind: 'bundled', revision: 'happy-moments-1.4' };
+
+/**
+ * A committed included-trip list is the owner’s explicit Replay scope. Keep it
+ * authoritative even if a caller supplies an older group projection whose
+ * eligibility flags have not yet caught up with that saved draft.
+ */
+export function replayCompositionGroups(input: ReplayManifestInput) {
+  if (!input.includedGroupKeys) return input.groups;
+  const included = new Set(input.includedGroupKeys);
+  return input.groups.map((group) => ({ ...group, eligible: group.eligible && included.has(group.key) }));
+}
+
+/**
+ * A prepared replay belongs to the committed composition, not to the moment a
+ * photo provider happens to answer a local preview request. Preview availability
+ * is intentionally volatile (and, for Edit, resolved in bounded pages), while
+ * the stored MP4 remains a valid private replay of the same committed scope.
+ */
+export function preparedReplayCacheIdentity(input: ReplayManifestInput, music: ReplaySoundtrack = BUNDLED_REPLAY_SOUNDTRACK) {
+  const direction = input.direction ?? 'oldest-first';
+  const compositionMemories = input.memories.map((memory) => ({ ...memory, available: true }));
+  const plan = planPrivateReplay(replayCompositionGroups(input), compositionMemories, undefined, direction, input.autoGroupKeys);
+  if (!plan.groups.length) return null;
+  return replayManifestIdentity({ ...createExportManifest(input.snapshotToken, plan.groups, plan.memories, direction), music });
+}
+
+/** Compatibility check for cache records written before composition-v2. */
+function legacyPreparedReplayIdentity(input: ReplayManifestInput, resolvedAvailable: readonly boolean[], music: ReplaySoundtrack) {
+  const direction = input.direction ?? 'oldest-first';
+  const memories = input.memories.map((memory, index) => ({ ...memory, available: resolvedAvailable[index] === true }));
+  const plan = planPrivateReplay(replayCompositionGroups(input), memories, undefined, direction, input.autoGroupKeys);
+  if (!plan.groups.length) return null;
+  return replayManifestIdentity({ ...createExportManifest(input.snapshotToken, plan.groups, plan.memories, direction), music });
+}
 
 function durableRevealFailureMessage(error: unknown) {
   switch (classifyAppDiagnosticError(error)) {
@@ -549,16 +590,39 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     if (!result.previewSourceRefs || !adapter.resolveOwnerPreviews) {
       return result.previewSourceRefs ? { ...result, previewSourceRefs: undefined } : result;
     }
+    const initialReferences = result.previewSourceRefs.slice(0, REPLAY_EDITOR_INITIAL_PREVIEW_LIMIT);
     let previews: OwnerPreview[];
     try {
-      previews = await adapter.resolveOwnerPreviews([...result.previewSourceRefs], result.previewSourceRefs.length);
+      previews = await adapter.resolveOwnerPreviews([...initialReferences], initialReferences.length);
     } catch {
       throw new ReplayPreparationError('REPLAY_ACCESS');
     }
     if (privacyRuntime.mutating || privateRecord.state !== 'connected') return { ...result, groups: [], memories: [] };
-    return { ...result, previewSourceRefs: undefined, memories: result.memories.map((memory, index) => ({ ...memory, available: previews[index]?.availability === 'available' })) };
+    return {
+      ...result,
+      previewSourceRefs: undefined,
+      // This transient local preview is solely for the on-device editor. It is
+      // deliberately absent from durable drafts, renderer manifests and diagnostics.
+      memories: result.memories.map((memory, index) => ({
+        ...memory,
+        // Later candidates remain browseable with their native metadata state.
+        // A future page read resolves their local preview rather than decoding
+        // the whole album during screen entry.
+        ...(index < initialReferences.length ? { available: previews[index]?.availability === 'available' } : {}),
+        ...(previews[index]?.uri ? { previewUri: previews[index]!.uri } : {}),
+      })),
+    };
   }, [adapter, nativeReconstructionRepository, privateRecord.state, privacyRuntime]);
-  const preparePrivateReplay = useCallback(async (selectedMemoryKeys?: readonly string[], onProgress?: ReplayRenderProgress, music: import('@/replay/types').ReplaySoundtrack = { kind: 'bundled', revision: 'happy-moments-1.4' }): Promise<ReplayPreparedPreview> => {
+  const loadReplayEditorPreviewPage = useCallback(async (memoryKeys: readonly string[], snapshotToken: number, privacyRevision: number) => {
+    if (memoryKeys.length > REPLAY_EDITOR_INITIAL_PREVIEW_LIMIT || privacyRuntime.mutating || privateRecord.state !== 'connected' || !nativeReconstructionRepository.loadReplayEditorPreviewPage || !adapter.resolveOwnerPreviews) throw new ReplayPreparationError('REPLAY_STALE');
+    let page: { keys: readonly string[]; previewSourceRefs: readonly (string | null)[] };
+    try { page = await nativeReconstructionRepository.loadReplayEditorPreviewPage(memoryKeys, snapshotToken, privacyRevision); } catch { throw new ReplayPreparationError('REPLAY_ACCESS'); }
+    let previews: OwnerPreview[];
+    try { previews = await adapter.resolveOwnerPreviews([...page.previewSourceRefs], page.previewSourceRefs.length); } catch { throw new ReplayPreparationError('REPLAY_ACCESS'); }
+    if (privacyRuntime.mutating || privateRecord.state !== 'connected') throw new ReplayPreparationError('REPLAY_STALE');
+    return page.keys.map((key, index) => ({ key, available: previews[index]?.availability === 'available', ...(previews[index]?.uri ? { previewUri: previews[index]!.uri } : {}) }));
+  }, [adapter, nativeReconstructionRepository, privateRecord.state, privacyRuntime]);
+  const preparePrivateReplay = useCallback(async (selectedMemoryKeys?: readonly string[], onProgress?: ReplayRenderProgress, music: ReplaySoundtrack = BUNDLED_REPLAY_SOUNDTRACK): Promise<ReplayPreparedPreview> => {
     if (privacyRuntime.mutating || privateRecord.state !== 'connected') throw new ReplayPreparationError('REPLAY_STALE');
     if (!nativeReconstructionRepository.loadReplayManifestInput || !adapter.resolveOwnerPreviews) throw new ReplayPreparationError('REPLAY_ACCESS');
     let input: import('@/replay/types').ReplayManifestInput;
@@ -581,7 +645,8 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     if (privacyRuntime.mutating || privateRecord.state !== 'connected') throw new ReplayPreparationError('REPLAY_STALE');
     const memories = input.memories.map((memory, index) => ({ ...memory, available: previews[index]?.availability === 'available' && Boolean(previews[index]?.uri) }));
     const direction = input.direction ?? 'oldest-first';
-    const automaticPlan = planPrivateReplay(input.groups, memories, undefined, direction);
+    const compositionGroups = replayCompositionGroups(input);
+    const automaticPlan = planPrivateReplay(compositionGroups, memories, undefined, direction, input.autoGroupKeys);
     const selectedKeys = selectedMemoryKeys ? [...new Set(selectedMemoryKeys)] : automaticPlan.memories.map((memory) => memory.key);
     const selectedSet = new Set(selectedKeys);
     const selectedMemories = selectedKeys.map((key) => memories.find((memory) => memory.key === key)).filter((memory): memory is typeof memories[number] => Boolean(memory));
@@ -590,7 +655,7 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     // emits a neutral local slate for that group. Explicit sharing stays
     // exact-media-only and is rejected before it can render an empty export.
     const selectedGroups = selectedMemoryKeys
-      ? orderedReplayGroups(input.groups, undefined, direction).filter((group) => selectedMemories.some((memory) => memory.groupKey === group.key))
+      ? orderedReplayGroups(compositionGroups, undefined, direction).filter((group) => selectedMemories.some((memory) => memory.groupKey === group.key))
       : automaticPlan.groups;
     if (!selectedGroups.length || selectedMemories.length !== selectedSet.size || (selectedMemoryKeys && !selectedMemories.length)) throw new ReplayPreparationError('REPLAY_ACCESS');
     const sources: ReplayRenderSource[] = selectedMemories.flatMap((memory) => {
@@ -623,7 +688,9 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
       await FileSystem.copyAsync({ from: artifact.uri, to: persistentUri });
       const stored = await FileSystem.getInfoAsync(persistentUri);
       if (!stored.exists || !stored.size) throw new Error('Replay artifact copy failed.');
-      await nativeReconstructionRepository.saveReplayPreparedArtifact({ identity: replayManifestIdentity(artifact.manifest), fileKey, durationSeconds: artifact.manifest.durationSeconds, renderedMemoryCount: sources.length }, input.snapshotToken, input.privacyRevision);
+      const cacheIdentity = preparedReplayCacheIdentity(input, music);
+      if (!cacheIdentity) throw new Error('Replay cache composition is empty.');
+      await nativeReconstructionRepository.saveReplayPreparedArtifact({ identity: cacheIdentity, cacheVersion: 2, fileKey, durationSeconds: artifact.manifest.durationSeconds, renderedMemoryCount: sources.length }, input.snapshotToken, input.privacyRevision);
     } catch {
       await FileSystem.deleteAsync(persistentUri, { idempotent: true });
       await munimReplayRenderer.dispose?.(artifact);
@@ -632,29 +699,72 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     await munimReplayRenderer.dispose?.(artifact);
     return { uri: persistentUri, durationSeconds: artifact.manifest.durationSeconds, renderedMemoryCount: sources.length, omittedMemoryCount: input.memories.length - sources.length };
   }, [adapter, nativeReconstructionRepository, privateRecord.state, privacyRuntime]);
-  const saveReplayDraft = useCallback(async (memoryKeys: readonly string[], snapshotToken: number, privacyRevision: number, direction: import('@/replay/types').ReplayDirection, soundtrack?: import('@/replay/types').ReplaySoundtrack) => {
+  const saveReplayDraft = useCallback(async (memoryKeys: readonly string[], snapshotToken: number, privacyRevision: number, direction: import('@/replay/types').ReplayDirection, soundtrack?: import('@/replay/types').ReplaySoundtrack, expectedWorkingRevision?: number, includedGroupKeys?: readonly string[], autoGroupKeys?: readonly string[]) => {
     if (privacyRuntime.mutating || privateRecord.state !== 'connected' || !nativeReconstructionRepository.saveReplayDraft) throw new ReplayPreparationError('REPLAY_STALE');
-    await nativeReconstructionRepository.saveReplayDraft(memoryKeys, snapshotToken, privacyRevision, direction, soundtrack);
-  }, [nativeReconstructionRepository, privateRecord.state, privacyRuntime]);
+    const correlationId = createDiagnosticCorrelationId();
+    recordAppDiagnostic({ operation: 'REPLAY_DRAFT_SAVE', reasonCode: 'START', stage: null, retryable: false, durableOutcome: 'unchanged', correlationId });
+    try {
+      // Replay is an owner action, but it shares the local database with
+      // foreground import and scheduled maintenance. Let their writer finish
+      // instead of competing for SQLite's process-wide write lock.
+      await controller.whenImportIdle();
+      await maintenanceController.whenIdle();
+      await nativeReconstructionRepository.saveReplayDraft(memoryKeys, snapshotToken, privacyRevision, direction, soundtrack, expectedWorkingRevision, includedGroupKeys, autoGroupKeys);
+      recordAppDiagnostic({ operation: 'REPLAY_DRAFT_SAVE', reasonCode: 'COMPLETE', stage: null, retryable: false, durableOutcome: 'complete', correlationId });
+    } catch (error) {
+      const stage = error instanceof ReplayDraftStaleError ? 'REPLAY_STALE' : 'REPLAY_UNAVAILABLE';
+      recordAppDiagnostic({ operation: 'REPLAY_DRAFT_SAVE', reasonCode: error instanceof ReplayDraftStaleError ? 'SAVE_FAILED' : classifyAppDiagnosticError(error), stage, retryable: true, durableOutcome: 'unchanged', correlationId });
+      throw new ReplayPreparationError(stage);
+    }
+  }, [controller, maintenanceController, nativeReconstructionRepository, privateRecord.state, privacyRuntime]);
+  const stageReplayWorkingDraft = useCallback(async (memoryKeys: readonly string[], snapshotToken: number, privacyRevision: number, direction: import('@/replay/types').ReplayDirection, soundtrack: import('@/replay/types').ReplaySoundtrack, expectedWorkingRevision?: number, includedGroupKeys?: readonly string[], autoGroupKeys?: readonly string[]) => {
+    if (privacyRuntime.mutating || privateRecord.state !== 'connected' || !nativeReconstructionRepository.stageReplayWorkingDraft) throw new ReplayPreparationError('REPLAY_STALE');
+    const correlationId = createDiagnosticCorrelationId();
+    recordAppDiagnostic({ operation: 'REPLAY_DRAFT_SAVE', reasonCode: 'START', stage: null, retryable: false, durableOutcome: 'unchanged', correlationId });
+    try {
+      await controller.whenImportIdle();
+      await maintenanceController.whenIdle();
+      const revision = await nativeReconstructionRepository.stageReplayWorkingDraft(memoryKeys, snapshotToken, privacyRevision, direction, soundtrack, expectedWorkingRevision, includedGroupKeys, autoGroupKeys);
+      recordAppDiagnostic({ operation: 'REPLAY_DRAFT_SAVE', reasonCode: 'COMPLETE', stage: null, retryable: false, durableOutcome: 'complete', correlationId });
+      return revision;
+    } catch (error) {
+      const stage = error instanceof ReplayDraftStaleError ? 'REPLAY_STALE' : 'REPLAY_UNAVAILABLE';
+      recordAppDiagnostic({ operation: 'REPLAY_DRAFT_SAVE', reasonCode: error instanceof ReplayDraftStaleError ? 'SAVE_FAILED' : classifyAppDiagnosticError(error), stage, retryable: true, durableOutcome: 'unchanged', correlationId });
+      throw new ReplayPreparationError(stage);
+    }
+  }, [controller, maintenanceController, nativeReconstructionRepository, privateRecord.state, privacyRuntime]);
   const resetReplayDraft = useCallback(async (snapshotToken: number, privacyRevision: number) => {
     if (privacyRuntime.mutating || privateRecord.state !== 'connected' || !nativeReconstructionRepository.resetReplayDraft) throw new ReplayPreparationError('REPLAY_STALE');
     await nativeReconstructionRepository.resetReplayDraft(snapshotToken, privacyRevision);
   }, [nativeReconstructionRepository, privateRecord.state, privacyRuntime]);
   const loadPreparedReplay = useCallback(async (): Promise<ReplayPreparedPreview | null> => {
     if (privacyRuntime.mutating || privateRecord.state !== 'connected') return null;
-    const input = await loadReplayManifestInput();
+    // Use the native provider-only input here, rather than the screen input
+    // whose editor previews are intentionally bounded to 48. No source ref
+    // leaves this provider.
+    if (!nativeReconstructionRepository.loadReplayManifestInput) return null;
+    let input: ReplayManifestInput;
+    try { input = await nativeReconstructionRepository.loadReplayManifestInput(); } catch { return null; }
+    if (privacyRuntime.mutating || privateRecord.state !== 'connected') return null;
     const cached = input.preparedArtifact;
     if (!cached || !FileSystem.documentDirectory) return null;
-    const direction = input.direction ?? 'oldest-first';
-    const plan = planPrivateReplay(input.groups, input.memories, undefined, direction);
-    if (!plan.groups.length) return null;
-    const manifest = { ...createExportManifest(input.snapshotToken, plan.groups, plan.memories, direction), music: input.soundtrack ?? { kind: 'bundled' as const, revision: 'happy-moments-1.4' as const } };
-    if (cached.identity !== replayManifestIdentity(manifest)) return null;
+    const music = input.soundtrack ?? BUNDLED_REPLAY_SOUNDTRACK;
+    let identityMatches = cached.identity === preparedReplayCacheIdentity(input, music);
+    // Existing installs can reuse an already-rendered v1 artifact once. The
+    // compatibility check resolves local handles but never invokes the video
+    // renderer; newly saved records use the stable composition key above.
+    if (!identityMatches && cached.cacheVersion !== 2 && input.previewSourceRefs && adapter.resolveOwnerPreviews) {
+      try {
+        const previews = await adapter.resolveOwnerPreviews([...input.previewSourceRefs], input.previewSourceRefs.length);
+        identityMatches = cached.identity === legacyPreparedReplayIdentity(input, previews.map((preview) => preview.availability === 'available' && Boolean(preview.uri)), music);
+      } catch { identityMatches = false; }
+    }
+    if (!identityMatches) return null;
     const uri = `${FileSystem.documentDirectory}replay-previews/${cached.fileKey}`;
     const file = await FileSystem.getInfoAsync(uri);
-    if (!file.exists || !file.size || !(await verifyReplayOutput(uri, cached.durationSeconds, Boolean(manifest.music)))) return null;
+    if (!file.exists || !file.size || !(await verifyReplayOutput(uri, cached.durationSeconds, Boolean(music)))) return null;
     return { uri, durationSeconds: cached.durationSeconds, renderedMemoryCount: cached.renderedMemoryCount, omittedMemoryCount: input.memories.length - cached.renderedMemoryCount };
-  }, [loadReplayManifestInput, privateRecord.state, privacyRuntime]);
+  }, [adapter, nativeReconstructionRepository, privateRecord.state, privacyRuntime]);
   const exportPrivateReplay = useCallback(async (uri: string) => {
     const artifact = replayArtifacts.current.get(uri);
     if (privacyRuntime.mutating || privateRecord.state !== 'connected') throw new Error('REPLAY_STALE');
@@ -698,7 +808,7 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     if (projection.status !== 'complete') throw new Error('Home base removed but local history rebuild did not complete.');
     await refreshDurableReveal();
   }, [privateRecord.state, sharedRepository, refreshHomeBases, reconstructionController, refreshDurableReveal]);
-  return <PhotoAccessContext.Provider value={{ snapshot, controller, importCoverage, privateRecord, privateRecordController, maintenance, maintenanceController, reconciliation, catchUpHistory, reconstruction, durableReveal, reviewJourneyPrivacy, saveJourneyPrivacy, loadJourneyPrivacyPolicies, restoreJourneyPrivacy, loadJourneyEligibility, loadReplayManifestInput, loadPreparedReplay, saveReplayDraft, resetReplayDraft, preparePrivateReplay, exportPrivateReplay, discardPrivateReplay, findManualJourneyOverlaps, createManualJourney, homeBases, loadJourneyDetail, loadJourneyMediaPage, loadUncertainMemories, saveJourneyCorrection, saveJourneyMemoryCorrection, discardJourneyCorrectionPending, retryJourneyCorrectionProjection, saveConfiguredHomeArea, renameConfiguredHomeArea, removeConfiguredHomeArea, reconstructionController, aiReview, aiProposalController }}>{children}</PhotoAccessContext.Provider>;
+  return <PhotoAccessContext.Provider value={{ snapshot, controller, importCoverage, privateRecord, privateRecordController, maintenance, maintenanceController, reconciliation, catchUpHistory, reconstruction, durableReveal, reviewJourneyPrivacy, saveJourneyPrivacy, loadJourneyPrivacyPolicies, restoreJourneyPrivacy, loadJourneyEligibility, loadReplayManifestInput, loadReplayEditorPreviewPage, loadPreparedReplay, saveReplayDraft, stageReplayWorkingDraft, resetReplayDraft, preparePrivateReplay, exportPrivateReplay, discardPrivateReplay, findManualJourneyOverlaps, createManualJourney, homeBases, loadJourneyDetail, loadJourneyMediaPage, loadUncertainMemories, saveJourneyCorrection, saveJourneyMemoryCorrection, discardJourneyCorrectionPending, retryJourneyCorrectionProjection, saveConfiguredHomeArea, renameConfiguredHomeArea, removeConfiguredHomeArea, reconstructionController, aiReview, aiProposalController }}>{children}</PhotoAccessContext.Provider>;
 }
 
 export function usePhotoAccess() {

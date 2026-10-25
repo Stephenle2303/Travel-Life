@@ -95,18 +95,24 @@ function chapterFor(group: ReplayGroup, memoryKeys: readonly string[]): ReplayCh
   };
 }
 
-export function planPrivateReplay(groups: readonly ReplayGroup[], memories: readonly ReplayMemory[], filter?: ReplayInterval, direction: ReplayDirection = 'oldest-first'): ReplayPlan {
+export function planPrivateReplay(groups: readonly ReplayGroup[], memories: readonly ReplayMemory[], filter?: ReplayInterval, direction: ReplayDirection = 'oldest-first', autoGroupKeys?: readonly string[]): ReplayPlan {
   const ordered = orderedReplayGroups(groups, filter, direction);
   const selected = suggestedReplayGroups(ordered);
   const groupKeys = new Set(selected.map((group) => group.key));
   // Excluded moments remain candidates so the owner can add them back in the
   // optional editor. Their persisted intent only prevents automatic inclusion.
   const candidates = memories.filter((memory) => memory.eligible && memory.available && groupKeys.has(memory.groupKey) && inside(memory.capture, filter));
+  const automaticGroups = new Set(autoGroupKeys ?? []);
   const chapters: ReplayChapter[] = selected.map((group) => {
-    const groupCandidates = candidates.filter((memory) => memory.groupKey === group.key && memory.intent !== 'exclude');
-    const kept = groupCandidates.filter((memory) => memory.intent === 'keep');
-    const automatic = selectReplayMemories(groupCandidates.filter((memory) => memory.intent !== 'keep'));
-    const chosen = [...kept, ...automatic.filter((memory) => !kept.some((keptMemory) => keptMemory.key === memory.key))];
+    const allGroupCandidates = candidates.filter((memory) => memory.groupKey === group.key);
+    // A trip remains Auto until its first direct edit.  Its prior persisted
+    // keep/exclude intent is deliberately ignored while Auto is active, so a
+    // later import can participate without silently changing an edited trip.
+    const chosen = autoGroupKeys
+      ? (automaticGroups.has(group.key) ? selectReplayMemories(allGroupCandidates) : allGroupCandidates.filter((memory) => memory.intent === 'keep'))
+      // Legacy callers retain the old global automatic policy. Repository
+      // reads always provide the scoped set once an editor draft exists.
+      : (() => { const editable = allGroupCandidates.filter((memory) => memory.intent !== 'exclude'); const kept = editable.filter((memory) => memory.intent === 'keep'); const automatic = selectReplayMemories(editable.filter((memory) => memory.intent !== 'keep')); return [...kept, ...automatic.filter((memory) => !kept.some((item) => item.key === memory.key))]; })();
     return chapterFor(group, chosen.map((memory) => memory.key));
   });
   const selectedKeys = new Set(chapters.flatMap((chapter) => chapter.memoryKeys));

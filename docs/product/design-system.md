@@ -56,21 +56,33 @@ is not a remedy for controls whose purpose or target cannot be recognized.
 
 ### Replay Edit: a visual trip editor
 
-Keep the Replay preview and a compact trip strip in context. Selecting a trip
-reveals its photo/video grid directly in the editor, following Journey List's
+Keep saved Replay context while Edit opens a recognizable trip overview. Opening
+a trip reveals its own photo/video gallery, following Journey List's
 `See photos` gallery language. Show recognizable thumbnails, video posters,
 selection checkmarks and a concise selected count. Tap a tile to include/exclude;
 provide a distinct accessible expand control to inspect the item without changing
-selection. Keep Done reachable. Secondary order and soundtrack settings must not
+selection. Keep trip-level Done reachable in a fixed header. Secondary order and soundtrack settings must not
 push media below a wall of text or per-item action buttons.
 
 The grid starts from the current effective private composition, not an empty
 selection or every eligible candidate. Selected means included in the committed
-Replay after Done; explicit choices must not be silently dropped by automatic
+Replay after the overview's Update Replay; explicit choices must not be silently dropped by automatic
 curation. Browse all currently eligible attached candidates for the selected trip
 without mounting or decoding the entire lifetime library. Album membership and
 Replay inclusion remain separate. Reuse gallery patterns, extending video posters
 and selection behavior where existing production components lack them.
+
+Owner-approved review refinement: the selected count opens selected media directly;
+optional Trips jump supports long histories. Restore automatic selection is scoped
+to one trip. Done or Back in a trip acknowledges its draft and returns to the
+overview; Back there preserves working media/music and returns to the saved video.
+Only Update Replay commits all edits and prepares one replacement. Unknown
+candidates remain pageable; album totals and selected counts are distinct. Zero
+selected never hides a populated album. Use one vertical scroll owner with fixed
+safe-area actions; secondary actions belong in overflow rather than clipped rows. Excluded
+trip checks are visibly inactive, and clip inspection identifies the actual used
+segment. Duration extension needs visible honest feedback. Accept self-serve UX
+only after an unassisted owner task on the actual phone layout.
 
 See [decision 0014](../decisions/0014-lean-self-serve-replay-editor.md) and the
 [Replay interaction contract](../../_bmad-output/specs/spec-m4-7-travel-life-replay/interaction-contract.md)

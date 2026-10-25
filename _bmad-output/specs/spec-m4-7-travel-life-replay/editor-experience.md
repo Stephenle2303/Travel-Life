@@ -4,7 +4,11 @@ Derived 2026-10-24 from decision 0014 and the M4.7 memlog. This companion
 expands CAP-5 and supersedes the flat button-list editor presentation. The
 interaction contract still owns service/background behavior; timing and selection
 contracts own frame budgets and automatic curation. The adopted soundtrack spec
-owns music, player mute and month/year direction. Delivery remains in M4.7 D4.
+owns audio validation, player mute and month/year direction. This companion owns
+working/committed lifecycle for every editor field, including soundtrack; Back
+retains acknowledged working choices and Update Replay alone commits. Owner-approved
+review resolutions below supersede earlier conflicting Back/reset guidance.
+Delivery remains in M4.7 D4.
 
 ## User task and references
 
@@ -16,51 +20,36 @@ gallery and inspect/return pattern, extending its missing video posters and
 selection controls. Reuse Living Atlas matte surfaces, citrus action/selection,
 quiet metadata and reachable controls; Atlas-only glass tokens do not spread here.
 
-The normal task is Edit -> select trip if necessary -> toggle media -> Done.
+The normal task is Edit -> overview -> trip -> toggle media -> Done -> overview;
+repeat as desired, then Update Replay once.
 Media inspection, ordering and soundtrack changes are optional, never required
 steps. No technical preparation screen, replacement wizard or instruction wall.
 
-## Screen composition
+## Screen composition and navigation
 
-| Region | Content and behavior |
-| --- | --- |
-| Header | Back, `Edit Replay`; concise saving/failure status only when useful. |
-| Preview | Compact 16:9 last-committed video or its safe poster, paused on entry. A short `Saved preview` label makes pending changes unambiguous. If none is ready, use a neutral preview placeholder, never invented owner imagery. |
-| Trip strip | Horizontally virtualized covers and short labels/time. Clear active trip, inclusion state and accessible `Include trip` toggle. Selecting a trip only changes the grid; it does not implicitly exclude it or reorder chapters. |
-| Current trip | Short title, `8 selected`, optional provisional duration, trip-scoped `Select all` / `Clear`. Duration is an estimate until validated clip durations/output are available. |
-| Media grid | Recognizable photo thumbnails and video posters; selected checkmark/border, separate expand control, video badge and known duration. No per-tile stacks of Add/Replace/Move buttons. |
-| Secondary controls | Compact `Order` and `Music` disclosures; `Reset edits` in overflow. `Order` exposes existing oldest/newest chapter direction and optional within-trip selected-media order. |
-| Footer | Safe-area-aware, reachable primary `Done`. During a pending commit show `Saving…` and suppress duplicate submissions. |
+The owner-approved [trip-first contract](trip-first-editor-contract.md) owns the
+screen layout and navigation. It supersedes the previous inline trip strip:
 
-Initial trip is the currently playing eligible trip; otherwise the last edited
-eligible trip, otherwise the first in presentation order. The player/service
-must supply current chapter identity; never guess from array position. If that
-identity is unavailable, use the latter fallback. Selecting a trip does not seek
-the saved preview implicitly. An explicit Play shows saved content; opening media
-inspection pauses it. No simultaneous preview and inspector playback.
+- Edit opens the virtualized searchable trip overview with recognizable covers,
+  separate album/selected totals, Edited state, inclusion overflow, Music & order
+  and fixed Update Replay footer.
+- Opening a trip shows its All/Selected gallery. Header Back/title/Done and
+  safe-area selected-count/duration footer remain reachable around the grid.
+- Done or native Back in a trip acknowledges working saves and returns to the
+  overview. Back on overview retains the branch and returns to the saved player.
+- Only Update Replay commits the aggregate changes and prepares one replacement.
+  Unchanged composition reuses the verified saved video.
+- The gallery is the only vertical scroll owner. All/Selected is trip-scoped;
+  selected identities are reachable beyond loaded pages. Overflow contains
+  trip-scoped Select all, Restore Auto, Clear and Undo; within-trip ordering is
+  contextual. No unwrapped row of full-size action buttons.
+- Initial gallery is All, including zero-selected trips; each trip retains its
+  tab, scroll anchor and page state independently. Overview can focus the known
+  player chapter or last edited trip, but never guesses chapter identity.
 
-```mermaid
-flowchart TD
-  Watch[Committed Replay] -->|Edit| Editor[Saved preview + trip strip + media grid]
-  Editor -->|Choose trip / toggle media| Working[Durable working revision]
-  Working --> Editor
-  Editor -->|Expand| Inspect[Photo / paused video]
-  Inspect -->|Close| Editor
-  Editor -->|Back: retain working edits| Watch
-  Editor -->|Done: flush + validate + commit| Prepare[Automatic preparation + progress]
-  Prepare -->|Verified current output| Updated[Updated Replay]
-  Prepare -->|Failure: edits remain saved| Recovery[Retry / Edit]
-  Recovery -->|Retry same revision| Prepare
-  Recovery -->|Edit| Editor
-```
-
-Default grid is three columns at normal phone widths. On short/landscape screens
-collapse preview to a poster/header before sacrificing grid space. Large text may
-reduce columns and wrap labels. Use one vertical virtualized grid, not a large
-list nested in another scrolling screen; keep headers/footers integrated with it.
-Main touch targets aim for at least 48dp, including the distinct inspect action.
-Preserve visible media identity when fitting both targets; adjust tile size or
-columns rather than layering tiny overlapping icons.
+No media checkmark/count is inferred from thumbnail availability. Shared album,
+paging, legacy output identity, count domains and E23-E40 are specified in that
+contract and the delivery companion. The invariants below continue to apply.
 
 ## Selection means output
 
@@ -69,6 +58,15 @@ Candidate album, chosen composition and working edits are different sets:
 - Candidate membership comes only from the current policy-visible trip album.
 - On entry, checkmarks use the effective committed chosen manifest, overlaid with
   a recoverable working revision. Do not initialize from every eligible candidate.
+- If the first chosen manifest is not ready, allow trip/grid browsing and media
+  inspection immediately, show `Choosing moments` with progress in the selection
+  region, and mark check states pending rather than unchecked. Disable only
+  selection/order mutations and Update Replay until a versioned chosen set is ready;
+  Back remains available. This lightweight planning does not wait for encoding.
+  Adopt one current snapshot atomically before the first mutation. Planning
+  failure offers Retry while browsing remains available; never freeze an empty or
+  partially chosen set. Stale results are discarded and refreshed under current
+  privacy. A valid recovered working set can be used after the same revalidation.
 - Untouched trips remain automatic. On the first media-content edit in a trip,
   freeze its current effective chosen set as an explicit selection and apply the
   change. Unchosen candidates remain unselected; further taps modify this set.
@@ -76,21 +74,25 @@ Candidate album, chosen composition and working edits are different sets:
 - Explicit selections are stable through replan/restart. Newly attached media is
   browsable but starts unchecked in an explicitly edited trip. Untouched automatic
   trips may be curated again by the existing selector. Reset returns to Auto.
-- Done must render every currently valid explicit selection and no explicit
+- Update Replay must render every currently valid explicit selection and no explicit
   exclusion; the selector cannot silently drop keeps to fit an automatic budget.
   Added memories may extend chapter duration under the timing contract.
 - Trip inclusion and media choices are separate. Excluding a trip retains its
   working choices for re-inclusion and hides it only from this Replay.
+  Show `Not in Replay`, visually muted retained checks with accessible inactive
+  state and a separate Include trip action. Inspection remains available; disable
+  tile selection, Select all/Clear, Restore Auto and media reorder until explicit
+  re-inclusion. Checked retained intent is never presented as active output.
 - An included trip with zero selected media uses the existing honest destination
   card rule. Never backfill it silently. If no trip is included, keep edits and
-  disable Done with `Choose a trip to continue`.
+  disable Update Replay with `Choose a trip to continue`.
 - Identity is trip-plus-media attachment, independent of tile index, page and
   display-token regeneration. A shared asset in two trips has independent intent.
 
 An unavailable explicitly selected item remains marked as selected intent, with
 a warning badge and `Unavailable` state; it is not counted as render-ready.
 Use `8 selected · 1 unavailable` when needed. Do not silently replace/drop it or
-complete Done as if it rendered. Offer contextual removal/retry/access recovery.
+complete Update Replay as if it rendered. Offer contextual removal/retry/access recovery.
 Privacy-revoked media is immediately withheld, including thumbnails and labels;
 only a safe aggregate changed-items notice may remain. Privacy always wins over
 selection persistence. Unknown access is `Checking`, not an empty album.
@@ -101,21 +103,23 @@ selection persistence. Unknown access is `Checking`, not an empty album.
 | --- | --- |
 | Tap tile | Toggle inclusion once; immediate checkmark and count; enqueue ordered local working save. Never trigger an encode. |
 | Expand tile | Open recognizable full-size local photo or paused video. Explicit Play starts video; Back/close restores the same trip, anchor and selection. |
-| Select another trip | Restore that trip's scroll anchor and selection. Retain all other working choices. |
+| Select another trip | Done/Back returns to overview; opening another trip restores its scroll anchor/selection and retains other working choices. |
 | Select all | Include all verified usable attachments in this trip's complete current album, not just loaded/visible cells. Preserve owner ordering; append new members in stable album order. |
 | Clear | Set this trip to explicit empty media selection; keep trip inclusion and destination card. |
-| Done | Flush working saves, revalidate, atomically commit once, return to player, automatically prepare changed output. |
-| Back / native swipe | Retain working edits, return to committed player; no implicit commit, encode or export. If saving failed, retain editor and offer Retry or explicit Discard unsaved changes. |
-| Reset edits | Confirm once, stage automatic defaults for the current Replay scope, clear explicit trip/media ordering and restore default direction/music. Done still applies; Back retains this working reset. Never change original media. |
+| Restore automatic selection | Secondary action for this trip only: stage current automatic selection, clear its media overrides/order, preserve trip inclusion, all other trips, direction and soundtrack. Offer Undo until next mutation or trip exit; no global reset or extra confirmation. Update Replay applies it. |
+| Done trip | Flush/acknowledge working saves and return to overview, without commit or encode. |
+| Update Replay | On overview, flush working saves, revalidate, atomically commit once, return to player, automatically prepare changed output. |
+| Back / native swipe | Retain working edits; gallery returns to overview, overview returns to committed player; no implicit commit, encode or export. If saving failed, retain editor and offer Retry or explicit Discard unsaved changes. |
+| Reset edits | Confirm once, stage automatic defaults for the current Replay scope, clear explicit trip/media ordering and restore default direction/music. Update Replay still applies; Back retains this working reset. Never change original media. |
 
 Select all performs bounded complete-album accounting and access resolution with
 a short progress bar; apply its result atomically against the captured album and
-working revisions. Disable conflicting selection/Done only while that bulk action
+working revisions. Disable conflicting selection/Update Replay only while that bulk action
 settles; navigation/cancel remains available. Cancel, permission loss, incomplete
 read, stale album or draft conflict preserves the previous selection and never
 reports partial success. `Clear` uses the same revision semantics without decoding
 every original. Both are reversible via a transient accessible Undo action, valid
-until the next mutation/Done; Undo restores the exact previous trip intent.
+until the next mutation or trip exit; Undo restores the exact previous trip intent.
 
 Do not count an unknown/unreadable/cloud-only source as usable. No implicit
 download or new permission prompt. Resolve access locally in bounded batches.
@@ -130,6 +134,15 @@ trip's stable loaded/pageable album; selection controls use the same working
 model, never a copied array. If scope changes while open, close/withhold the
 affected item safely. Video pauses on close/background and is silent initially
 for source inspection. This does not change the Replay soundtrack/player mute.
+
+For a selected video, default inspection identifies `Used in Replay` and plays
+exactly its validated chosen start/end interval, stopping at the interval end.
+`View original` is secondary and clearly distinguished. The inspected interval
+is version-bound to the shown composition/working choice; automatic replanning
+cannot silently substitute another interval. For newly added videos, resolve the
+proposed interval locally and show pending until valid; unavailable interval gets
+fixed Retry/Remove recovery and cannot be represented as verified output. Source
+inspection remains possible where permitted. No trim controls are introduced.
 
 Within-trip ordering reveals a strip of selected thumbnails with accessible
 Move earlier/later actions; drag is optional if achievable with existing native
@@ -151,14 +164,27 @@ Working updates are serialized and recoverable independently of the committed
 composition. Rapid taps have deterministic order and latest intent wins; a late
 write cannot overwrite newer choices. Show immediate visual selection, but never
 claim `Saved` before durable acknowledgment. App restart restores acknowledged
-working edits and committed playback separately. Done waits for pending writes.
+working edits and committed playback separately. Update Replay waits for pending writes.
 
 Commit uses compare-and-swap on working/base committed revision plus current
-scope/source/privacy/lifecycle guards. Conflict retains the working version and
-offers Reload/reapply; never overwrite the newer committed draft silently. Unique
-successor remapping may restore intent; ambiguous mappings require owner resolution.
+scope/source/privacy/lifecycle guards. Keep the recoverable local working branch
+before reading a newer base. Automatically reapply only uniquely mapped,
+non-conflicting operations after current-policy validation. Never infer a target
+from labels, dates, thumbnail similarity or array position.
 
-If there are no semantic changes, Done returns without re-rendering. Order-only
+Use a concise `Review changes` entry for unresolved operations, not a technical
+wizard. For ambiguous media/trip mappings, show only permitted context and offer
+`Choose again` into the existing trip/grid or `Discard this edit`. Explicitly
+reselect the target; preserve unaffected edits. For two changes to the same valid
+field/attachment, show the competing permitted choices and offer `Use mine` or
+`Use latest`, followed by revalidation against the newer revision. A vanished or
+privacy-withheld target cannot be restored through Use mine. Do not expose stale
+labels/images to explain a conflict. Keep Update Replay disabled while unresolved intent
+remains; Back preserves the branch without committing. Reload refreshes the base,
+not discard the branch. An explicit `Discard local edits` action confirms loss of
+that branch before replacing it with latest; there is no silent overwrite.
+
+If there are no semantic changes, Update Replay returns without re-rendering. Order-only
 changes reuse safe chapter bytes where supported. A content change invalidates
 affected trip output; soundtrack may require final audio assembly without
 re-encoding unchanged visual chapters. Prior safe output remains leased until
@@ -167,8 +193,8 @@ only valid preview before commit or successful replacement.
 
 After successful commit but failed render, say `Changes saved. Replay couldn’t
 update.` with Retry/Edit. Retry uses the same committed revision. Opening Edit
-mid-preparation is allowed; Done coalesces to the latest revision. Return without
-Done neither promotes working state nor seeds a share selection.
+mid-preparation is allowed; Update Replay coalesces to the latest revision. Return without
+Update Replay neither promotes working state nor seeds a share selection.
 
 ## Progress and concise recovery
 

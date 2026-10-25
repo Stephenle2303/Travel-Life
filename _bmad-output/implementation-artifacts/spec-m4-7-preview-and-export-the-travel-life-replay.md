@@ -5,7 +5,7 @@ created: '2026-10-21'
 updated: '2026-10-23'
 status: 'in-review'
 route: 'dispatch'
-review_loop_iteration: 0
+review_loop_iteration: 1
 baseline_commit: 'bc3c536842d9989ad05687a26645f742ba542528'
 context:
   - '{project-root}/AGENTS.md'
@@ -13,7 +13,97 @@ context:
   - '{project-root}/_bmad-output/specs/spec-m4-7-travel-life-replay/SPEC.md'
 ---
 
+## Owner-approved trip-first update (2026-10-24)
+
+### Trip editor conflict/navigation correction (2026-10-24)
+
+This bounded correction uses the existing CAP-5 delivery and approved trip-first
+mock. Owner requests continued implementation of the reported conflict wording,
+disabled navigation and gallery mismatch. Existing dirty work is preserved;
+no commit, reset, private-data inspection or native rebuild is part of this fix.
+
+Given a working draft, when only the prepared-video cache metadata is saved,
+then its composition revision and recoverable choices remain valid. Given a
+storage failure, when staging choices fails, then show retryable save failure
+rather than alleging another editor changed the Replay. Genuine stale/conflicting
+intent remains gated with explicit local recovery. Given pending saves, when
+Done/Back is tapped, then acknowledge the request and await the complete latest
+queue without duplicating saves or claiming success early. Given the approved
+gallery, when opened, then Back/title/Done stay in a fixed header, All/Selected/
+More lead the grid, and the selected/length summary stays in a fixed footer.
+
+Code map: `reconstruction/repository.ts` owns cache versus composition revisions;
+`photo-access/provider.tsx` owns closed failure classification;
+`components/replay-screen.tsx` owns queue acknowledgement and gallery layout.
+Regression checks use SQLite integration and screen/provider Jest from
+`apps/mobile` with `.jest-cache-codex`, plus typecheck, lint, root check and diff
+review. This is a small reversible correction with no unresolved product choice;
+the BMAD one-shot implementation/review path applies within this delivery record.
+Physical Android/iOS acceptance remains a separate evidence gate.
+
+Implementation/review evidence (completed host correction, 2026-10-25):
+
+- Cache revision continuity and concurrent-write regressions were RED before the
+  fix, then GREEN. Explicit freshness guards use `replay/draft-error.ts`; provider
+  failures retain a closed stage without native messages. Historical mismatches
+  remain owner-resolved; no implicit replacement or destructive migration.
+- Navigation/summary regressions and generic-storage failure regression were RED,
+  then GREEN. New selection/queue tests cover unknown taps, late taps during save
+  waits and failed-save retries. Every `fireEvent.press` in the screen harness is
+  awaited; earlier unawaited events caused false timing failures.
+- Approved mock hierarchy is implemented in overview and gallery. Source review
+  triaged ten initial findings (cache race; stale recovery; recovery serialization;
+  pending selection; inclusion/Auto subset; resolved Select all; cross-trip Undo;
+  Reset music/subset; fixed overview actions; visual overview cues) as real and
+  patched. Five follow-up findings (late selection; retry acknowledgement;
+  competing settings; old-scope preview; current-inclusion Auto) were also real and
+  patched. Final independent scoped pass reports no actionable findings; it is
+  source evidence, not device testing. No reviewed issue was silently deferred.
+- Checks: screen 35, provider 39, SQLite 90, TypeScript/lint, root foundation check,
+  and whitespace pass. Complete mobile coverage run passed 44 suites / 474 tests
+  before the last two focused cases; measured lines 79.51%, statements 73.85%.
+  No native build applies to this JS-only correction. Device layout, restart,
+  two-trip save/reopen and actual native-pending-write behavior remain unverified.
+- Existing unrelated dirty work is retained. No Git checkpoint commit was made
+  because session scope preserves uncommitted work without committing it. The
+  enclosing M4.7 record remains in review pending its broader acceptance gates.
+
+This is the current CAP-5/D4 navigation contract and supersedes inline trip-strip
+and global Done wording in historical amendments below. Owner approved the
+trip-first mock and requested detailed specification. Canonical companions:
+`trip-first-editor-contract.md`, re-derived `editor-experience.md` and
+`editor-delivery-and-acceptance.md` (E01-E40).
+
+Edit -> trip overview -> trip gallery -> Done/Back -> overview; repeat for another
+trip; Update Replay applies the aggregate changes once. Trip Done only acknowledges
+working saves. No-op update reuses current output. Shared effective album reading,
+unknown-media paging, honest count domains and verified rendered selection/interval
+metadata are required. Fixed safe-area actions and overflow prevent cropped rows.
+
+Execute the amendment's five D4 implementation steps and E23-E40 alongside E01-E22
+and existing R gates. Bali/Taiwan parity, responsive viewports and unassisted
+Android/iOS operation remain open. This update changes specifications only;
+mock approval and passing documentation checks are not production acceptance.
+
 ## Owner UX amendment: visual Replay Edit (2026-10-24)
+
+Owner-approved resolution update: the editor companions now resolve all recorded
+review gaps at specification level, with E17-E22 added to E01-E16. Working music
+survives Back; readiness/clip inspection/scoped Auto/Selected and Trips access,
+inactive checks/duration and explicit remap/CAS recovery are concrete. Interaction
+now links to the single detailed editor owner. Historical findings and resolution
+are in the review record below. Actual app implementation and physical unassisted
+UX gates remain open; no second independent-review pass is claimed.
+Resolution checks pass: CAP-1..5 retained, 15 companion paths resolve, E01-E22 are
+present and soundtrack Back semantics agree. Root `npm run check` passes framework
+integrity, 20 foundation tests and eval smoke; scoped diff whitespace passes.
+
+Subsequent independent review is recorded in
+`review-replay-edit-spec-2026-10-24.md`. Main owner requirements are represented,
+but soundtrack Back ownership, pre-manifest checkmarks, remap/CAS recovery,
+excluded-trip checks and duration feedback require clarification before D4
+dispatch. Discovery and unassisted-owner checks also need refinement. Prior
+self-validation is documentation evidence only; review findings remain open.
 
 Detailed CAP-5/D4 contract is now registered in the canonical SPEC through
 `editor-experience.md` and `editor-delivery-and-acceptance.md`. D4.1-D4.5 cover
@@ -639,6 +729,16 @@ The Given/When/Then matrix and AC-M4.7-1/2/3 mapping in verification-contract.md
 
 ## Spec Change Log
 
+2026-10-24 implementation re-derivation after independent review: retained the
+one-action player, privacy/evidence guards, current prepared-artifact work,
+soundtrack/month order and separate sharing. Replaced no code because the reviewed
+tree had no new editor implementation. The canonical M4.7 editor contract now
+requires visual trip/media editing, bounded pages, durable working revisions,
+current manifest readiness, explicit recovery and unassisted owner verification.
+Avoid the reviewed flat text-media list, all-library preview resolution, ephemeral
+selection, cached-preview-without-input, stale soundtrack and candidate-based
+sharing behavior. Re-enter implementation without changing frozen owner intent.
+
 2026-10-22: Re-derived canonical CAP-1..3, added CAP-4 for the omitted publication handoff, and added selection/verification companions. Replaced generic eligibility/limits/export language with exact selection, ordering/membership, file-lifecycle, test-discovery and S0 contracts. Keep private inferred preview, privacy/correction gates, observed destination transitions and explicit separate sharing.
 
 2026-10-22: Owner amended CAP-1 source scope from two strictly ordered observed destinations to the current policy-visible Journey List. One visible trip with usable attached media can prepare Replay; all eligible attached photos/videos enter the selected scope. Existing privacy and correction withholding remains, while Journey List order is explicitly presentation-only.
@@ -649,6 +749,38 @@ preview, explicit full-scope fit limits and separate export. Added D1–D6 depen
 plan and R1–R10 acceptance; no application source/native changes in this task.
 
 ## Review Triage Log
+
+2026-10-24 review loop 1 — **bad_spec / medium**: current Replay source retains
+the prior flat media editor, whole-scope preview resolution, ephemeral selection
+and no trip-level state. The later canonical editor contract makes this a direct
+delivery deviation. Re-derive implementation; preserve current privacy/rendering
+and prepared-artifact behavior while replacing the editor surface and boundaries.
+
+2026-10-24 review loop 1 — **bad_spec / medium**: cached preview entry restores
+no manifest input, so Edit/Share cannot derive current scope; persisted custom
+soundtrack can render as default music and share copy can misstate it. Re-derive
+entry/load state and test it against current scope and committed soundtrack.
+
+2026-10-24 review loop 1 — **bad_spec / medium**: Share currently derives choices
+from all eligible candidates rather than committed Replay composition. Re-derive
+the composition/share boundary so a private removal cannot reappear in exact review.
+
+2026-10-24 review loop 1 — **bad_spec / medium**: Back/restart has no durable
+working revision and errors collapse into generic failure. Re-derive draft CAS,
+current-manifest readiness and concrete remap/conflict recovery; preserve safe
+committed output and never overwrite/restore privacy-withheld intent.
+
+2026-10-24 review loop 1 — **false historical claims**: comments asserting a
+silent-only Replay, 30–60-second total, or all eligible media rendered in pixels
+are superseded by accepted soundtrack and adaptive-curation contracts. Do not add
+those obsolete guards. A selected-media decode-loss failure remains subject to the
+current owner-keep/no-silent-replacement rules, not historic whole-album behavior.
+
+2026-10-24 review loop 1 — **verification gap / patch coverage**: add meaningful
+screen/provider/repository tests for visual trip scope/selection, picker outcomes,
+prepared-artifact reopen/freshness, durable working drafts, shares derived from
+committed composition, selected clip inspection, recovery and unassisted physical
+walkthrough evidence. Existing legacy text-button tests cannot close E01–E22.
 
 Original review: review-m4-7-replay-spec-2026-10-22.md, retained as historical evidence. A1–A10/E1–E9 and structure findings map individually to the revised clauses in verification-contract.md. Resolution means specified, not implemented or independently re-reviewed.
 

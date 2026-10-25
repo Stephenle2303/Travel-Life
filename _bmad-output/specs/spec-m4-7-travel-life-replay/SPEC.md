@@ -12,12 +12,14 @@ companions:
   - chapter-presentation-contract.md
   - editor-experience.md
   - editor-delivery-and-acceptance.md
+  - trip-first-editor-contract.md
   - ../spec-replay-soundtrack-and-month-order/SPEC.md
   - ../spec-replay-soundtrack-and-month-order/behavior-and-acceptance.md
   - ../../../docs/decisions/0009-mlp-lifetime-reveal-and-replay.md
   - ../../../docs/decisions/0014-lean-self-serve-replay-editor.md
   - ../../../docs/product/design-system.md
-sources: []
+sources:
+  - ../../party-mode/replay-edit-trip-first-proposal-2026-10-24.md
 ---
 
 # M4.7 private Travel Life Replay
@@ -25,8 +27,8 @@ sources: []
 ## Why
 
 The owner wants to tap Replay, watch their travels and edit visually when desired.
-The current editor exposes a flat list of media operations without thumbnails or
-trip context. Complete the private Atlas -> Replay -> optional edit -> chosen-share
+The current editor hides unresolved album candidates and mixes trip editing with
+global rendering controls. Complete the private Atlas -> Replay -> optional edit -> chosen-share
 loop with recognizable media, simple navigation, automatic preparation, truthful
 progress and durable owner choices.
 
@@ -46,7 +48,7 @@ progress and durable owner choices.
   - **success:** Exact highlight/Replay selection equality, current eligibility and a new deliberate publish confirmation precede M4.5 upload and M4.6 playback. Missing hosted integration stays pending without blocking local export.
 - **CAP-5**
   - **intent:** The owner can optionally change private Replay content and presentation while keeping control of their travel record.
-  - **success:** Edit retains saved-preview context, browses trips and shows their recognizable photos/video posters with actual-composition checkmarks. Direct selection and separate inspection preserve trip/scroll and durable working intent. Done atomically commits and automatically regenerates with truthful progress; Back retains working choices without committing. Trip/media inclusion, within-trip order, oldest/newest month-year direction and soundtrack stay editable. Explicit choices survive replan/restart and safe remapping; each rendered trip keeps its honest label/time card. Playback requires no editing; evidence, original media and sharing approval never change through Edit.
+  - **success:** Edit opens a trip overview; each trip opens its complete permitted gallery with authoritative composition checkmarks. Done or Back in a trip retains acknowledged working choices and returns to the overview without encoding. Update Replay atomically applies all edits and prepares one verified replacement with truthful progress; no-op updates reuse current output. Unknown candidates stay browseable, zero selected never implies an empty album, and loaded-thumbnail count never replaces album total. Inclusion, inspection, order, direction, soundtrack, restart/remap and retained context remain supported. Evidence, source media and sharing approval never change through Edit.
 
 ## Constraints
 
@@ -56,6 +58,8 @@ progress and durable owner choices.
 - Keep every scoped trip and all eligible attached assets as candidates; automatically choose a diverse meaningful subset for each chapter. Account separately for chosen, editorially not chosen, owner excluded and technically unavailable media; keep the full album intact.
 - Durable private drafts and verified caches stay local. Never persist native source URIs, session tokens, native errors or export approval. Source/lifecycle/privacy changes invalidate immediately; native ownership remains serialized until settlement.
 - All UI builds/rebuilds reference the official design system. Editor candidates are paged/virtualized with bounded thumbnail work; checkmarks mean chosen output, never merely eligibility. Explicit additions cannot be silently omitted or exclusions auto-backfilled. Working preview is clearly distinguished from committed pixels; no per-tap encoding or technical wizard.
+- The owner-approved trip-first-editor-contract.md supersedes the inline trip strip/global Done: one trip task at a time, fixed reachable actions, trip-scoped Done and overview-level Update Replay. Persist verified rendered identities/intervals separately from draft intent; transient preview availability cannot redefine output selection or invalidate a valid saved video.
+- Owner-approved review resolutions govern CAP-5: Back retains working music as well as media; selection waits only for versioned manifest readiness, inspection identifies the used clip, selected-media access and trip-scoped Restore Auto remain direct, excluded checks are inactive, duration extension is visible, and unresolved edits have non-destructive recovery with Update Replay gated. Physical unassisted usability remains an acceptance requirement, not a documentation result.
 - Native scheduling is opportunistic. No permission prompt, cloud download, disabled-maintenance bypass or promise of instant/continuous background rendering. Both-platform production acceptance remains mandatory.
 
 ## Non-goals
@@ -65,9 +69,9 @@ progress and durable owner choices.
 ## Success signal
 
 On physical Android and iOS, tap Replay once and watch; recognize and change
-photo/video inclusion in two trips, Done -> watch the exact updated composition,
+photo/video inclusion in two trips, Done trip -> overview -> Update Replay -> watch the exact updated composition,
 then reopen/restart with edits and current prepared output retained. Record
-E01-E16 and existing R1-R28/AC-M4.7 evidence in the single delivery record, including
+E01-E40 and existing R1-R28/AC-M4.7 evidence in the single delivery record, including
 truthful progress, usable navigation, scheduled/interrupted preparation, privacy
 invalidation, long-sequence recovery and separate exact native sharing. Host checks
 alone do not establish visual usability, native acceptance or selection quality.

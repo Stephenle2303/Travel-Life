@@ -44,6 +44,7 @@ Module._load = function loadNativeBoundary(request, ...arguments_) {
 
 const { createNativeImportRepository, ensureNativeImportSchema } = require(path.join(sourceRoot, 'import-record/repository.ts'));
 const { createNativeReconstructionRepository } = require(path.join(sourceRoot, 'reconstruction/repository.ts'));
+const { ReplayDraftStaleError } = require(path.join(sourceRoot, 'replay/draft-error.ts'));
 const { classifyAppDiagnosticError } = require(path.join(sourceRoot, 'diagnostics/app-diagnostics.ts'));
 
 function syntheticDatabase() {
@@ -173,20 +174,48 @@ test('Replay manifest input follows the completed policy-visible Journey List an
   assert.equal(before.snapshotToken, review.snapshotToken);
   assert.equal(before.groups.length, 2);
   assert.ok(before.groups.every((group) => typeof group.key === 'string' && !group.key.includes('replay-journey')));
+  const firstPreviewPage = await repository.loadReplayEditorPreviewPage([before.memories[0].key], before.snapshotToken, before.privacyRevision);
+  assert.deepEqual(firstPreviewPage.keys, [before.memories[0].key]);
+  assert.equal(firstPreviewPage.previewSourceRefs.length, 1);
   const orderedDraft = [before.memories[1].key, before.memories[0].key];
   await assert.rejects(repository.saveReplayDraft(orderedDraft, before.snapshotToken + 1, before.privacyRevision), /Replay draft is stale/);
   database.sqlite.exec("INSERT INTO replay_draft (record_id, revision, committed_overrides_json, updated_at_millis) VALUES (1, 1, '{\"direction\":\"newest-first\"}', 0)");
   assert.equal((await repository.loadReplayManifestInput()).direction, 'oldest-first');
-  await repository.saveReplayDraft(orderedDraft, before.snapshotToken, before.privacyRevision, 'newest-first');
+  // Working intent survives a reopen, including an intentional empty selection,
+  // without replacing the committed draft.
+  await repository.stageReplayWorkingDraft([], before.snapshotToken, before.privacyRevision, 'oldest-first');
+  const emptyWorking = await repository.loadReplayManifestInput();
+  assert.deepEqual(emptyWorking.workingDraft?.memoryKeys, []);
+  assert.equal(emptyWorking.workingDraft?.baseRevision, 1);
+  assert.equal(emptyWorking.direction, 'oldest-first');
+  await repository.resetReplayDraft(emptyWorking.snapshotToken, emptyWorking.privacyRevision);
+  assert.equal((await repository.loadReplayManifestInput()).workingDraft, undefined);
+  await repository.stageReplayWorkingDraft(orderedDraft, before.snapshotToken, before.privacyRevision, 'newest-first', { kind: 'bundled', revision: 'happy-moments-1.4' }, 1, [before.groups[0].key]);
+  const staged = await repository.loadReplayManifestInput();
+  assert.deepEqual(staged.workingDraft?.memoryKeys, orderedDraft);
+  assert.deepEqual(staged.workingDraft?.includedGroupKeys, [before.groups[0].key]);
+  await assert.rejects(repository.saveReplayDraft(orderedDraft, before.snapshotToken, before.privacyRevision, 'newest-first', undefined, 1), /Replay draft conflict/);
+  await repository.saveReplayDraft(orderedDraft, before.snapshotToken, before.privacyRevision, 'newest-first', undefined, staged.workingDraft?.revision, [before.groups[0].key]);
   const afterDraft = await repository.loadReplayManifestInput();
   assert.equal(afterDraft.memories.filter((memory) => memory.intent === 'keep').length, 2);
   assert.deepEqual(afterDraft.memories.filter((memory) => memory.intent === 'keep').sort((left, right) => (left.order ?? 0) - (right.order ?? 0)).map((memory) => memory.key), orderedDraft);
   assert.equal(afterDraft.direction, 'newest-first');
+  assert.deepEqual(afterDraft.includedGroupKeys, [before.groups[0].key]);
+  assert.equal(afterDraft.groups.find((group) => group.key === before.groups[1].key)?.eligible, false);
   assert.ok(afterDraft.memories.every((memory) => !memory.key.includes('synthetic-source')));
+  assert.equal(afterDraft.workingDraft, undefined);
+  // A missing legacy field retains its automatic default, but an explicitly
+  // persisted empty list means every included trip is manual after reopening.
+  await repository.saveReplayDraft(orderedDraft, afterDraft.snapshotToken, afterDraft.privacyRevision, 'newest-first', undefined, undefined, [before.groups[0].key], []);
+  const committedManual = await repository.loadReplayManifestInput();
+  assert.deepEqual(committedManual.autoGroupKeys, []);
+  await repository.stageReplayWorkingDraft(orderedDraft, committedManual.snapshotToken, committedManual.privacyRevision, 'newest-first', { kind: 'bundled', revision: 'happy-moments-1.4' }, undefined, [before.groups[0].key], []);
+  const workingManual = await repository.loadReplayManifestInput();
+  assert.deepEqual(workingManual.workingDraft?.autoGroupKeys, []);
   await repository.resetReplayDraft(afterDraft.snapshotToken, afterDraft.privacyRevision);
   const resetDraft = await repository.loadReplayManifestInput();
-  assert.ok(resetDraft.memories.every((memory) => memory.intent === undefined && memory.order === undefined));
-  assert.equal(resetDraft.direction, 'oldest-first');
+  assert.deepEqual(resetDraft.memories.filter((memory) => memory.intent === 'keep').sort((left, right) => (left.order ?? 0) - (right.order ?? 0)).map((memory) => memory.key), orderedDraft);
+  assert.equal(resetDraft.direction, 'newest-first');
   // Gallery access can still resolve an asset whose import-time availability is
   // unknown and whose original capture date is absent. Replay must retain that
   // effective attachment for the provider's local access check instead of
@@ -204,6 +233,62 @@ test('Replay manifest input follows the completed policy-visible Journey List an
   // Both synthetic journeys deliberately share the same supporting item. Hiding
   // its first journey suppresses that item from the surviving trip as well.
   assert.equal(hidden.memories.length, 0);
+}));
+
+test('Replay artifact metadata preserves working composition revision and genuine conflicts', async () => withDatabase(async (database) => {
+  const repository = createNativeReconstructionRepository();
+  await prepareConfirmedJourney(database, repository);
+  const before = await repository.loadReplayManifestInput();
+  const selected = [before.memories[0].key];
+  const music = { kind: 'bundled', revision: 'happy-moments-1.4' };
+  const workingRevision = await repository.stageReplayWorkingDraft(selected, before.snapshotToken, before.privacyRevision, 'oldest-first', music);
+  const staged = await repository.loadReplayManifestInput();
+  const artifact = { identity: 'synthetic-composition', cacheVersion: 2, fileKey: 'synthetic-preview.mp4', durationSeconds: 45, renderedMemoryCount: 1 };
+  await repository.saveReplayPreparedArtifact(artifact, before.snapshotToken, before.privacyRevision);
+  const afterArtifact = await repository.loadReplayManifestInput();
+  assert.deepEqual(afterArtifact.preparedArtifact, artifact);
+  assert.deepEqual(afterArtifact.workingDraft, staged.workingDraft);
+  const nextWorkingRevision = await repository.stageReplayWorkingDraft([], before.snapshotToken, before.privacyRevision, 'oldest-first', music, workingRevision);
+  await repository.saveReplayDraft([], before.snapshotToken, before.privacyRevision, 'oldest-first', music, nextWorkingRevision);
+  const committed = await repository.loadReplayManifestInput();
+  assert.equal(committed.workingDraft, undefined);
+  const staleRevision = await repository.stageReplayWorkingDraft(selected, before.snapshotToken, before.privacyRevision, 'oldest-first', music);
+  // A genuine composition change must still invalidate an older working branch;
+  // cache persistence cannot silently rebase or discard that owner's intent.
+  database.sqlite.exec('UPDATE replay_draft SET revision = revision + 1 WHERE record_id = 1');
+  await repository.saveReplayPreparedArtifact(artifact, before.snapshotToken, before.privacyRevision);
+  assert.equal((await repository.loadReplayManifestInput()).workingDraft, undefined);
+  await assert.rejects(repository.stageReplayWorkingDraft(selected, before.snapshotToken, before.privacyRevision, 'oldest-first', music, staleRevision), /Replay draft conflict/);
+}));
+
+for (const existingDraft of [false, true]) test(`Replay artifact write rejects a newer composition after its metadata read (existing draft ${existingDraft})`, async () => withDatabase(async (database) => {
+  const repository = createNativeReconstructionRepository();
+  await prepareConfirmedJourney(database, repository);
+  const before = await repository.loadReplayManifestInput();
+  if (existingDraft) await repository.saveReplayDraft([], before.snapshotToken, before.privacyRevision);
+  const newerOverrides = JSON.stringify({ direction: 'newest-first', directionPreferenceVersion: 1, keptMemoryRefs: [], excludedGroupJourneyIds: [], autoGroupJourneyIds: [] });
+  database.beforeNext(/(?:INSERT INTO|UPDATE) replay_draft/, () => {
+    // Interleave a newer committed composition after the cache method reads its
+    // metadata source, immediately before its eventual SQLite write executes.
+    database.sqlite.prepare('INSERT INTO replay_draft (record_id, revision, committed_overrides_json, updated_at_millis) VALUES (1, 50, ?, 1) ON CONFLICT(record_id) DO UPDATE SET revision = 50, committed_overrides_json = excluded.committed_overrides_json').run(newerOverrides);
+  });
+  const artifact = { identity: 'synthetic-old-composition', cacheVersion: 2, fileKey: 'synthetic-old-preview.mp4', durationSeconds: 45, renderedMemoryCount: 1 };
+  await assert.rejects(repository.saveReplayPreparedArtifact(artifact, before.snapshotToken, before.privacyRevision), /Replay artifact is stale/);
+  const retained = database.sqlite.prepare('SELECT revision, committed_overrides_json FROM replay_draft WHERE record_id = 1').get();
+  assert.equal(retained.revision, 50);
+  assert.equal(retained.committed_overrides_json, newerOverrides);
+}));
+
+test('Replay draft guards distinguish stale intent from native write failures', async () => withDatabase(async (database) => {
+  const repository = createNativeReconstructionRepository();
+  await prepareConfirmedJourney(database, repository);
+  const before = await repository.loadReplayManifestInput();
+  for (const method of ['stageReplayWorkingDraft', 'saveReplayDraft']) {
+    await assert.rejects(repository[method]([], before.snapshotToken + 1, before.privacyRevision), (error) => error instanceof ReplayDraftStaleError && error.code === 'REPLAY_DRAFT_STALE');
+    const nativeFailure = new Error('Synthetic native write failure.');
+    database.failOnce(/INSERT INTO replay_draft/, nativeFailure);
+    await assert.rejects(repository[method]([], before.snapshotToken, before.privacyRevision), (error) => error === nativeFailure && !(error instanceof ReplayDraftStaleError));
+  }
 }));
 
 test('reviewed privacy excludes inputs and membership and preserves failed-write atomicity', async () => withDatabase(async (database) => {

@@ -3,10 +3,11 @@ import { AppState, Text, type AppStateStatus } from 'react-native';
 
 import ManualJourneyRoute from '@/app/manual-journey';
 import { EmptyAtlasScreen, ImportScreen } from '@/components/mobile-screens';
-import { canPublishJourneyDetail, hasVerifiedOwnerPlace, isCurrentDurableRevealRead, PhotoAccessProvider, usePhotoAccess, verifiedOwnerPlaceDisplayId } from '@/photo-access/provider';
+import { canPublishJourneyDetail, hasVerifiedOwnerPlace, isCurrentDurableRevealRead, PhotoAccessProvider, preparedReplayCacheIdentity, replayCompositionGroups, usePhotoAccess, verifiedOwnerPlaceDisplayId } from '@/photo-access/provider';
 import type { PermissionSnapshot, PhotoAccessAdapter } from '@/photo-access/types';
 import type { ImportRepository, MaintenanceRepository } from '@/import-record';
 import { DurableRevealStageError } from '@/reconstruction/repository';
+import { ReplayDraftStaleError } from '@/replay/draft-error';
 import type { DurableRevealRecord } from '@/reveal/types';
 
 const mockRouterPush = jest.fn();
@@ -61,6 +62,75 @@ function stagedFailureRepository(loadDurableReveal: () => Promise<DurableRevealR
 }
 
 describe('photo access provider and Import screen', () => {
+  it('waits for an in-process maintenance write before staging a Replay draft', async () => {
+    let access!: ReturnType<typeof usePhotoAccess>;
+    let releaseMaintenance!: (permission: PermissionSnapshot | null) => void;
+    const maintenanceWrite = new Promise<PermissionSnapshot | null>((resolve) => { releaseMaintenance = resolve; });
+    const adapter = { ...adapterFor({ scope: 'full', canAskAgain: false }), inspect: jest.fn(() => maintenanceWrite) };
+    const stageReplayWorkingDraft = jest.fn(async () => 9);
+    const native = { ...stagedFailureRepository(async () => ({ journeys: [] })), stageReplayWorkingDraft };
+    const Harness = () => { access = usePhotoAccess(); return null; };
+    await render(<PhotoAccessProvider adapter={adapter} repository={emptyRepository} reconstructionRepository={native}><Harness /></PhotoAccessProvider>);
+    await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
+    await waitFor(() => expect(adapter.inspect).toHaveBeenCalled());
+
+    const saving = access.stageReplayWorkingDraft([], 7, 2, 'oldest-first', { kind: 'bundled', revision: 'happy-moments-1.4' });
+    await act(async () => { await Promise.resolve(); });
+    expect(stageReplayWorkingDraft).not.toHaveBeenCalled();
+
+    await act(async () => { releaseMaintenance({ scope: 'full', canAskAgain: false }); });
+    await expect(saving).resolves.toBe(9);
+    expect(stageReplayWorkingDraft).toHaveBeenCalledTimes(1);
+  });
+  it('retains a genuine stale working-draft outcome as a closed conflict stage', async () => {
+    let access!: ReturnType<typeof usePhotoAccess>;
+    const native = { ...stagedFailureRepository(async () => ({ journeys: [] })), stageReplayWorkingDraft: jest.fn(async () => { throw new ReplayDraftStaleError(); }) };
+    const Harness = () => { access = usePhotoAccess(); return null; };
+    await render(<PhotoAccessProvider adapter={adapterFor({ scope: 'full', canAskAgain: false })} repository={emptyRepository} reconstructionRepository={native}><Harness /></PhotoAccessProvider>);
+    await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
+    await expect(access.stageReplayWorkingDraft([], 7, 2, 'oldest-first', { kind: 'bundled', revision: 'happy-moments-1.4' })).rejects.toMatchObject({ stage: 'REPLAY_STALE' });
+  });
+  it('reports a failed working save without claiming a draft conflict or exposing native details', async () => {
+    let access!: ReturnType<typeof usePhotoAccess>;
+    const native = { ...stagedFailureRepository(async () => ({ journeys: [] })), stageReplayWorkingDraft: jest.fn(async () => { throw new Error('synthetic native storage detail'); }) };
+    const Harness = () => { access = usePhotoAccess(); return null; };
+    const diagnostic = jest.spyOn(console, 'info').mockImplementation(() => {});
+    await render(<PhotoAccessProvider adapter={adapterFor({ scope: 'full', canAskAgain: false })} repository={emptyRepository} reconstructionRepository={native}><Harness /></PhotoAccessProvider>);
+    await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
+    await expect(access.stageReplayWorkingDraft([], 7, 2, 'oldest-first', { kind: 'bundled', revision: 'happy-moments-1.4' })).rejects.toMatchObject({ stage: 'REPLAY_UNAVAILABLE', message: 'REPLAY_UNAVAILABLE' });
+    expect(diagnostic).toHaveBeenLastCalledWith('[Travel Life diagnostic]', expect.objectContaining({ operation: 'REPLAY_DRAFT_SAVE', reasonCode: 'UNKNOWN', stage: 'REPLAY_UNAVAILABLE', retryable: true, durableOutcome: 'unchanged' }));
+    expect(JSON.stringify(diagnostic.mock.calls)).not.toContain('synthetic native storage detail');
+    diagnostic.mockRestore();
+  });
+  it('keys a prepared Replay to its committed composition rather than transient editor-preview availability', () => {
+    const input = {
+      snapshotToken: 7,
+      privacyRevision: 2,
+      autoGroupKeys: ['trip'],
+      groups: [{ key: 'trip', label: 'Private journey', inferred: true, eligible: true, orderCertain: false }],
+      memories: [{ key: 'memory', groupKey: 'trip', kind: 'photo' as const, available: false, eligible: true }],
+    };
+    expect(preparedReplayCacheIdentity(input)).toBe(preparedReplayCacheIdentity({ ...input, memories: [{ ...input.memories[0]!, available: true }] }));
+    expect(preparedReplayCacheIdentity(input)).not.toBe(preparedReplayCacheIdentity({ ...input, direction: 'newest-first' }));
+  });
+  it('makes a saved included-trip scope authoritative for Replay composition', () => {
+    const input = {
+      snapshotToken: 7,
+      privacyRevision: 2,
+      includedGroupKeys: ['kept'],
+      groups: [
+        { key: 'kept', label: 'Kept trip', inferred: true, eligible: true, orderCertain: true },
+        { key: 'excluded', label: 'Excluded trip', inferred: true, eligible: true, orderCertain: true },
+      ],
+      memories: [
+        { key: 'kept-memory', groupKey: 'kept', kind: 'photo' as const, available: true, eligible: true },
+        { key: 'excluded-memory', groupKey: 'excluded', kind: 'photo' as const, available: true, eligible: true },
+      ],
+    };
+    expect(replayCompositionGroups(input).filter((group) => group.eligible).map((group) => group.key)).toEqual(['kept']);
+    expect(preparedReplayCacheIdentity(input)).not.toBe(preparedReplayCacheIdentity({ ...input, includedGroupKeys: ['kept', 'excluded'] }));
+  });
+
   it('exposes only the repository replay input while the private record remains current', async () => {
     let access!: ReturnType<typeof usePhotoAccess>;
     const replay = { snapshotToken: 7, privacyRevision: 2, groups: [{ key: 'trip', label: 'Observed destination', interval: { startDay: '2024-01-01', endDay: '2024-01-02' }, inferred: true, eligible: true, orderCertain: true }], memories: [] } as const;
@@ -85,6 +155,42 @@ describe('photo access provider and Import screen', () => {
     expect(resolved).toMatchObject({ memories: [{ key: 'memory', available: true }] });
     expect(resolved.previewSourceRefs).toBeUndefined();
     expect(resolveOwnerPreviews).toHaveBeenCalledWith(['opaque-source'], 1);
+  });
+
+  it('bounds editor-entry local preview resolution without hiding later Replay candidates', async () => {
+    let access!: ReturnType<typeof usePhotoAccess>;
+    const previewSourceRefs = Array.from({ length: 49 }, (_value, index) => `opaque-source-${index + 1}`);
+    const memories = previewSourceRefs.map((_, index) => ({ key: `memory-${index + 1}`, groupKey: 'trip', kind: 'photo' as const, available: true, eligible: true }));
+    const resolveOwnerPreviews = jest.fn(async (refs: (string | null)[]) => refs.map(() => ({ uri: 'file:///private-local.jpg', availability: 'available' as const, kind: 'photo' as const })));
+    const adapter = { ...adapterFor({ scope: 'full', canAskAgain: false }), resolveOwnerPreviews };
+    const replay = { snapshotToken: 7, privacyRevision: 2, previewSourceRefs, groups: [{ key: 'trip', label: 'Private journey', inferred: true, eligible: true, orderCertain: false }], memories };
+    const native = { ...stagedFailureRepository(async () => ({ journeys: [] })), loadReplayManifestInput: jest.fn(async () => replay) };
+    const Harness = () => { access = usePhotoAccess(); return null; };
+    await render(<PhotoAccessProvider adapter={adapter} repository={emptyRepository} reconstructionRepository={native}><Harness /></PhotoAccessProvider>);
+    await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
+    const resolved = await access.loadReplayManifestInput();
+    expect(resolveOwnerPreviews).toHaveBeenCalledWith(previewSourceRefs.slice(0, 48), 48);
+    expect(resolved.memories[0]).toMatchObject({ available: true, previewUri: 'file:///private-local.jpg' });
+    expect(resolved.memories[48]).toMatchObject({ key: 'memory-49', available: true });
+    expect(resolved.memories[48]?.previewUri).toBeUndefined();
+  });
+
+  it('resolves a bounded Replay editor page through the local adapter without exposing source refs', async () => {
+    let access!: ReturnType<typeof usePhotoAccess>;
+    const resolveOwnerPreviews = jest.fn(async () => [{ uri: 'file:///private-page.jpg', availability: 'available' as const, kind: 'photo' as const }, { uri: null, availability: 'unavailable' as const, kind: 'photo' as const }]);
+    const adapter = { ...adapterFor({ scope: 'full', canAskAgain: false }), resolveOwnerPreviews };
+    const native = {
+      ...stagedFailureRepository(async () => ({ journeys: [] })),
+      loadReplayEditorPreviewPage: jest.fn(async () => ({ keys: ['memory-a', 'memory-b'], previewSourceRefs: ['opaque-a', null] })),
+    };
+    const Harness = () => { access = usePhotoAccess(); return null; };
+    await render(<PhotoAccessProvider adapter={adapter} repository={emptyRepository} reconstructionRepository={native}><Harness /></PhotoAccessProvider>);
+    await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
+    await expect(access.loadReplayEditorPreviewPage(['memory-a', 'memory-b'], 7, 2)).resolves.toEqual([
+      { key: 'memory-a', available: true, previewUri: 'file:///private-page.jpg' },
+      { key: 'memory-b', available: false },
+    ]);
+    expect(resolveOwnerPreviews).toHaveBeenCalledWith(['opaque-a', null], 2);
   });
 
   it('keeps the Replay Journey List scope through an unrelated Atlas detail read', async () => {

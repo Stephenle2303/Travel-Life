@@ -17,10 +17,15 @@ earlier agent-selected flat Add/Remove/Replace/Move button-list presentation.
 Replay remains one-action playback with optional Edit and separate deliberate
 sharing. Source media, trip membership, evidence and privacy gates are unchanged.
 
-Concrete design defaults: a compact trip strip opens the selected trip's grid
-inline; tile taps toggle inclusion, a separate expand control opens inspection,
-and Done commits the draft and automatically regenerates the Replay. Secondary
-ordering and soundtrack controls use progressive disclosure. See the existing
+Owner-approved amendment (2026-10-24): Edit opens a trip overview. Each trip opens
+its complete media gallery; tile taps toggle inclusion and a distinct expand
+control opens inspection. Done or Back in the trip retains acknowledged working
+edits and returns to the overview. Only overview-level Update Replay commits all
+edits and prepares one replacement; unchanged output is reused. This supersedes
+the inline trip strip/global Done design. Separate album totals, selected intent
+and rendered selection; unknown candidates remain pageable and zero selected
+never hides a populated album. Fixed safe-area actions and overflow disclosures
+replace clipped rows. Order and soundtrack live once on the overview. See the existing
 [interaction contract](../../_bmad-output/specs/spec-m4-7-travel-life-replay/interaction-contract.md)
 for detailed behavior and acceptance; it remains part of the sole M4.7 delivery.
 

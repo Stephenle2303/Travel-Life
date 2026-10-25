@@ -12,6 +12,8 @@ export type ReplayMemory = Readonly<{
   /** Owner presentation order from the private draft, never observed chronology. */
   order?: number;
   capture?: ReplayInterval;
+  /** A transient, local-only thumbnail for the optional editor. It is never persisted or logged. */
+  previewUri?: string;
 }>;
 export type ReplayGroup = Readonly<{
   key: string;
@@ -72,7 +74,8 @@ export type ReplayManifest = Readonly<{
  * A renderer-only local handle.  It is created by PhotoAccessProvider and must
  * never be placed in React state, diagnostics, or a persisted record.
  */
-export type ReplayRenderSource = Readonly<{ memoryKey: string; groupKey: string; kind: 'photo' | 'video'; uri: string }>;
+/** Video intervals are renderer input, not editable source metadata. */
+export type ReplayRenderSource = Readonly<{ memoryKey: string; groupKey: string; kind: 'photo' | 'video'; uri: string; usedInterval?: Readonly<{ startSeconds: number; endSeconds: number }> }>;
 export type ReplayPreparedPreview = Readonly<{
   uri: string;
   durationSeconds: number;
@@ -82,9 +85,23 @@ export type ReplayPreparedPreview = Readonly<{
 /** Opaque durable-cache metadata. It never contains a media URI or source reference. */
 export type ReplayPreparedArtifactRecord = Readonly<{
   identity: string;
+  /** Version 2 keys the saved file to committed composition, not local preview availability. */
+  cacheVersion?: 2;
   fileKey: string;
   durationSeconds: number;
   renderedMemoryCount: number;
+}>;
+/** Recoverable local editor intent. It never changes the committed Replay alone. */
+export type ReplayWorkingDraft = Readonly<{
+  memoryKeys: readonly string[];
+  /** Included trip keys are independent from the retained per-trip media choices. */
+  includedGroupKeys: readonly string[];
+  /** Trips still using the deterministic automatic choice. Editing one trip removes only that trip from this set. */
+  autoGroupKeys: readonly string[];
+  direction: ReplayDirection;
+  soundtrack: ReplaySoundtrack;
+  baseRevision: number;
+  revision: number;
 }>;
 /**
  * Provider-only current-run input. `previewSourceRefs` is consumed immediately
@@ -97,6 +114,11 @@ export type ReplayManifestInput = Readonly<{
   direction?: ReplayDirection;
   soundtrack?: ReplaySoundtrack;
   preparedArtifact?: ReplayPreparedArtifactRecord;
+  /** Current committed trip scope. Omitted only for legacy drafts (all visible trips). */
+  includedGroupKeys?: readonly string[];
+  /** Current committed automatic-trip scope. Omitted by legacy drafts, which means every included trip is automatic. */
+  autoGroupKeys?: readonly string[];
+  workingDraft?: ReplayWorkingDraft;
   groups: readonly ReplayGroup[];
   memories: readonly ReplayMemory[];
   previewSourceRefs?: readonly (string | null)[];

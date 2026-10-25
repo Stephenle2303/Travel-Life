@@ -23,6 +23,13 @@ a silent fallback when soundtrack preparation fails.
 
 ## Edit Replay and local audio lifecycle
 
+Navigation amendment: owner approved trip-first editing on 2026-10-24. In this
+section, the aggregate commit previously called Done is now overview-level
+Update Replay. Gallery Done only acknowledges working trip edits and returns to
+the overview; it never commits music or encodes. Music/order live on the overview.
+The [trip-first contract](../spec-m4-7-travel-life-replay/trip-first-editor-contract.md)
+owns these navigation boundaries; audio validation/listening rules below remain.
+
 Show Background music, the current track name, Choose audio file and Use default
 music in Edit Replay. Explain the 5 MB limit before opening the system picker.
 Here, upload means local file selection; no server upload occurs.
@@ -35,9 +42,13 @@ under an opaque filename. Picker cancellation, inaccessible/cloud-unavailable
 input, copy failure or decode failure preserves the previous valid selection.
 Display fixed error text without native errors or private paths.
 
-Selecting a track changes an editor draft. Done commits the validated selection
-and causes the next render to use it; Back cancels draft music changes. Restoring
-default follows the same Done/Back behavior. Keep committed imported music across
+Selecting a track changes a recoverable working draft. Update Replay commits the validated
+selection and causes the next render to use it; Back retains acknowledged working
+music changes without changing committed playback. Reopening Edit restores them,
+including after restart. Restoring default follows the same Done/Back behavior.
+The M4.7 trip-first editor owns this working/committed lifecycle; picker
+cancellation preserves the previous working choice. Keep working audio files
+owned by their recoverable revision; Back is not abandonment. Keep committed imported music across
 Replay reopening and app restarts. A missing retained file offers reselection or
 restore-default, without pretending it is still used. Remove abandoned/replaced
 copies safely after active rendering no longer needs them. Disconnect/reset of
@@ -71,7 +82,8 @@ unchanged by the trip sorting fix.
 - Given playback midway through a video, when the speaker is clicked twice, then mute/unmute is immediate, position is retained, and no renderer call occurs.
 - Given valid local audio of exactly 5,000,000 bytes, when Done is saved, then subsequent preview/export use that track and a reopened Replay retains it.
 - Given a larger, zero-byte, unknown-size, inaccessible or undecodable file, when selected, then a fixed error is shown and the previous music remains usable.
-- Given a pending choice, when the picker is cancelled or Edit Back is pressed, then committed music and preview are unchanged.
+- Given a pending choice, when the picker is cancelled, then the prior working choice and committed music/preview are unchanged.
+- Given an acknowledged working soundtrack change, when Edit Back is pressed and Edit is reopened or the app restarted, then the working choice/file remains, committed music/preview are unchanged, and Done alone applies it.
 - Given an imported track, when Use default music and Done are selected, then Happy Moments replaces it on the next render.
 - Given a replacement file with the same display name, when saved, then an old cached artifact is not reused.
 - Given reversed input spanning 2023-12, 2024-01 and 2024-02 with overlaps/uncertain-order flags, when rendered by default, then chapters follow those months ascending.

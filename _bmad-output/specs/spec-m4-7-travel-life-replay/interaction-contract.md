@@ -18,96 +18,26 @@ working/committed, explicit-selection, bulk-action, layout and acceptance detail
 They remain within CAP-5/D4. Later soundtrack/month-order rules override earlier
 silent-only and interval-comparability presentation defaults.
 
-### Owner amendment: visual trip editor (2026-10-24)
+### Owner-approved visual editor contract (2026-10-24)
 
-This amendment and decision 0014 supersede the flat Add/Remove/Replace/Move
-button-list presentation. The media-selection and timing contracts still govern
-curation and duration; later soundtrack/month-order requirements still apply.
+Use [editor-experience.md](editor-experience.md) as the single detailed owner of
+layout, selection readiness, working/committed state, Back/Done, per-trip reset,
+clip inspection and recovery. Its approved resolutions supersede older flat
+Add/Remove/Replace/Move controls and any soundtrack Back-cancels wording.
 
-Replay -> Edit retains a compact paused player/preview, a horizontally browsable
-trip strip with recognizable covers and short place/time labels, and the selected
-trip's media grid below. Start on the currently playing trip, otherwise the last
-edited eligible trip, otherwise the first trip in current presentation order.
-Selecting another trip changes the grid in place without a new navigation step.
-Trip inclusion is a clear secondary toggle on that trip; deselecting it preserves
-its working media choices for re-inclusion. Do not introduce a separate trip
-picker, media-picker wizard or mandatory preview-confirmation screen.
+The owner-approved [trip-first contract](trip-first-editor-contract.md)
+supersedes inline trip-strip/global-Done navigation: Edit opens a trip overview;
+each trip opens its complete All/Selected gallery. Done or Back in a trip retains
+acknowledged working state and returns to overview without encoding. Overview
+Update Replay alone CAS-commits aggregate changes and requests one preparation;
+Back there retains working media, music and order and returns to saved playback.
 
-Use the Journey List `See photos` gallery as the interaction/visual reference:
-three-column responsive grid on normal phone widths, adapted for large text and
-small screens. Each usable item shows an actual local photo thumbnail or video
-poster with a play/duration badge when duration is known. Show a checkmark and
-border for inclusion and expose checkbox semantics and selected state. A tile
-tap toggles inclusion immediately; a distinct accessible expand control opens a
-full-screen photo/video viewer. Closing it restores the same trip, scroll and
-selection. Long press may be a shortcut, never the only way to inspect media.
-Videos do not autoplay throughout the grid.
-
-Selected means included in this private composition after Done, not merely
-eligible or considered by automatic selection. Initialize checkmarks from the
-current effective chosen manifest plus recoverable working overrides; never
-from every eligible album entry. Explicit additions stay included and may extend
-duration under the timing contract. Explicit removals stay excluded on replan.
-Trip-plus-media identity is stable across paging; the same attachment in another
-trip has independent presentation intent. Do not silently fill an owner-emptied
-trip with other images: retain its destination-only card under the existing
-no-memory rule, or let the owner exclude the trip. If every trip is excluded,
-show a concise empty state and disable Done without discarding working choices.
-
-Show a compact `8 selected` count for the current trip. Select all / Clear are
-scoped to that trip's eligible album, including unloaded pages, and are reversible.
-Their count must come from complete accounting, never just visible cells. Keep
-all eligible candidates reachable without a silent cap; page data and virtualize
-the grid, resolving local thumbnails for visible/near-visible tiles rather than
-decoding or mounting the lifetime library. Pending cells retain position and
-show loading; unavailable cells show a fixed state, cannot newly be selected,
-and never expose raw errors. A failed explicitly kept item remains visibly
-unavailable for owner recovery/removal, never silently replaced. Privacy-hidden
-items are withheld immediately, including their thumbnails.
-
-Keep Done reachable in the editor footer. Secondary Music and Order controls
-use compact disclosure; reset is secondary. Within-trip ordering uses a selected
-thumbnail strip on demand with drag plus accessible move actions, rather than
-four buttons on every album tile. Changing album browse order does not change
-the composition; existing oldest/newest chapter direction remains explicit.
-Adding/removing media uses direct selection; no mandatory replacement mode is
-needed to perform those tasks. Avoid crop, trim, effects or arbitrary clip timing
-scope in this amendment.
-
-Save each editor change locally as a recoverable working revision; Done atomically promotes that revision to the active private composition and triggers automatic regeneration. Returning later restores the working revision. Playback and the artifact key continue to use the last committed composition until Done; unsaved work never leaks into export. Back from the editor keeps the working revision without another confirmation dialog. If an automatic source/privacy update makes committed output unsafe, stop it immediately even while editing. Confirm only destructive Reset edits, which creates a new default draft revision; never erase evidence.
-
-Draft changes affect presentation only. Hiding a scene in Replay does not hide a
-journey from Atlas or reject its evidence. Existing journey correction remains
-available as a secondary link and follows its own evidence contract. No synthetic
-labels/dates, clip trimming or arbitrary timing control is introduced here.
-Soundtrack controls follow the later soundtrack/month-order contract.
-
-Done acknowledges the save immediately, then returns to the player and prepares
-the committed composition automatically. Rendering never runs on each tile tap.
-Show an updating progress bar with a measured percentage for determinate work;
-while total work is unknown, show an indeterminate bar and one short activity
-label. Verification remains a truthful final phase; never reset percentages
-without naming the new phase or claim total progress from render-only counts.
-Navigation stays available; background execution follows the service/platform
-lease rules below and never implies unrestricted OS execution.
-
-### Visual editor acceptance (required for D4)
-
-- Recognize a photo and a video before choosing them; inspect either without
-  toggling selection, return to the same grid and change inclusion in one tap.
-- Switch between two trips without losing choices/scroll; the same media attached
-  to both trips keeps independent overrides. Include/exclude a whole trip safely.
-- After automatic curation, checkmarks match actual chosen output, not the whole
-  candidate album. Done output contains explicit additions and omits removals;
-  reopen/restart restores intent without changing Atlas evidence or membership.
-- Page a large synthetic album with bounded mounted cells/thumbnail work and no
-  missing candidates; trip-wide Select all/Clear covers unloaded pages too.
-- Exercise no-media/all-excluded, unavailable kept video, permission loss,
-  interrupted save, draft conflict and render retry without losing safe choices
-  or displaying stale/private thumbnails.
-- Observe genuine preparation/render/verification progress, retained Back context,
-  large text, screen-reader selection and reachable controls on Android and iOS.
-  Source/host checks do not close visual or owner usability acceptance.
+Unknown candidates remain pageable; selection and rendered counts use authoritative
+composition identities rather than partial preview availability. Fixed safe-area
+controls and scoped overflow replace clipped button rows. Existing inspection,
+ordering, Auto, privacy and conflict rules remain. E01-E40 in the editor delivery
+companion require host and physical owner evidence. Service/cache rules below
+continue to apply.
 
 ## Persistent drafts and identity
 
@@ -157,7 +87,8 @@ Keep artifacts leased while a player/native consumer owns them. Evict unleased l
 | Replay entry + miss or pending job | Join/request -> preparing -> rendering -> verifying -> ready -> playing |
 | Repeated Replay or ordinary Atlas read | Join current job; no duplicate render/invalidation |
 | Edit changes | Persist working revision; stop autoplay while editor is open |
-| Done | CAS commit -> invalidate prior draft output -> regenerate -> play on return |
+| Done / Back in trip | Acknowledge working saves -> overview; no commit or render |
+| Update Replay on overview | CAS aggregate commit -> one replacement job -> verify and promote; retain previous safe artifact until replacement |
 | Back from player | Release player/subscription; keep service-owned work/cache |
 | Explicit Stop | Request cancel; terminal state only after native settlement |
 | Background/task expiration | Pause player; continue only with proven lease, else checkpoint and settle |
