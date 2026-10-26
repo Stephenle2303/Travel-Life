@@ -1,5 +1,514 @@
 # Project state
 
+## Replay owner acceptance and local consolidation (2026-10-26)
+
+Owner confirmed that Android trip/media edits, exclusion, custom audio Done and Update/new-video now work. The primary checkout is the accepted implementation. Three detached Replay variants were semantically audited; desired cache-first, chapter-reuse and streamed playback work is already represented by later main code. Each historical HEAD and tracked WIP has a local recovery tag, the exact old Git pointer was retired without deleting source/dependencies, and only primary main remains registered. See `docs/development/replay-worktree-retirement-2026-10-26.md`.
+
+Four review lenses found bounded corrections for post-timeout/fenced scheduler handling, reclaimed failure previews, prior-video lifetime during Re-render and settings Reset order. These are implemented with regressions. Added coverage proves shared edit-session remount retention and rejection/cleanup of invalid copied audio. The detailed release review distinguishes those fixes from deferred native fault recovery, retained Auto on exclude/re-include, overview shortcuts and broader S7/iOS/measured-performance evidence. Owner normal-flow acceptance must not be expanded into those untested claims. Selected-share next-ticket specs and concurrently edited diagnostic-policy guidance stay outside this Replay consolidation commit.
+
+Final consolidation verification: 47 mobile Jest suites / 539 tests, 93 real SQLite tests, TypeScript/lint, root check and whitespace pass. Expo Doctor passed 21/21 with the same dependencies. Reviewed cleanup and scheduler failure-path corrections have host evidence; new physical acceptance is not inferred from the owner's earlier normal-flow confirmation.
+
+## Replay persistence recurrence: confirmed scene mapping defect (2026-10-26)
+
+The owner escalation reopened the edit/save/update acceptance. Previous receipt-reset explanations did not establish the device cause and were corrected in the playbook. Actual SQLite reproduced valid draft staging failing before SQL because owner-entered scene groups were visible in Replay but absent from its writer map. These scenes now retain their stable namespaced identity for included/excluded group persistence; reconstructed scenes without date-support rows reuse the canonical Journey List mapping. No visible scene or eligible media was removed to make the save pass.
+
+Verification: all 45 mobile Jest suites / 515 tests, 91 actual SQLite tests, mobile TypeScript/lint, Expo Doctor 21/21 and root foundation check passed. The new native repository regression covers custom audio, manual scene exclusion/inclusion, consecutive other-trip media editing, order, repository restart and exact commit/readback. Freshness guards now produce fixed diagnostic categories without raw data. A stable Android runtime opens the existing Atlas and plays the current Replay. ADB touch injection is denied, so owner-operated Done and Update/new-video evidence remains pending; initial playback is not claimed as that acceptance. Independent build reviews are running.
+
+### Reviewed escalation follow-up
+
+Build review fixes now preserve caller CAS, remove generic automatic draft reset/retry, and avoid full-manifest hydration when the native map is current. Receipts retain a bounded 32-operation history with actual SQLite idempotency/conflict tests. Check again retains the exact mutation and performs a bounded durable read after native writer settlement, with no repeated mutation and no stale late-callback publication. Music Done captures immutable settings and protects session-owned audio; delayed selection tasks are fenced by restore/scope epochs. Save errors distinguish local failure, conflict and unknown outcome. Thumbnail cache ownership, privacy invalidation, six-lane bounds and same-turn delivery are executed by direct service tests.
+
+Final host evidence after review repairs: 46/46 Jest suites and 526/526 tests, 93/93 real SQLite tests, TypeScript/lint, root check and whitespace checks pass; Expo Doctor passed 21/21 earlier in the unchanged dependency set. The full suite caught eager native video initialization through the provider; lazy loading the poster decoder corrected the router/reduced-motion failures before the final aggregate pass. Two review layers returned actionable findings and were resolved; the third could not complete because of model capacity/account limits, so no clean three-layer pass is claimed. The stable app has been reloaded without data clearing and opened through Atlas to Replay. Owner-operated custom audio Done, consecutive edits and Update/new-video acceptance remain open because the device denies injected touches.
+
+## Replay working-save runtime rehydration (2026-10-26)
+
+The Android device emitted immediate stale working-draft failures after a JS
+runtime reload because visible Edit state survived while the native repository's
+opaque Replay-key map did not. The screen can also retain an earlier working
+revision while its durable local draft is current. Replay stage/commit now
+rehydrate and validate the current native manifest, then use that current
+working revision for the one owner-authorized CAS write. This is not an
+automatic mutation retry. Provider and screen regressions cover runtime
+rehydration, revision reconciliation, and exclude-trip-A then edit-trip-B scope
+retention; mobile TypeScript and lint pass. The development client was restarted
+against Metro 8081 without clearing data. A delayed database-busy writer remains
+an owner-device investigation item.
+
+## Replay Music Done retry completion (2026-10-26)
+
+Music & order Done now actively retries a rejected background soundtrack draft
+write once and closes only after that current choice is acknowledged. This keeps
+the visible local audio selection and the durable Replay setting consistent;
+if retry fails, the sheet stays open with recovery copy.
+
+## Replay large-album preview responsiveness (2026-10-26)
+
+Replay Edit keeps its bounded 48-item gallery pages, but resolves independent
+native preview handles in six ordered local lanes instead of serially. This
+improves opening/loading a large trip without decoding all media or changing
+selection scope. Host regression verifies order and the concurrency cap; actual
+Android/iOS timing remains owner-device acceptance work.
+
+## Replay final-edit snapshot verification (2026-10-26)
+
+Update Replay now takes one complete post-queue owner-edit snapshot and verifies
+the resulting durable manifest before rendering. This prevents an earlier media
+list from being mixed with later trip exclusions, order, or soundtrack changes,
+and fails safely rather than rendering if the readback differs. Provider
+regression covers manual video/media selection and excluded-trip restoration.
+Host checks are pending; owner device playback is still the acceptance evidence.
+
+## Replay custom-audio immediate local readiness (2026-10-26)
+
+After choosing a valid bounded local audio file, Edit Replay now shows Loaded
+as soon as the private file copy has completed rather than waiting behind a
+serialized SQLite working-draft write. The draft write remains background work;
+its fixed retry copy is explicit if it fails, and Done/Update Replay still
+flush it before committing/rendering. Focused screen regression, TypeScript,
+and lint pass. The Android development client requested the refreshed bundle
+from the restored localhost 8081 route; owner-visible timing confirmation is
+still required.
+
+## Replay chapter streaming and reuse (2026-10-25)
+
+Replay automatic rendering now treats each visible trip as a verified private
+chapter. It resolves only the trip currently being rendered, plays the first
+verified chapter immediately, then buffers the remaining chapters and remuxes
+the complete private Replay. Chapter identity excludes the global reconstruction
+generation so an unchanged trip can be reused after another trip changes; it
+retains the exact selected chapter inputs, order, card tokens and fixed video
+format. The final durable file still undergoes current scope/file verification
+before Atlas reopens it, and exact selected sharing retains its all-media access
+gate.
+
+Host evidence: controller/renderer/screen Replay checks pass, including a held
+final-render promise that proves first-trip playback is visible first; TypeScript,
+lint and root `npm run check` pass. This does not measure physical Android/iOS
+latency or prove playback continuity on device. Owner validation after bundle
+reload must cover Update Replay with one changed trip and Atlas -> Replay reuse.
+
+## Replay finalization truthfulness and fullscreen listening (2026-10-25)
+
+Replay now distinguishes a verified first-trip preview from the final private
+Replay: the preview says `First trip ready · finishing X of N`, keeps measured
+progress and withholds Edit, Share and Re-render until the verified final
+artifact replaces it. Partial chapters retain no soundtrack; final assembly
+continues to require the verified AAC stream. The player mute state is lifted
+above presentation and an app-owned fullscreen modal swaps the view while
+retaining that listening state.
+
+The finalization-failure path now keeps an earlier verified Replay private-safe
+and playable, while withholding Share/Edit for the failed replacement. Its
+partial output is neither saved nor offered for sharing. The app ignores stale
+callbacks by preparation generation and clears that retained preview if the
+Journey List scope itself becomes stale.
+
+Host evidence: focused Replay screen, provider and renderer suites pass (97
+tests), as do mobile TypeScript, lint, root `npm run check`, and whitespace
+validation. Android/iOS owner evidence for real audio, fullscreen continuity,
+cache/reopen behavior and aggregate media is still open; host checks do not
+close that acceptance gate.
+
+## Replay trip editor false conflicts and mock alignment (2026-10-25)
+
+Owner's reported “changed somewhere else” wording exposed two confirmed defects:
+cache-only artifact persistence advanced the composition revision, invalidating a
+working branch, and the provider mislabeled every storage rejection as a conflict.
+Artifact writes now preserve composition revisions and compare revision plus source
+JSON before updating, so a concurrent commit cannot be overwritten. Expected stale
+guards use a closed typed error; other save failures remain retryable failures.
+Historical ambiguous draft mismatches still require an explicit owner choice.
+
+The editor now follows the approved trip-first HTML hierarchy: fixed overview
+Back/title and Update footer, visual cover/date/selection/Edited trip rows,
+collapsed Music & order, then gallery Back/title/Done above All/Selected/More and
+the grid, with a fixed selection/length footer. Duplicate footer Done/Back and
+per-tile date text are removed. Done/Back remain reachable during saving and
+acknowledge both pending media resolution and the complete latest save queue.
+Recovery drains prior work, blocks competing edits, reloads current scope and
+confirms intentional working-draft loss. It never renders a replacement by itself.
+Old previews are withheld if restored snapshot/privacy scope differs. Select all,
+trip-local Undo, inclusion/Auto and music-preserving Reset received regression fixes.
+
+On 2026-10-25 the owner reported Done/next still appeared untappable or slow.
+The gallery now gives an immediate fixed `Saving…` acknowledgement at both the
+header and trip summary while it waits for local-media resolution or a durable
+write; it does not present a disabled Done control. After the owner reported it
+still remained in the gallery, Done/Back now return to the overview immediately;
+that overview owns the write's saving/retry/conflict state. The overview explains
+that Update Replay is unavailable until a trip change exists. The exact physical
+latency is still unmeasured: Metro and USB reverse only establish that the device
+can receive the current bundle, not that the owner interaction succeeded.
+
+The owner later reported that excluded Da Nang and Lâm Đồng still appeared after
+Update Replay and that local audio could not be selected. Replay preparation and
+prepared-artifact identity now make the committed included-trip list authoritative,
+so an out-of-date group projection cannot reintroduce excluded trips. The audio
+picker now preserves a validated local track's playable suffix, catches picker and
+copy/probe failures into fixed recovery text, and visibly confirms `Custom audio
+ready` before staging it. Owner device confirmation remains required.
+
+Most recently, an owner-device working-draft save reached the fixed Retry state.
+The exact native failure is still not exposed in the UI and a read-only device-log
+query found no matching entry. Replay draft writes now discard only a recognized
+released SQLite handle after it fails; the owner's explicit Retry then opens a
+fresh connection, never repeats a mutation automatically. Focused Replay/provider
+tests (76), mobile TypeScript/lint, root `npm run check`, and whitespace validation
+pass. A device reload and one retry/save confirmation remain required.
+
+The owner then reported prolonged Saving after small Replay edits. A read-only
+Android log query had no Travel Life replay/database record, so it could not
+identify a native failure. Source tracing confirmed each tap immediately staged a
+full durable draft write; rapid edits could queue behind one another. The editor
+now coalesces a brief burst into one latest-intent write and flushes immediately
+for Done, Update, Back, reset, and Retry. The focused Replay/provider suites now
+pass 77 tests; owner device timing and failed-trip-save confirmation remain open.
+
+After that repair, the owner still could not save or Update a Replay. Process-scoped
+Android logs then identified the fixed `DATABASE_BUSY` category after each draft
+write waited exactly the local SQLite busy timeout. Replay working/committed writes
+now wait for the same foreground-import and maintenance writer barriers used by
+Atlas and privacy mutations, and retain explicit retry rather than repeating an
+owner mutation. The exact lock holder remains unproven; development-runtime reloads
+may retain an earlier native connection until the app is fully closed. Focused
+Replay/provider tests (78), TypeScript, lint, and the root check now pass. Owner confirmation still requires fully closing
+and reopening the development app without clearing storage, then saving one trip
+and returning to the overview; this remains open device work, not a completed fix.
+
+Music & order now has an explicit `Back · Music & order · Done` header. Done
+flushes its working-draft change before closing and keeps the panel open with
+fixed recovery copy if that save fails; it does not generate the Replay itself.
+The targeted screen regression passes. Owner-device confirmation remains required.
+
+The initial Android follow-up was invalid because the development client used
+stale Metro port 8081 rather than the inspected 8085 server. Its cache-cleared
+8081 server, USB-only reverse mapping, IPv4 localhost bridge, and development
+client were refreshed without clearing app data. Metro recorded a fresh
+1,384-module Android bundle from this checkout. The owner still needs to see
+the new loading and loaded-audio states; this delivery-path evidence is not UI
+acceptance.
+
+The custom-audio picker failure is now traced: its copied audio-only file was
+being rejected by a nonessential FFmpeg-duration preflight before the app could
+show `Loaded audio` or stage the choice. Selection now accepts a nonempty,
+bounded private copy; the renderer remains the authoritative decode/encode
+validation point. New closed diagnostics distinguish picker and render outcomes
+without local file data. A focused screen regression makes that metadata probe
+fail while requiring the audio to display and stage; the 40-test Replay screen
+suite plus mobile TypeScript/lint pass. The connected app was force-stopped and
+relaunched with its USB-only 8081 mapping restored, without clearing storage.
+Owner confirmation of selection -> Done -> Update Replay remains required.
+
+Host evidence: all 44 mobile Jest suites / 474 tests passed with coverage; after
+the final acknowledgement refinement, the Replay screen suite passes 35 tests.
+Provider 39 tests, SQLite 90 tests, mobile TypeScript/lint, root `npm run check` and scoped
+whitespace checks pass. Broad coverage was 79.51% lines / 73.85% statements;
+this is measured host coverage, not an 80% coverage or device-acceptance claim.
+Independent source review found ten initial and five follow-up defects; the final
+scoped pass reports no actionable findings in those corrections. No commits,
+publication, APK installation or private-data reset was performed in this task.
+Owner-operated Android/iOS layout and two-trip save/reopen acceptance remain open;
+an actually hung native write has not been reproduced or declared fixed.
+
+## Replay trip save acknowledgement feedback (2026-10-24)
+
+Trip Done and Back now visibly acknowledge their prerequisite local working-draft
+save. While it is running, the gallery shows Saving trip changes and disables
+duplicate navigation. If the write cannot be acknowledged, it remains on the
+same trip with fixed retry/conflict guidance rather than appearing unresponsive
+or pretending the edit was saved. Focused Replay screen checks pass 24 tests,
+as do mobile TypeScript and lint. An owner-device attempt is still needed to
+verify the real SQLite write returns to overview after the current bundle reload.
+
+The owner device surfaced an existing working-draft conflict during Done/Back.
+The gallery now resolves it in place: Use mine clears only the conflicting
+working branch, saves the visible owner selection, and returns to overview;
+Use latest reloads the current composition. This avoids the prior dead end in
+which navigation first retried the conflict it told the owner to resolve.
+
+The owner then reported the same no-return symptom. Done/Back were issuing a
+second working-draft stage after the edit's own stage had already completed,
+which could create an avoidable conflict and placed its recovery at the far end
+of the scroll. They now await the existing queue only, return to the overview
+on acknowledgement, and show retry/conflict controls beside the initiating
+buttons. Focused Replay checks pass 25; refreshed owner-device confirmation is
+still required.
+
+The owner then re-supplied the approved Bali gallery mock and correctly rejected
+the partial implementation. The gallery navigation is now fixed above the
+scrolling visual grid as `Back · trip · Done`; its first scroll content is only
+All, Selected and More. Conflict state is phrased as a local draft mismatch and
+offers Keep (save visible choices) or Discard (restore saved Replay), rather
+than implying another person changed it. Host checks pass; exact device layout
+still requires owner review after Metro reload.
+
+## Replay custom audio persistence correction (2026-10-25)
+
+Audio selection now reports an oversized file immediately, before copying it.
+For an accepted file, the editor says Loading audio, then Saving audio, and only
+says Loaded after the working draft has acknowledged that exact local soundtrack.
+If staging fails it retains the prior soundtrack and reports a local retryable
+failure, so Update Replay cannot silently use an unacknowledged choice. The
+provider now also receives the screen's first-trip-ready callback, which it had
+previously ignored due to an incomplete contract. Replay screen/provider tests
+(84), TypeScript and lint pass. Owner device confirmation after refresh remains
+required for the actual file picker, save time and final rendered soundtrack.
+
+Follow-up: custom Replay audio is now explicitly limited to MP3, M4A, AAC, WAV,
+or OGG, each up to 5 MB; unsupported input receives an inline explanation before
+copying or writing a draft. Update Replay now passes the acknowledged custom
+soundtrack rather than a potentially stale render-frame value. Focused screen,
+provider, and renderer checks pass 93, including a custom-track-to-AAC-mux
+regression. The mobile aggregate script is presently inapplicable in this
+sandbox because Jest cannot write its default Temp transform cache; it fails
+before test collection. Device audio playback remains owner validation work.
+
+Owner investigation reopened the Replay completion model: after Update, the
+app can present a silent first-trip chapter as the private Replay while it is
+still rendering later chapters and the final audio mux in the background. This
+explains a temporarily incomplete selection and missing audio that later become
+correct without another action. The native fullscreen view also omits the
+React-owned speaker overlay. These are confirmed source causes, not an accepted
+experience; no implementation change was made in this investigation. The next
+correction must make partial playback/progress explicit or defer final-ready UI
+until the full verified artifact, and provide mute within fullscreen.
+
+The resulting implementation record is
+[`SPEC-replay-finalization-and-fullscreen-audio`](../../_bmad-output/specs/spec-replay-finalization-and-fullscreen-audio/SPEC.md): progressive first-trip status, immutable aggregate render request, final-audio verification, fullscreen speaker ownership, F01–F10 automated acceptance and Android/iOS owner walkthrough. It is planning only; no runtime, build or device state changed by creating the record.
+
+## Replay trip gallery parity and active-trip preview loading (2026-10-24)
+
+The owner correctly found the current gallery unlike the approved mock: it had
+per-tile Inspect text, too many controls ahead of the media, and could show a
+later trip as unresolved placeholders because the initial preview page was
+spent on other Replay trips. Opening a trip now primes a bounded local preview
+page for that trip. The gallery keeps all candidate tiles visible, has All and
+Selected counts, a compact inspect icon, More for secondary trip actions, and
+Load more with resolved/total progress below the media. Done trip returns to
+the overview; only Update Replay can replace/render the saved Replay. Focused
+Replay checks pass 24 tests plus mobile TypeScript and lint. This has not yet
+been confirmed on the owner device after bundle reload; the physical vertical
+screen stripes in the supplied photo are display-panel damage, separate from
+the app layout issue.
+
+## Android metadata import lifecycle recovery (2026-10-24)
+
+Android photo/video/media-location permissions were already granted, but an
+invalid cached Expo SQLite handle made the private lifecycle read fail and
+caused the Import surface to report no recognized metadata. The native import
+repository now opens the per-runtime connection with `useNewConnection: true`;
+the existing process-wide transaction serializer preserves writer ordering. On
+the same device after a development-client reload, the Import screen showed the
+existing completed metadata record: 2,995 scanned, 1,957 geotagged and 0
+unavailable. No data reset, permission change or new import was performed.
+Focused import/photo-access tests (46), TypeScript, and lint pass. Background
+maintenance's separately tracked native-handle recovery remains unresolved.
+
+## Trip-first Replay Edit implementation (2026-10-24)
+
+The approved Replay Edit flow is now implemented as trip overview -> one-trip
+gallery -> Done/Back -> overview, with one aggregate Update Replay action. The
+gallery retains every eligible candidate before its local preview resolves;
+unknown taps show Checking and only join the selection after usable access.
+Load more and Retry keep previously visible cells. Per-trip Auto/Restore Auto,
+Undo, inclusion and working saves are retained without rendering until Update.
+
+Host evidence: Replay screen regression suite 23/23, SQLite 86/86, mobile
+TypeScript/lint, root `npm run check`, and `git diff --check` pass. Review
+subagents could not run because the account usage limit was reached; this is not
+a clean independent review. Android/iOS owner walkthrough remains required for
+album parity, touch targets, viewport clipping and actual device behavior.
+
+## Background maintenance native-handle error containment (2026-10-24)
+
+The current Android Metro log contains a real background-task SQLite native
+handle rejection, not a Replay screen render error. The task now redacts and
+returns a failed OS-task result instead of leaking raw native details through
+TaskManager. The underlying device-specific `prepareAsync` native rejection is
+still unresolved and maintenance remains retryable/failed until owner-device
+evidence isolates its handle lifecycle; no private database was reset or read.
+
+## Trip-first Replay Edit specification approved (2026-10-24)
+
+Owner approved the trip-first mock and requested its detailed spec. Canonical
+M4.7 CAP-5 now separates overview -> trip gallery -> Done/Back -> overview from
+overview-level Update Replay. The new trip-first-editor-contract.md specifies
+shared effective album reading, unknown-media paging/retry, honest count domains,
+authoritative rendered selection/intervals, safe legacy recovery and aggregate
+commit/render. Existing editor/interaction companions and decision 0014/design
+system reflect that boundary; E23-E40 extend E01-E22 in the sole delivery record.
+This is specification work; production implementation, Bali/Taiwan parity and
+unassisted Android/iOS viewport/flow acceptance remain open.
+
+## Replay Edit owner review reopened (2026-10-24)
+
+Owner reports Bali zero-selection/missing choices, incomplete Taiwan media,
+clipped controls and confusing task scope. Source inspection confirms unknown
+media filtered out before preview paging, no visible page retry and an overflowing
+action row. Exact private Bali record cause is not established. The trip-first
+Party proposal and interactive mock under `_bmad-output/party-mode/` separate
+trip-level Done from aggregate Update Replay. These are proposed for review;
+production correction and owner acceptance remain open. Earlier passing host
+checks do not establish album completeness or usable device layout.
+
+## Replay Edit scroll-owner correction (2026-10-24)
+
+An owner opening Edit exposed a React Native runtime error: the virtualized
+media grid sat inside the design-system vertical ScrollView. Edit now uses one
+vertical FlatList as its screen scroll owner, with the trip/actions header and
+music/navigation footer attached to that list. The horizontal trip strip is
+unchanged. Mobile typecheck/lint and the focused Replay screen suite (21 tests)
+pass; root `npm run check` also passes. The active development build needs an
+owner reload/open of Replay > Edit to establish device behavior.
+
+## Replay prepared-video reuse correction (2026-10-24)
+
+Replay no longer rejects a saved private MP4 because bounded Edit preview
+resolution reports a different transient availability state. New prepared
+artifacts carry a composition-v2 identity based on committed scope, direction,
+soundtrack and replay snapshot; legacy artifacts are locally compatibility-
+checked without rendering. The provider's 37 focused tests, TypeScript and lint
+pass. This is host evidence only: the owner still needs to reopen the existing
+Replay on Android/iOS and confirm that it plays the prior prepared file instead
+of showing render progress.
+
+## Replay Edit completion slice (2026-10-24)
+
+Replay Edit now persists a scoped Auto state per trip alongside included-trip
+scope and recoverable working drafts. A direct media edit, Clear, or Select all
+freezes only that trip; Restore Auto and Undo remain local/recoverable. Select
+all resolves every not-yet-loaded candidate in bounded pages before committing
+one selection, with visible progress, so unloaded items are never silently
+treated as selected. Excluded trips retain their media choices and are also
+excluded from the owner sharing candidate list.
+
+Video inspection stays muted and paused at the renderer's actual start point,
+and its “Used in Replay” interval mirrors the renderer card/frame allocation
+(bounded by local source duration). The renderer accepts a validated interval
+for video sources rather than assuming a separate source edit. Working-draft
+conflicts now enter the fixed Review changes UI with Reload, Use mine, Use
+latest, and Choose again; no native error message crosses the UI.
+
+Host verification: focused Replay tests pass (70), the remaining five mobile
+suites pass, SQLite integration passes (86), TypeScript and lint pass, root
+`npm run check` passes, and `git diff --check` passes. The aggregate mobile
+package script itself remains sandbox-inapplicable because its Jest invocation
+uses the protected Temp cache; repository-local-cache test runs are the valid
+host evidence.
+
+Android owner acceptance is not complete. A real device (2211133G) is
+connected, but the current native debug build cannot finish: after resolving a
+confirmed stale Ninja lock, `:app:buildCMakeDebug[x86_64]` crashes in Ninja
+with native exceptions before a fresh APK is produced. No app was installed,
+no private device data was read or cleared, and no owner walkthrough is
+claimed. iOS owner acceptance is also unverified because this Windows host has
+no iOS device/runtime. The next work is to recover the native CMake/Ninja build
+without deleting unknown state, then have the owner operate the refreshed
+Android and an iOS device through Replay > Edit.
+
+An arm64-only assembly was also attempted for the connected physical phone; it
+ended without a newer APK or installed app, so it does not weaken that native
+build blocker.
+
+For repeatable owner-run device preparation, `apps/mobile/scripts/build-android-device.ps1`
+now runs an arm64-only, single-worker Android build, defaults to the temporary
+legacy architecture override that avoids the known CMake route, refuses to race
+an active known Ninja process, verifies a refreshed APK, and installs only when
+the caller explicitly passes `-Install`. It never clears app data.
+
+The script's first owner-run build was successful but Gradle reported the
+existing APK as up-to-date. Its timestamp-only check incorrectly rejected that
+valid artifact; the script now accepts a nonempty up-to-date APK after Gradle
+success and can continue to the explicit install step.
+
+## Replay Edit durable-working continuation (2026-10-24)
+
+Replay Edit now separates a recoverable working branch from the committed Replay
+inside the native draft store. Schema v36 adds layout-gated working fields;
+working writes and commits run under transactions, commit can compare the
+acknowledged working revision, and a successful commit clears only that branch.
+An intentional empty working selection survives reopen. Back/native navigation
+wait for an acknowledged local save rather than silently claiming retention;
+Reset stages automatic defaults and leaves the saved preview untouched until
+Done. Cached preview entry also hydrates current editor context, and replacement
+keeps the prior verified output until a new output succeeds. Real SQLite (86),
+focused Replay screen/provider (54), mobile typecheck/lint, root `npm run check`, and
+whitespace checks pass. Editor entry now resolves a bounded first 48 local
+preview handles rather than decoding every candidate original, and local video
+tiles generate a paused/muted native poster when supported. The larger D4 scope
+remains open: Replay-specific album paging/virtualization, trip inclusion and
+per-trip Auto modes, used-interval support, conflict-resolution UI, and
+unassisted Android/iOS owner acceptance are not claimed by these checks. The
+editor also has an immediate Selected view that retains the active trip when
+the owner returns to All media; it is not a substitute for required paged
+selection beyond the initial screen. A committed Done now prepares through the
+owner-draft path rather than the selected-share artifact path, so its verified
+replacement remains eligible for private durable replay reuse. Focused Replay
+screen coverage is now 19 tests after that lifecycle regression. The editor's
+three-column grid is now a bounded `FlatList` (12 initial/batch, window 5) and
+the surrounding Screen disables its competing scroll in Edit. It still needs
+native cursor-backed album pages rather than treating the retained manifest
+metadata list as the final paging source.
+
+Trip inclusion is now a distinct durable draft field: excluding a trip leaves
+its selected media choices intact but mutes/locks their checks, while reinclude
+restores them. Done refuses an empty Replay scope. The committed and working
+JSON retain opaque local journey IDs only; a real SQLite regression proves
+working and committed exclusion/reopen behavior. Focused Replay screen coverage
+is 20 tests; SQLite 86, typecheck, lint and whitespace checks pass. Used clip
+intervals, conflict-resolution UI, cursor-backed album pages and physical owner
+acceptance remain open.
+
+The editor now asks the native repository for at most 48 opaque media keys at a
+time when the virtual grid reaches its current page boundary. The repository
+revalidates lifecycle, published run and privacy revision, resolves source refs
+only below the provider boundary, and returns safe local previews keyed by the
+opaque Replay token. Page fetch failure leaves existing cells usable. This is a
+bounded preview-page path, not yet the final cursor-backed metadata album API.
+SQLite 86 and focused Replay screen/provider 56 pass with typecheck, lint and
+whitespace checks.
+
+## Replay Edit visual first slice (2026-10-24)
+
+The mobile Replay editor now keeps its saved preview context while presenting a
+compact trip strip, direct photo/video inclusion grid, local inspection action,
+visible selected count and provisional chapter-duration feedback. Local previews
+are transient only: they are not persisted, logged or included in renderer
+manifests. Existing Done, privacy gates, soundtrack and direction persistence
+remain in place. Focused Replay screen/selection/controller/renderer/provider
+tests (72), real SQLite (86), mobile typecheck/lint, root `npm run check` and
+diff whitespace pass. This is a partial D4 visual slice only: bounded paging,
+video poster extraction, durable working revisions/CAS/remap, trip inclusion,
+selected-only browsing and Android/iOS owner usability evidence remain open.
+The post-slice review also corrected two P0 paths: Done now passes its exact
+committed media selection into preparation, and a stale scope withholds the
+editor's prior media/preview instead of leaving a potentially invalid Edit entry.
+
+## Replay Edit review solutions accepted and specified (2026-10-24)
+
+Owner-approved review solutions are incorporated in M4.7 editor companions:
+Back preserves all acknowledged working changes including music; selection waits
+only for a current chosen manifest; inspector shows the used video interval;
+Selected view, optional Trips jump and trip-scoped Restore Auto simplify access.
+Excluded trips show inactive checks; duration extension is visible. Review changes
+provides explicit remap/conflict recovery while retaining local intent. E17-E22
+extend the acceptance matrix and require an unassisted owner task. Soundtrack
+lifecycle is synchronized and repeated editor detail in interaction is condensed.
+Review gaps are addressed in documentation; implementation and actual Android/iOS
+layout, interaction, performance and self-serve acceptance remain open. Earlier
+review verdict below is historical, not the current contract status.
+
+## Replay Edit specification re-review (2026-10-24)
+
+Three independent BMAD lenses confirm the main owner direction is represented,
+but dispatch readiness remains open. The review records soundtrack Back-policy
+conflict, missing pre-manifest selection readiness, underspecified remap/conflict
+recovery and excluded-trip/duration ambiguity, plus discoverability/verification
+refinements. See the existing M4.7 delivery record and
+`_bmad-output/implementation-artifacts/review-replay-edit-spec-2026-10-24.md`.
+This review does not fix product contracts or app behavior; earlier document
+self-checks did not establish full behavioral coherence or visual usability.
+
 ## Detailed Replay Edit specification (2026-10-24)
 
 The existing M4.7 SPEC retains CAP-1..5 and now registers `editor-experience.md`
@@ -3110,3 +3619,51 @@ cache is ignored and remains local-only. Automated checks and owner-operated
 device flows are recorded against the final candidate commit; no publish,
 worktree retirement, data reset, or performance claim is authorized by this
 consolidation record.
+
+## Replay / Edit Replay experience review (2026-10-26)
+
+Owner requested BMAD party investigation and a coherent solution for slow media/audio loading, consecutive trip edits/exclusions and save-related disabled Update Replay. Review record: `_bmad-output/implementation-artifacts/replay-edit-flow-review-2026-10-26.md`. Source confirms unbounded save dependencies, full-manifest stage preflight, whole-page preview settlement and inconsistent Back boundaries. Existing six-lane preview loading, immediate audio-file readiness and final snapshot readback are retained as partial improvements. The SQLite lock holder remains unknown; the reported device issue is open.
+
+Proposal only: one edit session, one in-flight plus one latest pending save, short owned writer transactions, explicit unknown-outcome reconciliation, Update accepting a request during autosave, viewport-prioritized incremental thumbnails and lean settings subdraft UX. No production implementation, Metro/device operation or storage clearing occurred. Replay screen suite rerun passes 49/49 with 15-second per-test timeout after an initial 5-second cache-open timeout; root check passes. Mock syntax/state checks pass; phone layout and actual latency remain unverified. Next delivery should implement the P0 writer/session boundary and validate device behavior before claiming the save incident resolved.
+
+## Replay save/responsiveness detailed spec (2026-10-26)
+
+Owner requested a detailed spec and implementation plan following the party review. Canonical contract is `_bmad-output/specs/spec-replay-edit-save-and-responsiveness/SPEC.md`, with experience/state, architecture/persistence, implementation, verification and brownfield/precedence companions. Ten capabilities, thirty acceptance cases and eight ordered slices S0-S7 specify owned native writes and receipts, unified edit session/coalescer, exact aggregate Update, incremental thumbnails, audio subdraft/readiness and lean UI. Scoped overrides allow accepting Update during autosave and immediate context navigation, while preserving durable readback and prior privacy/finalization rules.
+
+BMAD decision log and both self-validation passes are recorded; structural source/companion/ID/coverage validation and root check pass. This is planning complete only: no mobile implementation or new device evidence. The lock holder, initial cold screen-test timeout, native thumbnail feasibility and Android/iOS latency/audio/usability remain implementation investigations. No product-blocking question remains; cache/scheduler/latency defaults are explicit engineering targets. Begin S0/S1, then deliver S2/S3 as one coherent correctness increment before exposing the new Update behavior.
+
+## Replay settings acknowledgement and foreground-save follow-up (2026-10-26)
+
+Following owner device feedback, custom-audio selection now finishes when its bounded private copy is verified, rather than awaiting a nonessential native metadata probe. The Music & order sheet remains visible with `Saving audio` until the exact working draft is acknowledged; failure stays in the same sheet with a retryable `Done`, and only a confirmed draft exposes the updated Replay action. Replay working/commit writes no longer wait for entire import or maintenance lifecycles; the existing foreground owned-transaction gate remains the exclusive native serialization boundary. Focused Replay screen and provider suites pass 95 tests, with mobile lint and TypeScript passing. This does not establish real-device render completion or latency; owner testing of edit, Music Done, Update Replay and playback remains required.
+
+## Replay Update route-retention correction (2026-10-26)
+
+Owner testing then showed Update Replay returning to Audit before its new video appeared. The Replay route now retains Android hardware Back and native `beforeRemove` navigation while the committed Update is in its checking/rendering state, so the renderer stays mounted until it resolves to a Replay result. The focused Replay screen suite passes 51 tests, including the checking-state route guard; mobile TypeScript/lint and root `npm run check` pass. This fixes the identified navigation escape but is not owner-device confirmation of successful video rendering; retest Update Replay through to playback on the installed development client.
+
+## Replay Update stale-draft correction (2026-10-26)
+
+The repeat owner test was diagnosed from a clean Android log: the replacement renderer did not start; `REPLAY_DRAFT_SAVE` returned fixed stage `REPLAY_STALE`. The route guard was therefore not the underlying failure. An in-memory working revision can be older after a JS/dev-runtime reload while the durable native working composition remains exactly the owner's visible choice. Commit now rehydrates and uses that matching durable revision, while preserving a hard conflict if any media, included trip, order, or soundtrack differs. The focused provider suite passes 46 tests with a runtime-reload Update regression; mobile TypeScript/lint pass. A device retest is required to establish actual render/playback completion.
+
+## Replay audio Done stale-revision correction (2026-10-26)
+
+Device logs for a new custom audio confirmed copy success but repeated stale failures during working-draft staging. The stale in-memory revision was only rebased if the native opaque mapping was absent; retained mapping did not imply a current JS revision. Working writes now rebase the durable revision whenever an expected revision is present, and commit continues to verify the complete visible composition before rendering. The focused provider suite passes 47 tests, plus mobile TypeScript/lint. Device retest of custom audio Done then Update Replay remains required.
+
+## Replay stale-working-branch recovery (2026-10-26)
+
+The first revision-rebase correction did not unblock the device; repeated audio Done logs still returned stale stage saves after successful local audio copy. This exposed an obsolete native working branch, not an audio import or renderer problem. On exactly one same-scope stale stage failure, the provider now removes only that recoverable working branch and stages the complete visible owner draft anew. Scope change and repeat failure remain safely blocked. Focused provider tests pass 48, with mobile TypeScript/lint; Android confirmation remains pending.
+
+## Replay stale recovery Fast Refresh boundary and error copy (2026-10-26)
+
+The stale working-branch recovery did not execute for a native stale error crossing the development runtime boundary because class identity was no longer stable. The save boundary now recognizes only the fixed stale code as an additional safe identity and invokes the bounded recovery. Music Done explains a changed Journey List, a reconciling draft, or an unsaved device state without exposing native details, and retains the copied audio in the sheet. Focused Replay/provider suites pass 100 tests with mobile TypeScript/lint. Device confirmation remains pending.
+
+## Replay custom-audio device diagnosis (2026-10-26)
+
+The subsequent device log confirms custom audio import completes; persistence alone returns the fixed stale result. No renderer work begins, so this is not a video-render or audio-format failure. The visible Music error now distinguishes the saved local audio copy from the stale Replay edit state and explains the recovery action without raw database details. The cross-runtime stale-code handling and bounded same-scope recovery need an owner retest on the refreshed client.
+
+## Replay stale-recovery checkpoint diagnostics (2026-10-26)
+
+To locate the remaining device-only draft failure without exposing local media or database details, Replay now emits fixed recovery milestones for manifest read, working-branch reset, and replacement stage, plus a completion outcome. The focused provider suite passes 48 tests and mobile TypeScript/lint pass. Owner retest is still required to identify the last reached milestone and apply the targeted persistence repair.
+
+## Replay custom-audio recovery receipt repair (2026-10-26)
+
+The device checkpoint log isolated the remaining failure to the replacement-stage write after a successful local recovery reset. That write reused an obsolete idempotency receipt identity even though its expected revision had changed, so the native receipt contract correctly rejected it. Recovery now uses a fresh operation ID while preserving the same edit session/version and exact visible selection. The provider regression suite passes 49 tests, plus mobile TypeScript/lint. Owner retest remains required for confirmed Android save, Update Replay, and rendered-video playback.

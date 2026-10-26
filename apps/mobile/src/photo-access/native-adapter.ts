@@ -5,6 +5,8 @@ import type { SourceCandidate } from '@/import-record/types';
 import type { PermissionSnapshot, PhotoAccessAdapter, SelectionResult } from './types';
 
 const mediaPermissions = ['photo', 'video'] as const;
+/** Keep the editor responsive without asking the native library for an entire album at once. */
+const OWNER_PREVIEW_CONCURRENCY = 6;
 
 function supported() {
   return Platform.OS === 'ios' || Platform.OS === 'android';
@@ -20,6 +22,55 @@ function mediaLibrary(): typeof import('expo-media-library') {
 function imagePicker(): typeof import('expo-image-picker') {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   return require('expo-image-picker');
+}
+
+async function resolveOwnerPreview(assetId: string | null): Promise<import('./types').OwnerPreview> {
+  if (assetId === null) return { uri: null, availability: 'unavailable', kind: 'photo' };
+  try {
+    const asset = new (mediaLibrary().Asset)(assetId) as { getIsInCloud(): Promise<boolean>; getUri(): Promise<string>; getMediaType(): Promise<string> };
+    const kind = await asset.getMediaType() === 'video' ? 'video' as const : 'photo' as const;
+    // `getIsInCloud` is an iOS-only Expo Media Library API. On Android it
+    // throws before `getUri` can run, which would incorrectly turn every
+    // otherwise accessible local asset into an unavailable gallery slot.
+    if (Platform.OS === 'ios' && await asset.getIsInCloud()) return { uri: null, availability: 'unavailable', kind };
+    return { uri: await asset.getUri(), availability: 'available', kind };
+  } catch { return { uri: null, availability: 'unavailable', kind: 'photo' }; }
+}
+
+/**
+ * Preserve the caller's slot order while resolving a bounded page in small
+ * parallel lanes. The former one-at-a-time loop made large trip galleries wait
+ * for every Media Library hop before the next tile could become usable.
+ */
+const previewTurns: (() => void)[] = [];
+let previewActive = 0;
+const previewInFlight = new Map<string | null, Promise<import('./types').OwnerPreview>>();
+function scheduleOwnerPreview(assetId: string | null) {
+  const existing = previewInFlight.get(assetId); if (existing) return existing;
+  const promise = new Promise<import('./types').OwnerPreview>((resolve) => {
+    const run = () => {
+      previewActive += 1;
+      void resolveOwnerPreview(assetId).then(resolve).finally(() => { previewActive -= 1; previewTurns.shift()?.(); });
+    };
+    if (previewActive < OWNER_PREVIEW_CONCURRENCY) run(); else previewTurns.push(run);
+  });
+  previewInFlight.set(assetId, promise);
+  void promise.finally(() => { if (previewInFlight.get(assetId) === promise) previewInFlight.delete(assetId); });
+  return promise;
+}
+async function resolveOwnerPreviewPage(assetIds: readonly (string | null)[], limit: number, onResolved?: (preview: import('./types').OwnerPreview, index: number) => void) {
+  const requested = assetIds.slice(0, Math.max(0, limit));
+  const previews = new Array<import('./types').OwnerPreview>(requested.length);
+  let nextIndex = 0;
+  const worker = async () => {
+    while (nextIndex < requested.length) {
+      const index = nextIndex++;
+      previews[index] = await scheduleOwnerPreview(requested[index]!);
+      onResolved?.(previews[index]!, index);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(OWNER_PREVIEW_CONCURRENCY, requested.length) }, worker));
+  return previews;
 }
 
 function permissionScope(response: {
@@ -175,23 +226,10 @@ export const nativePhotoAccess: PhotoAccessAdapter = {
     };
   },
 
-  async resolveOwnerPreviews(assetIds, limit) {
+  async resolveOwnerPreviews(assetIds, limit, onResolved) {
     if (!supported()) throw new Error('Native photo library unavailable');
     const permission = await this.inspect();
     if (permission?.scope !== 'full' && permission?.scope !== 'limited') throw new Error('Photo access is not permitted');
-    const previews: import('./types').OwnerPreview[] = [];
-    for (const assetId of assetIds.slice(0, Math.max(0, limit))) {
-      if (assetId === null) { previews.push({ uri: null, availability: 'unavailable', kind: 'photo' }); continue; }
-      try {
-        const asset = new (mediaLibrary().Asset)(assetId) as { getIsInCloud(): Promise<boolean>; getUri(): Promise<string>; getMediaType(): Promise<string> };
-        const kind = await asset.getMediaType() === 'video' ? 'video' as const : 'photo' as const;
-        // `getIsInCloud` is an iOS-only Expo Media Library API. On Android it
-        // throws before `getUri` can run, which would incorrectly turn every
-        // otherwise accessible local asset into an unavailable gallery slot.
-        if (Platform.OS === 'ios' && await asset.getIsInCloud()) { previews.push({ uri: null, availability: 'unavailable', kind }); continue; }
-        previews.push({ uri: await asset.getUri(), availability: 'available', kind });
-      } catch { previews.push({ uri: null, availability: 'unavailable', kind: 'photo' }); }
-    }
-    return previews;
+    return resolveOwnerPreviewPage(assetIds, limit, onResolved);
   },
 };

@@ -7,7 +7,8 @@ import { destinationLabel, type DestinationSupport } from './destination-label';
 import type { DurableRevealRecord, JourneyDetail, RevealMapAnchor } from '@/reveal/types';
 import type { ManualJourneyInput } from '@/import-record/types';
 import { ensureNativeImportSchema } from '@/import-record/repository';
-import { serializeNativeTransactions } from '@/database/native-transaction';
+import { runOwnedTransaction, serializeNativeTransactions } from '@/database/native-transaction';
+import type { ReplayMutation, ReplayMutationReceipt, ReplayReconciliation } from '@/replay/draft-repository-contract';
 import { ReplayDraftStaleError } from '@/replay/draft-error';
 import { createAtlasPhaseProfile, type AtlasPhaseProfile } from '@/diagnostics/atlas-phase-profile';
 import { activePrivacySql, assertPrivacyRevision, reviewedPrivacyIds, type PrivacyRevision, type JourneyPrivacyReview, type JourneyPrivacyPolicy } from '@/history-record/privacy';
@@ -756,6 +757,28 @@ export function createNativeReconstructionRepository() {
     }
   }
 
+  async function validateReplayScope(db: Database, snapshotToken: number | undefined, privacyRevision: number | undefined) {
+    const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
+    const completed = await loadPublishedRun(db);
+    const revision = (await db.getFirstAsync<{ revision: number | null }>('SELECT MAX(revision) AS revision FROM journey_privacy_revision'))?.revision ?? 0;
+    if (lifecycle?.state !== 'connected' || completed?.run_id !== snapshotToken || revision !== privacyRevision) throw new ReplayDraftStaleError('Replay draft is stale.', 'scope', 'scope');
+  }
+  async function findReplayReceipt(db: Database, mutation: ReplayMutation | undefined, kind: string, digest: string) {
+    if (!mutation) return null;
+    const receipt = await db.getFirstAsync<ReplayMutationReceipt>('SELECT * FROM replay_mutation_receipt WHERE operation_id = ?', mutation.operationId);
+    if (receipt && (receipt.payload_digest !== digest || receipt.kind !== kind || receipt.session_id !== mutation.sessionId || receipt.edit_version !== mutation.editVersion)) throw new ReplayDraftStaleError('Replay draft conflict.', 'revision', 'receipt');
+    return receipt;
+  }
+  async function recordReplayReceipt(db: Database, mutation: ReplayMutation | undefined, kind: string, digest: string, snapshotToken: number | undefined, privacyRevision: number | undefined, revision: number) {
+    if (!mutation) return;
+    await db.runAsync('INSERT INTO replay_mutation_receipt (operation_id, session_id, edit_version, kind, payload_digest, snapshot_token, privacy_revision, resulting_revision, created_at_millis) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', mutation.operationId, mutation.sessionId, mutation.editVersion, kind, digest, snapshotToken ?? 0, privacyRevision ?? 0, revision, Date.now());
+    await db.runAsync('UPDATE replay_draft SET working_session_id = ?, working_edit_version = ? WHERE record_id = 1', mutation.sessionId, mutation.editVersion);
+    // A receipt becomes visible only with its settled mutation. The serialized
+    // session cannot start a successor until that result reconciles; retain the
+    // just-written receipt explicitly, including when timestamps tie.
+    await db.runAsync('DELETE FROM replay_mutation_receipt WHERE operation_id <> ? AND operation_id NOT IN (SELECT operation_id FROM replay_mutation_receipt WHERE operation_id <> ? ORDER BY created_at_millis DESC, rowid DESC LIMIT 31)', mutation.operationId, mutation.operationId);
+  }
+
   async function privacyFilter(db: Database, runId: number, policyId?: string) {
     const revision = (await db.getFirstAsync<{ revision: number | null }>('SELECT MAX(revision) AS revision FROM journey_privacy_revision'))?.revision ?? 0;
     const policyRows = (await db.getAllAsync<PrivacyRevision>(activePrivacySql)) ?? [];
@@ -1105,8 +1128,15 @@ export function createNativeReconstructionRepository() {
       const memoryKeyByReference = new Map<string, string>();
       for (const [groupIndex, group] of groups.entries()) {
         const row = rowsByDisplayId.get(group.key);
-        if (!row || filter.blocked.has(row.journey_id)) continue;
-        const selected = displayedJourneys.get(group.key) ?? { runId: completed.run_id, journeyId: row.journey_id };
+        // Owner-entered journeys are valid scene-only Replay groups. They have
+        // no reconstructed support row, but their stable namespaced identity
+        // must round-trip through the same inclusion/exclusion writer map.
+        if (group.state === 'owner-entered') {
+          displayedReplayGroups.set(group.key, group.key);
+          continue;
+        }
+        const selected = displayedJourneys.get(group.key) ?? (row ? { runId: completed.run_id, journeyId: row.journey_id } : undefined);
+        if (!selected || filter.blocked.has(selected.journeyId)) continue;
         displayedJourneys.set(group.key, selected);
         displayedReplayGroups.set(group.key, selected.journeyId);
         const media = await db.getAllAsync<{ evidence_id: string; source_ref: string; captured_day: string | null; availability: 'available' | 'unavailable' | 'unknown'; media_type: 'image' | 'video'; disposition: string | null }>(`SELECT DISTINCT evidence.evidence_id, evidence.source_ref, evidence.captured_day, evidence.availability, evidence.media_type, disposition.disposition_state AS disposition
@@ -1148,6 +1178,21 @@ export function createNativeReconstructionRepository() {
         : undefined;
       return { snapshotToken: completed.run_id, privacyRevision, direction: replayDirection, soundtrack: replaySoundtrack, preparedArtifact, workingDraft, includedGroupKeys, autoGroupKeys, groups, memories, previewSourceRefs };
     },
+    hasReplayMapping(snapshotToken: number, privacyRevision: number) { return displayedReplaySnapshot?.snapshotToken === snapshotToken && displayedReplaySnapshot.privacyRevision === privacyRevision; },
+    async reconcileReplayMutation(mutation: ReplayMutation, snapshotToken: number, privacyRevision: number): Promise<ReplayReconciliation> {
+      const db = await open(); await ensureNativeImportSchema(db);
+      // Never inspect a receipt on a shared connection inside another owner's
+      // uncommitted transaction. This read owns the same settlement gate.
+      return runOwnedTransaction(db, { kind: 'foreground' }, async (db): Promise<ReplayReconciliation> => {
+      try { await validateReplayScope(db, snapshotToken, privacyRevision); } catch { return { kind: 'scope-invalid' }; }
+      const receipt = await db.getFirstAsync<ReplayMutationReceipt>('SELECT * FROM replay_mutation_receipt WHERE operation_id = ?', mutation.operationId);
+      if (!receipt) return { kind: 'outcome-unknown' };
+      if (receipt.session_id !== mutation.sessionId || receipt.edit_version !== mutation.editVersion || receipt.snapshot_token !== snapshotToken || receipt.privacy_revision !== privacyRevision) return { kind: 'conflict' };
+      const current = await db.getFirstAsync<{ revision: number; working_revision: number; working_session_id: string | null; working_edit_version: number }>('SELECT revision, working_revision, working_session_id, working_edit_version FROM replay_draft WHERE record_id = 1');
+      if (!current || (receipt.kind === 'commit' ? current.revision !== receipt.resulting_revision : current.working_revision !== receipt.resulting_revision) || current.working_session_id !== mutation.sessionId || current.working_edit_version !== mutation.editVersion) return { kind: 'conflict' };
+      return { kind: 'acknowledged', revision: receipt.resulting_revision };
+      });
+    },
     /** Resolves one bounded editor page without exposing native source references to React. */
     async loadReplayEditorPreviewPage(memoryKeys: readonly string[], snapshotToken: number, privacyRevision: number) {
       if (memoryKeys.length > 48) throw new Error('Replay editor page is too large.');
@@ -1169,63 +1214,65 @@ export function createNativeReconstructionRepository() {
       await assertPrivacyReadCurrent(db, privacyRevision);
       return { keys: [...memoryKeys], previewSourceRefs };
     },
-    async saveReplayDraft(memoryKeys: readonly string[], snapshotToken?: number, privacyRevision?: number, direction: import('@/replay/types').ReplayDirection = 'oldest-first', soundtrack?: import('@/replay/types').ReplaySoundtrack, expectedWorkingRevision?: number, includedGroupKeys?: readonly string[], autoGroupKeys?: readonly string[]) {
+    async saveReplayDraft(memoryKeys: readonly string[], snapshotToken?: number, privacyRevision?: number, direction: import('@/replay/types').ReplayDirection = 'oldest-first', soundtrack?: import('@/replay/types').ReplaySoundtrack, expectedWorkingRevision?: number, includedGroupKeys?: readonly string[], autoGroupKeys?: readonly string[], mutation?: ReplayMutation): Promise<void> {
       return replayDraftWrite(async () => {
       const db = await open(); await ensureNativeImportSchema(db);
       const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
-      if (lifecycle?.state !== 'connected') throw new ReplayDraftStaleError();
+      if (lifecycle?.state !== 'connected') throw new ReplayDraftStaleError('Replay draft is stale.', 'scope', 'scope');
       const completed = await loadPublishedRun(db);
       const currentPrivacyRevision = (await db.getFirstAsync<{ revision: number | null }>('SELECT MAX(revision) AS revision FROM journey_privacy_revision'))?.revision ?? 0;
-      if (!displayedReplaySnapshot || snapshotToken !== displayedReplaySnapshot.snapshotToken || privacyRevision !== displayedReplaySnapshot.privacyRevision || completed?.run_id !== snapshotToken || currentPrivacyRevision !== privacyRevision) throw new ReplayDraftStaleError();
+      if (!displayedReplaySnapshot || snapshotToken !== displayedReplaySnapshot.snapshotToken || privacyRevision !== displayedReplaySnapshot.privacyRevision) throw new ReplayDraftStaleError('Replay draft is stale.', 'scope', 'mapping');
+      if (completed?.run_id !== snapshotToken || currentPrivacyRevision !== privacyRevision) throw new ReplayDraftStaleError('Replay draft is stale.', 'scope', 'scope');
       const keptMemoryRefs = memoryKeys.map((key) => displayedReplayMemories.get(key)).filter((value): value is { journeyId: string; evidenceId: string } => Boolean(value)).map((value) => JSON.stringify([value.journeyId, value.evidenceId]));
-      if (keptMemoryRefs.length !== memoryKeys.length) throw new ReplayDraftStaleError();
+      if (keptMemoryRefs.length !== memoryKeys.length) throw new ReplayDraftStaleError('Replay draft is stale.', 'scope', 'memory');
       const excludedMemoryRefs = [...displayedReplayMemories.values()].map((value) => JSON.stringify([value.journeyId, value.evidenceId])).filter((reference) => !keptMemoryRefs.includes(reference));
       const included = new Set(includedGroupKeys ?? [...displayedReplayGroups.keys()]);
-      if ([...included].some((key) => !displayedReplayGroups.has(key))) throw new ReplayDraftStaleError();
+      if ([...included].some((key) => !displayedReplayGroups.has(key))) throw new ReplayDraftStaleError('Replay draft is stale.', 'scope', 'group');
       const excludedGroupJourneyIds = [...displayedReplayGroups.entries()].filter(([key]) => !included.has(key)).map(([, journeyId]) => journeyId);
       const automatic = new Set(autoGroupKeys ?? included);
-      if ([...automatic].some((key) => !included.has(key))) throw new ReplayDraftStaleError();
+      if ([...automatic].some((key) => !included.has(key))) throw new ReplayDraftStaleError('Replay draft is stale.', 'scope', 'automatic');
       const autoGroupJourneyIds = [...displayedReplayGroups.entries()].filter(([key]) => automatic.has(key)).map(([, journeyId]) => journeyId);
-      await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
-      try {
+      const digest = JSON.stringify([memoryKeys, snapshotToken, privacyRevision, direction, soundtrack, expectedWorkingRevision, includedGroupKeys, autoGroupKeys]);
+      return runOwnedTransaction(db, { kind: 'foreground' }, async (db) => {
+        await validateReplayScope(db, snapshotToken, privacyRevision);
+        const receipt = await findReplayReceipt(db, mutation, 'commit', digest);
+        if (receipt) return undefined;
         const current = await db.getFirstAsync<{ revision: number; working_base_revision: number | null; working_revision: number }>('SELECT revision, working_base_revision, working_revision FROM replay_draft WHERE record_id = 1');
-        if (expectedWorkingRevision !== undefined && (!current || current.working_base_revision !== current.revision || current.working_revision !== expectedWorkingRevision)) throw new ReplayDraftStaleError('Replay draft conflict.');
+        if (expectedWorkingRevision !== undefined && (!current || current.working_base_revision !== current.revision || current.working_revision !== expectedWorkingRevision)) throw new ReplayDraftStaleError('Replay draft conflict.', 'revision', 'revision');
         await db.runAsync('INSERT INTO replay_draft (record_id, revision, committed_overrides_json, working_overrides_json, working_base_revision, working_revision, updated_at_millis) VALUES (1, ?, ?, NULL, NULL, ?, ?) ON CONFLICT(record_id) DO UPDATE SET revision = excluded.revision, committed_overrides_json = excluded.committed_overrides_json, working_overrides_json = NULL, working_base_revision = NULL, working_revision = excluded.working_revision, updated_at_millis = excluded.updated_at_millis', (current?.revision ?? 0) + 1, JSON.stringify({ keptMemoryRefs, excludedMemoryRefs, excludedGroupJourneyIds, autoGroupJourneyIds, orderedMemoryRefs: keptMemoryRefs, direction: direction === 'newest-first' ? 'newest-first' : 'oldest-first', directionPreferenceVersion: 1, soundtrack }), current?.working_revision ?? 0, Date.now());
-        await db.execAsync('COMMIT');
-      } catch (error) {
-        try { await db.execAsync('ROLLBACK'); } catch { /* Keep the primary failure. */ }
-        throw error;
-      }
+        await recordReplayReceipt(db, mutation, 'commit', digest, snapshotToken, privacyRevision, (current?.revision ?? 0) + 1);
+      });
       });
     },
-    async stageReplayWorkingDraft(memoryKeys: readonly string[], snapshotToken?: number, privacyRevision?: number, direction: import('@/replay/types').ReplayDirection = 'oldest-first', soundtrack: import('@/replay/types').ReplaySoundtrack = { kind: 'bundled', revision: 'happy-moments-1.4' }, expectedWorkingRevision?: number, includedGroupKeys?: readonly string[], autoGroupKeys?: readonly string[]) {
+    async stageReplayWorkingDraft(memoryKeys: readonly string[], snapshotToken?: number, privacyRevision?: number, direction: import('@/replay/types').ReplayDirection = 'oldest-first', soundtrack: import('@/replay/types').ReplaySoundtrack = { kind: 'bundled', revision: 'happy-moments-1.4' }, expectedWorkingRevision?: number, includedGroupKeys?: readonly string[], autoGroupKeys?: readonly string[], mutation?: ReplayMutation) {
       return replayDraftWrite(async () => {
       const db = await open(); await ensureNativeImportSchema(db);
       const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
       const completed = await loadPublishedRun(db);
       const currentPrivacyRevision = (await db.getFirstAsync<{ revision: number | null }>('SELECT MAX(revision) AS revision FROM journey_privacy_revision'))?.revision ?? 0;
-      if (lifecycle?.state !== 'connected' || !displayedReplaySnapshot || snapshotToken !== displayedReplaySnapshot.snapshotToken || privacyRevision !== displayedReplaySnapshot.privacyRevision || completed?.run_id !== snapshotToken || currentPrivacyRevision !== privacyRevision) throw new ReplayDraftStaleError();
+      if (lifecycle?.state !== 'connected' || completed?.run_id !== snapshotToken || currentPrivacyRevision !== privacyRevision) throw new ReplayDraftStaleError('Replay draft is stale.', 'scope', 'scope');
+      if (!displayedReplaySnapshot || snapshotToken !== displayedReplaySnapshot.snapshotToken || privacyRevision !== displayedReplaySnapshot.privacyRevision) throw new ReplayDraftStaleError('Replay draft is stale.', 'scope', 'mapping');
       const keptMemoryRefs = memoryKeys.map((key) => displayedReplayMemories.get(key)).filter((value): value is { journeyId: string; evidenceId: string } => Boolean(value)).map((value) => JSON.stringify([value.journeyId, value.evidenceId]));
-      if (keptMemoryRefs.length !== memoryKeys.length) throw new ReplayDraftStaleError();
+      if (keptMemoryRefs.length !== memoryKeys.length) throw new ReplayDraftStaleError('Replay draft is stale.', 'scope', 'memory');
       const included = new Set(includedGroupKeys ?? [...displayedReplayGroups.keys()]);
-      if ([...included].some((key) => !displayedReplayGroups.has(key))) throw new ReplayDraftStaleError();
+      if ([...included].some((key) => !displayedReplayGroups.has(key))) throw new ReplayDraftStaleError('Replay draft is stale.', 'scope', 'group');
       const excludedGroupJourneyIds = [...displayedReplayGroups.entries()].filter(([key]) => !included.has(key)).map(([, journeyId]) => journeyId);
       const automatic = new Set(autoGroupKeys ?? included);
-      if ([...automatic].some((key) => !included.has(key))) throw new ReplayDraftStaleError();
+      if ([...automatic].some((key) => !included.has(key))) throw new ReplayDraftStaleError('Replay draft is stale.', 'scope', 'automatic');
       const autoGroupJourneyIds = [...displayedReplayGroups.entries()].filter(([key]) => automatic.has(key)).map(([, journeyId]) => journeyId);
-      await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
-      try {
+      const digest = JSON.stringify([memoryKeys, snapshotToken, privacyRevision, direction, soundtrack, expectedWorkingRevision, includedGroupKeys, autoGroupKeys]);
+      return runOwnedTransaction(db, { kind: 'foreground' }, async (db) => {
+        await validateReplayScope(db, snapshotToken, privacyRevision);
+        const receipt = await findReplayReceipt(db, mutation, 'stage', digest);
+        if (receipt) return receipt.resulting_revision;
         const current = await db.getFirstAsync<{ revision: number; committed_overrides_json: string; working_base_revision: number | null; working_revision: number }>('SELECT revision, committed_overrides_json, working_base_revision, working_revision FROM replay_draft WHERE record_id = 1');
-        if (expectedWorkingRevision !== undefined && (current?.working_revision ?? 0) !== expectedWorkingRevision) throw new ReplayDraftStaleError('Replay draft conflict.');
-        if (current?.working_base_revision !== null && current?.working_base_revision !== undefined && current.working_base_revision !== current.revision) throw new ReplayDraftStaleError('Replay draft conflict.');
+        if (expectedWorkingRevision !== undefined && (current?.working_revision ?? 0) !== expectedWorkingRevision) throw new ReplayDraftStaleError('Replay draft conflict.', 'revision', 'revision');
+        if (current?.working_base_revision !== null && current?.working_base_revision !== undefined && current.working_base_revision !== current.revision) throw new ReplayDraftStaleError('Replay draft conflict.', 'branch', 'branch');
         const baseRevision = current?.revision ?? 0;
         await db.runAsync('INSERT INTO replay_draft (record_id, revision, committed_overrides_json, working_overrides_json, working_base_revision, working_revision, updated_at_millis) VALUES (1, ?, ?, ?, ?, ?, ?) ON CONFLICT(record_id) DO UPDATE SET working_overrides_json = excluded.working_overrides_json, working_base_revision = excluded.working_base_revision, working_revision = excluded.working_revision, updated_at_millis = excluded.updated_at_millis', baseRevision, current?.committed_overrides_json ?? '{}', JSON.stringify({ keptMemoryRefs, excludedGroupJourneyIds, autoGroupJourneyIds, direction, soundtrack }), baseRevision, (current?.working_revision ?? 0) + 1, Date.now());
-        await db.execAsync('COMMIT');
+        await recordReplayReceipt(db, mutation, 'stage', digest, snapshotToken, privacyRevision, (current?.working_revision ?? 0) + 1);
         return (current?.working_revision ?? 0) + 1;
-      } catch (error) {
-        try { await db.execAsync('ROLLBACK'); } catch { /* Keep the primary failure. */ }
-        throw error;
-      }
+      });
       });
     },
     async resetReplayDraft(snapshotToken?: number, privacyRevision?: number) {

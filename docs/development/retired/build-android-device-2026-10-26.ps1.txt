@@ -1,0 +1,53 @@
+[CmdletBinding()]
+param(
+  [switch]$Install,
+  [switch]$NewArchitecture
+)
+
+$ErrorActionPreference = 'Stop'
+
+$mobileRoot = Split-Path -Parent $PSScriptRoot
+$androidRoot = Join-Path $mobileRoot 'android'
+$apkPath = Join-Path $androidRoot 'app\build\outputs\apk\debug\app-debug.apk'
+$adbPath = Join-Path $env:LOCALAPPDATA 'Android\Sdk\platform-tools\adb.exe'
+
+if (-not (Test-Path -LiteralPath $androidRoot)) { throw "Android project not found: $androidRoot" }
+if ($Install -and -not (Test-Path -LiteralPath $adbPath)) { throw "adb.exe was not found at $adbPath" }
+
+$activeNinja = Get-CimInstance Win32_Process -Filter "Name = 'ninja.exe'" -ErrorAction SilentlyContinue |
+  Where-Object { $_.CommandLine -like "*$androidRoot*" }
+if ($activeNinja) {
+  $ids = ($activeNinja | Select-Object -ExpandProperty ProcessId) -join ', '
+  throw "A Travel Life Ninja build is still active (PID: $ids). Let it finish or stop that known build before retrying."
+}
+
+$before = if (Test-Path -LiteralPath $apkPath) { (Get-Item -LiteralPath $apkPath).LastWriteTimeUtc } else { [datetime]::MinValue }
+$gradleArgs = @(':app:assembleDebug', '-PreactNativeArchitectures=arm64-v8a', '--no-daemon', '--max-workers=1', '--console=plain')
+if (-not $NewArchitecture) { $gradleArgs += '-PnewArchEnabled=false' }
+
+Push-Location $androidRoot
+try {
+  & .\gradlew.bat @gradleArgs
+  if ($LASTEXITCODE -ne 0) { throw "Gradle exited with code $LASTEXITCODE." }
+} finally {
+  Pop-Location
+}
+
+if (-not (Test-Path -LiteralPath $apkPath)) { throw "Gradle completed but no debug APK was produced: $apkPath" }
+$apk = Get-Item -LiteralPath $apkPath
+if ($apk.Length -le 0) { throw "The debug APK is empty: $apkPath" }
+if ($apk.LastWriteTimeUtc -le $before) {
+  # Gradle's UP-TO-DATE result is valid: the APK still corresponds to the
+  # current native inputs and can be installed for a Metro-backed debug run.
+  Write-Host "Reusing up-to-date arm64 debug APK: $($apk.FullName)"
+} else {
+  Write-Host "Built fresh arm64 debug APK: $($apk.FullName)"
+}
+
+if ($Install) {
+  & $adbPath devices
+  if ($LASTEXITCODE -ne 0) { throw 'ADB device discovery failed.' }
+  & $adbPath install -r $apk.FullName
+  if ($LASTEXITCODE -ne 0) { throw "APK installation failed with code $LASTEXITCODE." }
+  Write-Host 'Installed without clearing app data.'
+}

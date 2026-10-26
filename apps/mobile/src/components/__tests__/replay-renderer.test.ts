@@ -24,6 +24,15 @@ describe('Replay renderer gate', () => {
     const args = jest.mocked(execute).mock.calls.map(([arguments_]) => arguments_).find((arguments_) => arguments_.includes('-stream_loop'));
     expect(args).toEqual(expect.arrayContaining(['-map', '0:v:0', '1:a:0', '-c:v', 'copy', '-c:a', 'aac', '-t', '3.000000', 'volume=0.25,afade=t=in:st=0:d=1.000000,afade=t=out:st=2.000000:d=1.000000']));
   });
+  it('muxes a saved custom track into the verified AAC Replay output', async () => {
+    jest.mocked(execute).mockResolvedValue({ success: true } as never);
+    jest.mocked(pickEncoder).mockResolvedValue('libopenh264' as never);
+    jest.mocked(getMediaInformation).mockResolvedValue({ format: { duration: '3' }, streams: [{ codec_type: 'video', codec_name: 'h264', width: 1280, height: 720, pix_fmt: 'yuv420p' }, { codec_type: 'audio', codec_name: 'aac' }] } as never);
+    jest.requireMock('expo-file-system/legacy').getInfoAsync.mockResolvedValue({ exists: true, size: 1024 });
+    await expect(munimReplayRenderer.render({ generation: 2, music: { kind: 'custom', revision: 'custom-test', localUri: 'file:///documents/replay-custom-test.m4a' }, groupKeys: ['a'], memoryKeys: [], durationSeconds: 3, chapters: [{ groupKey: 'a', memoryKeys: [], frames: 72 }] }, [], new AbortController().signal)).resolves.toMatchObject({ manifest: { music: { kind: 'custom', revision: 'custom-test', localUri: 'file:///documents/replay-custom-test.m4a' } } });
+    const args = jest.mocked(execute).mock.calls.map(([arguments_]) => arguments_).findLast((arguments_) => arguments_.includes('-stream_loop'));
+    expect(args).toEqual(expect.arrayContaining(['-i', 'file:///documents/replay-custom-test.m4a', '-map', '0:v:0', '1:a:0', '-c:a', 'aac']));
+  });
   it('fails closed before a native renderer passes S0', async () => {
     await expect(unavailableReplayRenderer.render({ generation: 1, groupKeys: ['a', 'b'], memoryKeys: [], durationSeconds: 30 }, [], new AbortController().signal)).rejects.toThrow('REPLAY_UNAVAILABLE');
   });

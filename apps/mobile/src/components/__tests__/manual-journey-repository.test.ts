@@ -41,7 +41,7 @@ describe('manual journey repository boundary', () => {
 
     expect(mockExecAsync.mock.calls.flat().join('\n')).toContain('CREATE TABLE IF NOT EXISTS manual_journey');
     expect(mockExecAsync.mock.calls.flat().join('\n')).toContain('date_start TEXT NOT NULL');
-    expect(mockRunAsync).toHaveBeenCalledWith('UPDATE import_schema_version SET version = ?', 35);
+    expect(mockRunAsync).toHaveBeenCalledWith('UPDATE import_schema_version SET version = ?', 37);
   });
 
   it('opens a fresh native connection for the manually entered journey path after an Android runtime restart', async () => {

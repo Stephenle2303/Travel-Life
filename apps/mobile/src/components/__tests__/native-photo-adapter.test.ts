@@ -117,6 +117,27 @@ describe('Expo SDK 57 native adapter', () => {
     expect(mockAsset).not.toHaveBeenCalledWith('ignored');
   });
 
+  it('resolves a bounded gallery page in parallel while preserving tile order', async () => {
+    mockGetPermissions.mockResolvedValue({ granted: true, status: 'granted', accessPrivileges: 'full', canAskAgain: false });
+    let active = 0;
+    let peak = 0;
+    mockAsset.mockImplementation((id: string) => ({
+      getMediaType: async () => 'image',
+      getIsInCloud: async () => false,
+      getUri: async () => {
+        active += 1; peak = Math.max(peak, active);
+        await new Promise<void>((resolve) => setTimeout(resolve, 2));
+        active -= 1;
+        return `file://preview-${id}`;
+      },
+    }));
+
+    const ids = Array.from({ length: 12 }, (_value, index) => `asset-${index + 1}`);
+    await expect(nativePhotoAccess.resolveOwnerPreviews!(ids, ids.length)).resolves.toEqual(ids.map((id) => ({ uri: `file://preview-${id}`, availability: 'available', kind: 'photo' })));
+    expect(peak).toBeGreaterThan(1);
+    expect(peak).toBeLessThanOrEqual(6);
+  });
+
   it('does not call the iOS-only cloud check before resolving an Android local URI', async () => {
     const platformDescriptor = Object.getOwnPropertyDescriptor(Platform, 'OS');
     Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });

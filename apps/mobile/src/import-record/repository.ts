@@ -22,7 +22,7 @@ type CheckpointRow = {
   status: ImportCheckpoint['status'];
 };
 
-const CURRENT_SCHEMA_VERSION = 35;
+const CURRENT_SCHEMA_VERSION = 37;
 const validCivilDay = (day: string | null) => Boolean(day && /^\d{4}-(0[1-9]|1[0-2])-([0-2]\d|3[01])$/.test(day)
   && new Date(`${day}T00:00:00.000Z`).toISOString().slice(0, 10) === day);
 
@@ -717,6 +717,29 @@ const migrationV35 = `
   UPDATE private_history_record SET schema_version = MAX(schema_version, 35) WHERE record_id = 1;
 `;
 
+// The marker is intentionally separate from the physical upgrade below. A
+// retained forward-compatible table may already have these columns while its
+// version marker is old, so `ALTER TABLE` must be layout-gated.
+const migrationV36 = `
+  UPDATE private_history_record SET schema_version = MAX(schema_version, 36) WHERE record_id = 1;
+`;
+
+
+const migrationV37 = `
+  CREATE TABLE IF NOT EXISTS replay_mutation_receipt (
+    operation_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    edit_version INTEGER NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('stage', 'commit', 'restore')),
+    payload_digest TEXT NOT NULL,
+    snapshot_token INTEGER NOT NULL,
+    privacy_revision INTEGER NOT NULL,
+    resulting_revision INTEGER NOT NULL,
+    created_at_millis INTEGER NOT NULL
+  );
+  UPDATE private_history_record SET schema_version = MAX(schema_version, 37) WHERE record_id = 1;
+`;
+
 /** Canonical constraints are required for immutable revisions and command identity. */
 export const journeyPrivacyTableDefinition = migrationV34.slice(0, migrationV34.indexOf(';') + 1).trim();
 function normalizePrivacyDefinition(sql: string) {
@@ -811,6 +834,28 @@ async function ensureManualJourneyLayout(db: SqliteDatabase) {
   }
 }
 
+type TableColumn = { name: string };
+async function ensureReplayDraftWorkingLayout(db: SqliteDatabase) {
+  const columns = await db.getAllAsync<TableColumn>('PRAGMA table_info(replay_draft)');
+  const names = new Set(columns.map((column) => column.name));
+  if (names.has('working_overrides_json') && names.has('working_base_revision') && names.has('working_revision') && names.has('working_session_id') && names.has('working_edit_version') && await db.getFirstAsync("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'replay_mutation_receipt'")) return;
+  await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
+  try {
+    const lockedColumns = await db.getAllAsync<TableColumn>('PRAGMA table_info(replay_draft)');
+    const lockedNames = new Set(lockedColumns.map((column) => column.name));
+    if (!lockedNames.has('working_overrides_json')) await db.execAsync("ALTER TABLE replay_draft ADD COLUMN working_overrides_json TEXT NULL CHECK (working_overrides_json IS NULL OR (json_valid(working_overrides_json) AND json_type(working_overrides_json) = 'object'))");
+    if (!lockedNames.has('working_base_revision')) await db.execAsync('ALTER TABLE replay_draft ADD COLUMN working_base_revision INTEGER NULL');
+    if (!lockedNames.has('working_revision')) await db.execAsync('ALTER TABLE replay_draft ADD COLUMN working_revision INTEGER NOT NULL DEFAULT 0');
+    if (!lockedNames.has('working_session_id')) await db.execAsync('ALTER TABLE replay_draft ADD COLUMN working_session_id TEXT NULL');
+    if (!lockedNames.has('working_edit_version')) await db.execAsync('ALTER TABLE replay_draft ADD COLUMN working_edit_version INTEGER NOT NULL DEFAULT 0');
+    await db.execAsync(migrationV37);
+    await db.execAsync('COMMIT');
+  } catch (error) {
+    try { await db.execAsync('ROLLBACK'); } catch { /* Keep the primary failure. */ }
+    throw error;
+  }
+}
+
 /** Ensures independently opened repositories read the current private schema. */
 export async function ensureNativeImportSchema(db: SqliteDatabase) {
   let currentSchema: SchemaRow | null = null;
@@ -825,6 +870,7 @@ export async function ensureNativeImportSchema(db: SqliteDatabase) {
   if ((currentSchema?.version ?? 0) >= CURRENT_SCHEMA_VERSION) {
     await ensureManualJourneyLayout(db);
     await ensureJourneyPrivacyLayout(db);
+    await ensureReplayDraftWorkingLayout(db);
     return;
   }
   await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
@@ -867,6 +913,8 @@ export async function ensureNativeImportSchema(db: SqliteDatabase) {
     if (version < 33) await db.execAsync(migrationV33);
     if (version < 34) await db.execAsync(migrationV34);
     if (version < 35) await db.execAsync(migrationV35);
+    if (version < 36) await db.execAsync(migrationV36);
+    if (version < 37) await db.execAsync(migrationV37);
     if (version === 0) await db.runAsync('INSERT INTO import_schema_version (version) VALUES (?)', CURRENT_SCHEMA_VERSION);
     else if (version < CURRENT_SCHEMA_VERSION) await db.runAsync('UPDATE import_schema_version SET version = ?', CURRENT_SCHEMA_VERSION);
     await db.execAsync('COMMIT');
@@ -876,6 +924,7 @@ export async function ensureNativeImportSchema(db: SqliteDatabase) {
   }
   await ensureManualJourneyLayout(db);
   await ensureJourneyPrivacyLayout(db);
+  await ensureReplayDraftWorkingLayout(db);
 }
 
 const DUPLICATE_TUPLE_VERSION = 1;
@@ -912,8 +961,12 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
       database = (async () => {
         // Native-only dependency loading keeps an unsupported runtime closed.
         // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const sqlite = require('expo-sqlite') as { openDatabaseAsync(name: string): Promise<SqliteDatabase> };
-        const db = serializeNativeTransactions(await sqlite.openDatabaseAsync('travel-life-import-v1.db'));
+        const sqlite = require('expo-sqlite') as { openDatabaseAsync(name: string, options?: { useNewConnection?: boolean }): Promise<SqliteDatabase> };
+        // Android can retain a released cached Expo SQLite handle after a JS
+        // reload while the process survives. Every repository instance owns a
+        // fresh handle; the existing global transaction gate still serializes
+        // writers across import, maintenance and reconstruction repositories.
+        const db = serializeNativeTransactions(await sqlite.openDatabaseAsync('travel-life-import-v1.db', { useNewConnection: true }));
         // A rebuild or maintenance transaction may be finishing on the other
         // connection when the app reloads. Wait for that writer to finish.
         await db.execAsync('PRAGMA busy_timeout = 30000');
@@ -927,6 +980,7 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
         // during startup when there is nothing to migrate.
         if ((currentSchema?.version ?? 0) >= CURRENT_SCHEMA_VERSION) {
           await ensureManualJourneyLayout(db);
+          await ensureReplayDraftWorkingLayout(db);
           return db;
         }
         await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
@@ -969,9 +1023,13 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
           if (version < 33) await db.execAsync(migrationV33);
           if (version < 34) await db.execAsync(migrationV34);
           if (version < 35) await db.execAsync(migrationV35);
+          if (version < 36) await db.execAsync(migrationV36);
+    if (version < 37) await db.execAsync(migrationV37);
           if (version === 0) await db.runAsync('INSERT INTO import_schema_version (version) VALUES (?)', CURRENT_SCHEMA_VERSION);
           else if (version < CURRENT_SCHEMA_VERSION) await db.runAsync('UPDATE import_schema_version SET version = ?', CURRENT_SCHEMA_VERSION);
           await db.execAsync('COMMIT');
+          await ensureManualJourneyLayout(db);
+          await ensureReplayDraftWorkingLayout(db);
         } catch (error) {
           await db.execAsync('ROLLBACK');
           throw error;
@@ -983,6 +1041,10 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
       });
     }
     return database;
+  }
+
+  function isReleasedNativeHandle(error: unknown) {
+    return error instanceof Error && /nullpointerexception|released native handle/i.test(error.message);
   }
 
   async function read(scope: ImportScope) {
@@ -1022,7 +1084,15 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
     getCheckpoint: read,
     loadCoverage: read,
     async getPrivateRecordLifecycle() {
-      return lifecycle(await open());
+      try {
+        return await lifecycle(await open());
+      } catch (error) {
+        if (!isReleasedNativeHandle(error)) throw error;
+        // Do not retry a mutation after a native failure. This is the initial
+        // lifecycle read only, before import creates any metadata writes.
+        database = null;
+        return lifecycle(await open());
+      }
     },
     async loadConfiguredHomeAreas() {
       const db = await open();

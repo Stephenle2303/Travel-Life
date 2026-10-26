@@ -9,6 +9,9 @@ try {
   const taskManager = require('expo-task-manager') as { defineTask(name: string, handler: () => Promise<unknown>): void };
   taskManager.defineTask(maintenanceTaskName, async () => {
     const correlationId = createDiagnosticCorrelationId();
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const backgroundTask = require('expo-background-task') as { BackgroundTaskResult: { Success: number; Failed: number } };
+    try {
     // Loading native media/SQLite bridges happens only in an OS-invoked task,
     // never when the React tree or web test harness imports this module.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -19,8 +22,6 @@ try {
     const { reconcilePermittedLibrary } = require('./reconcile-runner') as typeof import('./reconcile-runner');
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { createNativeReconstructionRepository } = require('@/reconstruction') as typeof import('@/reconstruction');
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const backgroundTask = require('expo-background-task') as { BackgroundTaskResult: { Success: number; Failed: number } };
     const result = await reconcilePermittedLibrary({ repository: createNativeImportRepository(), photoAccess: nativePhotoAccess, now: () => Date.now() });
     if (result === 'complete') {
       try {
@@ -36,6 +37,12 @@ try {
     }
     if (result !== 'complete') recordAppDiagnostic({ operation: 'MAINTENANCE_RECONCILIATION', reasonCode: result === 'paused' ? 'PAUSED' : 'RESTRICTED', stage: null, retryable: result === 'paused', durableOutcome: result === 'paused' ? 'paused' : 'restricted', correlationId });
     return result === 'complete' ? backgroundTask.BackgroundTaskResult.Success : backgroundTask.BackgroundTaskResult.Failed;
+    } catch (error) {
+      // An OS worker must never leak a native bridge/SQLite error through
+      // TaskManager. The fixed local diagnostic is sufficient for recovery.
+      recordAppDiagnostic({ operation: 'MAINTENANCE_RECONCILIATION', reasonCode: classifyAppDiagnosticError(error), stage: error instanceof ReconciliationStageError ? error.stage : null, retryable: true, durableOutcome: 'failed', correlationId });
+      return backgroundTask.BackgroundTaskResult.Failed;
+    }
   });
 } catch {
   // Native task APIs are intentionally unavailable in web and Jest.

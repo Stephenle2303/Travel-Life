@@ -36,5 +36,5 @@ export interface PhotoAccessAdapter {
   readSelectedMetadata(assetIds: string[]): Promise<SourceCandidate[]>;
   manageLimited(): Promise<void>;
   select(): Promise<SelectionResult>;
-  resolveOwnerPreviews?(assetIds: (string | null)[], limit: number): Promise<OwnerPreview[]>;
+  resolveOwnerPreviews?(assetIds: (string | null)[], limit: number, onResolved?: (preview: OwnerPreview, index: number) => void): Promise<OwnerPreview[]>;
 }

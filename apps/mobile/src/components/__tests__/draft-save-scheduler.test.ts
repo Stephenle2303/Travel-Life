@@ -1,0 +1,167 @@
+import { DraftSaveScheduler } from '@/replay/draft-save-scheduler';
+import { ReplayEditSession, type ReplayEditSnapshot } from '@/replay/edit-session';
+
+const ticks = async () => { for (let index = 0; index < 12; index += 1) await Promise.resolve(); };
+describe('Replay bounded durable scheduler', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+  it('keeps only one active and latest snapshot while 100 edits join bounded completion', async () => {
+    let finish!: (revision: number) => void;
+    const held = new Promise<number>((resolve) => { finish = resolve; });
+    const write = jest.fn<Promise<number>, [number, number, number | undefined]>().mockReturnValueOnce(held).mockResolvedValue(2);
+    const scheduler = new DraftSaveScheduler(write, () => false);
+    const first = scheduler.enqueue(1, true); await ticks();
+    const joined = Array.from({ length: 100 }, (_, index) => scheduler.enqueue(index + 2, true));
+    expect(scheduler.getCounts()).toEqual({ active: 1, pending: 1 });
+    expect(new Set(joined).size).toBe(1);
+    expect(write).toHaveBeenCalledTimes(1);
+    finish(1); await ticks();
+    expect(write).toHaveBeenLastCalledWith(101, 101, 1);
+    await expect(first).resolves.toEqual({ kind: 'saved', version: 1, revision: 1 });
+    await expect(Promise.all(joined)).resolves.toHaveLength(100);
+    expect(scheduler.getStatus()).toBe('idle');
+  });
+  it('settles public waiters at 8 seconds and check-again never starts another mutation', async () => {
+    let finish!: (revision: number) => void;
+    const write = jest.fn(() => new Promise<number>((resolve) => { finish = resolve; }));
+    const scheduler = new DraftSaveScheduler(write, () => false);
+    const result = scheduler.enqueue('visible owner intent', true); await ticks();
+    jest.advanceTimersByTime(2000); expect(scheduler.getStatus()).toBe('waiting');
+    jest.advanceTimersByTime(6000);
+    await expect(result).resolves.toMatchObject({ kind: 'outcome-unknown' });
+    await expect(scheduler.checkAgain()).resolves.toMatchObject({ kind: 'outcome-unknown' });
+    expect(write).toHaveBeenCalledTimes(1); expect(scheduler.getCounts().active).toBe(1);
+    finish(1); await ticks();
+    await expect(scheduler.checkAgain()).resolves.toMatchObject({ kind: 'saved' });
+  });
+  it('restore fence cancels pending debounce before it can revive the discarded branch', async () => {
+    const write = jest.fn(async () => 1);
+    const scheduler = new DraftSaveScheduler(write, () => false);
+    const result = scheduler.enqueue('discarded');
+    await scheduler.fence(); jest.advanceTimersByTime(1000); await ticks();
+    await expect(result).resolves.toMatchObject({ kind: 'cancelled' });
+    expect(write).not.toHaveBeenCalled();
+  });
+  it('reconciles one retained mutation, resumes latest intent and ignores the late old callback', async () => {
+    let finishOld!: (revision: number) => void;
+    let finishLatest!: (revision: number) => void;
+    const write = jest.fn().mockImplementationOnce(() => new Promise<number>((resolve) => { finishOld = resolve; })).mockImplementationOnce(() => new Promise<number>((resolve) => { finishLatest = resolve; }));
+    const reconcile = jest.fn().mockResolvedValueOnce({ kind: 'outcome-unknown' }).mockResolvedValueOnce({ kind: 'acknowledged', revision: 7 });
+    const session = new ReplayEditSession(write, () => false, reconcile);
+    const snapshot: ReplayEditSnapshot = { memoryKeys: [], includedGroupKeys: ['trip'], autoGroupKeys: ['trip'], direction: 'oldest-first', soundtrack: { kind: 'bundled', revision: 'happy-moments-1.4' }, snapshotToken: 1, privacyRevision: 1 };
+    session.initialize(snapshot, 0);
+    const first = session.enqueue(snapshot, true).catch(() => undefined); await ticks();
+    const latest = session.enqueue({ ...snapshot, memoryKeys: ['latest'] }, true).catch(() => undefined);
+    jest.advanceTimersByTime(8000); await ticks(); await first; await latest;
+    await expect(session.scheduler.checkAgain()).resolves.toMatchObject({ kind: 'outcome-unknown' });
+    expect(write).toHaveBeenCalledTimes(1);
+    await expect(session.scheduler.checkAgain()).resolves.toMatchObject({ kind: 'saved', revision: 7 }); await ticks();
+    expect(reconcile).toHaveBeenCalledTimes(2);
+    expect(reconcile.mock.calls[0][0]).toEqual(write.mock.calls[0][2]);
+    expect(reconcile.mock.calls[1][0]).toEqual(write.mock.calls[0][2]);
+    expect(write).toHaveBeenCalledTimes(2);
+    expect(write.mock.calls[1][1]).toBe(7);
+    finishOld(2); await ticks();
+    expect(session.scheduler.getStatus()).toBe('saving');
+    expect(session.scheduler.getRevision()).toBe(7);
+    finishLatest(8); await ticks();
+    expect(session.scheduler.getRevision()).toBe(8);
+  });
+  it('bounds public reconciliation without releasing a held receipt read or writer', async () => {
+    const reconcile = jest.fn(() => new Promise<never>(() => {}));
+    const scheduler = new DraftSaveScheduler(async () => new Promise<number>(() => {}), () => false, reconcile);
+    scheduler.enqueue('held', true); await ticks(); jest.advanceTimersByTime(8000); await ticks();
+    const checking = scheduler.checkAgain(); await ticks(); jest.advanceTimersByTime(8000); await ticks();
+    await expect(checking).resolves.toMatchObject({ kind: 'outcome-unknown' });
+    expect(scheduler.getCounts().active).toBe(1);
+    await expect(scheduler.checkAgain()).resolves.toMatchObject({ kind: 'outcome-unknown' });
+    expect(reconcile).toHaveBeenCalledTimes(1);
+  });
+  it('never reports a late old acknowledgement as fully saved while newer work is held', async () => {
+    let finishFirst!: (revision: number) => void;
+    let finishSecond!: (revision: number) => void;
+    const write = jest.fn<Promise<number>, [string, number, number | undefined]>()
+      .mockImplementationOnce(() => new Promise((resolve) => { finishFirst = resolve; }))
+      .mockImplementationOnce(() => new Promise((resolve) => { finishSecond = resolve; }));
+    const scheduler = new DraftSaveScheduler(write, () => false);
+    scheduler.enqueue('first', true); await ticks(); scheduler.enqueue('second', true);
+    finishFirst(1); await ticks(); expect(scheduler.getStatus()).toBe('saving');
+    finishSecond(2); await ticks(); expect(scheduler.getStatus()).toBe('idle');
+  });
+  it('settles a fenced active waiter and remains fenced until actual native settlement', async () => {
+    let finish!: (revision: number) => void;
+    const scheduler = new DraftSaveScheduler(() => new Promise<number>((resolve) => { finish = resolve; }), () => false);
+    const result = scheduler.enqueue('discarded active', true); await ticks();
+    await expect(scheduler.fence()).resolves.toMatchObject({ kind: 'outcome-unknown' });
+    await expect(result).resolves.toMatchObject({ kind: 'cancelled' });
+    expect(scheduler.getCounts().active).toBe(1);
+    finish(1); await ticks(); jest.advanceTimersByTime(9000);
+    expect(scheduler.getStatus()).toBe('idle'); expect(scheduler.getCounts().active).toBe(0);
+  });
+  it('exposes a recoverable scope change and fences selected work instead of throwing during hydration', async () => {
+    const session = new ReplayEditSession(async () => 1, () => false);
+    const snapshot: ReplayEditSnapshot = { memoryKeys: [], includedGroupKeys: ['trip'], autoGroupKeys: ['trip'], direction: 'oldest-first', soundtrack: { kind: 'bundled', revision: 'happy-moments-1.4' }, snapshotToken: 1, privacyRevision: 1 };
+    session.initialize(snapshot, undefined);
+    const saved = session.enqueue(snapshot);
+    const oldEpoch = session.getTaskEpoch();
+    expect(session.initialize({ ...snapshot, snapshotToken: 2 }, undefined)).toBeNull();
+    expect(session.getTaskEpoch()).toBeGreaterThan(oldEpoch);
+    await expect(saved).resolves.toBeUndefined();
+    jest.advanceTimersByTime(1000); await ticks();
+    expect(session.scheduler.getCounts()).toEqual({ active: 0, pending: 0 });
+  });
+  it('bounds a new waiter enqueued after the active deadline without duplicating its native write', async () => {
+    let finish!: (revision: number) => void;
+    const write = jest.fn().mockImplementationOnce(() => new Promise<number>((resolve) => { finish = resolve; })).mockResolvedValue(2);
+    const scheduler = new DraftSaveScheduler(write, () => false);
+    const first = scheduler.enqueue('held', true); await ticks();
+    jest.advanceTimersByTime(8000); await first;
+    await expect(scheduler.enqueue('new after timeout', true)).resolves.toEqual({ kind: 'outcome-unknown', version: 2 });
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(scheduler.getCounts()).toEqual({ active: 1, pending: 1 });
+    finish(1); await ticks();
+    expect(write).toHaveBeenCalledTimes(2);
+    expect(write).toHaveBeenLastCalledWith('new after timeout', 2, 1);
+    expect(scheduler.getStatus()).toBe('idle');
+  });
+  it.each(['conflict', 'scope-invalid'] as const)('exposes definitive %s recovery while retaining native ownership', async (kind) => {
+    let finish!: (revision: number) => void;
+    const write = jest.fn(() => new Promise<number>((resolve) => { finish = resolve; }));
+    const reconcile = jest.fn(async () => ({ kind }));
+    const scheduler = new DraftSaveScheduler(write, () => false, reconcile);
+    const first = scheduler.enqueue('held', true); await ticks();
+    const pending = scheduler.enqueue('superseded');
+    await expect(scheduler.checkAgain()).resolves.toEqual({ kind: 'conflict', version: 1 });
+    await expect(first).resolves.toMatchObject({ kind: 'conflict' });
+    await expect(pending).resolves.toMatchObject({ kind: 'conflict' });
+    expect(scheduler.getCounts()).toEqual({ active: 1, pending: 0 });
+    jest.advanceTimersByTime(9000); await ticks();
+    expect(scheduler.getStatus()).toBe('conflict');
+    finish(99); await ticks();
+    expect(scheduler.getRevision()).toBeUndefined();
+    expect(scheduler.getStatus()).toBe('conflict');
+    expect(write).toHaveBeenCalledTimes(1);
+  });
+  it('reconciles a fenced session receipt without publishing discarded intent or reviving pending work', async () => {
+    let finish!: (revision: number) => void;
+    const write = jest.fn<Promise<number>, [ReplayEditSnapshot, number | undefined, import('@/replay/draft-repository-contract').ReplayMutation]>(() => new Promise<number>((resolve) => { finish = resolve; }));
+    const reconcile = jest.fn().mockResolvedValueOnce({ kind: 'outcome-unknown' }).mockResolvedValueOnce({ kind: 'acknowledged', revision: 7 });
+    const session = new ReplayEditSession(write, () => false, reconcile);
+    const snapshot: ReplayEditSnapshot = { memoryKeys: [], includedGroupKeys: ['trip'], autoGroupKeys: ['trip'], direction: 'oldest-first', soundtrack: { kind: 'bundled', revision: 'happy-moments-1.4' }, snapshotToken: 1, privacyRevision: 1 };
+    session.initialize(snapshot, 0);
+    const first = session.enqueue(snapshot, true); await ticks();
+    const pending = session.enqueue({ ...snapshot, memoryKeys: ['discarded'] });
+    await session.fence(); await first; await pending;
+    await expect(session.scheduler.checkAgain()).resolves.toMatchObject({ kind: 'outcome-unknown' });
+    expect(session.scheduler.getCounts().active).toBe(1);
+    await expect(session.scheduler.checkAgain()).resolves.toMatchObject({ kind: 'cancelled' });
+    expect(reconcile.mock.calls[1][0]).toEqual(write.mock.calls[0][2]);
+    expect(session.scheduler.getCounts()).toEqual({ active: 0, pending: 0 });
+    expect(session.scheduler.getRevision()).toBe(0);
+    expect(session.scheduler.getStatus()).toBe('idle');
+    finish(99); await ticks(); jest.advanceTimersByTime(9000);
+    expect(session.scheduler.getRevision()).toBe(0);
+    expect(session.scheduler.getStatus()).toBe('idle');
+    expect(write).toHaveBeenCalledTimes(1);
+  });
+});

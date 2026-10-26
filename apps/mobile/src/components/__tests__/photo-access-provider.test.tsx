@@ -1,9 +1,10 @@
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { AppState, Text, type AppStateStatus } from 'react-native';
+import * as FileSystem from 'expo-file-system/legacy';
 
 import ManualJourneyRoute from '@/app/manual-journey';
 import { EmptyAtlasScreen, ImportScreen } from '@/components/mobile-screens';
-import { canPublishJourneyDetail, hasVerifiedOwnerPlace, isCurrentDurableRevealRead, PhotoAccessProvider, preparedReplayCacheIdentity, replayCompositionGroups, usePhotoAccess, verifiedOwnerPlaceDisplayId } from '@/photo-access/provider';
+import { canPublishJourneyDetail, hasVerifiedOwnerPlace, isCurrentDurableRevealRead, PhotoAccessProvider, preparedReplayCacheIdentity, replayCompositionGroups, replayDraftMatchesCommittedManifest, usePhotoAccess, verifiedOwnerPlaceDisplayId } from '@/photo-access/provider';
 import type { PermissionSnapshot, PhotoAccessAdapter } from '@/photo-access/types';
 import type { ImportRepository, MaintenanceRepository } from '@/import-record';
 import { DurableRevealStageError } from '@/reconstruction/repository';
@@ -62,7 +63,21 @@ function stagedFailureRepository(loadDurableReveal: () => Promise<DurableRevealR
 }
 
 describe('photo access provider and Import screen', () => {
-  it('waits for an in-process maintenance write before staging a Replay draft', async () => {
+  it('preserves the verified video during rerender invalidation and deletes it on normal discard', async () => {
+    let access!: ReturnType<typeof usePhotoAccess>;
+    const native = stagedFailureRepository(async () => ({ journeys: [] }));
+    const Harness = () => { access = usePhotoAccess(); return null; };
+    await render(<PhotoAccessProvider adapter={adapterFor({ scope: 'full', canAskAgain: false })} repository={emptyRepository} reconstructionRepository={native}><Harness /></PhotoAccessProvider>);
+    await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
+    const remove = jest.spyOn(FileSystem, 'deleteAsync').mockResolvedValue(undefined);
+    try {
+      await access.discardPrivateReplay('file:///verified-replay.mp4', { preserveFile: true });
+      expect(remove).not.toHaveBeenCalled();
+      await access.discardPrivateReplay('file:///verified-replay.mp4');
+      expect(remove).toHaveBeenCalledWith('file:///verified-replay.mp4', { idempotent: true });
+    } finally { remove.mockRestore(); }
+  });
+  it('starts a foreground Replay draft without waiting for an unrelated maintenance lifecycle', async () => {
     let access!: ReturnType<typeof usePhotoAccess>;
     let releaseMaintenance!: (permission: PermissionSnapshot | null) => void;
     const maintenanceWrite = new Promise<PermissionSnapshot | null>((resolve) => { releaseMaintenance = resolve; });
@@ -76,11 +91,60 @@ describe('photo access provider and Import screen', () => {
 
     const saving = access.stageReplayWorkingDraft([], 7, 2, 'oldest-first', { kind: 'bundled', revision: 'happy-moments-1.4' });
     await act(async () => { await Promise.resolve(); });
-    expect(stageReplayWorkingDraft).not.toHaveBeenCalled();
-
-    await act(async () => { releaseMaintenance({ scope: 'full', canAskAgain: false }); });
-    await expect(saving).resolves.toBe(9);
     expect(stageReplayWorkingDraft).toHaveBeenCalledTimes(1);
+    await expect(saving).resolves.toBe(9);
+    await act(async () => { releaseMaintenance({ scope: 'full', canAskAgain: false }); });
+  });
+  it('rehydrates the native Replay key map before staging an owner edit', async () => {
+    let access!: ReturnType<typeof usePhotoAccess>;
+    const replay = { snapshotToken: 7, privacyRevision: 2, groups: [], memories: [] } as const;
+    const loadReplayManifestInput = jest.fn(async () => replay);
+    const stageReplayWorkingDraft = jest.fn(async () => 4);
+    const native = { ...stagedFailureRepository(async () => ({ journeys: [] })), loadReplayManifestInput, stageReplayWorkingDraft };
+    const Harness = () => { access = usePhotoAccess(); return null; };
+    await render(<PhotoAccessProvider adapter={adapterFor({ scope: 'full', canAskAgain: false })} repository={emptyRepository} reconstructionRepository={native}><Harness /></PhotoAccessProvider>);
+    await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
+    await expect(access.stageReplayWorkingDraft([], 7, 2, 'oldest-first', { kind: 'bundled', revision: 'happy-moments-1.4' })).resolves.toBe(4);
+    expect(loadReplayManifestInput).toHaveBeenCalledTimes(1);
+    expect(stageReplayWorkingDraft).toHaveBeenCalledTimes(1);
+  });
+  it('rehydrates a missing mapping without adopting another durable working revision', async () => {
+    let access!: ReturnType<typeof usePhotoAccess>;
+    const replay = { snapshotToken: 7, privacyRevision: 2, groups: [], memories: [], workingDraft: { memoryKeys: [], includedGroupKeys: [], autoGroupKeys: [], direction: 'oldest-first' as const, soundtrack: { kind: 'bundled' as const, revision: 'happy-moments-1.4' }, baseRevision: 3, revision: 9 } } as const;
+    const loadReplayManifestInput = jest.fn(async () => replay);
+    const stageReplayWorkingDraft = jest.fn(async () => 10);
+    const native = { ...stagedFailureRepository(async () => ({ journeys: [] })), loadReplayManifestInput, stageReplayWorkingDraft };
+    const Harness = () => { access = usePhotoAccess(); return null; };
+    await render(<PhotoAccessProvider adapter={adapterFor({ scope: 'full', canAskAgain: false })} repository={emptyRepository} reconstructionRepository={native}><Harness /></PhotoAccessProvider>);
+    await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
+    await expect(access.stageReplayWorkingDraft([], 7, 2, 'oldest-first', { kind: 'bundled', revision: 'happy-moments-1.4' }, 4)).resolves.toBe(10);
+    expect(stageReplayWorkingDraft).toHaveBeenCalledWith([], 7, 2, 'oldest-first', { kind: 'bundled', revision: 'happy-moments-1.4' }, 4, undefined, undefined, undefined);
+  });
+  it('uses the supplied revision without rehydration when mapping remains', async () => {
+    let access!: ReturnType<typeof usePhotoAccess>;
+    const replay = { snapshotToken: 7, privacyRevision: 2, groups: [], memories: [], workingDraft: { memoryKeys: [], includedGroupKeys: [], autoGroupKeys: [], direction: 'oldest-first' as const, soundtrack: { kind: 'bundled' as const, revision: 'happy-moments-1.4' }, baseRevision: 3, revision: 9 } } as const;
+    const loadReplayManifestInput = jest.fn(async () => replay);
+    const stageReplayWorkingDraft = jest.fn(async () => 10);
+    const native = { ...stagedFailureRepository(async () => ({ journeys: [] })), loadReplayManifestInput, stageReplayWorkingDraft, hasReplayMapping: () => true };
+    const Harness = () => { access = usePhotoAccess(); return null; };
+    await render(<PhotoAccessProvider adapter={adapterFor({ scope: 'full', canAskAgain: false })} repository={emptyRepository} reconstructionRepository={native}><Harness /></PhotoAccessProvider>);
+    await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
+    await expect(access.stageReplayWorkingDraft([], 7, 2, 'oldest-first', { kind: 'bundled', revision: 'happy-moments-1.4' }, 4)).resolves.toBe(10);
+    expect(loadReplayManifestInput).not.toHaveBeenCalled();
+    expect(stageReplayWorkingDraft).toHaveBeenCalledWith([], 7, 2, 'oldest-first', { kind: 'bundled', revision: 'happy-moments-1.4' }, 4, undefined, undefined, undefined);
+  });
+  it('uses the matching durable working revision when committing an Update after runtime reload', async () => {
+    let access!: ReturnType<typeof usePhotoAccess>;
+    const working = { snapshotToken: 7, privacyRevision: 2, groups: [], memories: [], workingDraft: { memoryKeys: [], includedGroupKeys: [], autoGroupKeys: [], direction: 'oldest-first' as const, soundtrack: { kind: 'bundled' as const, revision: 'happy-moments-1.4' }, baseRevision: 3, revision: 9 } } as const;
+    const committed = { snapshotToken: 7, privacyRevision: 2, direction: 'oldest-first' as const, soundtrack: { kind: 'bundled' as const, revision: 'happy-moments-1.4' }, includedGroupKeys: [], autoGroupKeys: [], groups: [], memories: [] } as const;
+    const loadReplayManifestInput = jest.fn().mockResolvedValueOnce(working).mockResolvedValueOnce(committed);
+    const saveReplayDraft = jest.fn(async () => {});
+    const native = { ...stagedFailureRepository(async () => ({ journeys: [] })), loadReplayManifestInput, saveReplayDraft };
+    const Harness = () => { access = usePhotoAccess(); return null; };
+    await render(<PhotoAccessProvider adapter={adapterFor({ scope: 'full', canAskAgain: false })} repository={emptyRepository} reconstructionRepository={native}><Harness /></PhotoAccessProvider>);
+    await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
+    await expect(access.saveReplayDraft([], 7, 2, 'oldest-first', { kind: 'bundled', revision: 'happy-moments-1.4' }, 4, [], [])).resolves.toBeUndefined();
+    expect(saveReplayDraft).toHaveBeenCalledWith([], 7, 2, 'oldest-first', { kind: 'bundled', revision: 'happy-moments-1.4' }, 9, [], []);
   });
   it('retains a genuine stale working-draft outcome as a closed conflict stage', async () => {
     let access!: ReturnType<typeof usePhotoAccess>;
@@ -89,6 +153,34 @@ describe('photo access provider and Import screen', () => {
     await render(<PhotoAccessProvider adapter={adapterFor({ scope: 'full', canAskAgain: false })} repository={emptyRepository} reconstructionRepository={native}><Harness /></PhotoAccessProvider>);
     await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
     await expect(access.stageReplayWorkingDraft([], 7, 2, 'oldest-first', { kind: 'bundled', revision: 'happy-moments-1.4' })).rejects.toMatchObject({ stage: 'REPLAY_STALE' });
+  });
+  it('preserves an obsolete working branch conflict without reset or retry', async () => {
+    let access!: ReturnType<typeof usePhotoAccess>;
+    const replay = { snapshotToken: 7, privacyRevision: 2, groups: [], memories: [] } as const;
+    const loadReplayManifestInput = jest.fn(async () => replay);
+    const resetReplayDraft = jest.fn(async () => {});
+    const stageReplayWorkingDraft = jest.fn().mockRejectedValueOnce(new ReplayDraftStaleError()).mockResolvedValueOnce(11);
+    const native = { ...stagedFailureRepository(async () => ({ journeys: [] })), loadReplayManifestInput, resetReplayDraft, stageReplayWorkingDraft };
+    const Harness = () => { access = usePhotoAccess(); return null; };
+    await render(<PhotoAccessProvider adapter={adapterFor({ scope: 'full', canAskAgain: false })} repository={emptyRepository} reconstructionRepository={native}><Harness /></PhotoAccessProvider>);
+    await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
+    await expect(access.stageReplayWorkingDraft([], 7, 2, 'oldest-first', { kind: 'bundled', revision: 'happy-moments-1.4' }, 9, [], [])).rejects.toMatchObject({ stage: 'REPLAY_STALE' });
+    expect(resetReplayDraft).not.toHaveBeenCalled();
+    expect(stageReplayWorkingDraft).toHaveBeenCalledTimes(1);
+  });
+  it('does not replace a rejected mutation identity or overwrite its branch', async () => {
+    let access!: ReturnType<typeof usePhotoAccess>;
+    const replay = { snapshotToken: 7, privacyRevision: 2, groups: [], memories: [] } as const;
+    const stageReplayWorkingDraft = jest.fn().mockRejectedValueOnce(new ReplayDraftStaleError()).mockResolvedValueOnce(12);
+    const native = { ...stagedFailureRepository(async () => ({ journeys: [] })), loadReplayManifestInput: jest.fn(async () => replay), resetReplayDraft: jest.fn(async () => {}), stageReplayWorkingDraft };
+    const Harness = () => { access = usePhotoAccess(); return null; };
+    await render(<PhotoAccessProvider adapter={adapterFor({ scope: 'full', canAskAgain: false })} repository={emptyRepository} reconstructionRepository={native}><Harness /></PhotoAccessProvider>);
+    await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
+    const mutation = { operationId: 'first-stage', sessionId: 'edit-session', editVersion: 4 };
+    await expect(access.stageReplayWorkingDraft([], 7, 2, 'oldest-first', { kind: 'bundled', revision: 'happy-moments-1.4' }, 9, [], [], mutation)).rejects.toMatchObject({ stage: 'REPLAY_STALE' });
+    expect(stageReplayWorkingDraft.mock.calls[0]![8]).toEqual(mutation);
+    expect(stageReplayWorkingDraft).toHaveBeenCalledTimes(1);
+    expect(native.resetReplayDraft).not.toHaveBeenCalled();
   });
   it('reports a failed working save without claiming a draft conflict or exposing native details', async () => {
     let access!: ReturnType<typeof usePhotoAccess>;
@@ -100,6 +192,17 @@ describe('photo access provider and Import screen', () => {
     await expect(access.stageReplayWorkingDraft([], 7, 2, 'oldest-first', { kind: 'bundled', revision: 'happy-moments-1.4' })).rejects.toMatchObject({ stage: 'REPLAY_UNAVAILABLE', message: 'REPLAY_UNAVAILABLE' });
     expect(diagnostic).toHaveBeenLastCalledWith('[Travel Life diagnostic]', expect.objectContaining({ operation: 'REPLAY_DRAFT_SAVE', reasonCode: 'UNKNOWN', stage: 'REPLAY_UNAVAILABLE', retryable: true, durableOutcome: 'unchanged' }));
     expect(JSON.stringify(diagnostic.mock.calls)).not.toContain('synthetic native storage detail');
+    diagnostic.mockRestore();
+  });
+  it('reports a rejected native group mapping using only a fixed guard category', async () => {
+    let access!: ReturnType<typeof usePhotoAccess>;
+    const native = { ...stagedFailureRepository(async () => ({ journeys: [] })), stageReplayWorkingDraft: jest.fn(async () => { throw new ReplayDraftStaleError('Replay draft is stale.', 'scope', 'group'); }) };
+    const Harness = () => { access = usePhotoAccess(); return null; };
+    const diagnostic = jest.spyOn(console, 'info').mockImplementation(() => {});
+    await render(<PhotoAccessProvider adapter={adapterFor({ scope: 'full', canAskAgain: false })} repository={emptyRepository} reconstructionRepository={native}><Harness /></PhotoAccessProvider>);
+    await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
+    await expect(access.stageReplayWorkingDraft([], 7, 2, 'oldest-first', { kind: 'bundled', revision: 'happy-moments-1.4' })).rejects.toMatchObject({ stage: 'REPLAY_STALE', reason: 'scope' });
+    expect(diagnostic).toHaveBeenLastCalledWith('[Travel Life diagnostic]', expect.objectContaining({ operation: 'REPLAY_DRAFT_SAVE', reasonCode: 'REPLAY_GROUP_MAPPING', stage: 'REPLAY_STALE', durableOutcome: 'unchanged' }));
     diagnostic.mockRestore();
   });
   it('keys a prepared Replay to its committed composition rather than transient editor-preview availability', () => {
@@ -129,6 +232,47 @@ describe('photo access provider and Import screen', () => {
     };
     expect(replayCompositionGroups(input).filter((group) => group.eligible).map((group) => group.key)).toEqual(['kept']);
     expect(preparedReplayCacheIdentity(input)).not.toBe(preparedReplayCacheIdentity({ ...input, includedGroupKeys: ['kept', 'excluded'] }));
+  });
+
+  it('requires Update Replay readback to retain excluded trips and exact manual media choices', () => {
+    const request = { memoryKeys: ['kept-video'], snapshotToken: 7, privacyRevision: 2, direction: 'newest-first' as const, soundtrack: { kind: 'bundled' as const, revision: 'happy-moments-1.4' as const }, includedGroupKeys: ['kept'], autoGroupKeys: [] };
+    const committed = {
+      snapshotToken: 7, privacyRevision: 2, direction: 'newest-first' as const, soundtrack: request.soundtrack, includedGroupKeys: ['kept'], autoGroupKeys: [],
+      groups: [
+        { key: 'kept', label: 'Kept trip', inferred: true, eligible: true, orderCertain: true },
+        { key: 'excluded', label: 'Excluded trip', inferred: true, eligible: false, orderCertain: true },
+      ],
+      memories: [
+        { key: 'kept-photo', groupKey: 'kept', kind: 'photo' as const, available: true, eligible: true, intent: 'exclude' as const },
+        { key: 'kept-video', groupKey: 'kept', kind: 'video' as const, available: true, eligible: true, intent: 'keep' as const },
+        { key: 'excluded-photo', groupKey: 'excluded', kind: 'photo' as const, available: true, eligible: true, intent: 'keep' as const },
+      ],
+    };
+    expect(replayDraftMatchesCommittedManifest(committed, request)).toBe(true);
+    expect(replayDraftMatchesCommittedManifest({ ...committed, includedGroupKeys: ['kept', 'excluded'], groups: committed.groups.map((group) => ({ ...group, eligible: true })) }, request)).toBe(false);
+    expect(replayDraftMatchesCommittedManifest({ ...committed, memories: committed.memories.map((memory) => memory.key === 'kept-photo' ? { ...memory, intent: 'keep' as const } : memory) }, request)).toBe(false);
+  });
+
+  it('fails closed after a Replay commit when native readback restores an excluded trip', async () => {
+    let access!: ReturnType<typeof usePhotoAccess>;
+    const saveReplayDraft = jest.fn(async () => {});
+    const committed = {
+      snapshotToken: 7, privacyRevision: 2, direction: 'oldest-first' as const, soundtrack: { kind: 'bundled' as const, revision: 'happy-moments-1.4' as const }, includedGroupKeys: ['kept', 'restored'], autoGroupKeys: [],
+      groups: [
+        { key: 'kept', label: 'Kept trip', inferred: true, eligible: true, orderCertain: true },
+        { key: 'restored', label: 'Restored trip', inferred: true, eligible: true, orderCertain: true },
+      ],
+      memories: [
+        { key: 'kept-video', groupKey: 'kept', kind: 'video' as const, available: true, eligible: true, intent: 'keep' as const },
+        { key: 'restored-photo', groupKey: 'restored', kind: 'photo' as const, available: true, eligible: true, intent: 'keep' as const },
+      ],
+    };
+    const native = { ...stagedFailureRepository(async () => ({ journeys: [] })), saveReplayDraft, loadReplayManifestInput: jest.fn(async () => committed) };
+    const Harness = () => { access = usePhotoAccess(); return null; };
+    await render(<PhotoAccessProvider adapter={adapterFor({ scope: 'full', canAskAgain: false })} repository={emptyRepository} reconstructionRepository={native}><Harness /></PhotoAccessProvider>);
+    await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
+    await expect(access.saveReplayDraft(['kept-video'], 7, 2, 'oldest-first', { kind: 'bundled', revision: 'happy-moments-1.4' }, undefined, ['kept'], [])).rejects.toMatchObject({ stage: 'REPLAY_STALE' });
+    expect(saveReplayDraft).toHaveBeenCalledTimes(1);
   });
 
   it('exposes only the repository replay input while the private record remains current', async () => {
@@ -190,7 +334,7 @@ describe('photo access provider and Import screen', () => {
       { key: 'memory-a', available: true, previewUri: 'file:///private-page.jpg' },
       { key: 'memory-b', available: false },
     ]);
-    expect(resolveOwnerPreviews).toHaveBeenCalledWith(['opaque-a', null], 2);
+    expect(resolveOwnerPreviews).toHaveBeenCalledWith(['opaque-a', null], 2, expect.any(Function));
   });
 
   it('keeps the Replay Journey List scope through an unrelated Atlas detail read', async () => {

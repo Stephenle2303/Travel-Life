@@ -81,7 +81,13 @@ export type ReplayPreparedPreview = Readonly<{
   durationSeconds: number;
   renderedMemoryCount: number;
   omittedMemoryCount: number;
+  /** Opaque identity of the one committed render request that produced this handle. */
+  requestIdentity?: string;
+  completedTrips?: number;
+  totalTrips?: number;
 }>;
+/** Screen-facing lifecycle only. It deliberately contains no source references. */
+export type ReplayPresentationPhase = 'resolving' | 'rendering' | 'first-trip-ready' | 'final-ready' | 'finalization-failed';
 /** Opaque durable-cache metadata. It never contains a media URI or source reference. */
 export type ReplayPreparedArtifactRecord = Readonly<{
   identity: string;

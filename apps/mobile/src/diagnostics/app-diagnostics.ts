@@ -14,6 +14,8 @@ export type AppDiagnosticOperation =
   | 'JOURNEY_PRIVACY_SAVE'
   | 'JOURNEY_PRIVACY_READ'
   | 'REPLAY_DRAFT_SAVE'
+  | 'REPLAY_DRAFT_RECOVERY'
+  | 'REPLAY_AUDIO_SELECTION'
   | 'REPLAY_RENDER'
   | 'REPLAY_EXPORT';
 
@@ -38,6 +40,14 @@ export type AppDiagnosticReasonCode =
   | 'CONSTRAINT'
   | 'LIFECYCLE'
   | 'SAVE_FAILED'
+  | 'REPLAY_SCOPE_INVALID'
+  | 'REPLAY_MAPPING_INVALID'
+  | 'REPLAY_MEMORY_MAPPING'
+  | 'REPLAY_GROUP_MAPPING'
+  | 'REPLAY_AUTOMATIC_SCOPE'
+  | 'REPLAY_RECEIPT_CONFLICT'
+  | 'REPLAY_REVISION_CONFLICT'
+  | 'REPLAY_BRANCH_CONFLICT'
   | 'UNKNOWN';
 
 export type AppDiagnosticOutcome = 'complete' | 'unchanged' | 'paused' | 'blocked' | 'restricted' | 'skipped' | 'failed';
@@ -46,7 +56,7 @@ export type AppDiagnosticOutcome = 'complete' | 'unchanged' | 'paused' | 'blocke
 export type AppDiagnosticEvent = Readonly<{
   operation: AppDiagnosticOperation;
   reasonCode: AppDiagnosticReasonCode;
-  stage: ReconciliationStage | DurableRevealDiagnosticStage | AtlasProfileStage | 'PRIVACY_REVIEW_DETAIL' | 'PRIVACY_REVIEW_SCOPE' | 'PRIVACY_POLICY_LIST' | 'REPLAY_ACCESS' | 'REPLAY_SCOPE' | 'REPLAY_DECODE' | 'REPLAY_ENCODE' | 'REPLAY_OUTPUT' | 'REPLAY_STALE' | 'REPLAY_UNAVAILABLE' | null;
+  stage: ReconciliationStage | DurableRevealDiagnosticStage | AtlasProfileStage | 'PRIVACY_REVIEW_DETAIL' | 'PRIVACY_REVIEW_SCOPE' | 'PRIVACY_POLICY_LIST' | 'REPLAY_ACCESS' | 'REPLAY_SCOPE' | 'REPLAY_DECODE' | 'REPLAY_ENCODE' | 'REPLAY_OUTPUT' | 'REPLAY_STALE' | 'REPLAY_UNAVAILABLE' | 'REPLAY_RECOVERY_READ' | 'REPLAY_RECOVERY_RESET' | 'REPLAY_RECOVERY_STAGE' | null;
   retryable: boolean;
   durableOutcome: AppDiagnosticOutcome;
   correlationId: string;

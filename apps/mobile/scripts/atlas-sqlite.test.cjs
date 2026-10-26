@@ -235,6 +235,116 @@ test('Replay manifest input follows the completed policy-visible Journey List an
   assert.equal(hidden.memories.length, 0);
 }));
 
+test('Replay scene-only owner journeys retain exact inclusion, music and consecutive media edits across restart', async () => withDatabase(async (database) => {
+  let repository = createNativeReconstructionRepository();
+  await prepareConfirmedJourney(database, repository);
+  await repository.createManualJourney(manualJourney());
+  const initial = await repository.loadReplayManifestInput();
+  const scene = initial.groups.find((group) => group.state === 'owner-entered');
+  assert.ok(scene, 'The canonical Journey List includes the owner-entered scene');
+  assert.equal(initial.memories.some((memory) => memory.groupKey === scene.key), false);
+  const music = { kind: 'custom', revision: 'synthetic-local-audio-revision', localUri: 'file:///synthetic-private-audio.m4a' };
+  const allGroups = initial.groups.map((group) => group.key);
+  // Choosing music includes a scene-only trip: this previously failed before SQL.
+  let revision = await repository.stageReplayWorkingDraft([], initial.snapshotToken, initial.privacyRevision, 'newest-first', music, undefined, allGroups, allGroups);
+  let readback = await repository.loadReplayManifestInput();
+  assert.deepEqual(readback.workingDraft.includedGroupKeys, allGroups);
+  assert.deepEqual(readback.workingDraft.soundtrack, music);
+  const included = allGroups.filter((key) => key !== scene.key);
+  revision = await repository.stageReplayWorkingDraft([], initial.snapshotToken, initial.privacyRevision, 'newest-first', music, revision, included, []);
+  repository = createNativeReconstructionRepository();
+  readback = await repository.loadReplayManifestInput();
+  assert.deepEqual(readback.workingDraft.includedGroupKeys, included);
+  const selected = [readback.memories[0].key];
+  revision = await repository.stageReplayWorkingDraft(selected, initial.snapshotToken, initial.privacyRevision, 'newest-first', music, revision, included, []);
+  await repository.saveReplayDraft(selected, initial.snapshotToken, initial.privacyRevision, 'newest-first', music, revision, included, []);
+  repository = createNativeReconstructionRepository();
+  readback = await repository.loadReplayManifestInput();
+  assert.deepEqual(readback.includedGroupKeys, included);
+  assert.equal(readback.groups.find((group) => group.key === scene.key).eligible, false);
+  assert.deepEqual(readback.autoGroupKeys, []);
+  assert.deepEqual(readback.soundtrack, music);
+  assert.deepEqual(readback.memories.filter((memory) => memory.intent === 'keep').map((memory) => memory.key), selected);
+  // Scene-only inclusion remains independently editable and commit-safe.
+  revision = await repository.stageReplayWorkingDraft([], initial.snapshotToken, initial.privacyRevision, 'oldest-first', music, undefined, [scene.key], [scene.key]);
+  await repository.saveReplayDraft([], initial.snapshotToken, initial.privacyRevision, 'oldest-first', music, revision, [scene.key], [scene.key]);
+  readback = await createNativeReconstructionRepository().loadReplayManifestInput();
+  assert.deepEqual(readback.includedGroupKeys, [scene.key]);
+  assert.deepEqual(readback.autoGroupKeys, [scene.key]);
+  assert.deepEqual(readback.soundtrack, music);
+}));
+
+test('Replay mutation receipts reject identity reuse and bound settled session history', async () => withDatabase(async (database) => {
+  const repository = createNativeReconstructionRepository();
+  await prepareConfirmedJourney(database, repository);
+  await repository.createManualJourney(manualJourney());
+  const input = await repository.loadReplayManifestInput();
+  const groups = input.groups.map((group) => group.key);
+  const music = { kind: 'custom', revision: 'synthetic-receipt-music', localUri: 'file:///synthetic-receipt.m4a' };
+  const mutation = { operationId: 'synthetic-stage-1', sessionId: 'synthetic-session', editVersion: 1 };
+  const stage = (identity = mutation, direction = 'oldest-first', expected) => repository.stageReplayWorkingDraft([], input.snapshotToken, input.privacyRevision, direction, music, expected, groups, groups, identity);
+  const revision = await stage();
+  const durable = () => ({ draft: database.sqlite.prepare('SELECT * FROM replay_draft').all(), receipts: database.sqlite.prepare('SELECT * FROM replay_mutation_receipt ORDER BY operation_id').all() });
+  const before = durable();
+  assert.equal(await stage(), revision);
+  assert.deepEqual(durable(), before);
+  for (const [identity, direction] of [[mutation, 'newest-first'], [{ ...mutation, sessionId: 'competing-session' }, 'oldest-first'], [{ ...mutation, editVersion: 2 }, 'oldest-first']]) {
+    await assert.rejects(stage(identity, direction), (error) => error.guard === 'receipt');
+    assert.deepEqual(durable(), before);
+  }
+  // Exercise commit receipts independently, including scene-only inclusion.
+  const commit = { operationId: 'synthetic-commit', sessionId: mutation.sessionId, editVersion: 2 };
+  const save = (identity = commit, direction = 'oldest-first') => repository.saveReplayDraft([], input.snapshotToken, input.privacyRevision, direction, music, revision, groups, groups, identity);
+  await save();
+  const committed = durable();
+  await save();
+  assert.deepEqual(durable(), committed);
+  for (const [identity, direction] of [[commit, 'newest-first'], [{ ...commit, sessionId: 'competing-session' }, 'oldest-first'], [{ ...commit, editVersion: 3 }, 'oldest-first']]) {
+    await assert.rejects(save(identity, direction), (error) => error.guard === 'receipt');
+    assert.deepEqual(durable(), committed);
+  }
+  let latest;
+  let latestRevision = revision;
+  for (let index = 3; index <= 100; index += 1) {
+    latest = { operationId: `synthetic-stage-${index}`, sessionId: mutation.sessionId, editVersion: index };
+    latestRevision = await stage(latest, 'oldest-first', latestRevision);
+    assert.ok(database.sqlite.prepare('SELECT COUNT(*) AS count FROM replay_mutation_receipt').get().count <= 32);
+  }
+  assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS count FROM replay_mutation_receipt').get().count, 32);
+  assert.deepEqual(await repository.reconcileReplayMutation(latest, input.snapshotToken, input.privacyRevision), { kind: 'acknowledged', revision: latestRevision });
+  assert.ok(database.sqlite.prepare('SELECT operation_id FROM replay_mutation_receipt WHERE operation_id = ?').get(latest.operationId));
+}));
+
+test('Replay receipt reconciliation cannot read an uncommitted receipt before writer settlement', async () => withDatabase(async (database) => {
+  const repository = createNativeReconstructionRepository();
+  await prepareConfirmedJourney(database, repository);
+  const input = await repository.loadReplayManifestInput();
+  const mutation = { operationId: 'held-commit-stage', sessionId: 'held-session', editVersion: 1 };
+  let release;
+  let entered;
+  const hold = new Promise((resolve) => { release = resolve; });
+  const committing = new Promise((resolve) => { entered = resolve; });
+  const originalExec = database.adapter.execAsync;
+  let held = false;
+  database.adapter.execAsync = async (sql) => {
+    if (!held && sql === 'COMMIT') { held = true; entered(); await hold; }
+    return originalExec(sql);
+  };
+  const saving = repository.stageReplayWorkingDraft([], input.snapshotToken, input.privacyRevision, 'oldest-first', { kind: 'bundled', revision: 'happy-moments-1.4' }, undefined, undefined, undefined, mutation);
+  await committing;
+  const receiptReads = () => database.calls.filter(([, sql]) => sql.startsWith('SELECT * FROM replay_mutation_receipt')).length;
+  const before = receiptReads();
+  let settled = false;
+  const checking = repository.reconcileReplayMutation(mutation, input.snapshotToken, input.privacyRevision).then((result) => { settled = true; return result; });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(receiptReads(), before, 'Reconciliation must wait outside the active transaction');
+  assert.equal(settled, false);
+  release();
+  const revision = await saving;
+  assert.deepEqual(await checking, { kind: 'acknowledged', revision });
+  assert.equal(receiptReads(), before + 1);
+}));
+
 test('Replay artifact metadata preserves working composition revision and genuine conflicts', async () => withDatabase(async (database) => {
   const repository = createNativeReconstructionRepository();
   await prepareConfirmedJourney(database, repository);
