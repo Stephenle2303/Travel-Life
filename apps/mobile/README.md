@@ -4,7 +4,7 @@ The agreed prototype screens, including the video Welcome, are the official UI
 targets for this app. Follow the [Living Atlas design system](../../docs/product/design-system.md)
 and [decision 0011](../../docs/decisions/0011-prototype-screens-as-product-ui.md)
 as production screens are delivered. The app opens on the video Welcome, whose
-**Set up private reveal** action leads to Trust → Import → empty Atlas. The
+**Explore my travel life** action leads to Trust → Import → empty Atlas. The
 bundled portrait/wide montage and poster are silent illustrative media, not
 owner photos or a personal Replay. Welcome requests no photo permission, sends
 no data, pauses when inactive or scrolled out of view, and offers a labeled

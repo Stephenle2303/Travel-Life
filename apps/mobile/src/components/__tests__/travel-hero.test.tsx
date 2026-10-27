@@ -44,11 +44,12 @@ describe('welcome travel hero', () => {
     const onStart = jest.fn();
     const hero = await render(<TravelHero onStart={onStart} />);
     expect(mockPlayer.play).not.toHaveBeenCalled();
+    expect(hero.getByText('The places you’ve been. The life you’ve lived.')).toBeTruthy();
     await fireEvent.press(hero.getByLabelText('Play travel montage'));
     expect(mockPlayer.play).toHaveBeenCalledTimes(1);
     await fireEvent.press(hero.getByLabelText('Pause travel montage'));
     expect(hero.getByLabelText('Play travel montage')).toBeTruthy();
-    await fireEvent.press(hero.getByText('Set up private reveal'));
+    await fireEvent.press(hero.getByText('Explore my travel life'));
     expect(onStart).toHaveBeenCalledTimes(1);
     expect(hero.getByText(/Illustrative footage/)).toBeTruthy();
   });
@@ -59,7 +60,7 @@ describe('welcome travel hero', () => {
     await act(() => { mockListeners.statusChange({ status: 'error' }); });
     expect(hero.getByText(/Video unavailable · still view/)).toBeTruthy();
     expect(hero.getByLabelText('Play travel montage').props.accessibilityState).toMatchObject({ disabled: true });
-    await fireEvent.press(hero.getByText('Set up private reveal'));
+    await fireEvent.press(hero.getByText('Explore my travel life'));
     expect(onStart).toHaveBeenCalledTimes(1);
   });
 

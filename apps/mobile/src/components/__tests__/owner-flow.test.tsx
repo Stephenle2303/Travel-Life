@@ -60,9 +60,9 @@ describe('private first-run navigation', () => {
 
     expect(view.getByText(/Your travels/)).toBeOnTheScreen();
     expect(view.getByText(/Illustrative footage/)).toBeOnTheScreen();
-    expect(view.getByRole('button', { name: 'Set up private reveal' })).toBeOnTheScreen();
+    expect(view.getByRole('button', { name: 'Explore my travel life' })).toBeOnTheScreen();
     const user = userEvent.setup();
-    await user.press(view.getByRole('button', { name: 'Set up private reveal' }));
+    await user.press(view.getByRole('button', { name: 'Explore my travel life' }));
     expect(view.getByText('Your travel life, held with care.')).toBeOnTheScreen();
     await user.press(view.getByRole('button', { name: 'Continue to import' }));
     expect(view.getByText('Choose what this device can share.')).toBeOnTheScreen();
