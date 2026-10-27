@@ -1,5 +1,53 @@
 # Error and improvement playbook
 
+## Android bundle missing shared share-protocol module report (2026-10-27)
+
+- **Owner symptom:** The freshly built Android client reports missing shared
+  modules such as the Supabase share protocol at runtime.
+- **Status:** Cause not yet established. Treat this as a Metro/native bundle
+  packaging regression until the current build's import graph and resolver are
+  verified; do not attribute it to the CMake failure or claim the build usable.
+- **Next action:** Inspect the committed cross-package imports, Metro resolver,
+  generated Android bundle and current device error boundary before changing
+  behavior. Add a regression that exercises the production bundle path.
+- **Bundle evidence:** A clean Android Metro export fails earlier in
+  `src/replay/renderer.ts` while resolving the tracked
+  `meadow-thoughts.ogg` asset. The file is present in the committed checkout;
+  Metro simply does not register OGG as an asset by default. This is a proven
+  packaging defect, separate from the reported shared-protocol resolution
+  concern. Register the intended offline asset extension and rerun a clean
+  export before retrying native installation.
+- **Correction:** `apps/mobile/metro.config.js` now explicitly registers
+  `ogg`, with a regression test that asserts both that registration and the
+  shared-protocol source is present. Repository checks pass; Android export
+  evidence remains pending because this session's Expo process ended after
+  Metro startup without producing an exit code or generated artifacts.
+- **Verification-command incident:** A follow-up attempted to route the Expo
+  command through `cmd.exe` with nested quoted output paths. Windows rejected
+  the command before Expo started and no export log was created. This is not
+  bundle evidence. **Prevention:** use one shell's native argument and log
+  handling; do not compose `cmd.exe` quoting inside PowerShell for this check.
+
+## Android device preflight PATH failure (2026-10-27)
+
+- **Symptom/evidence:** `adb devices -l` could not run because `adb` was not on
+  the current PowerShell PATH; no build or device operation started.
+- **Prevention:** Resolve the Android SDK's installed `platform-tools/adb` path
+  before device work and use that verified executable for both preflight and
+  post-install checks.
+- **Follow-up evidence:** The resolved SDK `adb.exe` could not start/connect to
+  its daemon (`cannot connect to daemon`), so Expo stopped before Gradle or
+  installation. This is a device-transport collection failure, not build or
+  app evidence. Inspect ownership of the ADB port/process before one controlled
+  restart; do not claim a rebuild from this attempt.
+- **Follow-up evidence:** Once ADB was healthy, `expo run:android --device`
+  stopped before build because non-interactive mode cannot show its device
+  picker. Pass the already verified ADB serial explicitly on retry.
+- **Correction:** The installed Expo CLI does not resolve the ADB serial through
+  its `--device` value; that retry also stopped before compilation. Consult the
+  installed CLI help and use its supported selector instead of repeating the
+  serial form.
+
 ## Review workflow uv-cache permission failure (2026-10-27)
 
 - **Symptom/evidence:** The code-review workflow resolver could not inspect the

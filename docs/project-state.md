@@ -13,6 +13,16 @@ remote media gate hard-disabled; no validator, hosting, bucket, link or private
 media deployment is authorized by this scope. Fresh Android/iOS share-target
 acceptance remains required before claiming physical delivery.
 
+## Android bundle packaging correction pending device validation (2026-10-27)
+
+The committed Replay soundtrack is an OGG asset, but Metro does not include
+that extension in its default asset list. `apps/mobile/metro.config.js` now
+registers OGG and a root regression verifies the configuration plus the
+cross-package share-protocol source. The repository check passes. A clean Expo
+Android export must still be obtained successfully, followed by the previously
+blocked native Android build and owner-operated share-sheet acceptance; neither
+is established by the configuration check.
+
 ## Selected snapshot sharing and browser viewer continuation (2026-10-27)
 
 The owner reports preceding trip covers and selected Replay video sharing steps
