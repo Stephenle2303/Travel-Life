@@ -4,7 +4,7 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { TravelHero } from '@/components/travel-hero';
-import { Body, Eyebrow, InsetPanel, Title, palette } from '@/components/ui';
+import { Body, Eyebrow, Title, palette } from '@/components/ui';
 import { appRoutes, openRoute } from '@/navigation/app-contract';
 
 export function WelcomeScreen() {
@@ -28,10 +28,6 @@ export function WelcomeScreen() {
             <Title>A lifetime of little “remember when?”</Title>
             <Body>Start with a private Atlas, revisit the chapters your available evidence supports, and choose what you want to share when you are ready.</Body>
           </View>
-          <InsetPanel style={styles.panel}>
-            <Body>Welcome footage is illustrative and bundled with the app. It is not your photos or a personal Replay.</Body>
-            <Body>Nothing is scanned or uploaded on this screen. Photo access is your choice in the following steps.</Body>
-          </InsetPanel>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -43,5 +39,4 @@ const styles = StyleSheet.create({
   content: { width: '100%', maxWidth: 1120, alignSelf: 'center', padding: 12, paddingBottom: 44, gap: 28 },
   details: { flexDirection: 'row', flexWrap: 'wrap', gap: 24, paddingHorizontal: 8 },
   intro: { flexGrow: 1, flexBasis: 300, gap: 14 },
-  panel: { flexGrow: 1, flexBasis: 280 },
 });

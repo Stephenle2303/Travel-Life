@@ -60,6 +60,11 @@ describe('private first-run navigation', () => {
 
     expect(view.getByText(/Your travels/)).toBeOnTheScreen();
     expect(view.getByText(/Illustrative footage/)).toBeOnTheScreen();
+    expect(view.getByText('Private by design')).toBeOnTheScreen();
+    expect(view.getByText('A lifetime of little “remember when?”')).toBeOnTheScreen();
+    expect(view.getByText(/choose what you want to share when you are ready/)).toBeOnTheScreen();
+    expect(view.queryByText(/Welcome footage is illustrative and bundled/)).toBeNull();
+    expect(view.queryByText(/Nothing is scanned or uploaded on this screen/)).toBeNull();
     expect(view.getByRole('button', { name: 'Explore my travel life' })).toBeOnTheScreen();
     const user = userEvent.setup();
     await user.press(view.getByRole('button', { name: 'Explore my travel life' }));
