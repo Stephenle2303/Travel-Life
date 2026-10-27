@@ -28,6 +28,50 @@
   bundle evidence. **Prevention:** use one shell's native argument and log
   handling; do not compose `cmd.exe` quoting inside PowerShell for this check.
 
+## Deferred hosted-sharing UI remained in the MLP build (2026-10-27)
+
+- **Owner evidence:** The installed Android build exposes a `Publish highlight
+  link` action even though hosted M4.5/M4.6 sharing was approved as deferred.
+- **Verified cause:** The scope correction was documented, but the committed
+  mobile route was not removed or hidden. `replay-screen.tsx` still registers
+  the `Publish selected highlight link` action to `/share`, and the home screen
+  still registers the Selected Highlight route. A deferred planning decision
+  does not remove compiled code.
+- **Correction required:** Remove the hosted-publication entry points from the
+  MLP navigation and retain only the local Replay-video share-sheet route.
+  Review acceptance must explicitly search for and exercise all deferred
+  feature entry points in the installed build before a scope-correction commit
+  is described as clean.
+- **Correction/verification:** Removed the Atlas share callback and card action,
+  the standalone Atlas sharing action, the Replay hosted-link action, and the
+  Expo `/share` route. The retained selected Replay path still exposes only the
+  local system `Share video` handoff. Focused Atlas/Replay UI tests pass 110
+  tests; repository-level route regression and package validation remain the
+  completion gate.
+- **Verification-command incident:** The first route-regression invocation ran
+  from `apps/mobile` with a repository-root `tests/...` path, so Node did not
+  find the test. The focused mobile suites did run and pass, but that is not
+  evidence for the root route test. **Prevention:** run root `tests/` commands
+  from the repository root, and package tests with package-relative paths.
+- **Lint-command incident:** The root package deliberately has no `lint` script;
+  invoking it failed before linting. The required root `npm run check` still
+  passed, and the follow-up `apps/mobile` `npm run lint` passed. **Prevention:**
+  inspect the owning package's scripts before adding a package-specific check;
+  root verification and mobile lint are separate commands.
+- **Path recurrence:** The expanded focused mobile command again included the
+  root `tests/mlp-sharing-navigation.test.mjs` path while running from
+  `apps/mobile`. Node again skipped that test before the 117 focused mobile
+  tests passed. **Strengthened prevention:** never combine root Node tests with
+  package-local commands; run the root route regression through root
+  `npm run check` as a separate command.
+- **Review correction:** Independent review found the MLP provider still
+  dynamically imported `owner-service` at mount and during history deletion.
+  Those calls could invoke deferred hosted-removal reconciliation despite no
+  hosted sharing entry point. The provider now uses the local-complete lifecycle
+  callback and no longer imports the deferred service; the route regression
+  asserts this boundary. This is valid because no hosted service was deployed
+  or published under the deferred M4.5/M4.6 scope.
+
 ## Android device preflight PATH failure (2026-10-27)
 
 - **Symptom/evidence:** `adb devices -l` could not run because `adb` was not on

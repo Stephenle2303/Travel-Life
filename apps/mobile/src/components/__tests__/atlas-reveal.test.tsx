@@ -126,16 +126,6 @@ describe('private Atlas reveal', () => {
     expect(onEditJourney).toHaveBeenCalledWith('related-one', expect.objectContaining({ selectedJourneyId: 'related-one' }));
   });
 
-  it('offers an owner-only share preparation action from a loaded journey preview', async () => {
-    const onShareJourney = jest.fn();
-    const load = jest.fn(async (id: string) => ({ detail: { id, title: 'Private journey', observedSpan: 'Observed 2024', visits: [], memories: [], uncertainty: [] }, previews: [], snapshotToken: 7 }));
-    const view = await render(<AtlasReveal model={modelFor({ durableRecord: { journeys: [{ displayId: 'journey-1', state: 'inferred', anchor: null, years: [2024], periodLabel: '2024', ordering: 'chronological' }] } })} {...actions} loadJourneyPreview={load} onShareJourney={onShareJourney} />);
-    await fireEvent.press(view.getByRole('button', { name: 'Private journey, 2024' }));
-    await waitFor(() => expect(view.getByRole('button', { name: 'Prepare selected share' })).toBeOnTheScreen());
-    await fireEvent.press(view.getByRole('button', { name: 'Prepare selected share' }));
-    expect(onShareJourney).toHaveBeenCalledWith({ displayId: 'journey-1', snapshotToken: 7 });
-  });
-
   it('emits and restores the exact Atlas context for manual entry', async () => {
     const onManualEntry = jest.fn();
     const view = await render(<AtlasReveal model={modelFor({ durableRecord: { journeys: [{ displayId: 'journey-1', state: 'inferred', anchor: { latitude: 13.7, longitude: 100.5 }, years: [2024], periodLabel: '2024', ordering: 'chronological' }] } })} {...actions} onManualEntry={onManualEntry} initialExploration={{ view: 'timeline', year: 2024, selectedJourneyId: 'journey-1', camera: { center: [100.5, 13.7], zoom: 4 } }} />);

@@ -42,3 +42,6 @@
 
 - Existing `photo-access/provider.tsx:984-986` registered-artifact export bypasses refreshed photo-access checks. The trip-selection patch did not introduce that gate, but the spec's access-change acceptance remains incomplete. Add final scope revalidation and a permission-change integration regression; actual owner-device behavior remains unverified.
 - Unverified concurrent committed-media exclusion: `photo-access/provider.tsx:763-767` accepts eligible/available album keys even if marked `intent: exclude`. A normal flow changing committed media while retaining these selected keys was not established; use a controlled composition-change/provider integration test to establish reachability and impact before treating this as a confirmed defect.
+- source_spec: `_bmad-output/implementation-artifacts/spec-defer-hosted-sharing-ui.md`
+  summary: Confirm on a connected iOS device that hosted-link affordances are absent and the local Replay Share video handoff remains available.
+  evidence: Source and host checks establish route removal, but physical iOS navigation and system-share behavior require an available device.

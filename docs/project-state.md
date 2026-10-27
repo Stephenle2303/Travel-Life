@@ -30,6 +30,22 @@ log reached `ReactNativeJS: Running "main"` without a resolver or native crash.
 This establishes debug-bundle loading only. Unlocking and owner-operated screen
 and share-sheet acceptance remain required.
 
+## Hosted-link entry points removed from MLP navigation (2026-10-27)
+
+The owner found a `Publish highlight link` action in the installed debug build
+after M4.5/M4.6 hosted sharing had been deferred. The MLP navigation now removes
+the Atlas and Replay hosted-link entry points and the Expo `/share` route, while
+keeping the exact private Replay preview and local `Share video` system-sheet
+handoff. Deferred M4.5/M4.6 implementation remains retained but unreachable;
+fresh Android device confirmation after the next build remains required.
+
+The MLP provider also no longer dynamically imports the deferred hosted-sharing
+service for startup or history deletion. This is safe because no hosted M4.5/M4.6
+service or publication was deployed. The current debug client can receive this
+JavaScript-only correction through the active Metro session; a fresh native
+build is not required for the navigation change, but Android and iOS owner
+acceptance still remains open.
+
 ## Selected snapshot sharing and browser viewer continuation (2026-10-27)
 
 The owner reports preceding trip covers and selected Replay video sharing steps

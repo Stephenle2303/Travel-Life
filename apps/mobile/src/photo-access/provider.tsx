@@ -372,12 +372,11 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     async () => { replayThumbnails.invalidate(); durableRevealGate.invalidate(); await controller.stopImport(); await maintenanceController.stopForLifecycle(); reconstructionController.clear(); setDurableReveal(null); aiProposalController.clear(); },
     setPrivateRecord,
     () => controller.clearDeletedRecord(),
-    async () => { const share = await import('@/share/owner-service'); await share.queueRemoteRemoval(); return share.reconcileRemoteRemoval(); },
+    async () => 'complete' as const,
   ));
 
   useEffect(() => {
     const currentReplayController = replayController.current;
-    void import('@/share/owner-service').then((share) => share.reconcileRemoteRemoval()).catch(() => {});
     const currentReplayArtifacts = replayArtifacts.current;
     void controller.refresh();
     void privateRecordController.refresh();
