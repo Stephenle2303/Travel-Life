@@ -2,7 +2,7 @@
 title: Travel Life working MLP specification
 status: working-decisions
 revision: 7
-updated: 2026-10-07
+updated: 2026-10-27
 strategy: build-then-learn
 platforms: [ios, android]
 ---
@@ -27,9 +27,10 @@ Required P0 scope: shared iOS/Android app; native access/selection; resumable me
 import; private persistence/deletion; local reconstruction plus optional AI assistance;
 map/timeline/details; a private lifetime replay video; supportable counts;
 correction/manual exceptions; scheduled background maintenance with foreground
-catch-up/rescan; interactive journey or selected-lifetime-highlight publishing and
-browser viewing; minimal instrumentation/feedback; beta builds and real-device/browser
-checks. P1: static share card and the first post-rollout evidence review.
+catch-up/rescan; an exact locally prepared Replay video handed deliberately to the
+platform share sheet; minimal instrumentation/feedback; beta builds and real-device
+checks. P1: static share card and the first post-rollout evidence review. Hosted
+selected-highlight links and a browser viewer are deferred post-MLP.
 
 Excluded: historical Google Photos connector, second source, cloud history backup,
 email account signup, precise travelled distance, proven routes, exact unobserved
@@ -59,10 +60,9 @@ payments and community. Background maintenance is required in this MLP.
    remove places and add exceptions without reviewing every photo individually.
 8. Settings provide automatic-maintenance controls, last checked/updated status,
    foreground catch-up/rescan, AI controls, privacy controls, disconnect and deletion.
-9. Share a Journey or selected lifetime highlight by choosing facts and memories,
-   previewing the exact content, then deliberately publishing an interactive browser
-   link with owner revoke/republish controls. Preview and explicitly export the
-   replay video through the native share sheet.
+9. Preview the exact selected Replay video and deliberately hand it to the native
+   share sheet. Travel Life cannot confirm a recipient's delivery or revoke a
+   recipient's saved copy. Hosted journey/highlight links are deferred post-MLP.
 10. Offer lightweight usefulness/error feedback during actual use.
 
 Use readable native-style components, accessible labels and touch targets, light/dark

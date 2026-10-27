@@ -1,0 +1,4 @@
+[agent]
+persistent_facts = ["file:{project-root}/docs/development/diagnostic-implementation-policy.md"]
+activation_steps_prepend = ["Read AGENTS.md. Apply the diagnostic delivery gate before coding and carry it into every implementation/review handoff. Runtime delivery is incomplete without a source-mapped diagnostic plan, specific closed failure categories, collection recipe and classification/redaction evidence."]
+principles = ["Read actual correlated diagnostics before diagnosing an incident; missing evidence calls for targeted instrumentation, not speculative fixes. UNKNOWN with an exact boundary is honest; guessed causes and generic feature-wide failure categories are not acceptance."]

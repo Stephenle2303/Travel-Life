@@ -48,6 +48,41 @@ describe('Replay renderer gate', () => {
     expect(execute).toHaveBeenCalledWith(['-version']);
     expect(jest.mocked(execute).mock.calls[0]).toHaveLength(1);
   });
+  it('refuses OS sharing when the final file is empty or has no valid video stream', async () => {
+    jest.mocked(Sharing.isAvailableAsync).mockResolvedValue(true);
+    const FileSystem = jest.requireMock('expo-file-system/legacy') as { getInfoAsync: jest.Mock };
+    FileSystem.getInfoAsync.mockResolvedValue({ exists: true, size: 0 });
+    await expect(shareReplayArtifact({ uri: 'file:///empty.mp4', digest: 'digest', manifest: { generation: 1, groupKeys: ['a'], memoryKeys: [], durationSeconds: 3 } })).resolves.toBe('invalid');
+    expect(Sharing.shareAsync).not.toHaveBeenCalled();
+    FileSystem.getInfoAsync.mockResolvedValue({ exists: true, size: 1024 });
+    jest.mocked(getMediaInformation).mockResolvedValue({ format: { duration: '0' }, streams: [] } as never);
+    await expect(shareReplayArtifact({ uri: 'file:///invalid.mp4', digest: 'digest', manifest: { generation: 1, groupKeys: ['a'], memoryKeys: [], durationSeconds: 3 } })).resolves.toBe('invalid');
+    expect(Sharing.shareAsync).not.toHaveBeenCalled();
+  });
+  it('hands a verified immutable MP4 copy to the native share sheet', async () => {
+    jest.mocked(Sharing.isAvailableAsync).mockResolvedValue(true);
+    const FileSystem = jest.requireMock('expo-file-system/legacy') as { getInfoAsync: jest.Mock; makeDirectoryAsync: jest.Mock; copyAsync: jest.Mock; deleteAsync: jest.Mock };
+    FileSystem.getInfoAsync.mockResolvedValue({ exists: true, size: 1024 });
+    jest.mocked(getMediaInformation).mockResolvedValue({ format: { duration: '3' }, streams: [{ codec_type: 'video', codec_name: 'h264', width: 1280, height: 720, pix_fmt: 'yuv420p' }, { codec_type: 'audio', codec_name: 'aac' }] } as never);
+
+    await expect(shareReplayArtifact({ uri: 'file:///documents/private.mp4', digest: 'digest', manifest: { generation: 1, music: { kind: 'bundled', revision: 'happy-moments-1.4' }, groupKeys: ['a'], memoryKeys: [], durationSeconds: 3 } })).resolves.toBe('closed');
+
+    expect(FileSystem.copyAsync).toHaveBeenCalledWith(expect.objectContaining({ from: 'file:///documents/private.mp4', to: expect.stringMatching(/^file:\/\/\/cache\/replay-share\/replay-share-[a-z0-9-]+\.mp4$/) }));
+    expect(Sharing.shareAsync).toHaveBeenCalledWith(expect.stringMatching(/^file:\/\/\/cache\/replay-share\/replay-share-[a-z0-9-]+\.mp4$/), { mimeType: 'video/mp4', UTI: 'public.mpeg-4' });
+  });
+  it('does not open the share sheet when its handoff copy cannot be verified', async () => {
+    jest.mocked(Sharing.shareAsync).mockClear();
+    jest.mocked(Sharing.isAvailableAsync).mockResolvedValue(true);
+    const FileSystem = jest.requireMock('expo-file-system/legacy') as { getInfoAsync: jest.Mock };
+    FileSystem.getInfoAsync
+      .mockResolvedValueOnce({ exists: true, size: 1024 })
+      .mockResolvedValueOnce({ exists: false, size: 0 });
+    jest.mocked(getMediaInformation).mockResolvedValue({ format: { duration: '3' }, streams: [{ codec_type: 'video', codec_name: 'h264', width: 1280, height: 720, pix_fmt: 'yuv420p' }] } as never);
+
+    await expect(shareReplayArtifact({ uri: 'file:///documents/private.mp4', digest: 'digest', manifest: { generation: 1, groupKeys: ['a'], memoryKeys: [], durationSeconds: 3 } })).resolves.toBe('handoff-failed');
+
+    expect(Sharing.shareAsync).not.toHaveBeenCalled();
+  });
   it('keeps a selected video as a bounded moving clip without frozen filler', async () => {
     jest.mocked(execute).mockResolvedValue({ success: true } as never);
     jest.mocked(pickEncoder).mockResolvedValue('libopenh264' as never);

@@ -40,6 +40,10 @@ prerequisites. Do not start interviews, recruitment or a competitor study by def
 2. For behavior changes, identify meaningful failing tests and edge cases. ECC
    `tdd-workflow` guides red/green/refactor. Documentation-only edits need review,
    not contrived tests. Use the repository's actual commands.
+   Every implementation also follows the mandatory
+   [diagnostic delivery gate](diagnostic-implementation-policy.md): define the
+   operation/stage/reason-to-source map before coding, instrument fallible
+   boundaries, and verify classification/redaction and action correlation.
 3. If model, prompt, inference, evidence handling, or orchestration behavior
    changes, follow the evaluation loop below as well as software tests.
 4. Implement the smallest coherent change. Record decisions and migrations.
@@ -81,3 +85,7 @@ to add RAG now. The initial local runner checks only trace contracts/provenance.
 A delivery record links the request, criteria, changed artifacts, software checks,
 AI comparisons when applicable, and unresolved limits. A fixture smoke pass means
 the development infrastructure works; it never substitutes for product validation.
+Include the diagnostic map, exact current-runtime collection recipe and failure/
+redaction test evidence. Incident work starts from correlated diagnostics and the
+mapped source boundary; absent evidence requires targeted instrumentation, not
+speculative fixes. Missing diagnostic evidence leaves runtime delivery incomplete.

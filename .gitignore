@@ -32,3 +32,8 @@ apps/prototype/.media-work/
 
 # Generated Android install packages
 *.apk
+
+# Generated recipient viewer bundle
+apps/share-viewer/dist/
+
+apps/share-viewer/public/share-contract.json

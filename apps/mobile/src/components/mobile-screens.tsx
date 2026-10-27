@@ -78,10 +78,11 @@ export function ImportScreen() {
 
 export function EmptyAtlasScreen() {
   const router = useRouter();
-  const { snapshot, importCoverage, reconciliation, catchUpHistory, reconstruction, retryJourneyCorrectionProjection, durableReveal, loadJourneyDetail, loadJourneyMediaPage, privateRecord, privateRecordController } = usePhotoAccess();
+  const { snapshot, importCoverage, reconciliation, catchUpHistory, reconstruction, retryJourneyCorrectionProjection, durableReveal, loadJourneyDetail, loadJourneyMediaPage, loadJourneyEligibility, privateRecord, privateRecordController } = usePhotoAccess();
   const [initialAtlasContext] = useState(() => consumeAtlasPreviewContext());
   const [atlasGestureActive, setAtlasGestureActive] = useState(false);
   const [manualEntryRecovery, setManualEntryRecovery] = useState<AtlasExploration | null>(null);
+  const [sharePreparation, setSharePreparation] = useState<{ displayId: string; snapshotToken: number; privacyRevision: number } | null>(null);
   const manualRecoveryRequest = useRef(0);
   const reveal = projectReveal({
     graph: reconstruction.graph,
@@ -116,6 +117,11 @@ export function EmptyAtlasScreen() {
         onReplay={() => openRoute(router, appRoutes.replay)}
         onSettings={(context) => { saveAtlasPreviewContext(context); openRoute(router, appRoutes.settings); }}
         onOpenJourney={(id) => router.push({ pathname: appRoutes.journey as never, params: { id } })}
+        onShareJourney={(selection) => { void (async () => {
+          const eligibility = await loadJourneyEligibility(selection.displayId, selection.snapshotToken, 'share');
+          if (eligibility.eligible) router.push({ pathname: '/share' as never, params: { scope: selection.displayId } });
+          else setSharePreparation(null);
+        })(); }}
         loadJourneyPreview={loadPreview}
         loadJourneyMediaPage={loadJourneyMediaPage}
         onMapGestureChange={setAtlasGestureActive}
@@ -124,6 +130,12 @@ export function EmptyAtlasScreen() {
           router.push({ pathname: '/journey/[id]/edit' as never, params: { id, fromAtlas: '1' } });
         }}
       />
+      <ActionButton accessibilityLabel="Choose selected highlight" variant="secondary" onPress={() => router.push('/share' as never)}>Share selected highlight</ActionButton>
+      {sharePreparation && <InsetPanel>
+        <Title>Selected share preparation</Title>
+        <Body>This journey is selected from the current private Journey List. Review and publish stay separate; no link has been created.</Body>
+        <ActionButton accessibilityLabel="Clear selected share preparation" onPress={() => setSharePreparation(null)} variant="secondary">Clear selection</ActionButton>
+      </InsetPanel>}
       {manualEntryRecovery && <InsetPanel>
         <Title>{privateRecord.state === 'deleted' ? 'Create a private record first' : 'Reconnect your private record first'}</Title>
         <Body>{privateRecord.state === 'deleted' ? 'A private record is needed before adding a journey. Creating it establishes local storage only; it does not scan or change your photos.' : 'Reconnect the private record on this device before adding a journey. Your Atlas view will stay here.'}</Body>

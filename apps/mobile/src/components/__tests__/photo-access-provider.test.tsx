@@ -9,6 +9,8 @@ import type { PermissionSnapshot, PhotoAccessAdapter } from '@/photo-access/type
 import type { ImportRepository, MaintenanceRepository } from '@/import-record';
 import { DurableRevealStageError } from '@/reconstruction/repository';
 import { ReplayDraftStaleError } from '@/replay/draft-error';
+import { munimReplayRenderer } from '@/replay/renderer';
+import * as replayRenderer from '@/replay/renderer';
 import type { DurableRevealRecord } from '@/reveal/types';
 
 const mockRouterPush = jest.fn();
@@ -364,6 +366,124 @@ describe('photo access provider and Import screen', () => {
     await expect(access.preparePrivateReplay()).rejects.toMatchObject({ stage: 'REPLAY_ACCESS' });
   });
 
+  it('rejects a selected Replay key that is no longer in the included eligible composition as stale', async () => {
+    let access!: ReturnType<typeof usePhotoAccess>;
+    const replay = { snapshotToken: 7, privacyRevision: 2, includedGroupKeys: ['kept'], previewSourceRefs: ['opaque-kept', 'opaque-removed'], groups: [
+      { key: 'kept', label: 'Kept trip', inferred: true, eligible: true, orderCertain: true },
+      { key: 'removed', label: 'Removed trip', inferred: true, eligible: true, orderCertain: true },
+    ], memories: [
+      { key: 'kept-memory', groupKey: 'kept', kind: 'photo' as const, available: true, eligible: true },
+      { key: 'removed-memory', groupKey: 'removed', kind: 'photo' as const, available: true, eligible: true },
+    ] };
+    const native = { ...stagedFailureRepository(async () => ({ journeys: [] })), loadReplayManifestInput: jest.fn(async () => replay) };
+    const adapter = { ...adapterFor({ scope: 'full', canAskAgain: false }), resolveOwnerPreviews: jest.fn(async () => [
+      { uri: 'file:///kept.jpg', availability: 'available' as const, kind: 'photo' as const },
+      { uri: 'file:///removed.jpg', availability: 'available' as const, kind: 'photo' as const },
+    ]) };
+    const Harness = () => { access = usePhotoAccess(); return null; };
+    await render(<PhotoAccessProvider adapter={adapter} repository={emptyRepository} reconstructionRepository={native}><Harness /></PhotoAccessProvider>);
+    await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
+    await expect(access.preparePrivateReplay(['removed-memory'])).rejects.toMatchObject({ stage: 'REPLAY_STALE' });
+  });
+
+  it('rejects a selected Replay chapter that is no longer in the committed composition as stale', async () => {
+    let access!: ReturnType<typeof usePhotoAccess>;
+    const replay = { snapshotToken: 7, privacyRevision: 2, includedGroupKeys: ['kept'], previewSourceRefs: ['opaque-kept'], groups: [
+      { key: 'kept', label: 'Kept trip', inferred: true, eligible: true, orderCertain: true },
+      { key: 'removed', label: 'Removed trip', inferred: true, eligible: true, orderCertain: true },
+    ], memories: [{ key: 'kept-memory', groupKey: 'kept', kind: 'photo' as const, available: true, eligible: true }] };
+    const native = { ...stagedFailureRepository(async () => ({ journeys: [] })), loadReplayManifestInput: jest.fn(async () => replay) };
+    const adapter = { ...adapterFor({ scope: 'full', canAskAgain: false }), resolveOwnerPreviews: jest.fn(async () => [{ uri: 'file:///kept.jpg', availability: 'available' as const, kind: 'photo' as const }]) };
+    const Harness = () => { access = usePhotoAccess(); return null; };
+    await render(<PhotoAccessProvider adapter={adapter} repository={emptyRepository} reconstructionRepository={native}><Harness /></PhotoAccessProvider>);
+    await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
+    await expect(access.preparePrivateReplay([], undefined, undefined, undefined, ['removed'])).rejects.toMatchObject({ stage: 'REPLAY_STALE' });
+  });
+
+  it('prepares selected normal and card-only committed chapters in committed media order with the supplied soundtrack', async () => {
+    let access!: ReturnType<typeof usePhotoAccess>;
+    const soundtrack = { kind: 'custom' as const, revision: 'committed-track', localUri: 'file:///committed.m4a' };
+    const replay = { snapshotToken: 7, privacyRevision: 2, direction: 'oldest-first' as const, soundtrack, includedGroupKeys: ['normal', 'card-only'], previewSourceRefs: ['opaque-first', 'opaque-second'], groups: [
+      { key: 'normal', label: 'Normal trip', inferred: true, eligible: true, orderCertain: true },
+      { key: 'card-only', label: 'Card-only trip', inferred: true, eligible: true, orderCertain: true },
+    ], memories: [
+      { key: 'first', groupKey: 'normal', kind: 'photo' as const, available: true, eligible: true },
+      { key: 'second', groupKey: 'normal', kind: 'video' as const, available: true, eligible: true },
+    ] };
+    const native = { ...stagedFailureRepository(async () => ({ journeys: [] })), loadReplayManifestInput: jest.fn(async () => replay) };
+    const adapter = { ...adapterFor({ scope: 'full', canAskAgain: false }), resolveOwnerPreviews: jest.fn(async () => [{ uri: 'file:///first.jpg', availability: 'available' as const, kind: 'photo' as const }, { uri: 'file:///second.mp4', availability: 'available' as const, kind: 'video' as const }]) };
+    const rendererSpy = jest.spyOn(munimReplayRenderer, 'render').mockImplementation(async (manifest) => ({ uri: 'file:///subset.mp4', digest: 'synthetic', manifest }));
+    const Harness = () => { access = usePhotoAccess(); return null; };
+    try {
+      await render(<PhotoAccessProvider adapter={adapter} repository={emptyRepository} reconstructionRepository={native}><Harness /></PhotoAccessProvider>);
+      await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
+      await expect(access.preparePrivateReplay(['second', 'first'], undefined, soundtrack, undefined, ['normal', 'card-only'])).resolves.toMatchObject({ uri: 'file:///subset.mp4', renderedMemoryCount: 2 });
+      expect(rendererSpy).toHaveBeenCalledWith(expect.objectContaining({ groupKeys: ['normal', 'card-only'], memoryKeys: ['first', 'second'], music: soundtrack }), expect.arrayContaining([expect.objectContaining({ memoryKey: 'first' }), expect.objectContaining({ memoryKey: 'second' })]), expect.any(AbortSignal), undefined);
+    } finally { rendererSpy.mockRestore(); }
+  });
+
+  it('refreshes every selected trip’s committed media instead of trusting a bounded Share-screen media list', async () => {
+    let access!: ReturnType<typeof usePhotoAccess>;
+    const replay = { snapshotToken: 7, privacyRevision: 2, direction: 'oldest-first' as const, includedGroupKeys: ['first-trip', 'later-trip'], previewSourceRefs: ['opaque-first', 'opaque-later'], groups: [
+      { key: 'first-trip', label: 'First trip', inferred: true, eligible: true, orderCertain: true },
+      { key: 'later-trip', label: 'Later trip', inferred: true, eligible: true, orderCertain: true },
+    ], memories: [
+      { key: 'first-memory', groupKey: 'first-trip', kind: 'photo' as const, available: true, eligible: true },
+      { key: 'later-memory', groupKey: 'later-trip', kind: 'video' as const, available: true, eligible: true },
+    ] };
+    const native = { ...stagedFailureRepository(async () => ({ journeys: [] })), loadReplayManifestInput: jest.fn(async () => replay) };
+    const adapter = { ...adapterFor({ scope: 'full', canAskAgain: false }), resolveOwnerPreviews: jest.fn(async () => [
+      { uri: 'file:///first.jpg', availability: 'available' as const, kind: 'photo' as const },
+      { uri: 'file:///later.mp4', availability: 'available' as const, kind: 'video' as const },
+    ]) };
+    const rendererSpy = jest.spyOn(munimReplayRenderer, 'render').mockImplementation(async (manifest) => ({ uri: 'file:///subset.mp4', digest: 'synthetic', manifest }));
+    const Harness = () => { access = usePhotoAccess(); return null; };
+    try {
+      await render(<PhotoAccessProvider adapter={adapter} repository={emptyRepository} reconstructionRepository={native}><Harness /></PhotoAccessProvider>);
+      await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
+      // The Share screen had resolved only the first trip while the provider's
+      // fresh source-of-truth manifest still contains media for both trips.
+      await access.preparePrivateReplay(['first-memory'], undefined, undefined, undefined, ['first-trip', 'later-trip']);
+      expect(rendererSpy).toHaveBeenCalledWith(expect.objectContaining({ groupKeys: ['first-trip', 'later-trip'], memoryKeys: ['first-memory', 'later-memory'] }), expect.arrayContaining([
+        expect.objectContaining({ memoryKey: 'first-memory', groupKey: 'first-trip' }),
+        expect.objectContaining({ memoryKey: 'later-memory', groupKey: 'later-trip' }),
+      ]), expect.any(AbortSignal), undefined);
+    } finally { rendererSpy.mockRestore(); }
+  });
+
+  it('rejects selected media whose committed group was not selected', async () => {
+    let access!: ReturnType<typeof usePhotoAccess>;
+    const replay = { snapshotToken: 7, privacyRevision: 2, includedGroupKeys: ['normal', 'card-only'], previewSourceRefs: ['opaque'], groups: [{ key: 'normal', label: 'Normal', inferred: true, eligible: true, orderCertain: true }, { key: 'card-only', label: 'Card', inferred: true, eligible: true, orderCertain: true }], memories: [{ key: 'normal-memory', groupKey: 'normal', kind: 'photo' as const, available: true, eligible: true }] };
+    const native = { ...stagedFailureRepository(async () => ({ journeys: [] })), loadReplayManifestInput: jest.fn(async () => replay) };
+    const adapter = { ...adapterFor({ scope: 'full', canAskAgain: false }), resolveOwnerPreviews: jest.fn(async () => [{ uri: 'file:///normal.jpg', availability: 'available' as const, kind: 'photo' as const }]) };
+    const Harness = () => { access = usePhotoAccess(); return null; };
+    await render(<PhotoAccessProvider adapter={adapter} repository={emptyRepository} reconstructionRepository={native}><Harness /></PhotoAccessProvider>);
+    await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
+    await expect(access.preparePrivateReplay(['normal-memory'], undefined, undefined, undefined, ['card-only'])).rejects.toMatchObject({ stage: 'REPLAY_STALE' });
+  });
+
+  it('refreshes photo permission before export and blocks a stale scope before touching the handoff artifact', async () => {
+    let access!: ReturnType<typeof usePhotoAccess>;
+    const inspect = jest.fn(async (): Promise<PermissionSnapshot> => ({ scope: 'full', canAskAgain: false }));
+    const replay = { snapshotToken: 7, privacyRevision: 2, includedGroupKeys: ['trip'], previewSourceRefs: ['opaque'], groups: [{ key: 'trip', label: 'Trip', inferred: true, eligible: true, orderCertain: true }], memories: [{ key: 'memory', groupKey: 'trip', kind: 'photo' as const, available: true, eligible: true }] };
+    const adapter = { ...adapterFor({ scope: 'full', canAskAgain: false }), inspect, resolveOwnerPreviews: jest.fn(async () => [{ uri: 'file:///memory.jpg', availability: 'available' as const, kind: 'photo' as const }]) };
+    const Harness = () => { access = usePhotoAccess(); return null; };
+    const file = jest.spyOn(FileSystem, 'getInfoAsync');
+    const rendererSpy = jest.spyOn(munimReplayRenderer, 'render').mockImplementation(async (manifest) => ({ uri: 'file:///private-subset.mp4', digest: 'synthetic', manifest }));
+    const handoff = jest.spyOn(replayRenderer, 'shareReplayArtifact');
+    try {
+      const native = { ...stagedFailureRepository(async () => ({ journeys: [] })), loadReplayManifestInput: jest.fn(async () => replay) };
+      await render(<PhotoAccessProvider adapter={adapter} repository={emptyRepository} reconstructionRepository={native}><Harness /></PhotoAccessProvider>);
+      await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
+      await access.preparePrivateReplay(['memory'], undefined, undefined, undefined, ['trip']);
+      file.mockClear();
+      inspect.mockResolvedValue({ scope: 'denied', canAskAgain: false });
+      await expect(access.exportPrivateReplay('file:///private-subset.mp4')).rejects.toMatchObject({ stage: 'REPLAY_STALE' });
+      expect(file).not.toHaveBeenCalled();
+      expect(handoff).not.toHaveBeenCalled();
+    } finally { file.mockRestore(); rendererSpy.mockRestore(); handoff.mockRestore(); }
+  });
+
   it('maps the screen-first Replay manifest read failure to local access', async () => {
     let access!: ReturnType<typeof usePhotoAccess>;
     const native = { ...stagedFailureRepository(async () => ({ journeys: [] })), loadReplayManifestInput: jest.fn(async () => { throw new Error('released native handle'); }) };
@@ -477,6 +597,79 @@ describe('photo access provider and Import screen', () => {
     await act(async () => { await access.saveJourneyPrivacy('review', 'hide', 'synthetic-hide', 'trip'); resolvePreview([]); });
     await rejected;
     expect(access.durableReveal?.journeys).toEqual([]);
+  });
+  it('keeps concurrent Atlas detail previews publishable until the private lifecycle changes', async () => {
+    let access!: ReturnType<typeof usePhotoAccess>;
+    let resolveFirst!: (value: { detail: never; previewSourceRefs: string[]; snapshotToken: number }) => void;
+    let resolveSecond!: (value: { detail: never; previewSourceRefs: string[]; snapshotToken: number }) => void;
+    const first = new Promise<{ detail: never; previewSourceRefs: string[]; snapshotToken: number }>((resolve) => { resolveFirst = resolve; });
+    const second = new Promise<{ detail: never; previewSourceRefs: string[]; snapshotToken: number }>((resolve) => { resolveSecond = resolve; });
+    const native = {
+      ...stagedFailureRepository(async () => ({ journeys: [] })),
+      loadJourneyDetail: jest.fn((id: string) => id === 'first' ? first : second),
+    };
+    const adapter = {
+      ...adapterFor({ scope: 'full', canAskAgain: false }),
+      resolveOwnerPreviews: jest.fn(async (refs: (string | null)[]) => refs.map((ref) => ({ uri: `file:///${ref}.jpg`, availability: 'available' as const, kind: 'photo' as const }))),
+    };
+    const Harness = () => { access = usePhotoAccess(); return null; };
+    await render(<PhotoAccessProvider adapter={adapter} repository={emptyRepository} reconstructionRepository={native}><Harness /></PhotoAccessProvider>);
+    await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
+    const pending = Promise.all([access.loadJourneyDetail('first'), access.loadJourneyDetail('second')]);
+    await waitFor(() => expect(native.loadJourneyDetail).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      resolveFirst({ detail: null as never, previewSourceRefs: ['first-local'], snapshotToken: 7 });
+      resolveSecond({ detail: null as never, previewSourceRefs: ['second-local'], snapshotToken: 7 });
+    });
+    await expect(pending).resolves.toEqual([
+      expect.objectContaining({ previews: [expect.objectContaining({ uri: 'file:///first-local.jpg' })] }),
+      expect.objectContaining({ previews: [expect.objectContaining({ uri: 'file:///second-local.jpg' })] }),
+    ]);
+  });
+  it('keeps concurrent Atlas cover-page previews publishable until the private lifecycle changes', async () => {
+    let access!: ReturnType<typeof usePhotoAccess>;
+    let resolveFirst!: (value: { items: []; previewSourceRefs: string[]; hasMore: boolean }) => void;
+    let resolveSecond!: (value: { items: []; previewSourceRefs: string[]; hasMore: boolean }) => void;
+    const first = new Promise<{ items: []; previewSourceRefs: string[]; hasMore: boolean }>((resolve) => { resolveFirst = resolve; });
+    const second = new Promise<{ items: []; previewSourceRefs: string[]; hasMore: boolean }>((resolve) => { resolveSecond = resolve; });
+    const native = {
+      ...stagedFailureRepository(async () => ({ journeys: [] })),
+      loadJourneyMediaPage: jest.fn((id: string) => id === 'first' ? first : second),
+    };
+    const adapter = {
+      ...adapterFor({ scope: 'full', canAskAgain: false }),
+      resolveOwnerPreviews: jest.fn(async (refs: (string | null)[]) => refs.map((ref) => ({ uri: `file:///${ref}.jpg`, availability: 'available' as const, kind: 'photo' as const }))),
+    };
+    const Harness = () => { access = usePhotoAccess(); return null; };
+    await render(<PhotoAccessProvider adapter={adapter} repository={emptyRepository} reconstructionRepository={native}><Harness /></PhotoAccessProvider>);
+    await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
+    const pending = Promise.all([access.loadJourneyMediaPage?.('first', 7, 0), access.loadJourneyMediaPage?.('second', 7, 0)]);
+    await waitFor(() => expect(native.loadJourneyMediaPage).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      resolveFirst({ items: [], previewSourceRefs: ['first-page-local'], hasMore: false });
+      resolveSecond({ items: [], previewSourceRefs: ['second-page-local'], hasMore: false });
+    });
+    await expect(pending).resolves.toEqual([
+      expect.objectContaining({ previews: [expect.objectContaining({ uri: 'file:///first-page-local.jpg' })] }),
+      expect.objectContaining({ previews: [expect.objectContaining({ uri: 'file:///second-page-local.jpg' })] }),
+    ]);
+  });
+  it('invalidates an in-flight Atlas cover page when the private lifecycle changes', async () => {
+    let access!: ReturnType<typeof usePhotoAccess>;
+    let resolvePage!: (value: { items: []; previewSourceRefs: string[]; hasMore: boolean }) => void;
+    const page = new Promise<{ items: []; previewSourceRefs: string[]; hasMore: boolean }>((resolve) => { resolvePage = resolve; });
+    const native = {
+      ...stagedFailureRepository(async () => ({ journeys: [] })),
+      loadJourneyMediaPage: jest.fn(() => page),
+    };
+    const Harness = () => { access = usePhotoAccess(); return null; };
+    await render(<PhotoAccessProvider adapter={adapterFor({ scope: 'full', canAskAgain: false })} repository={emptyRepository} reconstructionRepository={native}><Harness /></PhotoAccessProvider>);
+    await waitFor(() => expect(access.privateRecord.state).toBe('connected'));
+    const pending = access.loadJourneyMediaPage?.('trip', 7, 0);
+    const rejected = expect(pending).rejects.toThrow('Gallery is no longer available');
+    await waitFor(() => expect(native.loadJourneyMediaPage).toHaveBeenCalled());
+    await act(async () => { await access.privateRecordController.disconnect(); resolvePage({ items: [], previewSourceRefs: [], hasMore: false }); });
+    await rejected;
   });
   it('invalidates an in-flight uncertain-memory page when privacy scope changes', async () => {
     let access!: ReturnType<typeof usePhotoAccess>;

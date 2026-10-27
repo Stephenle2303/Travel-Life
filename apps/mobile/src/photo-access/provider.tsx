@@ -129,8 +129,8 @@ type PhotoAccessContextValue = {
   saveReplayDraft(memoryKeys: readonly string[], snapshotToken: number, privacyRevision: number, direction: import('@/replay/types').ReplayDirection, soundtrack?: import('@/replay/types').ReplaySoundtrack, expectedWorkingRevision?: number, includedGroupKeys?: readonly string[], autoGroupKeys?: readonly string[]): Promise<void>;
   stageReplayWorkingDraft(memoryKeys: readonly string[], snapshotToken: number, privacyRevision: number, direction: import('@/replay/types').ReplayDirection, soundtrack: import('@/replay/types').ReplaySoundtrack, expectedWorkingRevision?: number, includedGroupKeys?: readonly string[], autoGroupKeys?: readonly string[], mutation?: ReplayMutation): Promise<number>;
   resetReplayDraft(snapshotToken: number, privacyRevision: number): Promise<void>;
-  preparePrivateReplay(selectedMemoryKeys?: readonly string[], onProgress?: ReplayRenderProgress, music?: import('@/replay/types').ReplaySoundtrack, onFirstTripReady?: (preview: ReplayPreparedPreview) => void): Promise<ReplayPreparedPreview>;
-  exportPrivateReplay(uri: string): Promise<'unavailable' | 'closed'>;
+  preparePrivateReplay(selectedMemoryKeys?: readonly string[], onProgress?: ReplayRenderProgress, music?: import('@/replay/types').ReplaySoundtrack, onFirstTripReady?: (preview: ReplayPreparedPreview) => void, selectedGroupKeys?: readonly string[]): Promise<ReplayPreparedPreview>;
+  exportPrivateReplay(uri: string): Promise<'unavailable' | 'invalid' | 'handoff-failed' | 'closed'>;
   discardPrivateReplay(uri: string, options?: { preserveFile?: boolean }): Promise<void>;
   findManualJourneyOverlaps(input: ManualJourneyInput): Promise<{ id: string; label: string; editable: boolean }[]>;
   createManualJourney(input: ManualJourneyInput): Promise<string>;
@@ -372,10 +372,12 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     async () => { replayThumbnails.invalidate(); durableRevealGate.invalidate(); await controller.stopImport(); await maintenanceController.stopForLifecycle(); reconstructionController.clear(); setDurableReveal(null); aiProposalController.clear(); },
     setPrivateRecord,
     () => controller.clearDeletedRecord(),
+    async () => { const share = await import('@/share/owner-service'); await share.queueRemoteRemoval(); return share.reconcileRemoteRemoval(); },
   ));
 
   useEffect(() => {
     const currentReplayController = replayController.current;
+    void import('@/share/owner-service').then((share) => share.reconcileRemoteRemoval()).catch(() => {});
     const currentReplayArtifacts = replayArtifacts.current;
     void controller.refresh();
     void privateRecordController.refresh();
@@ -473,7 +475,11 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     }
   };
   const loadJourneyDetail = useCallback(async (displayId: string) => {
-    const generation = durableRevealGate.next();
+    if (privacyRuntime.mutating || privateRecord.state !== 'connected') throw new Error('Journey is no longer available.');
+    // Multiple Atlas cards resolve their private covers concurrently. A detail
+    // read is not a replacement for another detail read, so only a real
+    // lifecycle invalidation may make it stale.
+    const generation = durableRevealGate.current();
     const result = await nativeReconstructionRepository.loadJourneyDetail(displayId);
     if (privacyRuntime.mutating || !canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state)) throw new Error('Journey is no longer available.');
     // Preserve placeholder slots: JourneyDetailScreen pairs previews with memories
@@ -495,7 +501,10 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     return displayId;
   }, [nativeReconstructionRepository, privateRecord.state, refreshDurableReveal]);
   const loadJourneyMediaPage = useCallback(async (displayId: string, snapshotToken: number, page: number) => {
-    const generation = durableRevealGate.next();
+    if (privacyRuntime.mutating || privateRecord.state !== 'connected') throw new Error('Gallery is no longer available.');
+    // Gallery reads can run beside Timeline cover reads; preserve both until
+    // the private lifecycle itself changes.
+    const generation = durableRevealGate.current();
     const result = await nativeReconstructionRepository.loadJourneyMediaPage(displayId, snapshotToken, page);
     if (privacyRuntime.mutating || !canPublishJourneyDetail(generation, durableRevealGate.current(), privateRecord.state)) throw new Error('Gallery is no longer available.');
     const previews = adapter.resolveOwnerPreviews ? await adapter.resolveOwnerPreviews(result.previewSourceRefs, result.previewSourceRefs.length) : [];
@@ -731,7 +740,7 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     if (privacyRuntime.mutating || privateRecord.state !== 'connected') throw new ReplayPreparationError('REPLAY_STALE');
     return page.keys.map((key, index) => ({ key, available: previews[index]?.availability === 'available', ...(previews[index]?.uri ? { previewUri: previews[index]!.uri } : {}) }));
   }, [adapter, nativeReconstructionRepository, privateRecord.state, privacyRuntime]);
-  const preparePrivateReplay = useCallback(async (selectedMemoryKeys?: readonly string[], onProgress?: ReplayRenderProgress, music: ReplaySoundtrack = BUNDLED_REPLAY_SOUNDTRACK, onFirstTripReady?: (preview: ReplayPreparedPreview) => void): Promise<ReplayPreparedPreview> => {
+  const preparePrivateReplay = useCallback(async (selectedMemoryKeys?: readonly string[], onProgress?: ReplayRenderProgress, music: ReplaySoundtrack = BUNDLED_REPLAY_SOUNDTRACK, onFirstTripReady?: (preview: ReplayPreparedPreview) => void, selectedGroupKeys?: readonly string[]): Promise<ReplayPreparedPreview> => {
     if (privacyRuntime.mutating || privateRecord.state !== 'connected') throw new ReplayPreparationError('REPLAY_STALE');
     if (!nativeReconstructionRepository.loadReplayManifestInput || !adapter.resolveOwnerPreviews) throw new ReplayPreparationError('REPLAY_ACCESS');
     let input: import('@/replay/types').ReplayManifestInput;
@@ -756,17 +765,37 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     const direction = input.direction ?? 'oldest-first';
     const compositionGroups = replayCompositionGroups(input);
     const automaticPlan = planPrivateReplay(compositionGroups, memories, undefined, direction, input.autoGroupKeys);
-    const selectedKeys = selectedMemoryKeys ? [...new Set(selectedMemoryKeys)] : automaticPlan.memories.map((memory) => memory.key);
+    const selectedGroupsRequested = selectedGroupKeys ? [...new Set(selectedGroupKeys)] : undefined;
+    const selectedGroupSet = new Set(selectedGroupsRequested ?? []);
+    // A Share screen may intentionally resolve only a bounded set of editor
+    // thumbnails. Its media list is not the committed Replay composition.
+    // Once the owner has chosen trips, derive all of their media again from
+    // this freshly resolved provider manifest.
+    const selectedKeys = selectedGroupsRequested
+      ? automaticPlan.memories.filter((memory) => selectedGroupSet.has(memory.groupKey)).map((memory) => memory.key)
+      : selectedMemoryKeys ? [...new Set(selectedMemoryKeys)] : automaticPlan.memories.map((memory) => memory.key);
+    if (selectedMemoryKeys) {
+      const includedGroups = new Set(compositionGroups.filter((group) => group.eligible).map((group) => group.key));
+      const currentCommittedKeys = new Set(memories.filter((memory) => memory.available && memory.eligible && includedGroups.has(memory.groupKey)).map((memory) => memory.key));
+      // Caller order remains renderer order, but a selected export must never
+      // silently recover a removed, excluded, unavailable, or newly ineligible item.
+      if (selectedGroupsRequested
+        ? selectedGroupsRequested.some((key) => !includedGroups.has(key)) || selectedMemoryKeys.some((key) => {
+          const memory = memories.find((candidate) => candidate.key === key);
+          return !memory || !currentCommittedKeys.has(key) || !selectedGroupSet.has(memory.groupKey);
+        })
+        : selectedKeys.some((key) => !currentCommittedKeys.has(key))) throw new ReplayPreparationError('REPLAY_STALE');
+    }
     const selectedSet = new Set(selectedKeys);
     const selectedMemories = selectedKeys.map((key) => memories.find((memory) => memory.key === key)).filter((memory): memory is typeof memories[number] => Boolean(memory));
     // Automatic Replay keeps each visible Journey List item, including a
-    // qualified trip whose current album has no usable media. The renderer
-    // emits a neutral local slate for that group. Explicit sharing stays
-    // exact-media-only and is rejected before it can render an empty export.
+    // qualified trip whose current album has no usable media. An explicit
+    // trip selection follows that same committed chapter scope, while its
+    // media remains the exact owner-selected subset.
     const selectedGroups = selectedMemoryKeys
-      ? orderedReplayGroups(compositionGroups, undefined, direction).filter((group) => selectedMemories.some((memory) => memory.groupKey === group.key))
+      ? orderedReplayGroups(compositionGroups, undefined, direction).filter((group) => selectedGroupsRequested ? selectedGroupsRequested.includes(group.key) : selectedMemories.some((memory) => memory.groupKey === group.key))
       : automaticPlan.groups;
-    if (!selectedGroups.length || selectedMemories.length !== selectedSet.size || (selectedMemoryKeys && !selectedMemories.length)) throw new ReplayPreparationError('REPLAY_ACCESS');
+    if (!selectedGroups.length || selectedMemories.length !== selectedSet.size || (selectedMemoryKeys && !selectedMemories.length && !selectedGroupsRequested?.length)) throw new ReplayPreparationError('REPLAY_ACCESS');
     const sources: ReplayRenderSource[] = selectedMemories.flatMap((memory) => {
       const index = input.memories.findIndex((candidate) => candidate.key === memory.key);
       const preview = previews[index];
@@ -974,14 +1003,35 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
   }, [adapter, nativeReconstructionRepository, privateRecord.state, privacyRuntime]);
   const exportPrivateReplay = useCallback(async (uri: string) => {
     const artifact = replayArtifacts.current.get(uri);
-    if (privacyRuntime.mutating || privateRecord.state !== 'connected') throw new Error('REPLAY_STALE');
+    if (privacyRuntime.mutating || privateRecord.state !== 'connected') throw new ReplayPreparationError('REPLAY_STALE');
+    // The share sheet is an external boundary. Refresh access immediately
+    // before handing it a temporary video; a preview prepared before a denied
+    // or revoked permission must not remain exportable.
+    let permission: import('./types').PermissionSnapshot | null;
+    try { permission = await adapter.inspect(); } catch { throw new ReplayPreparationError('REPLAY_ACCESS'); }
+    if (!permission || (permission.scope !== 'full' && permission.scope !== 'limited') || privacyRuntime.mutating || privateRecord.state !== 'connected') throw new ReplayPreparationError('REPLAY_STALE');
+    let input: import('@/replay/types').ReplayManifestInput;
+    try { input = nativeReconstructionRepository.loadReplayManifestInput ? await nativeReconstructionRepository.loadReplayManifestInput() : (() => { throw new ReplayPreparationError('REPLAY_STALE'); })(); } catch (error) { throw error instanceof ReplayPreparationError ? error : new ReplayPreparationError('REPLAY_ACCESS'); }
+    if (privacyRuntime.mutating || privateRecord.state !== 'connected' || !input.previewSourceRefs) throw new ReplayPreparationError('REPLAY_STALE');
+    let previews: OwnerPreview[];
+    try { previews = adapter.resolveOwnerPreviews ? await adapter.resolveOwnerPreviews([...input.previewSourceRefs], input.previewSourceRefs.length) : []; } catch { throw new ReplayPreparationError('REPLAY_ACCESS'); }
+    const included = new Set(replayCompositionGroups(input).filter((group) => group.eligible).map((group) => group.key));
+    const currentMemories = new Map(input.memories.filter((memory, index) => memory.eligible && included.has(memory.groupKey) && previews[index]?.availability === 'available' && Boolean(previews[index]?.uri)).map((memory) => [memory.key, memory]));
+    if (artifact && (artifact.manifest.groupKeys.some((key) => !included.has(key)) || artifact.manifest.memoryKeys.some((key) => {
+      const memory = currentMemories.get(key); return !memory || !artifact.manifest.groupKeys.includes(memory.groupKey);
+    }))) throw new ReplayPreparationError('REPLAY_STALE');
     if (artifact) return shareReplayArtifact(artifact);
-    const file = await FileSystem.getInfoAsync(uri);
-    if (!file.exists || !file.size) throw new Error('REPLAY_STALE');
+    let file: { exists: boolean; size?: number };
+    try { file = await FileSystem.getInfoAsync(uri); } catch { throw new ReplayPreparationError('REPLAY_OUTPUT'); }
+    if (!file.exists || !file.size) throw new ReplayPreparationError('REPLAY_OUTPUT');
+    // Recover the committed soundtrack before validation. A persisted Replay
+    // may legitimately carry its one AAC track; treating every reopened
+    // artifact as silent blocks a valid owner Replay at the share boundary.
+    const music = input.soundtrack ?? BUNDLED_REPLAY_SOUNDTRACK;
     // The sharing boundary uses only the local path. The synthetic manifest is
     // intentionally not persisted, logged, or used for planning.
-    return shareReplayArtifact({ uri, digest: 'prepared', manifest: { generation: 0, groupKeys: [], memoryKeys: [], durationSeconds: 0 } });
-  }, [privateRecord.state, privacyRuntime]);
+    return shareReplayArtifact({ uri, digest: 'prepared', manifest: { generation: 0, music, groupKeys: [], memoryKeys: [], durationSeconds: 0 } });
+  }, [adapter, nativeReconstructionRepository, privateRecord.state, privacyRuntime]);
   const discardPrivateReplay = useCallback(async (uri: string, options?: { preserveFile?: boolean }) => {
     // Re-render invalidates the controller immediately, but its last verified
     // durable video stays playable until a replacement succeeds.

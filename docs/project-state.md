@@ -1,5 +1,223 @@
 # Project state
 
+## MLP sharing scope correction approved (2026-10-27)
+
+The owner approved the batch scope correction in
+`_bmad-output/planning-artifacts/sprint-change-proposal-2026-10-27.md`.
+The MLP sharing route is now the exact locally prepared Replay MP4 followed by
+an explicit operating-system share-sheet handoff. Gmail, Messenger, Facebook,
+and other targets remain device-installed-app dependent; recipient delivery and
+saved copies cannot be confirmed or revoked by Travel Life. M4.5/M4.6 hosted
+snapshot/media publication and browser viewing are deferred post-MLP. Keep the
+remote media gate hard-disabled; no validator, hosting, bucket, link or private
+media deployment is authorized by this scope. Fresh Android/iOS share-target
+acceptance remains required before claiming physical delivery.
+
+## Selected snapshot sharing and browser viewer continuation (2026-10-27)
+
+The owner reports preceding trip covers and selected Replay video sharing steps
+complete. This records owner acceptance without invented build/platform logs.
+
+M4.5/M4.6 local implementation now includes the empty-first Selected Highlight
+screen, separate trip/media choices and exact local derivative preview,
+protected publication recovery/session/capability, explicit publication and
+management, durable removal before evidence purge, private checked backend SQL
+and recipient/range endpoints, plus a responsive React browser viewer with
+chronological list and configurable geographic map/fallback. Focused mobile
+checks now include a final 15-suite / 210-test rerun spanning share selection,
+owner recovery, local derivatives, removal fencing and Atlas/Replay lifecycle
+boundaries, alongside root check, mobile typecheck/lint and viewer production
+build. The final root `npm run check` passes 47 tests, pinned-framework
+integrity and the eval plumbing smoke. Parent real Postgres tests
+ran with synthetic data in a rollback transaction, and parent Chrome observed
+desktop/mobile list fallback interactions. These are local/synthetic evidence;
+the detailed record is `_bmad-output/implementation-artifacts/spec-m4-5-selected-share-snapshot-delivery.md`.
+
+Full feature acceptance remains open. Media publication is hard-disabled until
+trusted decoded-media verification is integrated: a reviewable app-owned Node
+validator package exists, but automatic approval review rejected configurable
+private media egress without a specifically authorized destination/payload. The
+next required decision is the app-owned validator host and authorization for
+selected sanitized derivative processing. Vercel connection, provider map key,
+Supabase deployment/privacy logging/abuse/cleanup configuration, real HTTP
+Storage/RLS and Android/iOS walkthrough also remain open. No share schema,
+bucket/function/viewer was deployed and no private media was uploaded. Do not
+call the feature complete or release-ready from the host checks. The mandated
+three independent reviewers also could not start because the shared account
+usage limit was reached before any file inspection; this is an open
+review-availability blocker, not a clean review outcome.
+
+## Share Replay review corrections complete; device acceptance open (2026-10-27)
+
+The recognisable Share Replay trip-card UI is now shared by Share Replay, the
+Edit Replay trip overview, and the Atlas Timeline. Each surface preserves its
+existing action semantics. The owner then reported that the shared shell still
+lacked its per-trip cover outside Share Replay. Edit Replay now resolves missing
+overview covers through the existing bounded local preview page and applies its
+local presentation override. Atlas first reads the established private detail
+preview and falls back to the first local media page when it has no usable cover
+(four concurrent journey reads, no omission cap). Both use the
+Share-equivalent thumbnail/poster renderer, so video covers are not sent
+directly to an image view. Missing or unavailable optional covers retain an
+explicit fallback and the journey stays selectable; the card itself cannot load
+source media. Focused Atlas/Replay screen host regressions (111 tests), mobile
+typecheck/lint, root `npm run check`, and whitespace validation pass.
+Android/iOS visual confirmation remains required.
+
+A subsequent owner report showed Atlas still did not show representative photos.
+The verified source cause was not the card renderer: the provider incremented
+one lifecycle generation for each independent Timeline detail/gallery read.
+Atlas intentionally loads cards concurrently, so sibling reads were falsely
+rejected as stale before returning their authorized local URI. Detail and media
+page reads now snapshot the current generation and remain independently valid
+until an actual private lifecycle invalidation. Provider and Atlas regressions
+cover concurrent detail and fallback-page covers (97 focused tests); mobile
+typecheck/lint and root `npm run check` pass. No connected Android device/ADB
+transport was available for the required fresh physical confirmation.
+
+Share Replay now opens with an empty list of committed Replay trip cards, not a
+media reselection grid. A selected trip set prepares an exact private subset
+video (including a truthful card-only chapter) before the separate `Share
+video` action. The subset inherits the committed media order and soundtrack,
+and does not alter the original private Replay.
+
+The review corrections close the card-only Preview gate, native Back late-render
+race, working-draft soundtrack leak, stale diagnostic collapse and missing
+handoff scope refresh. Before the OS boundary, the provider reloads live access
+and validates the registered artifact's exact selected media/group membership;
+scope loss is a closed `REPLAY_STALE` outcome and never opens the sheet. Screen
+72/72, provider 56/56, renderer 12/12, mobile typecheck/lint, root `npm run
+check`, and whitespace validation pass. Android/iOS owner-operated acceptance
+for card recognition, exact video playback, permission revocation and the real
+system chooser is still outstanding; host checks do not substitute for it.
+
+The owner-reported later-trip title-only scenario was rerun against the current
+working tree: provider and Share-screen regression tests pass 129/129, including
+the bounded-screen-list case that must render media from both selected trips.
+Mobile typecheck, lint, root `npm run check`, and whitespace validation pass.
+Fresh owner-operated Android/iOS preview evidence remains required for the
+installed build.
+
+Share-trip cards now resolve a local cover for each committed trip that is
+missing one from the bounded opening manifest. Cover resolution is presentation
+only, uses the existing private paged-preview boundary in batches of at most 48,
+and neither changes committed media nor the export composition. The screen
+regression passes 73/73 and the provider regression passes 57/57; typecheck,
+lint, root check and whitespace validation pass. A fresh owner device must
+still confirm that every visible trip card receives its actual thumbnail.
+
+Owner re-report then exposed that a later cover may begin as `available: false`,
+not merely lack a URI. The card now pages local cover candidates for every
+included committed trip even before that transient availability is resolved,
+and consumes the returned URI from the dedicated presentation path. The video
+subset remains committed-media-only. The exact unavailable-then-resolved cover
+regression passes alongside the 73-screen/57-provider suites; device visual
+acceptance remains open until the refreshed app is tested.
+
+## Share Replay trip selection implemented; device acceptance open (2026-10-27)
+
+Share Replay now begins with no selection and presents every eligible committed
+Replay chapter as a recognizable trip card, including a truthful card-only trip
+whose current usable-media set is empty. Selecting a card retains the committed
+trip order and soundtrack; only currently eligible committed media is rendered,
+and an uncommitted or excluded Journey List trip cannot enter the subset. The
+owner prepares and watches the exact local subset before a separate `Share
+video` action reaches the existing verified immutable handoff boundary.
+Selection changes dispose the old temporary subset preview; Back from preview
+retains trip selection while the original private Replay stays available.
+
+Share subset preparation now derives selected media from a freshly resolved
+committed provider manifest for every selected trip, rather than the bounded
+editor-preview availability exposed to the Share screen. This prevents later
+trip media from becoming title-only in the selected video. Host regression,
+typecheck and lint evidence is complete; owner Android preview validation
+remains open.
+
+The delivery record maps each subset preparation and final handoff to closed,
+correlated `REPLAY_EXPORT` diagnostics. Screen regressions cover empty/default
+selection, trip-only scope, exact ordering, chapter-only trip retention,
+preview-before-dispatch, return, stale scope classification and redaction; 66
+focused screen tests and 53 provider tests cover the additional
+cancellation/single-flight/handoff and
+fresh-scope races. The earlier 12 renderer tests, mobile typecheck/lint, root
+`npm run check` and whitespace passed. The
+mobile aggregate script remains unusable in this Windows sandbox without its
+local Jest cache and is recorded as an environment limitation, not product-test
+evidence. Fresh owner-operated Android and iOS validation is still required for
+recognizable cards, exact video preview and actual target-system handoff.
+
+## Replay Gmail handoff and social-share target correction (2026-10-26)
+
+Gemini opening the owner's Replay verifies that the produced video is not
+universally empty; the Gmail-specific recipient/import boundary remains
+unproven because current ADB diagnostics cannot start. The Android native
+Sharesheet now receives a separate app-private MP4 handoff copy that has been
+reopened and stream-verified. Persistent Replays also recover their committed
+soundtrack before validation, preventing a valid AAC Replay from being treated
+as a silent invalid file. Handoff-copy failure retains the private preview and
+emits the fixed, content-free `REPLAY_EXPORT / SAVE_FAILED / REPLAY_HANDOFF`
+event with the existing per-action correlation.
+
+Gmail, Messenger and Facebook are deliberately not hardcoded as targets:
+Android's system Sharesheet shows each only when the installed app declares
+support for `video/mp4`. The share screen tells the owner this before handoff.
+Host renderer/screen regressions, mobile TypeScript and lint pass; fresh Android
+build/device evidence is still required to claim Gmail delivery fixed or any
+specific Meta target available.
+
+## Share Replay trip-selection correction reviewed (2026-10-26)
+
+Owner clarified that Share Replay must list trips currently used in Replay,
+without asking for photo/video selection again. Source review confirms the
+current UI offers individual committed-media buttons instead. The review at
+`_bmad-output/implementation-artifacts/review-share-replay-trip-selection-2026-10-26.md`
+records trip-level selection inheriting committed media/order/music, the existing
+empty-first sharing default, and exact selected-video preview before explicit
+OS sharing. Runtime correction and owner device validation remain pending;
+this review changes no application behavior.
+
+## Replay empty native-share attachment guard (2026-10-26)
+
+Owner evidence showed Gmail receiving an empty Replay attachment after the
+Android share sheet closed. The final OS-dispatch boundary now rechecks local
+file existence, positive byte size and the expected MP4 stream structure before
+sharing. An invalid file never opens the share sheet; it retains the private
+preview, supplies safe recovery copy, and emits the fixed `REPLAY_EXPORT /
+SAVE_FAILED / REPLAY_OUTPUT` diagnostic. Renderer and screen regressions pass
+(68 assertions), along with mobile typecheck and lint. This guards against a
+repeat but does not prove Gmail receipt/device behavior; require one fresh
+owner-selected synthetic-safe send after the updated native build is installed.
+
+## M4.5 selected-share implementation in progress (2026-10-26)
+
+The owner approved implementation after the selected-share spec review. The
+delivery record at `_bmad-output/implementation-artifacts/spec-m4-5-selected-share-snapshot-delivery.md`
+freezes safe resolutions for delete-all fencing, write-once immutable versions,
+raw-capability recovery, mutable expiry envelopes and post-activation cancel
+semantics. The first mobile contract slice is implemented: a request binds to
+one immutable preview digest, changed retries require a new preview, a remote
+delete fence wins before activation, and a completed publication requires a
+separate explicit revoke. The mobile transport reuses the existing anonymous
+Supabase session and rejects malformed or digest-mismatched acknowledgements.
+
+The first backend scaffold adds a private RLS-protected M4.5 schema, owner
+delete fence, idempotent begin/activation RPCs and a JWT-protected no-store Edge
+Function. It deliberately does not expose direct Storage reads, public buckets,
+or an M4.6 recipient viewer. The official SDK-57 image manipulator now re-encodes
+an owner-selected image into a new bounded private JPEG, with closed source-free
+derivative diagnostics and no original-uri fallback. The raw 256-bit capability
+is persisted before a draft can publish through the SecureStore boundary and is
+never recreated from public operation data. Selection now starts empty; Select
+all is constrained to the currently displayed eligible Journey List candidates,
+and a direct toggle cannot add an ineligible journey. Focused Jest evidence: 25
+assertions across share selection/operation/transport/derivative/capability/draft/
+controller/diagnostic suites, plus mobile TypeScript and lint. Root `npm run check` passes 25 tests,
+including static guardrails for JWT/no-store/no-console and private
+RLS/fence/service-role server constraints. Deno is not available on this host,
+so Edge Function typecheck/local service execution, video derivative processing,
+real Storage/RLS integration, deployment and owner device acceptance remain open;
+see the error playbook for that tooling boundary.
+
 ## Replay owner acceptance and local consolidation (2026-10-26)
 
 Owner confirmed that Android trip/media edits, exclusion, custom audio Done and Update/new-video now work. The primary checkout is the accepted implementation. Three detached Replay variants were semantically audited; desired cache-first, chapter-reuse and streamed playback work is already represented by later main code. Each historical HEAD and tracked WIP has a local recovery tag, the exact old Git pointer was retired without deleting source/dependencies, and only primary main remains registered. See `docs/development/replay-worktree-retirement-2026-10-26.md`.
@@ -7,6 +225,18 @@ Owner confirmed that Android trip/media edits, exclusion, custom audio Done and 
 Four review lenses found bounded corrections for post-timeout/fenced scheduler handling, reclaimed failure previews, prior-video lifetime during Re-render and settings Reset order. These are implemented with regressions. Added coverage proves shared edit-session remount retention and rejection/cleanup of invalid copied audio. The detailed release review distinguishes those fixes from deferred native fault recovery, retained Auto on exclude/re-include, overview shortcuts and broader S7/iOS/measured-performance evidence. Owner normal-flow acceptance must not be expanded into those untested claims. Selected-share next-ticket specs and concurrently edited diagnostic-policy guidance stay outside this Replay consolidation commit.
 
 Final consolidation verification: 47 mobile Jest suites / 539 tests, 93 real SQLite tests, TypeScript/lint, root check and whitespace pass. Expo Doctor passed 21/21 with the same dependencies. Reviewed cleanup and scheduler failure-path corrections have host evidence; new physical acceptance is not inferred from the owner's earlier normal-flow confirmation.
+
+## Mandatory specific diagnostic implementation gate (2026-10-26)
+
+Owner reaffirmed that every implementation must support diagnosis from concrete logs, not broad speculation. Audit verified existing AGENTS mobile closed-event rule, app-diagnostics.ts, direct-console ESLint guard, redaction/classification tests and prior lessons. Added `docs/development/diagnostic-implementation-policy.md` as the mandatory cross-runtime delivery gate: operation/stage/reason-to-source map before coding, targeted failure classification, safe action correlation, exact current-runtime collection recipe and failure/redaction evidence. AGENTS/workflow cover direct work; supported team Build/Build Auto/developer-agent overrides load the same policy and implementation handoffs explicitly carry it into context-free agents. Upstream skills remain unchanged.
+
+M4.5 now declares diagnostics.md and the shared policy as required companions, with AC-25–28 (28 total) for precise boundary logging, correlation, redaction and evidence-based triage. No runtime logger/feature code was changed by this governance task; M4.5 behavioral review findings remain open. Foundation policy-wiring tests guard instruction propagation, not universal runtime coverage. UNKNOWN causes and unresolved device evidence must remain explicit.
+
+Verification: all three customization resolvers load the intended team policy and Build/Build Auto handoff; root `npm run check` passes framework integrity (upstream unchanged), 23 tests including three policy-wiring checks, and eval smoke. Spec companions/source links, six stable capability IDs and continuous AC-01–28 validate; scoped whitespace passes. No mobile/backend runtime execution was needed or claimed for these policy/spec changes.
+
+## M4.5 specification review requires revision (2026-10-26)
+
+Owner requested one review of the selected-share snapshot spec. Independent adversarial, edge-case and structure reviewers plus a dependent prose pass produced `_bmad-output/implementation-artifacts/review-m4-5-selected-share-snapshots-2026-10-26.md`. Review found missing activation/delete-all/privacy fencing, immutable derivative enforcement, token recovery after a lost first response, expiry-envelope semantics, replacement-cancel behavior and other bounded lifecycle/protocol gaps. Overlapping independent findings are retained in the report. Earlier self-validation and root checks did not establish behavioral completeness; the prior unqualified implementation-readiness statement is superseded. Spec contents remain unchanged by this review; next work is bmad-spec revision and race-specific acceptance coverage, then behavioral re-review. These are specification gaps, not observed sharing runtime failures.
 
 ## Replay persistence recurrence: confirmed scene mapping defect (2026-10-26)
 
@@ -19,6 +249,12 @@ Verification: all 45 mobile Jest suites / 515 tests, 91 actual SQLite tests, mob
 Build review fixes now preserve caller CAS, remove generic automatic draft reset/retry, and avoid full-manifest hydration when the native map is current. Receipts retain a bounded 32-operation history with actual SQLite idempotency/conflict tests. Check again retains the exact mutation and performs a bounded durable read after native writer settlement, with no repeated mutation and no stale late-callback publication. Music Done captures immutable settings and protects session-owned audio; delayed selection tasks are fenced by restore/scope epochs. Save errors distinguish local failure, conflict and unknown outcome. Thumbnail cache ownership, privacy invalidation, six-lane bounds and same-turn delivery are executed by direct service tests.
 
 Final host evidence after review repairs: 46/46 Jest suites and 526/526 tests, 93/93 real SQLite tests, TypeScript/lint, root check and whitespace checks pass; Expo Doctor passed 21/21 earlier in the unchanged dependency set. The full suite caught eager native video initialization through the provider; lazy loading the poster decoder corrected the router/reduced-motion failures before the final aggregate pass. Two review layers returned actionable findings and were resolved; the third could not complete because of model capacity/account limits, so no clean three-layer pass is claimed. The stable app has been reloaded without data clearing and opened through Atlas to Replay. Owner-operated custom audio Done, consecutive edits and Update/new-video acceptance remain open because the device denies injected touches.
+
+## M4.5 selected-share snapshot specification (2026-10-26)
+
+The next feature specification is prepared at `_bmad-output/specs/spec-m4-5-selected-share-snapshots/SPEC.md`, with owner experience, publication/access/persistence contract, 24 acceptance cases and ordered S0–S7 implementation slices. Its six capabilities cover exact empty-by-default selection/preview, explicit immutable publication, private sanitized media, token-checked recipient access, owner republish/expiry/revoke, durable offline/delete-all removal and uncertain-outcome reconciliation. The single execution adapter is `_bmad-output/implementation-artifacts/spec-m4-5-publish-and-manage-selected-share-snapshots.md`.
+
+Existing decision 0005 supplies anonymous owner protection, at least 128-bit capability tokens and adjustable 30-day default expiry. Proposed quotas, derivative formats, replacement URL and retention defaults are identified as engineering assumptions requiring implementation evidence. M4.6 still owns the responsive browser viewer; public copy/share is withheld until a compatible reachable viewer is configured and tested. Coherence/source-preservation and structural/link validation, root `npm run check` (framework integrity, 20 tests, eval smoke), and scoped whitespace checks pass. No product decision blocks S0/S1; no backend deployment, private upload or application implementation occurred. Replay's outstanding device/save acceptance remains open separately.
 
 ## Replay working-save runtime rehydration (2026-10-26)
 
@@ -3625,6 +3861,17 @@ consolidation record.
 Owner requested BMAD party investigation and a coherent solution for slow media/audio loading, consecutive trip edits/exclusions and save-related disabled Update Replay. Review record: `_bmad-output/implementation-artifacts/replay-edit-flow-review-2026-10-26.md`. Source confirms unbounded save dependencies, full-manifest stage preflight, whole-page preview settlement and inconsistent Back boundaries. Existing six-lane preview loading, immediate audio-file readiness and final snapshot readback are retained as partial improvements. The SQLite lock holder remains unknown; the reported device issue is open.
 
 Proposal only: one edit session, one in-flight plus one latest pending save, short owned writer transactions, explicit unknown-outcome reconciliation, Update accepting a request during autosave, viewport-prioritized incremental thumbnails and lean settings subdraft UX. No production implementation, Metro/device operation or storage clearing occurred. Replay screen suite rerun passes 49/49 with 15-second per-test timeout after an initial 5-second cache-open timeout; root check passes. Mock syntax/state checks pass; phone layout and actual latency remain unverified. Next delivery should implement the P0 writer/session boundary and validate device behavior before claiming the save incident resolved.
+
+## Share Replay review patches (2026-10-27)
+
+Share Replay now permits a selected committed card-only chapter to prepare, binds
+the subset soundtrack to the committed parent rather than a working editor draft,
+fences late subset renders on visible and native share-flow return, and preserves
+stale handoff failures as a fixed scope diagnostic. The provider refreshes photo
+permission before OS handoff. Focused screen regression coverage passes 69/69 and
+mobile TypeScript passes. This is host/synthetic evidence only: a fresh
+owner-operated Android/iOS build must still confirm recognizable cards, exact
+preview, permission-change blocking, and target-system handoff.
 
 ## Replay save/responsiveness detailed spec (2026-10-26)
 

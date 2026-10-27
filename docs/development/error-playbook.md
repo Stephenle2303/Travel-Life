@@ -1,5 +1,405 @@
 # Error and improvement playbook
 
+## Review workflow uv-cache permission failure (2026-10-27)
+
+- **Symptom/evidence:** The code-review workflow resolver could not inspect the
+  project virtual environment because its sandbox-local `uv` interpreter cache
+  returned access denied. No review or source mutation ran.
+- **Prevention:** When a required `uv` workflow command fails solely on its
+  sandbox cache path, retry that exact read-only resolver with approved elevated
+  filesystem access; do not treat the workflow as initialized or skip review.
+
+## Commit index-lock permission failure (2026-10-27)
+
+- **Symptom/evidence:** The authorized `git add`/`git commit` could not create
+  `.git/index.lock` in the sandbox and therefore staged or committed nothing.
+- **Prevention:** Retry the same authorized Git write with elevated filesystem
+  access, then verify the commit identity and a clean primary checkout before
+  reporting completion.
+
+## M4.5 review bundle temporary-path isolation (2026-10-27)
+
+- **Symptom/evidence:** A review diff written through the sandbox-provided
+  per-command `$env:TEMP` path disappeared before the next command could read
+  it. No product or private data changed; reviewers could not begin from that
+  path.
+- **Cause:** The sandbox assigns an isolated temporary directory per command,
+  so that path is not a durable cross-command review artifact location.
+- **Correction/prevention:** Use one verified host-shared temporary path for
+  review bundles, check its existence and size before dispatching reviewers,
+  and remove it after the review run. Do not treat a missing bundle as a clean
+  review result.
+- **Recurrence:** A validator inventory assumed a `package.json` despite the
+  package using only its Dockerfile and Node entrypoints; the read failed before
+  any change. Resolve a package's manifest with `rg --files` before targeting it.
+- **Authorization boundary:** A proposed Edge adapter that would send selected
+  derivative bytes to a configurable HTTPS validator was rejected because the
+  owner approved Cloud Run in principle but did not identify the exact endpoint.
+  No adapter was applied and no media left the device. Obtain the exact approved
+  Cloud Run HTTPS URL before adding any egress path; never use a generic
+  environment-configured destination as a substitute.
+- **Browser setup:** The first Cloud Console tab request used an unsupported
+  visibility option and made no browser change; reopening without that option
+  succeeded. Use the browser capability's documented Chrome creation options
+  rather than assuming in-app-browser visibility settings apply.
+
+## M4.5/M4.6 continuation verification (2026-10-27)
+
+- The mandated three independent reviewers could not start because each agent
+  hit the shared account usage limit before it inspected a file. This is a
+  review-availability blocker, not a clean review result. Preserve the
+  review bundle and obtain independent review in fresh sessions; do not claim
+  the requirement passed from parent inspection or local tests.
+- The final focused mobile rerun passed 15 suites / 210 tests, including share
+  selection, owner recovery, local derivatives, deletion fencing and the
+  surrounding Atlas/Replay lifecycle boundaries. Expected closed diagnostics
+  are printed by those tests. Keep test diagnostics distinct from production
+  evidence and do not treat the result as Android/iOS acceptance.
+
+- Cleanup refinement initially combined delete/add operations for one path in a
+  single patch; the patch parser rejected it before changing files. Separate
+  exact operations corrected the edit. Runtime cleanup now identifies lease,
+  object deletion and acknowledgement failures separately with tests; Deno passes.
+- A new media-gate diagnostic test found verifier unavailability reported at
+  serialization stage. The guard now emits the known SHARE_VERIFY boundary;
+  the regression passes without enabling media or changing transfer permissions.
+
+- Hosting source review found the static CSP would block configured Google Maps.
+  The generic viewer shell now receives per-response script/style nonces from
+  its app-owned Vercel function, with strict-dynamic and no unsafe-inline/eval.
+  The loader copies that nonce and sends only an origin referrer for restricted
+  browser keys. Host tests verify the shell, but deployment/provider behavior
+  remains unaccepted. An initial viewer-test invocation used a root test path
+  from the viewer package directory and found no test; the root rerun is the
+  actual test evidence. Prevention: use the package `npm test` or root-relative
+  test command from its documented working directory.
+
+- Actual synthetic codec execution found FFmpeg still emits `moov/udta/meta`
+  and compressor fields despite metadata-removal flags. The terminal-moov
+  scrubber now removes those fields without changing encoded sample offsets,
+  zeros container timestamps, and rejects unsupported layouts. Structural
+  checks reject external data references. Sanitized synthetic JPEG and H.264/AAC
+  outputs pass both structural verification and real complete FFmpeg decode.
+  Native phone encoders and the deployed validator remain unverified. The first
+  idempotency test compared Buffer with Uint8Array prototypes; converting both
+  to Buffer fixes the assertion without weakening byte equality. The initial
+  shared helper typecheck also required an explicit Uint8Array annotation and
+  mobile's TypeScript-extension import setting.
+
+- Real rollback-only Postgres execution exposed `2201B`: PostgreSQL rejects
+  the unpublished scaffold regex repetition `{1,256}`. Replaced the unsupported
+  repetition; actual synthetic lifecycle, ownership, expiry, replacement,
+  revocation, fence and privilege assertions then passed. Direct table/RPC and
+  Storage metadata reads were also denied under anon/authenticated roles.
+  These checks do not prove deployed HTTP or concurrent-connection behavior.
+- Initial Deno typecheck found invalid optional-undefined CORS header unions
+  and a Promise interface incompatible with the SDK's RPC thenable. Explicit
+  header types and PromiseLike corrected both; actual Deno checks pass.
+- Browser QA exposed same-tab fragment navigation retaining the old recipient
+  surface. The viewer now clears the root synchronously and reloads to consume
+  the new capability. Contract tests pass; follow-up browser verification is
+  open because browser use was disabled in Work settings during this task.
+- Tooling: sandbox registry DNS failed; an approved npm fetch supplied pinned
+  Deno 2.9.6 locally. Sandbox localhost servers listened but browser requests
+  timed out; an initial duplicate start hit EADDRINUSE. After checking exact
+  process command lines, only task-owned servers were stopped and restarted
+  with approved networking. Desktop/390px browser QA then worked. Full-page
+  screenshot timed out; normal viewport screenshots succeeded.
+- Inspection recurrence: parent guessed missing share-highlight-screen and
+  privacy/history controller paths despite the existing lesson. No source was
+  changed by these reads. Prevention: resolve import paths or `rg --files`
+  inventory before each unfamiliar file read, not guessed folder names.
+- Runtime access: Supabase connector and browser use became unavailable after
+  earlier successful checks. Preserve that earlier bounded evidence, but do
+  not claim a deployed service, browser retest or device acceptance.
+
+## M4.5 continuation tooling preflight (2026-10-27)
+
+- Review found protected recovery chunks were bounded by JavaScript code units, exceeding SecureStore byte limits for Vietnamese/CJK and splitting astral characters. Chunk by UTF-8 codepoint byte length, validate old generation headers, and treat obsolete-chunk cleanup after header commit as best effort. Unicode roundtrip/bounds regression passes; owner suite now 8/8. Prevention: keychain limits are bytes, not string length.
+
+- Parent forced hard media-verifier failure and found it reported SHARE_SERIALIZE instead of the known SHARE_VERIFY boundary. The gate now uses SHARE_VERIFY; HTTP failure/regression tests pass. Prevention: assert exact operation/stage as well as deny status for unavailable service gates.
+
+- Never-published local deletion initially queued remote work without an owner session, producing permanent false pending removal. A durable minimal ever-remote-intent marker now precedes the first publication network boundary; absent marker/queue permits purely local deletion without creating credentials. A lost prior owner's credentials retain pending removal. Both paths have passing owner-service regressions.
+- Derivative fault tests initially left mocked async cleanup returning undefined, so fixture cleanup masked the intended classified failures. Make async FileSystem mocks return promises and rerun; copy/decode/encode/verify fault and private sentinel checks now pass 4/4.
+
+- Scoped whitespace check found extra EOF blank lines from PowerShell Set-Content round trips. Trim only task-touched file endings and rerun whitespace validation. Line-ending normalization warnings alone are not product failures.
+
+- The first native screen tests called React Native Testing Library v14 render synchronously, leaving `screen` unset. Await render and user events; current selected screen/owner/lifecycle checks pass 15 tests. Prevention: follow the installed runner's async API.
+- Typed upload bytes became `Uint8Array<ArrayBufferLike>` after splitting the local copy boundary; fetch accepts the concrete backing ArrayBuffer. Typecheck caught it before delivery; use an explicitly typed ArrayBuffer body and rerun typecheck.
+- Auto-review rejected wiring selected private derivative bytes to a configurable remote validator because the specific payload/destination was not authorized. No transfer adapter was written or executed. Keep media publication hard-disabled. App-owned Node validator package is reviewable; completing its HTTPS integration requires the chosen host and explicit authorization for selected derivative processing, followed by runtime verification. Do not route around this denial.
+
+- Shared pure protocol tests exposed Babel helper lookup outside the mobile package when importing the cross-runtime contract. Add the package node_modules to Jest `modulePaths` and Metro's workspace resolver; rerun the real owner tests. Owner/lifecycle suites pass 12/12 after correction.
+
+- Native derivative inspected result uses both the pinned SDK's `returnCode` and `success` fields; the current renderer uses `success`. Both are declared by munim-ffmpeg. No observed native defect is established by the different valid property; align the derivative guard with `success` and verify synthetic return behavior.
+- New Jest owner fixture initially referenced hoisted `auth`/`values` outside the mock factory allowlist. Rename lazily accessed stores to `mockAuth`/`mockValues`; rerun actual suite rather than treating collection failure as a behavioral result.
+- Path discovery guessed absent mobile metro config/app/private-record paths and one Get-Content repeated positional/LiteralPath arguments; later guessed share-highlight-screen/privacy-controller paths also failed. No source changed from these reads. Use `rg --files` then literal existing paths; avoid reading compact single-line geometry JSON into tool output.
+- Two broad patches failed because a partial JSX line did not match the exact live source, including one diagnostic-stage patch. Re-read live context and use exact independent mutations; failed patches are not source evidence.
+- Browser synthetic QA found same-document hash changes retained previous recipient content. Parent now clears old UI and reloads after consuming changes; subsequent browser verification became unavailable when browser tooling was disabled. Initial desktop/mobile interaction evidence remains valid; changed-fragment regression stays host-tested until browser reconfirmation.
+- Browser harness sandbox sockets caused localhost timeouts; duplicate approved launch found occupied ports. Only inspected owned processes were stopped and the harness was restarted with approved networking. A full-page screenshot timeout recovered with viewport captures. These are collection/tool boundaries, not product-runtime evidence.
+- Automatic approval review temporarily rejected a mutation/check batch because the account usage limit prevented review. Neither action ran. Following continuation, native mobile typecheck passed; reapply only missing edits.
+- Security audit found bounded MP4 structural checks cannot prove decoded content/metadata safety (opaque sample/data-reference boxes). Added a hard runtime deny for all media publication/upload until a trusted bounded decoder integration passes acceptance. Local exact derivative preview remains available. Media delivery is explicitly incomplete; documentation alone must never enable sensitive upload.
+
+- Initial native Deno typecheck found SDK RPC returns a thenable rather than a full Promise and the conditional CORS object inferred undefined header values. Corrected to `PromiseLike` and explicit string header records. Prevention: typecheck Edge modules with actual cached SDK declarations, not only Node runtime tests.
+- The parent loaded a later Build review step before implementation acceptance was complete; no source behavior changed. Keep later-step reads until current-step acceptance audit completes.
+- Registry discovery initially failed under sandbox network restrictions; approved fetch obtained pinned Deno 2.9.6 in the ignored local tool cache. Tool transport failures do not establish a dependency/product defect.
+
+- Real Postgres rollback validation found the unpublished scaffold used a regex repetition bound `{1,256}`, which PostgreSQL rejects (maximum repetition bound 255). Changed that unpublished digest regex to its safe unbounded character allowlist; new v1 runtime requires exactly 64 hex digest bytes. Prevention: execute migration and inserts on real Postgres, since static source checks do not compile regex constraints.
+
+- The installed Supabase CLI exited before migration creation because its telemetry startup attempted to write outside the sandbox at the user profile. No migration or remote schema changed. This is a tool filesystem failure, not database evidence. Next action: use a supported isolated CLI profile or obtain approved CLI execution; preserve the existing untracked migration while preparing changes.
+- An initial large context read exceeded the output budget, so individual spec companions were read again with bounded output. Prevention: inspect document sizes and batch only bounded useful reads.
+- Parent discovery included a nonexistent root `.env.example` and `rg` returned 1; use `rg --files` to identify existing paths before searching explicit optional files.
+
+## M4.5/M4.6 documentation fetch boundary (2026-10-27)
+
+- Evidence: the web reader rejected the Supabase changelog Markdown endpoint
+  with unsupported `text/markdown` content type. This is a documentation-tool
+  limitation, not a Supabase runtime failure.
+- Next action: fetch the index through a supported HTTP client or the HTML
+  changelog and use official documentation/MCP search for relevant APIs.
+- Prevention: do not infer service availability from a documentation renderer
+  failure; verify docs through another supported reader before implementation.
+
+## Share Replay loses later-trip media after card selection (2026-10-27)
+
+- **Owner evidence:** The Share trip list contains later trips, but the
+  selected video renders media only for the first trip and title cards for the
+  rest.
+- **Verified source cause:** The Share screen derives `selectedMemoryKeys` from
+  its bounded editor-preview manifest. `preparePrivateReplay` then treated that
+  partial screen list as the exact export media composition even after it had
+  freshly resolved the full local manifest.
+- **Verified correction:** For a selected trip set, the provider now ignores
+  bounded screen-preview media as composition authority and derives media from
+  its freshly resolved committed plan. It still rejects unknown, unavailable,
+  excluded, or unselected-group media when a caller supplies it. The focused
+  provider and screen suites pass 129 tests; mobile typecheck and lint pass.
+- **Status/next action:** Host correction complete; reload the owner Android
+  client and verify that choosing multiple trips shows their media in the exact
+  subset preview before opening the share sheet.
+- **Prevention:** A selected-trip API must treat selected group keys as scope
+  authority and calculate media composition at the provider boundary, not from
+  screen preview availability.
+- **Verification recurrence (2026-10-27):** A follow-up focused Jest command
+  attempted to select a local cache through `JEST_CACHE_DIRECTORY`, but this
+  configuration is not consumed by this Jest setup; it still used the sandbox
+  Temp cache and stopped with `EPERM` before collecting tests. Use the explicit
+  `--cacheDirectory .jest-cache-codex` (or another ignored repository-local
+  cache directory) argument on every mobile Jest invocation.
+- **Documentation recurrence (2026-10-27):** A project-state evidence patch
+  used stale surrounding text and was rejected before it changed a file.
+  Re-read the live header and apply only against exact current context; never
+  treat a rejected documentation patch as delivery evidence.
+- **Test-patch recurrence (2026-10-27):** An initial regression insertion used
+  a stale neighboring test name and was rejected before changing the suite.
+  Read the immediate live test block before anchoring a narrow patch.
+- **Cover-test and path recurrence (2026-10-27):** The first green-path cover
+  assertion read the tree before React committed the asynchronous preview, and
+  an accompanying source search repeated the repository prefix from the mobile
+  package directory. The former is a test timing issue, not a cover regression;
+  await the rendered poster, and use `src/...` paths from `apps/mobile`.
+- **Cover-fixture recurrence (2026-10-27):** The same cover test omitted the
+  parent prepared Replay fixture, so the Share-review card panel had no parent
+  preview to render even after the cover page arrived. Fixtures that inspect
+  Share cards must provide the private parent artifact as well as the paged
+  cover response.
+- **Package-root recurrence (2026-10-27):** A provider-suite command was run
+  from the repository root, where `npm test` invokes the foundation runner and
+  ignores mobile Jest paths. It did not execute provider assertions. Run mobile
+  Jest only from `apps/mobile` with its explicit local cache argument.
+- **Owner re-report (2026-10-27):** The first Share-card cover correction
+  passed its synthetic case but the owner still sees a cover only for the first
+  trip. The test modeled a later committed item with `available: true` and only
+  a missing URI; it did not model the bounded-manifest state where later media
+  is initially unavailable until its preview page is resolved. Investigation is
+  open; do not describe the device UI as fixed.
+- **Follow-up cause (2026-10-27):** After correcting the page request, the
+  screen obtained the later trip's URI but `shareableCommittedTrips` still
+  selected card covers from the opening-page-derived export-memory list. The
+  renderer/export boundary was correctly separate, but the visual cover reader
+  was not. Card covers must use the dedicated local cover-candidate scope while
+  the selected-video manifest remains committed-media-only.
+- **UI migration patch recurrence (2026-10-27):** An Atlas list-card patch was
+  rejected because its state-hook context was stale. No source changed. Re-read
+  the current component block and split wide cross-file patches into exact,
+  independently verifiable edits before retrying.
+- **Timeline-cover test recurrence (2026-10-27):** A pre-existing Atlas detail
+  assertion assumed its photo preview label was unique. The new Timeline cover
+  deliberately uses the same owner-safe label, so the focused suite failed on
+  the test query rather than application behavior. Assertions shared by a list
+  and detail surface must select the intended instance or assert the count.
+- **Build-workflow path recurrence (2026-10-27):** A workflow inspection
+  command guessed obsolete `step-01-intake.md` and `step-02-context.md` paths
+  after rendering the current Build workflow. The reads failed before source
+  changes. Follow the rendered workflow's exact first-step path rather than
+  inferring historical step names.
+- **Edit-cover preload test recurrence (2026-10-27):** After adding the
+  expected overview-cover read, two gallery tests assumed their first mocked
+  preview call would begin only after a tile tap. The new valid overview read
+  consumed that response, so the test no longer represented the intended
+  unresolved-tile state. Keep one mocked empty overview read, one empty gallery
+  read, then the held tile-tap read whenever a test exercises that sequence.
+- **Trip-list cover migration correction (2026-10-27):** The owner reported
+  that the Share-equivalent card shell in Edit Replay and Atlas had no image
+  covers. Source inspection verified three separate omissions: Edit overview
+  never called its existing paged preview resolver and ignored resolved
+  overrides when choosing a cover; Atlas stopped after an empty detail preview
+  instead of asking its first local media page; and Atlas passed video URIs
+  straight to an image view rather than Share Replay's poster path. The
+  correction resolves optional covers only through the existing private
+  boundaries and uses one shared local thumbnail/poster component. Focused
+  Atlas/Replay tests (111), mobile typecheck and lint, and root `npm run check`
+  pass. Fresh owner Android/iOS visual confirmation remains open.
+- **Prevention:** Every migration of a trip-card surface must test an opening
+  manifest/detail without a URI, a later paged cover response, and a video
+  poster. Do not declare visual parity merely because the card shell is shared.
+- **Documentation patch recurrence (2026-10-27):** Two initial
+  project-state/error-playbook/spec patch attempts used an incomplete
+  first-header anchor and were rejected before changing any file. Re-read the
+  complete exact paragraph, then keep documentation patches narrowly scoped to
+  the live text.
+- **Review-regression typing recurrence (2026-10-27):** The first deferred
+  race test counted calls by referring to its `jest.fn` variable inside that
+  variable's initializer. Jest executed it, but TypeScript rejected the
+  self-referential inference and nullable resolver narrowing. Use an independent
+  request counter and initialize the resolver to a typed no-op in
+  deferred-promise tests; run `npm run typecheck` after every test-only patch.
+- **Patch-format recurrence (2026-10-27):** A combined two-file patch was
+  rejected by the patch tool as malformed before changing files. Apply the
+  source correction and its playbook record as independently valid patches when
+  the patch parser rejects a combined edit.
+- **Atlas concurrent-cover correction (2026-10-27):** The owner reported that
+  Atlas still showed no representative photos. The verified cause was
+  `loadJourneyDetail` and `loadJourneyMediaPage` each calling
+  `durableRevealGate.next()` for a read-only request. Atlas deliberately
+  requests up to four covers concurrently; each later request therefore made
+  sibling reads fail the generation check as falsely stale. Reads now snapshot
+  the current generation and continue to reject only after a real lifecycle or
+  privacy invalidation. The provider also now rejects both reads before native
+  access when the private record is already disconnected. Focused provider/Atlas tests (97), mobile typecheck and
+  lint, and root `npm run check` pass.
+- **Prevention:** Do not use a replacement/cancellation generation to serialize
+  independent read-only card loads. Concurrent UI lists need a shared lifecycle
+  snapshot, plus a regression that resolves at least two reads together.
+- **Device-collection limitation (2026-10-27):** The local Android SDK `adb`
+  executable was unavailable, and no Travel Life device window was open for
+  inspection. This is not evidence that the owner-reported physical UI is
+  fixed. Rebuild/reload the owner client and verify multiple Atlas Timeline
+  cards with real local photos before closing device acceptance.
+- **Workflow-read recurrence (2026-10-27):** A Build workflow inspection read
+  the one-shot step before the required first routing step. The source files
+  were unchanged, but future workflow runs must read and execute one step at a
+  time in the stated order.
+
+## Share Replay re-review: card-only guard, native Back and working audio (2026-10-27)
+
+- **Verified cause and correction:** The implementation had a card-only preview guard tied to selected media, native-return paths without a late-render fence, working-draft audio at the subset boundary, stale-error collapse, and no refreshed permission/artifact-scope check immediately before native handoff. The correction gates on committed trips, fences every exit, reads the saved Replay soundtrack, retains the closed stale reason, and reloads permission plus exact registered-artifact membership before sharing.
+- **Status:** Host-code correction complete. Screen 72/72, provider 56/56 and renderer 12/12 pass, as do mobile typecheck/lint, root `npm run check`, and whitespace validation. Android/iOS owner acceptance remains open: host mocks cannot establish a physical card, a playable subset file after permission change, or target-system chooser behavior.
+- **Prevention:** Exercise card-only choice through Preview, every navigation entry with a deferred render, Edit audio Done/Back without Update, revoked permission before dispatch, and changed media/group membership. Assert the actual provider manifest and closed diagnostic rather than only a screen mock.
+- **Verification incident:** The review's initial three-suite run passed 130 tests but the durable-cache-open screen test timed out at 5 seconds. The final combined rerun passed all 140 tests using the repository-local Jest cache and unchanged timeout. Keep the first timeout distinct from the final green run when diagnosing future harness flakiness.
+- **Inspection recurrence:** A delegated review guessed nonexistent `replay/manifest.ts` and a storage glob before using actual source paths. These were read-only inspection failures, not runtime defects; reuse the existing path-inventory lesson and resolve files with `rg --files` first.
+
+## Facebook or Messenger absent from Android Replay share targets (2026-10-27)
+
+- **Owner evidence:** The verified Share Replay sheet did not show Facebook or
+  Messenger as an option.
+- **Verified device evidence:** Replay passes a verified `video/mp4` handoff to
+  Android's native chooser without target filtering. The connected Android
+  device has no installed `com.facebook.katana`, `com.facebook.orca`, or
+  `com.facebook.lite` package, so the OS cannot advertise either target.
+- **Status/next action:** This is device availability, not an app routing
+  failure. Install and sign in to the desired Facebook or Messenger app, then
+  reopen `Share video`; Android resolves the chooser targets at that moment.
+- **Prevention:** Check installed target packages before adding app-specific
+  routing or blaming the share handoff. Keep the generic verified MP4 chooser so
+  every installed compatible target remains eligible.
+
+## Share Replay hides committed chapter-only trips (2026-10-27)
+
+- **Owner evidence:** In Share Replay, only the Taiwan trip appears even though
+  the private Replay contains additional trips.
+- **Verified source cause:** `shareableCommittedTrips` derives cards solely from
+  `shareableCommittedMemories`, which removes any committed group with no
+  currently `available` selected media. `planPrivateReplay` still produces a
+  private chapter for every eligible included group, including a truthful local
+  chapter card when its selected media set is empty. The selection UI therefore
+  narrows the committed Replay's trip scope incorrectly.
+- **Verified correction:** Share candidates now derive from ordered committed
+  Replay groups, with an optional cover from committed eligible media. The
+  selected-group boundary is carried to `preparePrivateReplay`, so a selected
+  chapter-only trip remains in the preview manifest while only committed
+  eligible media becomes renderer input. Focused screen and provider suites
+  pass (66 + 53 tests), as do mobile typecheck and lint.
+- **Status/next action:** Host correction complete; owner Android validation is
+  still required to confirm the current private Replay lists every expected
+  trip and that a chapter-only choice stays in the exact preview.
+- **Prevention:** Derive share choices from committed Replay chapters/groups, not
+  from the nonempty media subset. A missing local media item must not erase an
+  otherwise committed trip card or silently change the selected-video scope.
+
+## Mobile test path typo during chapter-only replay verification (2026-10-27)
+
+- **Symptom/evidence:** A provider-test inspection from the `apps/mobile`
+  working directory repeated the `apps/mobile` path segment and PowerShell
+  reported that the file did not exist. No source or runtime state changed.
+- **Cause/correction:** The command mixed repository-root and package-root
+  paths. Retried with the package-relative test path and completed the focused
+  119-test suite.
+- **Prevention:** Once a command changes to `apps/mobile`, use `src/...` paths
+  there; reserve `apps/mobile/src/...` for the repository root.
+
+## Android reload blocked by unavailable local ADB daemon (2026-10-27)
+
+- **Symptom/evidence:** A read-only device check with the configured Android SDK
+  `adb.exe` could not start or connect to its daemon at `tcp:5037`; no device
+  command, application reload, storage mutation, or private-data inspection ran.
+- **Cause/status:** The host ADB daemon is unavailable. The cause is not yet
+  established; do not attribute it to the Replay change or the connected device.
+- **Next action/prevention:** Restore the host daemon or reconnect/unlock the
+  owner device, then verify `adb devices -l` before issuing one normal app reload.
+  Treat a failed transport preflight as a tooling boundary, never as Android
+  runtime evidence.
+
+- **Verification-command incident:** The package identity check succeeded, but a
+  follow-on PowerShell `Select-String -First` option was unsupported on this
+  host, so package version metadata was not read. No device state changed.
+  Prevention: use `Select-Object -First` after `Select-String` on this PowerShell
+  version; do not interpret a formatting-pipeline failure as an ADB/package error.
+
+- **Verified launch correction:** The first restart launched Expo Dev Launcher
+  rather than the Travel Life JS runtime because the device had no restored
+  `tcp:8081` reverse mapping and received only the package launch intent.
+  Restoring `adb reverse tcp:8081 tcp:8081` and opening the installed
+  `exp+travel-life` development-client URL reached `MainActivity`; the filtered
+  log then recorded React Native `Running "main"`. No storage was cleared or
+  modified. Prevention: verify the reverse mapping and target the configured
+  development-client URL when reloading a local Expo development build.
+
+## Thread-inspection argument limit (2026-10-27)
+
+- **Symptom/evidence:** The first inspection of the paused Share Replay thread used
+  `read_thread` with `turnLimit: 20`; the Codex thread API rejected it because the
+  supported maximum is 10. No repository or runtime behavior changed.
+- **Cause/correction:** The caller assumed a larger page size. Retried with the
+  documented maximum of 10 and obtained the thread history.
+- **Prevention:** Respect the tool's bounded pagination contract; request older
+  thread content through its cursor rather than increasing `turnLimit`.
+
+## Share Replay asks for media reselection instead of trips (2026-10-26)
+
+- **Symptom/evidence:** Owner reports that Share Replay asks for photos again. Source review confirms `replay-screen.tsx` flattens committed Replay media into individual numbered photo/video buttons and tracks `shareMemoryKeys`, rather than offering the trips used in Replay.
+- **Verified cause:** The share selection unit is media instead of the owner's intended trip unit. The export handler also renders the selected subset and opens the OS sheet without a separate exact-subset preview.
+- **Status/next action:** Open runtime mismatch. Review and acceptance cases are recorded in `_bmad-output/implementation-artifacts/review-share-replay-trip-selection-2026-10-26.md`; this discussion does not implement or verify the correction.
+- **Prevention:** Trace the owner's selection unit through UI, committed Replay composition and exported manifest. Verify that choosing a trip inherits only its committed media, preserves order/music, and previews the exact subset before explicit export; do not substitute album reselection for sharing an existing Replay.
+
+## Replay native share delivered an empty Gmail attachment (2026-10-26)
+
+- **Owner evidence:** Gmail accepted a Replay attachment created by the native share sheet, but the received file was empty. This is a P0 export/share integrity failure; a closed share-sheet result proves only that Android closed the sheet, not that the recipient received usable bytes.
+- **Source evidence after owner retest:** Gemini can open the same Replay video, so a renderer-wide empty file is disproven. Source review also found the initial guard reconstructed a persistent Replay as silent even when its committed soundtrack is AAC; that can incorrectly block sharing before Gmail opens. The exact Gmail import cause remains unproven because ADB diagnostics cannot currently start.
+- **Correction:** Recover the current committed soundtrack for persistent artifacts. Copy every verified source MP4 to a fresh app-private cache handoff file, reopen and stream-verify that handoff, then dispatch only that immutable copy through Android's native Sharesheet. A handoff failure retains the private preview and records the fixed `REPLAY_EXPORT / SAVE_FAILED / REPLAY_HANDOFF` event; no recipient, path, raw native message or private media data is logged. The UI explains that Gmail, Messenger and Facebook appear only if their installed app accepts the system video target.
+- **Verification/next action:** Renderer RED/GREEN regressions cover immutable handoff dispatch and its closed failure. Build a fresh Android client, send a synthetic-safe Replay through Gmail, and confirm the received attachment plays. Confirm Messenger/Facebook target availability only on a device where each is installed; host tests cannot prove either physical target.
+- **Prevention:** Native share success requires local source existence, positive byte size, valid stream structure, and an independently verified handoff copy at the last possible boundary. Treat recipient-visible empty attachments as failed export evidence, never as a successful share.
+- **Verification incident:** The first closed-handoff regression saw a `shareAsync` call retained from the preceding success test, so it falsely appeared to dispatch after the failing handoff. The product branch already returned `handoff-failed`; clearing the target mock at the test boundary isolates the assertion. Prevention: tests that assert a boundary was not invoked must reset that mocked boundary before exercising the negative path.
+
 ## Replay release consolidation tooling and review boundaries (2026-10-26)
 
 - **Commit boundary incident:** The first approved stage command was not executed because automatic approval review reached an account usage limit. This was a tool-review availability failure, not a finding that the scoped Git action was unsafe. After the owner explicitly requested continuation, read-only inspection confirmed the index remained empty and the same reviewed stage action succeeded through the approved boundary. No alternative tool was used to bypass the rejected approval.
@@ -11,12 +411,95 @@
 - **Corrections/preservation:** Fresh post-timeout pending callers now settle publicly; definitive receipt conflicts remain conflicts; fenced operations may reconcile without reviving discarded intent. Three old worktree HEADs and tracked WIP are preserved by annotated local tags before pointer retirement. No old source was blindly merged and no checkout data/dependencies were deleted. An obsolete untracked legacy-architecture build helper was moved intact into a non-executable documentation archive.
 - **Open boundaries:** The consolidation review records remaining fault-recovery, retained-Auto and overview-shortcut gaps rather than claiming the entire canonical spec done. Concurrent M4.5 and diagnostic-policy edits are excluded from staging. Final checks and commit identity belong in the release review record.
 
+## Specific diagnostics existed but were not a universal delivery gate (2026-10-26)
+
+- **Owner requirement:** Every implementation must emit specific actionable diagnostics so a failure is located from actual logs rather than broad speculative inspection. Existing AGENTS.md and mobile logger/lint/tests already required closed privacy-safe events, and prior lessons required specific categories; workflow/BMAD lacked an explicit per-feature source map, collection recipe and completion evidence gate.
+- **Correction:** Added diagnostic-implementation-policy.md, strengthened AGENTS/workflow and wired supported team overrides for Build, Build Auto and developer agent, including context-free implementation handoffs. Added M4.5 diagnostics companion and AC-25–28. Runtime instrumentation itself remains a required implementation deliverable, not established by these policy changes.
+- **Prevention/verification:** Root policy-wiring regression checks retain entry-point loading and handoff/spec requirements; resolver validation checks actual merged customization. Per-feature fault/redaction/correlation tests and real-runtime evidence remain necessary. No rule can guarantee every root cause is immediately known; UNKNOWN must retain the exact observed boundary and never justify a guessed cause.
+- **Tooling recurrence:** The audit itself repeated an unexpanded `_bmad/custom/*` rg path and tried a guessed integrity test filename; both reads failed without source mutation. Inventory confirmed tests/integrity.test.mjs and actual custom files; continue with actual directory operands and rg --files, including for audit commands. Do not infer absent policy from a failed search.
+- **Verified governance evidence:** Build, Build Auto and developer-agent resolvers load the new policy; root check passes pinned framework integrity, 23 tests (three policy-wiring checks) and eval smoke. M4.5 companion links/IDs/28 acceptance cases and scoped whitespace pass. This confirms rule propagation, not that unimplemented sharing paths already emit runtime diagnostics.
+
 ## Replay review: failure preview lifetime and settings Reset order (2026-10-26)
 
 - **Evidence/cause:** Release review traced three uncovered boundaries: failed finalization deletes newly created chapter files while the screen retained the first chapter player; explicit Re-render deleted the prior verified video before replacement while recovery retained its URI; Reset changed the editor order but left Music & order's independent order snapshot unchanged, allowing Done to restore newest-first.
 - **Correction:** Failed preparation now clears its progressive preview and shows the fixed failure/retry state. Re-render invalidates the renderer while preserving the verified file until replacement succeeds. Reset updates both editor and sheet order to oldest-first, retaining the committed soundtrack.
 - **Verification:** Replay-screen/provider focused suites pass 109 tests, including reclaimed-first-preview failure, preserved prior-video failure recovery, cleanup after successful replacement, provider preserve-file versus normal discard, and Reset followed by Done. Mobile TypeScript passes. These are host regressions; they do not replace owner device playback evidence.
 - **Prevention:** Cover derivative-file lifetime alongside UI recovery states, assert normal cleanup separately from invalidation, and exercise sheet Done after commands that change the main editor snapshot.
+
+## M4.5 specification readiness overstated after structural validation (2026-10-26)
+
+- **Symptom/evidence:** The spec-preparation handoff said ready for implementation after structural/source checks and root foundation checks. Subsequent owner-requested independent review found missing delete-all/activation fencing, derivative immutability, raw-token recovery, expiry semantics and replacement-cancel behavior. Full evidence is in `_bmad-output/implementation-artifacts/review-m4-5-selected-share-snapshots-2026-10-26.md`.
+- **Cause:** Structural preservation and passing foundation checks were treated as stronger evidence of behavioral completeness than they provide. Overlapping reviewers corroborated six distinct lifecycle/protocol concerns.
+- **Status/correction:** Open specification gaps; readiness claim superseded in project state and execution adapter. No sharing runtime exists to claim fixed, and this review does not silently choose new cancellation behavior. Next action: resolve via bmad-spec, rederive companions and add controlled race acceptance cases before another behavioral review.
+- **Prevention:** Trace activation, cancellation, delete-all, object writes, token acknowledgement and retention expiry through interleavings; distinguish document shape checks from protocol/state-machine completeness in handoffs.
+
+## M4.5 spec source-discovery path and documentation fetch assumptions (2026-10-26)
+
+- **Symptom/evidence:** Spec preparation attempted an absent planning-artifacts/architecture.md and a PowerShell rg directory argument containing an unexpanded wildcard; those reads failed. The web reader also rejected Supabase changelog.md's text/markdown content type. No application mutation or verification success was inferred from these failures.
+- **Cause/correction:** Assumed source paths and tool content-type support. Used rg --files to inventory actual planning/service sources, removed the wildcard path assumption, and read the official HTML changelog instead. Existing decision 0005 and source inventory ground the spec; no nonexistent architecture is cited.
+- **Prevention:** Inventory candidate paths before targeted reads; pass actual directories to rg on Windows; use the official HTML documentation fallback when a Markdown response is unsupported. Root checks and local spec-link validation are recorded in the M4.5 execution adapter, independently of source-discovery results.
+- **Review recurrence:** An independent reviewer repeated the unexpanded `spec-m4-5-selected-share-snapshots/*.md` rg path and received OS error 123; all required files were already read. Strengthened check: pass the existing directory and `-g '*.md'` separately rather than a wildcard path, including delegated review instructions.
+
+## M4.5 implementation source-path assumption (2026-10-26)
+
+- **Symptom/evidence:** During the first M4.5 code-map pass, a read targeted `apps/mobile/src/reveal/provider.tsx`, which does not exist, so PowerShell returned a path-not-found error. No source, service, account, or private data changed.
+- **Cause/correction:** The implementation assumed a conventional provider location instead of using the repository inventory. The actual eligibility boundary is `reconstruction/repository.ts` and the visible owner surface is composed through the app/components layer. The delivery spec now records verified source paths before edits.
+- **Prevention:** For every new M4.5 integration point, run `rg --files` and then target the resolved file. A failed path inspection is not evidence that an implementation boundary is absent.
+
+## M4.5 Edge Function runtime check unavailable on this host (2026-10-26)
+
+- **Symptom/evidence:** The M4.5 verification command could run the focused mobile Jest suites and Expo lint, but `deno --version` failed because no Deno executable is installed or available on PATH. This is a host-tooling absence, not a successful Edge Function typecheck and not evidence of a service failure.
+- **Status/next action:** The function follows the checked existing Supabase function envelope and is covered by source/diff review only in this checkout. Run `supabase functions serve travel-life-share` or a pinned Deno typecheck in an environment that supplies the project Supabase/Deno tooling before deployment or backend acceptance.
+- **Prevention:** Probe required backend executables before presenting a combined mobile/backend verification command. Report unavailable tooling as inapplicable; do not infer backend validity from mobile TypeScript or Jest.
+
+## M4.5 image derivative dependency was only declared in offline mode (2026-10-26)
+
+- **Symptom/evidence:** The offline Expo install added `expo-image-manipulator` to `apps/mobile/package.json` using the local SDK map, but the first derivative Jest test could not resolve the package because it was not present in `node_modules`. No derivative code or owner media ran.
+- **Cause/correction:** Offline compatibility selection does not download a missing native module. The approved host Expo install then added the SDK-57 package; its audit reported nine existing dependency advisories and two pre-existing postinstall scripts awaiting the repository's allow-scripts policy. Neither advisory count nor script warning is a claim about the new feature's security.
+- **Prevention:** After an offline managed-module install, verify package resolution before starting RED/GREEN. Treat audit findings and denied postinstall scripts as separate dependency-governance items; do not run force fixes or approve scripts without explicit scope.
+- **Recurrence:** The approved online install of `expo-crypto` and `expo-secure-store` reported the same nine repository dependency advisories and unchanged two unapproved postinstall scripts. The modules installed successfully; no audit fix, script approval, dependency upgrade, or security conclusion was made. Continue to keep package additions SDK-scoped and record advisories without broadening into an unauthorised dependency-repair task.
+
+## M4.5 publish-controller optional-signal contract mismatch (2026-10-26)
+
+- **Symptom/evidence:** The new controller's success regression failed although the result was staged: it invoked the injected transport with a second `undefined` argument, while the established optional-signal call shape uses one argument when no signal exists.
+- **Cause/correction:** The controller forwarded an optional parameter unconditionally. It now calls the one-argument transport form without a signal and only passes the second argument for a real cancellation signal.
+- **Prevention:** Test injected-boundary call shape as well as return value whenever optional cancellation/metadata arguments affect retry or logging semantics.
+
+## M4.5 draft test object syntax correction (2026-10-26)
+
+- **Symptom/evidence:** The first draft-creation RED test had a misplaced object/array delimiter, so Jest stopped at parsing rather than exercising the intentionally missing draft module.
+- **Cause/correction:** A one-line nested fixture obscured the mismatched delimiter. The fixture is now multiline and parsed before continuing to the intended module-missing RED state.
+- **Prevention:** Keep nested privacy/selection fixtures multiline and validate that a RED test reaches its intended missing behavior rather than only parser/setup failure.
+
+## M4.5 project-state patch context mismatch (2026-10-26)
+
+- **Symptom/evidence:** A project-state update patch used a stale wrapped paragraph and `apply_patch` rejected it before modifying any file.
+- **Cause/correction:** The expected context split a sentence at a different line boundary than the actual document. Read the current local excerpt and reapplied the update with exact context.
+- **Prevention:** For long evolving status paragraphs, read the immediately current target before patching and use a short unique context window rather than reconstructing prior wrapping.
+
+## M4.5 environment discovery repeated Windows wildcard/path assumptions (2026-10-26)
+
+- **Symptom/evidence:** A repository search passed `.env*` to `rg` on PowerShell and guessed a root `app.json`; Windows rejected the wildcard filename and the root file was absent. The resolved mobile `.env.example` still established the actual Supabase environment names.
+- **Cause/correction:** The search mixed shell-glob and guessed-root conventions rather than inventorying concrete files.
+- **Prevention:** On Windows, pass actual paths or use `rg --files -g '.env*'`; inspect app configuration only after resolving its path from the repository inventory.
+
+## M4.5 full mobile check reused blocked Jest Temp cache (2026-10-26)
+
+- **Symptom/evidence:** `apps/mobile` full check reached Jest after typecheck/lint, then 53 suites failed before execution because Jest could not atomically rename transform-cache files in the sandbox Temp directory (`EPERM`). This is the known host cache boundary, not 53 product regressions.
+- **Cause/correction:** The package script does not carry the repository-local cache argument that focused runs use. Rerun the full mobile Jest suite explicitly with `--cacheDirectory .jest-cache-codex`, then run the remaining checks separately.
+- **Prevention:** In this Windows sandbox, never interpret default Temp-cache EPERM output as a feature failure. Use the repository-local quoted Jest cache for full and focused suites, and report the package-script limitation until it is deliberately changed.
+
+## BMAD config resolver Temp-cache boundary (2026-10-26)
+
+- **Symptom/evidence:** A read-only `uv run` configuration resolution for BMAD Help failed before returning merged JSON because `uv` could not persist Python interpreter metadata under the sandbox Temp directory (`Access is denied`). Catalog and artifact reads still completed.
+- **Status/correction:** Treat merged config/output-location inference as unavailable for this run; do not report a resolved sprint configuration. Recommendation instead uses the verified local catalog, implementation artifacts, and current story status.
+- **Prevention:** Set a writable repository-local `UV_CACHE_DIR` before BMAD helper execution when the host Temp cache is denied, then rerun only the resolver. Do not mistake cache retries for product/build evidence.
+
+## M4.5 preview immutable-array type syntax (2026-10-26)
+
+- **Symptom/evidence:** The first share-preview implementation used `readonly Readonly<T>` for object-array fields. Babel and TypeScript both rejected it before the intended preview assertions could execute.
+- **Cause/correction:** `readonly` applies to array/tuple literal syntax, not a generic object type. Replaced it with `ReadonlyArray<Readonly<T>>` and reran the RED/GREEN target.
+- **Prevention:** Use `ReadonlyArray` for immutable generic collections in mobile domain types; run typecheck after adding public result shapes, not only focused Jest.
 
 ## Replay trip exclusion followed by another edit regressed saving (2026-10-26)
 
@@ -3621,6 +4104,7 @@ During authorized implementation startup, sandbox git status again returned must
 - **Cause:** Mobile Jest arguments were applied to the root foundation test script instead of the `apps/mobile` Jest script.
 - **Correction/verification:** Re-ran the focused provider suite from `apps/mobile`; all 48 tests passed, followed by mobile TypeScript and lint checks.
 - **Prevention:** Read the owning package's test script before forwarding framework-specific flags; root and mobile test runners use different CLIs.
+- **Recurrence (M4.5):** A combined root command again forwarded the mobile Jest cache flag to root `npm test`, producing the same false test-file `MODULE_NOT_FOUND`; it also attempted root `typecheck`/`lint` scripts that do not exist. The already completed root `npm run check` remained valid, while the affected mobile checks were rerun from `apps/mobile` without forwarding those flags to root. **Strengthened prevention:** run root `npm run check` alone; run `npm test`, `npm run typecheck` and `npm run lint` only from `apps/mobile` when validating mobile code. Never chain commands across package roots unless every command has been confirmed in that package's `package.json`.
 
 ## Replay stale recovery reused an obsolete receipt identity (2026-10-26)
 
@@ -3690,3 +4174,23 @@ Verification: new scheduler/session tests were RED before the integration and GR
 - **Full-suite incident:** The mobile aggregate test run exposed router-tree registration failing because the newly imported thumbnail service statically initialized `expo-video` through the provider; the router harness had no native VideoPlayer prototype. The previous focused provider/thumbnail tests did not expose this coupling.
 - **Correction:** Keep the VideoThumbnail import type-only and load `expo-video` inside the actual video decode branch with dynamic import. Photo decoding and provider bootstrap no longer initialize the native video player module.
 - **Verification/prevention:** Router-tree and thumbnail suites pass seven tests; mobile TypeScript passes. Include router-tree registration when adding shared native modules to the application provider. Full-suite success remains a separate aggregate result.
+
+## Share Replay trip-selection validation path mistake (2026-10-27)
+
+- **Evidence:** Two read-only commands were run from `apps/mobile` using repository-root `apps/mobile/...` and `docs/...` paths. Both reported missing paths before they inspected source or the playbook; no application file or device state changed.
+- **Correction:** Re-ran source and policy reads using paths relative to the mobile package (`src/...`, `../../docs/...`). The focused screen suite then exposed only duplicate test labels in the synthetic two-trip fixture, which was corrected by making each trip card's accessible label include its visible position.
+- **Prevention:** Before a package-scoped command, resolve every relative path from that package's working directory. For multiple visually similar trip cards, include a stable visible position in the accessibility label and test it.
+- **Validation recurrence:** A later combined mobile command used `npm run check`, whose package script runs Jest without the mandatory local cache argument. The aggregate suite failed at the known sandbox `EPERM` transform-cache rename before collecting tests. The focused screen and renderer suites were already green with `.jest-cache-codex`; root foundation validation must be run separately from the repository root. **Strengthened prevention:** never use the mobile aggregate `check` script in this sandbox; invoke focused/mobile Jest with `--cacheDirectory .jest-cache-codex`, and invoke only the root `npm run check` from the repository root.
+- **Race-regression test correction:** The first late-subset cancellation assertion searched broad private-Replay copy and matched both the screen title and panel title. It did not indicate a runtime regression. The test now waits for the unique Share Replay action before asserting the late temporary artifact was discarded. **Prevention:** use a unique accessible action or role when asserting a state return; broad repeated presentation copy cannot establish lifecycle state.
+- **Audit recurrence:** A post-implementation screen-test command again combined a repository-root package path with an `apps/mobile` working directory and omitted `--cacheDirectory`; its package read failed and Jest stopped at the known sandbox `EPERM` before collecting tests. The command was rerun from `apps/mobile` with `--cacheDirectory .jest-cache-codex`; all 62 screen tests passed. **Strengthened prevention:** after changing package-local code, use package-relative paths and make the local Jest cache flag part of the first command, not a recovery step.
+- **Provider-test audit recurrence:** A combined verification command named nonexistent `src/photo-access/__tests__/provider.test.tsx`; Jest therefore collected only the Replay screen suite and could not establish the provider regression. Inventory identified `src/components/__tests__/photo-access-provider.test.tsx`; its explicit cached rerun passed 52 tests. **Strengthened prevention:** inspect the runner's matched-suite summary and inventory actual test paths before treating a multi-suite command as evidence.
+
+## Share Replay review test label mismatch (2026-10-27)
+
+- **Evidence:** The first new card-only screen regression failed because its expected accessibility label omitted the existing generated trip suffix (`Card-only trip trip 1`). The rendered control and implementation were present; no product/runtime failure was observed.
+- **Correction/prevention:** Updated the assertion to the exact accessible label and reran the focused cached screen suite successfully (69/69). Inspect a failed rendered accessibility tree before changing production behavior for a test-only selector mismatch.
+
+## Share Replay provider test permission typing (2026-10-27)
+
+- **Evidence:** The first provider permission-revalidation regression inferred its mocked `inspect` result as only the initial `full` literal, so the later synthetic `denied` result failed mobile TypeScript before validation.
+- **Correction/prevention:** Replaced the narrow inferred mock with an explicitly `Promise<PermissionSnapshot>`-typed inspector; rerun TypeScript before describing the provider regression as complete. Keep permission mocks typed to the complete closed scope union when a test changes access state.

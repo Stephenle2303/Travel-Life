@@ -1,0 +1,42 @@
+{
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, private"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "no-referrer"
+        },
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex, nofollow, noarchive"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        }
+      ]
+    }
+  ],
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "functions": {
+    "api/viewer.mjs": {
+      "includeFiles": "dist/index.html"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/",
+      "destination": "/api/viewer"
+    },
+    {
+      "source": "/index.html",
+      "destination": "/api/viewer"
+    }
+  ]
+}

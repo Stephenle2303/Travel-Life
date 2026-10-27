@@ -1,0 +1,7 @@
+{
+  "name":"travel-life-share-viewer","private":true,"type":"module","version":"1.0.0",
+  "scripts":{"dev":"vite --host 127.0.0.1","build":"node scripts/build-contract.mjs && tsc --noEmit && vite build","preview":"vite preview --host 127.0.0.1","test":"node --test ../../tests/share-viewer.test.mjs"},
+  "dependencies":{"react":"19.2.3","react-dom":"19.2.3"},
+  "devDependencies":{"@types/react":"19.2.2","@types/react-dom":"19.2.2","typescript":"6.0.3","vite":"8.3.5"}
+}
+

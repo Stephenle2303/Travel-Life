@@ -11,6 +11,7 @@ export class HistoryRecordController {
     private readonly stopImports: () => Promise<void>,
     private readonly notify: (snapshot: LifecycleSnapshot) => void,
     private readonly clearDeletedState: () => void = () => {},
+    private readonly prepareRemoteRemoval?: () => Promise<'complete' | 'pending'>,
   ) {}
 
   private lifecycleChangePending = false;
@@ -75,9 +76,10 @@ export class HistoryRecordController {
     this.set({ ...this.current, message: null, pendingAction: 'delete' });
     try {
       await this.stopImports();
+      const removal = await this.prepareRemoteRemoval?.();
       await this.repository.deleteLocalHistory();
       this.clearDeletedState();
-      this.set({ state: 'deleted', message: 'Local history was deleted from this device. Original photos and remote copies were not changed.', pendingAction: null });
+      this.set({ state: 'deleted', message: removal === 'pending' ? 'Local history was deleted. Remote removal is pending; protected owner credentials are retained for retry. Original photos were not changed.' : removal === 'complete' ? 'Local history was deleted. Remote link access removal is confirmed. Original photos and saved recipient copies were not changed.' : 'Local history was deleted from this device. Original photos and remote copies were not changed.', pendingAction: null });
     } catch {
       this.set({ ...this.current, message: 'Local history could not be deleted. Nothing was reported as removed; retry when ready.', pendingAction: null });
     } finally {

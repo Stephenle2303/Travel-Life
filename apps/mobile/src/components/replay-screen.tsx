@@ -1,28 +1,29 @@
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, BackHandler, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useVideoPlayer, VideoView, type VideoThumbnail } from 'expo-video';
-import { Image, type ImageRef } from 'expo-image';
-import { replayThumbnails } from '@/replay/thumbnail-service';
+import { useVideoPlayer, VideoView } from 'expo-video';
+import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as DocumentPicker from 'expo-document-picker';
 import { importReplayAudio, removeUnownedReplayAudio, type ReplayAudioCandidate } from '@/replay/audio-import';
 import { getMediaInformation } from 'munim-ffmpeg';
 import { useNavigation, useRouter } from 'expo-router';
 import { ActionButton, Body, Eyebrow, InsetPanel, palette, Screen, Title } from '@/components/ui';
+import { TripCoverFallback, TripListCard, tripListCardStyles } from '@/components/trip-list-card';
+import { LocalTripMediaCover } from '@/components/local-trip-media-cover';
 import { openRoute, appRoutes } from '@/navigation/app-contract';
 import { ReplayDraftSaveError, usePhotoAccess } from '@/photo-access/provider';
 import { ReplayEditSession, ReplaySaveOutcomeError, type ReplayEditSnapshot } from '@/replay/edit-session';
-import { planPrivateReplay } from '@/replay/selection';
+import { orderedReplayGroups, planPrivateReplay } from '@/replay/selection';
 import { replayChapterFrames, replayDuration, type ReplayDirection, type ReplayManifestInput, type ReplayMemory, type ReplayPreparedPreview, type ReplaySoundtrack } from '@/replay/types';
 import { classifyAppDiagnosticError, createDiagnosticCorrelationId, recordAppDiagnostic } from '@/diagnostics/app-diagnostics';
 import { ReplayPreparationError, replayFailureStage, type ReplayFailureStage } from '@/replay/renderer';
 
-type ViewState = 'idle' | 'sparse' | 'checking' | 'first-trip-ready' | 'final-ready' | 'finalization-failed' | 'recovery-ready' | 'editing' | 'share-review' | 'failed';
+type ViewState = 'idle' | 'sparse' | 'checking' | 'first-trip-ready' | 'final-ready' | 'finalization-failed' | 'recovery-ready' | 'editing' | 'share-review' | 'share-preview' | 'failed';
 
 // The route owns an in-progress update just as it owns an open editor. Native
 // Back must not discard an acknowledged draft while its replacement video is
 // being rendered.
-export const keepsReplayRoute = (state: ViewState) => state === 'editing' || state === 'share-review' || state === 'checking';
+export const keepsReplayRoute = (state: ViewState) => state === 'editing' || state === 'share-review' || state === 'share-preview' || state === 'checking';
 export function musicSaveFailureCopy(error: unknown) {
   if (error instanceof ReplayDraftSaveError && error.reason === 'scope') return 'Your Journey List changed while this sheet was open. Your audio file is ready, but reopen Edit to save it to the current Replay.';
   if (error instanceof ReplayDraftSaveError && (error.reason === 'revision' || error.reason === 'branch')) return 'A previous Replay edit is still being reconciled on this device. Your audio file is ready; try Done again.';
@@ -81,23 +82,57 @@ export function replayVideoSceneSeconds(selectedCount: number, selectedIndex: nu
 
 /** A bounded local poster is recognisable without autoplaying source video. */
 function ReplayVideoPoster({ uri, video = true }: { uri: string; video?: boolean }) {
-  const [poster, setPoster] = useState<ImageRef | VideoThumbnail | null>(null);
-  useEffect(() => {
-    let active = true;
-    let heldHandle: ImageRef | VideoThumbnail | undefined;
-    const unsubscribe = replayThumbnails.subscribeInvalidation(() => { active = false; setPoster(null); });
-    void replayThumbnails.request(uri, uri, video).then((handle) => { if (!active || !handle) return; heldHandle = handle; replayThumbnails.pin(uri); setPoster(handle); });
-    return () => { active = false; unsubscribe(); if (heldHandle) replayThumbnails.unpin(uri, heldHandle); };
-  }, [uri, video]);
-  return poster ? <Image source={poster} style={styles.mediaImage} contentFit="cover" accessibilityLabel={video ? 'video poster' : 'photo thumbnail'} /> : <View style={styles.mediaFallback}><Text style={styles.mediaFallbackText}>{video ? 'VIDEO' : 'PHOTO'}</Text></View>;
+  return <LocalTripMediaCover uri={uri} kind={video ? 'video' : 'photo'} />;
 }
 
 /** Share can only offer media that belongs to the committed private Replay. */
 export function shareableCommittedMemories(input: ReplayManifestInput | null, committedMemoryKeys: readonly string[]) {
   if (!input) return [];
-  const committed = new Set(committedMemoryKeys);
+  const memoriesByKey = new Map(input.memories.map((memory) => [memory.key, memory]));
   const included = new Set(input.includedGroupKeys ?? (input.groups.length ? input.groups.filter((group) => group.eligible).map((group) => group.key) : input.memories.map((memory) => memory.groupKey)));
-  return input.memories.filter((memory) => memory.available && memory.eligible && included.has(memory.groupKey) && committed.has(memory.key));
+  // The committed composition is the renderer's order. Do not substitute the
+  // album/manifest order while deriving a share subset.
+  return committedMemoryKeys.flatMap((key) => {
+    const memory = memoriesByKey.get(key);
+    return memory && memory.available && memory.eligible && included.has(memory.groupKey) ? [memory] : [];
+  });
+}
+
+/**
+ * A bounded opening manifest can mark a later committed item unavailable until
+ * its local preview page is read. Covers must still ask for that page; this is
+ * presentation discovery, never export composition authority.
+ */
+function shareableCommittedCoverCandidates(input: ReplayManifestInput | null, committedMemoryKeys: readonly string[]) {
+  if (!input) return [];
+  const included = new Set(input.includedGroupKeys ?? input.groups.filter((group) => group.eligible).map((group) => group.key));
+  const committed = new Set(committedMemoryKeys);
+  const committedGroups = new Set(input.memories.filter((memory) => committed.has(memory.key) && memory.eligible && included.has(memory.groupKey)).map((memory) => memory.groupKey));
+  return input.memories.filter((memory) => memory.eligible && included.has(memory.groupKey) && (committed.has(memory.key) || !committedGroups.has(memory.groupKey)));
+}
+
+/** Share cards are trips from the committed Replay, never an album/media picker. */
+export function shareableCommittedTrips(input: ReplayManifestInput | null, committedMemoryKeys: readonly string[]) {
+  if (!input) return [];
+  // Card imagery is resolved separately from the export subset: a later
+  // committed trip may only receive its local URI after the opening page.
+  const memories = shareableCommittedCoverCandidates(input, committedMemoryKeys);
+  const included = new Set(input.includedGroupKeys ?? input.groups.filter((group) => group.eligible).map((group) => group.key));
+  const coverByGroup = new Map<string, ReplayMemory>();
+  for (const memory of memories) if (!coverByGroup.has(memory.groupKey)) coverByGroup.set(memory.groupKey, memory);
+  // A committed Replay chapter can deliberately contain no usable source
+  // media. It still belongs to the owner-visible Replay and renders as its
+  // local card, so it must be selectable for sharing too.
+  return orderedReplayGroups(input.groups.filter((group) => included.has(group.key)), undefined, input.direction ?? 'oldest-first')
+    .map((group) => ({ group, cover: coverByGroup.get(group.key) }));
+}
+
+/** Renderer input inherits the committed memory order rather than card tap order. */
+export function selectedShareMemoryKeys(input: ReplayManifestInput | null, committedMemoryKeys: readonly string[], selectedTripKeys: readonly string[]) {
+  const selected = new Set(selectedTripKeys);
+  return shareableCommittedMemories(input, committedMemoryKeys)
+    .filter((memory) => selected.has(memory.groupKey))
+    .map((memory) => memory.key);
 }
 
 function ReplayMediaTile({ memory, index, included, disabled = false, resolving = false, onToggle, onInspect }: { memory: ReplayMemory; index: number; included: boolean; disabled?: boolean; resolving?: boolean; onToggle(key: string): void; onInspect(memory: ReplayMemory): void }) {
@@ -139,7 +174,9 @@ export function ReplayScreen() {
   const [recoveringDraft, setRecoveringDraft] = useState(false);
   const [recoveryMessage, setRecoveryMessage] = useState<string | null>(null);
   const [inspectedMemory, setInspectedMemory] = useState<ReplayMemory | null>(null);
-  const [shareMemoryKeys, setShareMemoryKeys] = useState<readonly string[]>([]);
+  const [shareTripKeys, setShareTripKeys] = useState<readonly string[]>([]);
+  const [sharePreview, setSharePreview] = useState<ReplayPreparedPreview | null>(null);
+  const [preparingSharePreview, setPreparingSharePreview] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [music, setMusic] = useState<ReplaySoundtrack>({ kind: 'bundled', revision: 'happy-moments-1.4' });
   const [selectedAudioName, setSelectedAudioName] = useState<string | null>(null);
@@ -154,6 +191,10 @@ export function ReplayScreen() {
   const [resolvingEditorMemoryKeys, setResolvingEditorMemoryKeys] = useState<ReadonlySet<string>>(() => new Set());
   const started = useRef(false);
   const exportInProgress = useRef(false);
+  const sharePreparationInProgress = useRef(false);
+  const sharePreviewRef = useRef<ReplayPreparedPreview | null>(null);
+  const shareSelectionGeneration = useRef(0);
+  const shareTripKeysRef = useRef<readonly string[]>([]);
   // React state renders selection feedback. This ref is the serialized intent
   // used by Done so a rapid toggle -> Done cannot commit the previous frame.
   const editedMemoryKeysRef = useRef<readonly string[]>([]);
@@ -176,6 +217,12 @@ export function ReplayScreen() {
   const autoGroupKeysRef = useRef<readonly string[]>([]);
   const editorPreviewLoading = useRef(false);
   const editorPreviewResolvedKeys = useRef(new Set<string>());
+  /** Share-card covers are presentation only; their source scope stays local. */
+  const shareCoverAttemptedKeys = useRef(new Set<string>());
+  const shareCoverScope = useRef<string | null>(null);
+  /** Edit overview uses the same bounded presentation-only cover resolution. */
+  const editorOverviewCoverAttemptedKeys = useRef(new Set<string>());
+  const editorOverviewCoverScope = useRef<string | null>(null);
   /** Invalidates detached or superseded preparation before it reaches the provider. */
   const preparationGeneration = useRef(0);
   const isMounted = useRef(true);
@@ -190,6 +237,7 @@ export function ReplayScreen() {
     editedMemoryKeysRef.current = next;
     setEditedMemoryKeys(next);
   };
+  const setSelectedSharePreview = (next: ReplayPreparedPreview | null) => { sharePreviewRef.current = next; setSharePreview(next); };
   const replaceResolvedEditorPreviews = (keys: Iterable<string>) => {
     const next = new Set(keys);
     editorPreviewResolvedKeys.current = next;
@@ -209,6 +257,59 @@ export function ReplayScreen() {
     setWorkingSaveState(editSession.scheduler.getStatus());
   // Hydrate once for each metadata/scope entry, never from a render-frame draft.
   }, [input, editorManifestReady, editSession]);
+  useEffect(() => {
+    if (!input) return;
+    const scope = `${input.snapshotToken}:${input.privacyRevision}`;
+    if (shareCoverScope.current !== scope) {
+      shareCoverScope.current = scope;
+      shareCoverAttemptedKeys.current = new Set();
+    }
+    if (state !== 'share-review') return;
+    const coverCandidates = shareableCommittedCoverCandidates(input, committedMemoryKeys);
+    const groupsWithCover = new Set(coverCandidates.filter((memory) => Boolean(memory.previewUri)).map((memory) => memory.groupKey));
+    // Resolve only enough local media to give each committed trip a cover. The
+    // opening manifest deliberately bounds its thumbnails, so later cards must
+    // page their own covers instead of looking like empty chapters.
+    const keys = coverCandidates.filter((memory) => !groupsWithCover.has(memory.groupKey) && !shareCoverAttemptedKeys.current.has(memory.key)).slice(0, 48).map((memory) => memory.key);
+    if (!keys.length) return;
+    keys.forEach((key) => shareCoverAttemptedKeys.current.add(key));
+    const apply = (page: readonly { key: string; available: boolean; previewUri?: string }[]) => {
+      setInput((current) => {
+        if (!current || current.snapshotToken !== input.snapshotToken || current.privacyRevision !== input.privacyRevision) return current;
+        const updates = new Map(page.map((item) => [item.key, item]));
+        return { ...current, memories: current.memories.map((memory) => {
+          const update = updates.get(memory.key);
+          return update ? { ...memory, available: update.available, ...(update.previewUri ? { previewUri: update.previewUri } : {}) } : memory;
+        }) };
+      });
+    };
+    void loadReplayEditorPreviewPage(keys, input.snapshotToken, input.privacyRevision, apply).then(apply).catch(() => undefined);
+  }, [committedMemoryKeys, input, loadReplayEditorPreviewPage, state]);
+  useEffect(() => {
+    if (!input || state !== 'editing' || editorStage !== 'overview') return;
+    const scope = `${input.snapshotToken}:${input.privacyRevision}`;
+    if (editorOverviewCoverScope.current !== scope) {
+      editorOverviewCoverScope.current = scope;
+      editorOverviewCoverAttemptedKeys.current = new Set();
+    }
+    const candidates = input.memories.filter((memory) => memory.eligible);
+    const groupsWithCover = new Set(candidates.filter((memory) => memory.previewUri || editorPreviewOverrides[memory.key]?.previewUri).map((memory) => memory.groupKey));
+    const keys: string[] = [];
+    const queuedGroups = new Set<string>();
+    for (const memory of candidates) {
+      if (groupsWithCover.has(memory.groupKey) || queuedGroups.has(memory.groupKey) || editorOverviewCoverAttemptedKeys.current.has(memory.key)) continue;
+      queuedGroups.add(memory.groupKey);
+      editorOverviewCoverAttemptedKeys.current.add(memory.key);
+      keys.push(memory.key);
+      if (keys.length === 48) break;
+    }
+    if (!keys.length) return;
+    const apply = (page: readonly { key: string; available: boolean; previewUri?: string }[]) => {
+      if (!isMounted.current) return;
+      setEditorPreviewOverrides((previous) => ({ ...previous, ...Object.fromEntries(page.map((item) => [item.key, { available: item.available, ...(item.previewUri ? { previewUri: item.previewUri } : {}) }])) }));
+    };
+    void loadReplayEditorPreviewPage(keys, input.snapshotToken, input.privacyRevision, apply).then(apply).catch(() => undefined);
+  }, [editorPreviewOverrides, editorStage, input, loadReplayEditorPreviewPage, state]);
   const openReplaySettings = () => {
     sheetGeneration.current += 1; sheetDoneRequested.current = false;
     sheetMusicRef.current = musicRef.current; sheetDirectionRef.current = timelineDirectionRef.current;
@@ -323,37 +424,87 @@ export function ReplayScreen() {
   const cancel = () => {
     // Closing the view does not discard a verified automatic Replay. It is
     // deliberately available when the owner returns from Atlas or restarts.
+    if (exportInProgress.current) return;
     preparationGeneration.current += 1;
-    setPreview(null); setExportMessage(null); setShareMemoryKeys([]); setState('idle'); recordAppDiagnostic({ operation: 'REPLAY_RENDER', reasonCode: 'SKIPPED', stage: null, retryable: false, durableOutcome: 'skipped', correlationId: createDiagnosticCorrelationId() });
+    shareSelectionGeneration.current += 1;
+    shareTripKeysRef.current = [];
+    const selectedPreview = sharePreviewRef.current;
+    setPreview(null); setExportMessage(null); setShareTripKeys([]); setSelectedSharePreview(null); setState('idle');
+    if (selectedPreview) void discardPrivateReplay(selectedPreview.uri);
+    recordAppDiagnostic({ operation: 'REPLAY_RENDER', reasonCode: 'SKIPPED', stage: null, retryable: false, durableOutcome: 'skipped', correlationId: createDiagnosticCorrelationId() });
   };
-  const exportReplay = async () => {
-    if (!preview || exportInProgress.current) return;
+  const invalidateSharePreview = async () => {
+    const previous = sharePreviewRef.current;
+    setSelectedSharePreview(null);
+    try { if (previous) await discardPrivateReplay(previous.uri); } catch { /* cleanup is best-effort; navigation remains available */ }
+  };
+  const updateShareTrips = (update: (current: readonly string[]) => readonly string[]) => {
+    const next = update(shareTripKeysRef.current);
+    shareTripKeysRef.current = next;
+    shareSelectionGeneration.current += 1;
+    setExportMessage(null); setShareTripKeys(next);
+    void invalidateSharePreview();
+  };
+  const toggleAllShareTrips = () => {
+    const trips = shareableCommittedTrips(input, committedMemoryKeys).map(({ group }) => group.key);
+    const candidateKeys = new Set(trips);
+    updateShareTrips((current) => current.length === trips.length && current.every((key) => candidateKeys.has(key)) ? [] : trips);
+  };
+  const prepareSharePreview = async () => {
+    if (sharePreparationInProgress.current) return;
+    const selectedTripKeys = shareTripKeysRef.current;
+    const selectionGeneration = shareSelectionGeneration.current;
+    const correlationId = createDiagnosticCorrelationId();
+    // A committed chapter can truthfully have no currently usable attachment.
+    // Its selected card still renders as a chapter slate, so cards—not media—
+    // are the continuation gate.
+    if (!input || !selectedTripKeys.length) {
+      recordAppDiagnostic({ operation: 'REPLAY_EXPORT', reasonCode: 'REPLAY_SCOPE_INVALID', stage: 'REPLAY_SCOPE', retryable: true, durableOutcome: 'unchanged', correlationId });
+      return;
+    }
+    sharePreparationInProgress.current = true;
+    setPreparingSharePreview(true); setExportMessage(null);
+    recordAppDiagnostic({ operation: 'REPLAY_EXPORT', reasonCode: 'START', stage: 'REPLAY_SCOPE', retryable: false, durableOutcome: 'unchanged', correlationId });
+    try {
+      await invalidateSharePreview();
+      // Share always inherits the saved parent's track. A working Edit draft is
+      // intentionally reviewable but cannot alter a video the owner has not
+      // committed with Update Replay.
+      const committedSoundtrack = input.soundtrack ?? { kind: 'bundled' as const, revision: 'happy-moments-1.4' as const };
+      // The provider re-reads the committed plan for these trip keys. Do not
+      // let bounded editor preview availability erase a later trip's media.
+      const prepared = await preparePrivateReplay([], undefined, committedSoundtrack, undefined, selectedTripKeys);
+      if (!isMounted.current || selectionGeneration !== shareSelectionGeneration.current) { await discardPrivateReplay(prepared.uri); return; }
+      setSelectedSharePreview(prepared); setState('share-preview');
+      recordAppDiagnostic({ operation: 'REPLAY_EXPORT', reasonCode: 'COMPLETE', stage: 'REPLAY_OUTPUT', retryable: false, durableOutcome: 'complete', correlationId });
+    } catch (error) {
+      const stage = replayFailureStage(error);
+      const reasonCode = stage === 'REPLAY_STALE' ? 'REPLAY_SCOPE_INVALID' : stage === 'REPLAY_UNAVAILABLE' ? 'RESTRICTED' : stage === 'REPLAY_OUTPUT' ? 'SAVE_FAILED' : stage === 'REPLAY_ACCESS' ? 'ACCESS' : 'UNKNOWN';
+      setExportMessage(stage === 'REPLAY_STALE' ? 'Your Replay choices changed. Return to the trip list and prepare the current selection.' : stage === 'REPLAY_ACCESS' ? 'Current local access could not prepare the selected Replay. Your private Replay is still here; try again.' : stage === 'REPLAY_OUTPUT' ? 'The selected Replay could not be verified. Your private Replay is still here; try previewing again.' : stage === 'REPLAY_UNAVAILABLE' ? 'Selected Replay preview is unavailable on this device. Your private Replay is still here.' : 'The selected Replay could not be prepared. Your private Replay is still here; try again.');
+      if (stage === 'REPLAY_STALE') { shareTripKeysRef.current = []; setShareTripKeys([]); setState('final-ready'); }
+      recordAppDiagnostic({ operation: 'REPLAY_EXPORT', reasonCode, stage, retryable: true, durableOutcome: 'unchanged', correlationId });
+    } finally { sharePreparationInProgress.current = false; setPreparingSharePreview(false); }
+  };
+  const sharePreparedSubset = async () => {
+    const selectedPreview = sharePreviewRef.current;
+    if (!selectedPreview || exportInProgress.current) return;
     exportInProgress.current = true;
     setSharing(true);
     const correlationId = createDiagnosticCorrelationId();
-    recordAppDiagnostic({ operation: 'REPLAY_EXPORT', reasonCode: 'START', stage: null, retryable: false, durableOutcome: 'unchanged', correlationId });
-    let selectedArtifact: { uri: string } | null = null;
+    recordAppDiagnostic({ operation: 'REPLAY_EXPORT', reasonCode: 'START', stage: 'REPLAY_HANDOFF', retryable: false, durableOutcome: 'unchanged', correlationId });
     try {
-      if (state === 'share-review') {
-        if (!shareMemoryKeys.length) return;
-        selectedArtifact = await preparePrivateReplay(shareMemoryKeys, undefined, music);
-      }
-      const result = await exportPrivateReplay(selectedArtifact?.uri ?? preview.uri);
-      setExportMessage(result === 'closed' ? 'Share sheet closed. Travel Life cannot confirm whether a recipient saved or received a copy.' : 'Sharing is unavailable on this device. Your private preview is still here.');
-      recordAppDiagnostic({ operation: 'REPLAY_EXPORT', reasonCode: result === 'closed' ? 'COMPLETE' : 'RESTRICTED', stage: null, retryable: result === 'unavailable', durableOutcome: result === 'closed' ? 'complete' : 'unchanged', correlationId });
-    } catch {
-      setExportMessage('The share handoff did not start. Your private preview is still here.');
-      recordAppDiagnostic({ operation: 'REPLAY_EXPORT', reasonCode: 'UNKNOWN', stage: null, retryable: true, durableOutcome: 'unchanged', correlationId });
+      const result = await exportPrivateReplay(selectedPreview.uri);
+      setExportMessage(result === 'closed' ? 'Share sheet closed. Travel Life cannot confirm whether a recipient saved or received a copy.' : result === 'invalid' ? 'The selected Replay file is no longer valid. Your private preview is still here; prepare it again before sharing.' : result === 'handoff-failed' ? 'Travel Life could not create a verified share copy. Your private preview is still here; try sharing again.' : 'Sharing is unavailable on this device. Your private preview is still here.');
+      recordAppDiagnostic({ operation: 'REPLAY_EXPORT', reasonCode: result === 'closed' ? 'COMPLETE' : result === 'unavailable' ? 'RESTRICTED' : 'SAVE_FAILED', stage: result === 'invalid' ? 'REPLAY_OUTPUT' : 'REPLAY_HANDOFF', retryable: result !== 'closed', durableOutcome: result === 'closed' ? 'complete' : 'unchanged', correlationId });
+    } catch (error) {
+      const stage = replayFailureStage(error);
+      const stale = stage === 'REPLAY_STALE';
+      setExportMessage(stale ? 'Your Replay access changed. Return to the trip list and prepare the current selection.' : 'The share handoff did not start. Your private preview is still here.');
+      recordAppDiagnostic({ operation: 'REPLAY_EXPORT', reasonCode: stale ? 'REPLAY_SCOPE_INVALID' : 'UNKNOWN', stage: stale ? 'REPLAY_STALE' : 'REPLAY_HANDOFF', retryable: true, durableOutcome: 'unchanged', correlationId });
     } finally {
-      if (selectedArtifact && selectedArtifact.uri !== preview?.uri) await discardPrivateReplay(selectedArtifact.uri);
       exportInProgress.current = false;
       setSharing(false);
     }
-  };
-  const toggleAllShareMemories = () => {
-    if (!input) return;
-    const eligible = shareableCommittedMemories(input, committedMemoryKeys).map((memory) => memory.key);
-    setShareMemoryKeys((current) => current.length === eligible.length ? [] : eligible);
   };
   useEffect(() => editSession.scheduler.subscribe(() => {
     if (!isMounted.current) return;
@@ -673,6 +824,7 @@ export function ReplayScreen() {
   useEffect(() => () => {
     isMounted.current = false;
     preparationGeneration.current += 1;
+    shareSelectionGeneration.current += 1;
     // Pending intent belongs to the provider session and survives route removal.
   }, []);
   const backFromEditor = () => {
@@ -682,10 +834,18 @@ export function ReplayScreen() {
     if (editorStage === 'gallery') { void returnToTripOverview(); return; }
     setMusicError(null); setState(editorOrigin);
   };
+  const leaveShareFlow = (destination: 'share-review' | 'final-ready') => {
+    // Native navigation is also an abandon boundary: fence a late renderer
+    // result before disposing its temporary artifact.
+    shareSelectionGeneration.current += 1;
+    void invalidateSharePreview().finally(() => setState(destination));
+  };
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
       if (state === 'editing') { backFromEditor(); return true; }
-      if (state === 'share-review') { setMusicError(null); setInspectedMemory(null); setState('final-ready'); return true; }
+      if ((state === 'share-preview' || state === 'share-review') && exportInProgress.current) return true;
+      if (state === 'share-preview') { leaveShareFlow('share-review'); return true; }
+      if (state === 'share-review') { setMusicError(null); setInspectedMemory(null); leaveShareFlow('final-ready'); return true; }
       // Once Update Replay has committed the draft, the renderer owns the
       // transition to its replacement preview. Letting Android pop here loses
       // that render and returns the owner to Atlas/Audit with no result.
@@ -704,13 +864,15 @@ export function ReplayScreen() {
     return navigation.addListener('beforeRemove', (event) => {
       if (!keepsReplayRoute(state)) return;
       event.preventDefault();
+      if ((state === 'share-preview' || state === 'share-review') && exportInProgress.current) return;
       if (state === 'editing') backFromEditor();
-      else if (state === 'share-review') { setMusicError(null); setInspectedMemory(null); setState('final-ready'); }
+      else if (state === 'share-preview') leaveShareFlow('share-review');
+      else if (state === 'share-review') { setMusicError(null); setInspectedMemory(null); leaveShareFlow('final-ready'); }
     });
   // The callback deliberately reads the latest local draft queue when native Back fires.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editorOrigin, editorStage, navigation, state, inspectedMemory, showTripActions, showReplaySettings]);
-  const shareCandidates = shareableCommittedMemories(input, committedMemoryKeys);
+  const shareCandidates = shareableCommittedTrips(input, committedMemoryKeys);
   if (state === 'editing' && input) {
     const activeGroup = input.groups.find((group) => group.key === activeGroupKey) ?? input.groups[0];
     // Candidate membership is authoritative before local access resolves. An
@@ -749,13 +911,10 @@ export function ReplayScreen() {
           renderItem={({ item: group, index }) => {
             const tripMedia = input.memories.filter((memory) => memory.groupKey === group.key && memory.eligible);
             const selectedCount = tripMedia.filter((memory) => editedMemoryKeys.includes(memory.key)).length;
-            const cover = tripMedia.find((memory) => memory.previewUri);
+            const overviewTripMedia = tripMedia.map((memory) => ({ ...memory, ...editorPreviewOverrides[memory.key] }));
+            const cover = overviewTripMedia.find((memory) => memory.previewUri);
             const included = includedGroupKeys.includes(group.key);
-            return <Pressable accessibilityRole="button" accessibilityLabel={`Edit trip ${group.label} ${group.interval?.startDay ?? `trip ${index + 1}`}`} disabled={!editorManifestReady || recoveringDraft} onPress={() => { setActiveGroupKey(group.key); setLastTripChange(null); setShowSelectedMedia(false); setShowTripActions(false); setEditorStage('gallery'); loadNextEditorPreviewPage(tripMedia); }} style={[styles.tripOverviewCard, !included && styles.tripChipInactive]}>
-              <View style={styles.tripCover}>{cover?.previewUri ? cover.kind === 'video' ? <ReplayVideoPoster uri={cover.previewUri} /> : <ReplayVideoPoster uri={cover.previewUri} video={false} /> : <View style={styles.mediaFallback}><Text style={styles.mediaFallbackText}>TRIP</Text></View>}</View>
-              <View style={styles.tripCopy}><Text style={styles.tripOverviewTitle}>{group.label}</Text><Text style={styles.tripChipMeta}>{group.interval?.startDay ?? 'Date unknown'} · {tripMedia.length} media</Text><Text style={styles.tripChipMeta}>{selectedCount} selected{!included ? ' · Not in Replay' : selectedCount ? '' : ' · Trip card only'}</Text>{tripChanged(group.key) && <Text style={styles.editedMark}>Edited</Text>}</View>
-              <Text style={styles.tripArrow}>›</Text>
-            </Pressable>;
+            return <TripListCard accessibilityRole="button" accessibilityLabel={`Edit trip ${group.label} ${group.interval?.startDay ?? `trip ${index + 1}`}`} disabled={!editorManifestReady || recoveringDraft} onPress={() => { setActiveGroupKey(group.key); setLastTripChange(null); setShowSelectedMedia(false); setShowTripActions(false); setEditorStage('gallery'); loadNextEditorPreviewPage(tripMedia); }} muted={!included} title={group.label} detail={`${group.interval?.startDay ?? 'Date unknown'} · ${tripMedia.length} media`} secondaryDetail={`${selectedCount} selected${!included ? ' · Not in Replay' : selectedCount ? '' : ' · Trip card only'}`} cover={cover?.previewUri ? cover.kind === 'video' ? <ReplayVideoPoster uri={cover.previewUri} /> : <ReplayVideoPoster uri={cover.previewUri} video={false} /> : <TripCoverFallback />} status={tripChanged(group.key) ? <Text style={tripListCardStyles.edited}>Edited</Text> : undefined} trailing={<Text style={tripListCardStyles.arrow}>›</Text>} />;
           }}
           ListFooterComponent={<Pressable accessibilityRole="button" accessibilityLabel="Music and Replay order" disabled={recoveringDraft} onPress={openReplaySettings} style={styles.settingsEntry}><View><Text style={styles.galleryNavText}>Music & order</Text><Text style={styles.tripChipMeta}>{settingsSummary}</Text></View><Text style={styles.tripArrow}>›</Text></Pressable>}
         />
@@ -834,25 +993,29 @@ export function ReplayScreen() {
     {(state === 'first-trip-ready' || state === 'finalization-failed') && preview && <InsetPanel><Title>{state === 'first-trip-ready' ? `First trip ready · finishing ${preparationProgress?.completed ?? 1} of ${preparationProgress?.total ?? 1}` : 'The full Replay was not completed. This is only the first trip.'}</Title><ReplayPreview uri={preview.uri} muted={muted} onMutedChange={setMuted} /><Body>{state === 'first-trip-ready' ? 'Sound will be ready with the full Replay.' : 'This incomplete preview stays private and cannot be shared or saved.'}</Body>{preparationProgress && <View accessibilityRole="progressbar" accessibilityLabel={`Replay finalizing ${Math.min(100, Math.round(preparationProgress.completed / preparationProgress.total * 100))}% complete`} accessibilityValue={{ min: 0, max: 100, now: Math.min(100, Math.round(preparationProgress.completed / preparationProgress.total * 100)) }} style={styles.progressBlock}><View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${Math.min(100, Math.round(preparationProgress.completed / preparationProgress.total * 100))}%` }]} /></View><Text style={styles.progressText}>{Math.min(100, Math.round(preparationProgress.completed / preparationProgress.total * 100))}%</Text></View>}</InsetPanel>}
     {state === 'recovery-ready' && preview && <InsetPanel><Title>Your previous verified Replay is still ready.</Title><ReplayPreview uri={preview.uri} muted={muted} onMutedChange={setMuted} /><Body>The new Replay did not finish, so its partial result was not saved or shared.</Body></InsetPanel>}
     {state === 'final-ready' && preview && <InsetPanel><Title>Your private Replay</Title><ReplayPreview uri={preview.uri} muted={muted} onMutedChange={setMuted} /><Body>Playing your private Replay. Built locally from {preview.renderedMemoryCount} selected memories. It stays private while you watch.</Body>{exportMessage && <Body>{exportMessage}</Body>}</InsetPanel>}
-    {state === 'share-review' && preview && input && <InsetPanel><Title>Choose moments to share</Title><Body>Sharing may create a copy outside Travel Life. Only moments in this current private Replay can be selected.</Body>{sharing && <Body>Preparing your selected private Replay.</Body>}{shareCandidates.length === 0 ? <Body>This Replay has no selected media to share. Return to Edit to choose moments.</Body> : <><ActionButton accessibilityLabel="Select all Replay moments for sharing" disabled={sharing} onPress={toggleAllShareMemories} variant="secondary">{shareMemoryKeys.length === shareCandidates.length ? 'Clear all moments' : 'Select all moments'}</ActionButton>{shareCandidates.map((memory, index) => { const selected = shareMemoryKeys.includes(memory.key); return <ActionButton key={memory.key} accessibilityLabel={`${selected ? 'Remove' : 'Select'} ${memory.kind} ${index + 1} for sharing`} disabled={sharing} onPress={() => setShareMemoryKeys((current) => selected ? current.filter((key) => key !== memory.key) : [...current, memory.key])} variant="secondary">{selected ? 'Selected' : 'Select'} {memory.kind} {index + 1}</ActionButton>; })}</>}{exportMessage && <Body>{exportMessage}</Body>}</InsetPanel>}
+    {state === 'share-review' && preview && input && <InsetPanel><Title>Choose trips to share</Title><Body>Sharing may create a copy outside Travel Life. Each trip keeps the media, order, and music already committed to this private Replay.</Body>{preparingSharePreview && <Body>Preparing your selected private Replay.</Body>}{shareCandidates.length === 0 ? <Body>This Replay has no eligible committed trips to share. Return to Edit to choose moments.</Body> : <><ActionButton accessibilityLabel="Select all Replay trips for sharing" disabled={preparingSharePreview || sharing} onPress={toggleAllShareTrips} variant="secondary">{shareTripKeys.length === shareCandidates.length ? 'Clear all trips' : 'Select all trips'}</ActionButton>{shareCandidates.map(({ group, cover }, index) => { const selected = shareTripKeys.includes(group.key); return <TripListCard key={group.key} accessibilityRole="checkbox" accessibilityLabel={`${selected ? 'Remove' : 'Select'} ${group.label} trip ${index + 1} for sharing`} accessibilityState={{ checked: selected, disabled: preparingSharePreview || sharing }} disabled={preparingSharePreview || sharing} onPress={() => updateShareTrips((current) => current.includes(group.key) ? current.filter((key) => key !== group.key) : [...current, group.key])} selected={selected} title={group.label} detail={group.interval ? `${group.interval.startDay} – ${group.interval.endDay}` : 'Date unavailable'} cover={cover?.previewUri ? cover.kind === 'video' ? <ReplayVideoPoster uri={cover.previewUri} /> : <ReplayVideoPoster uri={cover.previewUri} video={false} /> : <TripCoverFallback />} trailing={<Text accessibilityLabel={selected ? 'Selected trip' : 'Unselected trip'} style={tripListCardStyles.check}>{selected ? '✓' : '○'}</Text>} />; })}</>}{exportMessage && <Body>{exportMessage}</Body>}</InsetPanel>}
+    {state === 'share-preview' && sharePreview && <InsetPanel><Title>Preview selected Replay</Title><ReplayPreview uri={sharePreview.uri} muted={muted} onMutedChange={setMuted} /><Body>This is the exact selected-trip video. Share video opens your system share sheet.</Body>{exportMessage && <Body>{exportMessage}</Body>}</InsetPanel>}
     {state === 'failed' && <InsetPanel><Title>Replay could not be prepared.</Title><Body>{failure ? failureCopy[failure] : failureCopy.REPLAY_UNAVAILABLE}</Body><Body>Your current private Journey List and attached media were kept unchanged.</Body></InsetPanel>}
-    {state === 'share-review' && <Body>{music.kind === 'bundled' ? 'Your exported video includes Happy Moments 1.4 background music.' : 'Your exported video uses your selected custom audio.'}</Body>}
-    {state === 'final-ready' && <ActionButton accessibilityLabel="Choose Replay for sharing" onPress={() => { setShareMemoryKeys([]); setExportMessage(null); setState('share-review'); }}>Share Replay</ActionButton>}
+    {(state === 'share-review' || state === 'share-preview') && <Body>{(input?.soundtrack ?? { kind: 'bundled' }).kind === 'bundled' ? 'Your selected video includes Happy Moments 1.4 background music.' : 'Your selected video uses your committed custom audio.'}</Body>}
+    {state === 'final-ready' && <ActionButton accessibilityLabel="Choose Replay for sharing" onPress={() => { shareSelectionGeneration.current += 1; shareTripKeysRef.current = []; setShareTripKeys([]); setExportMessage(null); void invalidateSharePreview(); setState('share-review'); }}>Share Replay</ActionButton>}
     {state === 'final-ready' && <ActionButton accessibilityLabel="Re-render private Replay" onPress={() => { if (preview) void discardPrivateReplay(preview.uri, { preserveFile: true }).then(() => void prepare()); }} variant="secondary">Re-render Replay</ActionButton>}
     {state === 'final-ready' && <ActionButton accessibilityLabel="Edit private Replay" onPress={() => { setEditorOrigin('final-ready'); setEditorStage('overview'); setState('editing'); }} variant="secondary">Edit Replay</ActionButton>}
     {state === 'failed' && input && editorManifestReady && <ActionButton accessibilityLabel="Edit private Replay" onPress={() => { setEditorOrigin('failed'); setEditorStage('overview'); setState('editing'); }} variant="secondary">Edit Replay</ActionButton>}
     {state === 'editing' && <ActionButton accessibilityLabel="Save Replay edits" onPress={() => void saveEdits()} disabled={!editorManifestReady || !editedMemoryKeys.length || !includedGroupKeys.length}>{workingSaveState === 'saving' ? 'Saving…' : 'Done'}</ActionButton>}
     {state === 'editing' && <ActionButton accessibilityLabel="Reset Replay edits" disabled={settingsSaving} onPress={() => void resetEdits()} variant="secondary">Reset automatic selection</ActionButton>}
     {state === 'editing' && <ActionButton accessibilityLabel="Cancel Replay edits" onPress={() => { void retainWorkingEdits().then((saved) => { if (saved) { setInspectedMemory(null); setState(editorOrigin); } }); }} variant="secondary">Back</ActionButton>}
-    {state === 'share-review' && <ActionButton accessibilityLabel="Open Replay share sheet" onPress={() => void exportReplay()} disabled={!shareMemoryKeys.length || sharing}>{sharing ? 'Preparing selected Replay…' : 'Review and Share'}</ActionButton>}
-    {state === 'share-review' && <ActionButton accessibilityLabel="Cancel Replay share selection" onPress={() => setState('final-ready')} variant="secondary">Back</ActionButton>}
+    {state === 'share-review' && <ActionButton accessibilityLabel="Publish selected highlight link" variant="secondary" onPress={() => router.push('/share' as never)}>Publish highlight link</ActionButton>}
+    {state === 'share-review' && <ActionButton accessibilityLabel="Preview selected Replay" onPress={() => void prepareSharePreview()} disabled={!shareTripKeys.length || preparingSharePreview || sharing}>{preparingSharePreview ? 'Preparing selected Replay…' : 'Preview selected Replay'}</ActionButton>}
+    {state === 'share-review' && <ActionButton accessibilityLabel="Cancel Replay share selection" disabled={sharing} onPress={() => leaveShareFlow('final-ready')} variant="secondary">Back</ActionButton>}
+    {state === 'share-preview' && <ActionButton accessibilityLabel="Share selected Replay video" onPress={() => void sharePreparedSubset()} disabled={sharing}>{sharing ? 'Opening share sheet…' : 'Share video'}</ActionButton>}
+    {state === 'share-preview' && <ActionButton accessibilityLabel="Back to Replay trip selection" disabled={sharing} onPress={() => leaveShareFlow('share-review')} variant="secondary">Back</ActionButton>}
     {state === 'finalization-failed' && <ActionButton accessibilityLabel="Retry full Replay finalization" onPress={() => void prepare()} variant="secondary">Retry Replay</ActionButton>}
     {state === 'recovery-ready' && <ActionButton accessibilityLabel="Retry full Replay finalization" onPress={() => void prepare()} variant="secondary">Retry Replay</ActionButton>}
     {state === 'sparse' && <ActionButton accessibilityLabel="Return to private Journey List" onPress={() => openRoute(router, appRoutes.atlas, 'replace')}>Return to Journey List</ActionButton>}
     {state === 'failed' && <ActionButton accessibilityLabel="Retry private Replay" onPress={() => void prepare()}>Retry Replay</ActionButton>}
     {__DEV__ && state === 'failed' && <ActionButton accessibilityLabel="Open synthetic Replay renderer check" onPress={() => openRoute(router, appRoutes.replayS0)}>Open synthetic Replay renderer check</ActionButton>}
-    {(state === 'checking' || state === 'first-trip-ready' || state === 'finalization-failed' || state === 'recovery-ready' || state === 'failed' || state === 'final-ready' || state === 'editing' || state === 'share-review') && <ActionButton accessibilityLabel="Cancel Replay preparation" onPress={cancel} variant="secondary">Close Replay</ActionButton>}
-    <ActionButton accessibilityLabel="Return to private Atlas" onPress={() => openRoute(router, appRoutes.atlas, 'replace')} variant="secondary">Return to Atlas</ActionButton>
+    {(state === 'checking' || state === 'first-trip-ready' || state === 'finalization-failed' || state === 'recovery-ready' || state === 'failed' || state === 'final-ready' || state === 'editing' || state === 'share-review' || state === 'share-preview') && <ActionButton accessibilityLabel="Cancel Replay preparation" disabled={sharing} onPress={cancel} variant="secondary">Close Replay</ActionButton>}
+    <ActionButton accessibilityLabel="Return to private Atlas" disabled={sharing} onPress={() => { cancel(); openRoute(router, appRoutes.atlas, 'replace'); }} variant="secondary">Return to Atlas</ActionButton>
   </Screen>;
 }
 
@@ -885,6 +1048,13 @@ const styles = StyleSheet.create({
   tripCopy: { flex: 1 },
   tripOverviewTitle: { color: palette.limestone, fontSize: 20, fontWeight: '800' },
   tripArrow: { color: palette.sage, fontSize: 26 },
+  shareTripCard: { minHeight: 92, marginTop: 8, padding: 8, flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderColor: palette.fern, borderRadius: 12, backgroundColor: palette.rainforest },
+  shareTripCardSelected: { borderColor: palette.citrus, backgroundColor: palette.fern },
+  shareTripCover: { width: 76, height: 76, overflow: 'hidden', borderRadius: 10, backgroundColor: palette.fern },
+  shareTripCopy: { flex: 1, gap: 4 },
+  shareTripTitle: { color: palette.limestone, fontSize: 17, fontWeight: '800' },
+  shareTripDate: { color: palette.sage, fontSize: 13 },
+  shareTripCheck: { color: palette.citrus, fontSize: 26, fontWeight: '900', padding: 8 },
   editedMark: { color: palette.citrus, fontSize: 12, marginTop: 6 },
   settingsEntry: { minHeight: 56, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   mediaGridRow: { gap: 8 },

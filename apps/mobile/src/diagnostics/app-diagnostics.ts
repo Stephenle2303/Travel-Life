@@ -17,7 +17,13 @@ export type AppDiagnosticOperation =
   | 'REPLAY_DRAFT_RECOVERY'
   | 'REPLAY_AUDIO_SELECTION'
   | 'REPLAY_RENDER'
-  | 'REPLAY_EXPORT';
+  | 'REPLAY_EXPORT'
+  | 'SHARE_PREVIEW'
+  | 'SHARE_DERIVATIVE'
+  | 'SHARE_PUBLISH'
+  | 'SHARE_RECONCILE'
+  | 'SHARE_MANAGE'
+  | 'SHARE_DELETE_ALL';
 
 export type AppDiagnosticReasonCode =
   | 'START'
@@ -48,6 +54,20 @@ export type AppDiagnosticReasonCode =
   | 'REPLAY_RECEIPT_CONFLICT'
   | 'REPLAY_REVISION_CONFLICT'
   | 'REPLAY_BRANCH_CONFLICT'
+  | 'SHARE_ELIGIBILITY_CHANGED'
+  | 'SHARE_MANIFEST_INVALID'
+  | 'SHARE_DERIVATIVE_INVALID'
+  | 'SHARE_QUOTA'
+  | 'SHARE_SESSION'
+  | 'SHARE_RECEIPT_CONFLICT'
+  | 'SHARE_DELETE_FENCED'
+  | 'SHARE_REVOKED'
+  | 'SHARE_STORAGE'
+  | 'SHARE_NETWORK'
+  | 'SHARE_CODEC'
+  | 'SHARE_DECODE'
+  | 'SHARE_ENCODE'
+  | 'SHARE_VERIFY'
   | 'UNKNOWN';
 
 export type AppDiagnosticOutcome = 'complete' | 'unchanged' | 'paused' | 'blocked' | 'restricted' | 'skipped' | 'failed';
@@ -56,7 +76,7 @@ export type AppDiagnosticOutcome = 'complete' | 'unchanged' | 'paused' | 'blocke
 export type AppDiagnosticEvent = Readonly<{
   operation: AppDiagnosticOperation;
   reasonCode: AppDiagnosticReasonCode;
-  stage: ReconciliationStage | DurableRevealDiagnosticStage | AtlasProfileStage | 'PRIVACY_REVIEW_DETAIL' | 'PRIVACY_REVIEW_SCOPE' | 'PRIVACY_POLICY_LIST' | 'REPLAY_ACCESS' | 'REPLAY_SCOPE' | 'REPLAY_DECODE' | 'REPLAY_ENCODE' | 'REPLAY_OUTPUT' | 'REPLAY_STALE' | 'REPLAY_UNAVAILABLE' | 'REPLAY_RECOVERY_READ' | 'REPLAY_RECOVERY_RESET' | 'REPLAY_RECOVERY_STAGE' | null;
+  stage: ReconciliationStage | DurableRevealDiagnosticStage | AtlasProfileStage | 'PRIVACY_REVIEW_DETAIL' | 'PRIVACY_REVIEW_SCOPE' | 'PRIVACY_POLICY_LIST' | 'REPLAY_ACCESS' | 'REPLAY_SCOPE' | 'REPLAY_DECODE' | 'REPLAY_ENCODE' | 'REPLAY_OUTPUT' | 'REPLAY_HANDOFF' | 'REPLAY_STALE' | 'REPLAY_UNAVAILABLE' | 'REPLAY_RECOVERY_READ' | 'REPLAY_RECOVERY_RESET' | 'REPLAY_RECOVERY_STAGE' | 'SHARE_COPY' | 'SHARE_DECODE' | 'SHARE_ENCODE' | 'SHARE_VERIFY' | 'SHARE_ELIGIBILITY' | 'SHARE_SERIALIZE' | 'SHARE_DERIVATIVE_ENCODE' | 'SHARE_DERIVATIVE_VERIFY' | 'SHARE_AUTH' | 'SHARE_QUOTA' | 'SHARE_UPLOAD' | 'SHARE_ACTIVATE' | 'SHARE_ACK' | 'SHARE_RECONCILE' | 'SHARE_REVOKE' | 'SHARE_EXPIRY' | 'SHARE_DELETE_FENCE' | 'SHARE_REMOVAL_QUEUE' | null;
   retryable: boolean;
   durableOutcome: AppDiagnosticOutcome;
   correlationId: string;

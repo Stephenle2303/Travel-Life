@@ -296,9 +296,26 @@ export async function verifyReplayOutput(uri: string, expectedDuration?: number,
 }
 
 /** A returned void only means the OS sheet closed; no delivery claim is made. */
-export async function shareReplayArtifact(artifact: ReplayArtifact): Promise<'unavailable' | 'closed'> {
+export async function shareReplayArtifact(artifact: ReplayArtifact): Promise<'unavailable' | 'invalid' | 'handoff-failed' | 'closed'> {
   if (!(await Sharing.isAvailableAsync())) return 'unavailable';
-  await Sharing.shareAsync(artifact.uri, { mimeType: 'video/mp4', UTI: 'public.mpeg-4' });
+  const file = await FileSystem.getInfoAsync(artifact.uri);
+  const expectedDuration = artifact.manifest.durationSeconds > 0 ? artifact.manifest.durationSeconds : undefined;
+  if (!file.exists || !file.size || !(await verifyReplayOutput(artifact.uri, expectedDuration, Boolean(artifact.manifest.music)))) return 'invalid';
+  const cacheDirectory = FileSystem.cacheDirectory;
+  if (!cacheDirectory) return 'handoff-failed';
+  const handoffDirectory = `${cacheDirectory}replay-share/`;
+  const handoffUri = `${handoffDirectory}replay-share-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}.mp4`;
+  try {
+    await FileSystem.makeDirectoryAsync(handoffDirectory, { intermediates: true });
+    await FileSystem.copyAsync({ from: artifact.uri, to: handoffUri });
+    const handoff = await FileSystem.getInfoAsync(handoffUri);
+    if (!handoff.exists || !handoff.size || !(await verifyReplayOutput(handoffUri, expectedDuration, Boolean(artifact.manifest.music)))) return 'handoff-failed';
+  } catch { return 'handoff-failed'; }
+  // Keep this distinct private cache file after this call returns. The Android
+  // target receives a FileProvider URI and may finish reading after its UI has
+  // returned control to Travel Life; cache eviction, not immediate cleanup,
+  // owns its bounded lifetime.
+  await Sharing.shareAsync(handoffUri, { mimeType: 'video/mp4', UTI: 'public.mpeg-4' });
   return 'closed';
 }
 

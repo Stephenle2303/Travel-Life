@@ -4,6 +4,8 @@ import { Image } from 'expo-image';
 
 import { ActionButton, Body, InsetPanel, palette, Title, useReducedMotion } from '@/components/ui';
 import { JourneyMediaViewer } from '@/components/journey-media-viewer';
+import { TripCoverFallback, TripListCard, tripListCardStyles } from '@/components/trip-list-card';
+import { LocalTripMediaCover } from '@/components/local-trip-media-cover';
 import type { OwnerPreview } from '@/photo-access/types';
 import type { AtlasCamera, AtlasExploration, JourneyDetail, RevealJourney, RevealMapAnchor, RevealModel } from '@/reveal/types';
 import { deriveAtlasExploration } from '@/reveal/projection';
@@ -59,7 +61,7 @@ export function mapCameraFor(anchors: RevealMapAnchor[]) {
   return { center: [midpoint > 180 ? midpoint - 360 : midpoint, (minLatitude + maxLatitude) / 2] as [number, number], zoom: Math.max(2, Math.min(8, Math.round(8 - Math.log2(span)))) };
 }
 
-function JourneyPreviewSheet({ journey, preview, previewError, onClose, onMedia, onEdit, reducedMotion, children }: { journey: RevealJourney | null; preview: { id: string; detail: JourneyDetail; previews: OwnerPreview[]; snapshotToken?: number } | null; previewError: string | null; onClose(): void; onMedia(): void; onEdit?(): void; reducedMotion: boolean; children?: ReactNode }) {
+function JourneyPreviewSheet({ journey, preview, previewError, onClose, onMedia, onEdit, onShare, reducedMotion, children }: { journey: RevealJourney | null; preview: { id: string; detail: JourneyDetail; previews: OwnerPreview[]; snapshotToken?: number } | null; previewError: string | null; onClose(): void; onMedia(): void; onEdit?(): void; onShare?(): void; reducedMotion: boolean; children?: ReactNode }) {
   const cardPhoto = preview && preview.id === journey?.id ? preview.previews.find((item) => item.kind === 'photo' && item.uri) ?? null : null;
   if (!journey) return null;
   return <Modal visible transparent animationType={atlasMotionPolicy(reducedMotion).cardAnimation} onRequestClose={onClose}><View testID="journey-preview-sheet" style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.42)', padding: 12 }}><InsetPanel>
@@ -69,11 +71,12 @@ function JourneyPreviewSheet({ journey, preview, previewError, onClose, onMedia,
     <ActionButton accessibilityLabel="Close journey preview" onPress={onClose} variant="secondary">Close</ActionButton>
     {preview?.id === journey.id && <ActionButton accessibilityLabel="See photos and videos" onPress={onMedia} disabled={!preview.detail.memories.length}>See photos and videos</ActionButton>}
     {onEdit && !preview?.detail.ownerEntered && <ActionButton accessibilityLabel="Edit trip" onPress={onEdit} variant="secondary">Edit</ActionButton>}
+    {onShare && preview?.id === journey.id && preview.snapshotToken !== undefined && <ActionButton accessibilityLabel="Prepare selected share" onPress={onShare} variant="secondary">Prepare share</ActionButton>}
     {children}
   </InsetPanel></View></Modal>;
 }
 
-export function AtlasReveal({ model, onImport, onRetry, onCatchUp, onManualEntry, onReplay, onSettings, onOpenJourney, onEditJourney, loadJourneyPreview, loadJourneyMediaPage, initialExploration, mapAvailable = true, onMapGestureChange }: { model: RevealModel; onImport(): void; onRetry(): void; onCatchUp(): void; onManualEntry(context: AtlasExploration): void; onReplay(): void; onSettings?(context: AtlasExploration): void; onOpenJourney?(id: string): void; onEditJourney?(id: string, context: AtlasExploration): void; loadJourneyPreview?(id: string): Promise<{ detail: JourneyDetail; previews: OwnerPreview[]; snapshotToken?: number }>; loadJourneyMediaPage?(id: string, snapshotToken: number, page: number): Promise<{ page: import('@/reveal/types').JourneyMediaPage; previews: OwnerPreview[] }>; initialExploration?: AtlasExploration | null; mapAvailable?: boolean; onMapGestureChange?(active: boolean): void }) {
+export function AtlasReveal({ model, onImport, onRetry, onCatchUp, onManualEntry, onReplay, onSettings, onOpenJourney, onEditJourney, onShareJourney, loadJourneyPreview, loadJourneyMediaPage, initialExploration, mapAvailable = true, onMapGestureChange }: { model: RevealModel; onImport(): void; onRetry(): void; onCatchUp(): void; onManualEntry(context: AtlasExploration): void; onReplay(): void; onSettings?(context: AtlasExploration): void; onOpenJourney?(id: string): void; onEditJourney?(id: string, context: AtlasExploration): void; onShareJourney?(selection: { displayId: string; snapshotToken: number }): void; loadJourneyPreview?(id: string): Promise<{ detail: JourneyDetail; previews: OwnerPreview[]; snapshotToken?: number }>; loadJourneyMediaPage?(id: string, snapshotToken: number, page: number): Promise<{ page: import('@/reveal/types').JourneyMediaPage; previews: OwnerPreview[] }>; initialExploration?: AtlasExploration | null; mapAvailable?: boolean; onMapGestureChange?(active: boolean): void }) {
   const [view, setView] = useState<'map' | 'timeline'>(initialExploration?.view ?? 'map');
   const [year, setYear] = useState<number | null>(initialExploration?.year ?? null);
   const [selectedJourneyId, setSelectedJourneyId] = useState<string | null>(initialExploration?.selectedJourneyId ?? null);
@@ -81,6 +84,7 @@ export function AtlasReveal({ model, onImport, onRetry, onCatchUp, onManualEntry
   const [localViewport] = useState(initialExploration?.localViewport);
   const [preview, setPreview] = useState<{ id: string; detail: JourneyDetail; previews: OwnerPreview[]; snapshotToken?: number } | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [timelineCovers, setTimelineCovers] = useState<Record<string, OwnerPreview | null>>({});
   const [showMedia, setShowMedia] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
   const [mapStyleFailed, setMapStyleFailed] = useState(false);
@@ -88,10 +92,12 @@ export function AtlasReveal({ model, onImport, onRetry, onCatchUp, onManualEntry
   const [search, setSearch] = useState('');
   const editJourney = (id: string) => onEditJourney?.(id, { view, year, selectedJourneyId: id, camera: mapCamera, localViewport });
   const requestId = useRef(0);
+  const timelineCoverRequests = useRef(new Set<string>());
   const reducedMotion = useReducedMotion();
   const unfilteredExploration = deriveAtlasExploration(model.journeys, { view, year, selectedJourneyId });
   const visibleJourneys = unfilteredExploration.visibleJourneys.filter((journey) => matchesLocalSearch(journey, search));
   const exploration = { ...unfilteredExploration, visibleJourneys, selectedJourneyId: visibleJourneys.some((journey) => journey.id === selectedJourneyId) ? selectedJourneyId : null };
+  const visibleJourneyIds = visibleJourneys.map((journey) => journey.id).join('|');
   // A running reconciliation or a failed retry retains the previous durable
   // projection. It remains safe to browse that already-committed local record;
   // the notice makes clear that it is not the result of the failed rebuild.
@@ -123,10 +129,53 @@ export function AtlasReveal({ model, onImport, onRetry, onCatchUp, onManualEntry
     const request = ++requestId.current;
     if (!exploration.selectedJourneyId || !loadJourneyPreview) return () => { active = false; };
     void loadJourneyPreview(exploration.selectedJourneyId).then((result) => {
-      if (active && request === requestId.current && exploration.selectedJourneyId) setPreview({ id: exploration.selectedJourneyId, ...result });
+      if (active && request === requestId.current && exploration.selectedJourneyId) {
+        const id = exploration.selectedJourneyId;
+        setPreview({ id, ...result });
+        const cover = result.previews.find((item) => item.uri);
+        // A selected-detail read can complete after the Timeline's media-page
+        // fallback. Never replace that resolved local cover with an empty
+        // detail preview.
+        if (cover) setTimelineCovers((current) => ({ ...current, [id]: cover }));
+      }
     }).catch(() => { if (active && request === requestId.current) setPreviewError('This journey changed; choose it again.'); });
     return () => { active = false; };
   }, [exploration.selectedJourneyId, loadJourneyPreview]);
+  useEffect(() => {
+    if (!loadJourneyPreview) return;
+    const pendingIds = visibleJourneyIds.split('|').filter(Boolean).filter((id) => !timelineCoverRequests.current.has(id));
+    if (!pendingIds.length) return;
+    pendingIds.forEach((id) => timelineCoverRequests.current.add(id));
+    let active = true;
+    const load = async () => {
+      let nextIndex = 0;
+      const worker = async () => {
+        while (nextIndex < pendingIds.length) {
+          const id = pendingIds[nextIndex++];
+          try {
+          const result = await loadJourneyPreview(id);
+          let cover = result.previews.find((item) => item.uri) ?? null;
+          // Detail previews are intentionally small and can be empty even when
+          // the journey's first local gallery page has an authorized cover.
+          // Reuse that existing bounded page before falling back to TRIP.
+          if (!cover && loadJourneyMediaPage && result.snapshotToken !== undefined && result.detail.memories.length) {
+            const media = await loadJourneyMediaPage(id, result.snapshotToken, 0);
+            cover = media.previews.find((item) => item.uri) ?? null;
+          }
+          if (active) setTimelineCovers((current) => ({ ...current, [id]: cover }));
+          } catch {
+            // A card remains usable without a cover. Selecting it retains the
+            // existing retry and fixed owner-facing recovery message.
+          }
+        }
+      };
+      // Bound simultaneous native reads, but do not cap or omit any visible
+      // journey: every Timeline card gets a cover attempt.
+      await Promise.all(Array.from({ length: Math.min(4, pendingIds.length) }, worker));
+    };
+    void load();
+    return () => { active = false; };
+  }, [loadJourneyMediaPage, loadJourneyPreview, visibleJourneyIds]);
   return <View style={{ gap: 14, backgroundColor: atlas.void, marginHorizontal: -20, paddingHorizontal: 20, paddingVertical: 14 }}>
     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}><View><Text style={{ color: atlas.cyan, fontSize: 12, fontWeight: '900', letterSpacing: 1.4 }}>PRIVATE ATLAS</Text><Title>Your Atlas</Title></View><View style={{ flexDirection: 'row', gap: 8, flexShrink: 0 }}>{onSettings && <ActionButton accessibilityLabel="Open Home bases" onPress={() => onSettings({ view, year, selectedJourneyId: exploration.selectedJourneyId, camera: mapCamera, localViewport })} variant="secondary">Homes</ActionButton>}<ActionButton accessibilityLabel="About your Atlas" onPress={() => setShowAbout(true)} variant="secondary">About</ActionButton></View></View>
     {model.state === 'processing' ? <InsetPanel>
@@ -174,12 +223,15 @@ export function AtlasReveal({ model, onImport, onRetry, onCatchUp, onManualEntry
     {showMap && <View style={{ position: 'relative' }}>{useProviderMap ? <MapLibreAtlasMap styleUrl={basemap.styleUrl} journeys={exploration.visibleJourneys} selectedJourneyId={exploration.selectedJourneyId} camera={providerCamera} onChoose={(ids) => ids.length === 1 ? selectJourney(ids[0]) : setOverlapChoices(ids)} onEmpty={() => { if (!overlapChoices) setSelectedJourneyId(null); }} onStyleFailure={() => { onMapGestureChange?.(false); setMapStyleFailed(true); }} onGestureChange={(active) => onMapGestureChange?.(active)} onCameraChange={setMapCamera} /> : <InsetPanel><Text testID="atlas-map-recovery" style={{ color: palette.limestone, fontSize: 18, fontWeight: '800' }}>{hasAnchoredJourney ? 'Map data unavailable' : 'No map location for this filter'}</Text><Body>{!hasAnchoredJourney ? 'No selected journey has a map anchor. Choose All years or use the Timeline.' : mapStyleFailed ? 'The configured map could not load. Use the Timeline while it is recovered.' : 'Configure a valid map style to show provider cartography. Your local journeys remain in the Timeline.'}</Body>{mapStyleFailed && basemap.enabled && <ActionButton accessibilityLabel="Retry configured Atlas map" onPress={() => setMapStyleFailed(false)} variant="secondary">Retry map</ActionButton>}<ActionButton accessibilityLabel="Show chronological Timeline from map recovery" onPress={() => setView('timeline')} variant="secondary">Open Timeline</ActionButton></InsetPanel>}
       {overlapChoices && <View style={{ position: 'absolute', left: 12, right: 12, bottom: 12, padding: 12, borderRadius: 18, backgroundColor: atlas.glass, borderWidth: 1, borderColor: 'rgba(78,168,222,0.35)' }}><Text style={{ color: palette.limestone, fontSize: 18, fontWeight: '800' }}>Choose a journey</Text><Body>Several private journeys share this map area.</Body>{overlapChoices.map((id) => { const choice = exploration.visibleJourneys.find((journey) => journey.id === id); return choice ? <ActionButton key={id} accessibilityLabel={`Choose ${choice.label}`} onPress={() => selectJourney(id)} variant="secondary">{choice.label} · {choice.periodLabel} · {choice.status}</ActionButton> : null; })}<ActionButton accessibilityLabel="Cancel overlapping journey choice" onPress={() => setOverlapChoices(null)} variant="secondary">Cancel</ActionButton></View>}
     </View>}
-    <JourneyPreviewSheet journey={exploration.visibleJourneys.find((journey) => journey.id === exploration.selectedJourneyId) ?? null} preview={preview} previewError={previewError} onClose={() => { setShowMedia(false); setSelectedJourneyId(null); }} onMedia={() => setShowMedia(true)} onEdit={onEditJourney && exploration.selectedJourneyId ? () => editJourney(exploration.selectedJourneyId!) : undefined} reducedMotion={reducedMotion} />
+    <JourneyPreviewSheet journey={exploration.visibleJourneys.find((journey) => journey.id === exploration.selectedJourneyId) ?? null} preview={preview} previewError={previewError} onClose={() => { setShowMedia(false); setSelectedJourneyId(null); }} onMedia={() => setShowMedia(true)} onEdit={onEditJourney && exploration.selectedJourneyId ? () => editJourney(exploration.selectedJourneyId!) : undefined} onShare={onShareJourney && preview?.id === exploration.selectedJourneyId && preview.snapshotToken !== undefined ? () => onShareJourney({ displayId: preview.id, snapshotToken: preview.snapshotToken! }) : undefined} reducedMotion={reducedMotion} />
     {showMedia && preview?.id === exploration.selectedJourneyId && <JourneyMediaViewer detail={preview.detail} previews={preview.previews} sessionKey={`${preview.id}:${preview.snapshotToken ?? 'preview'}`} loadPage={loadJourneyMediaPage && preview.snapshotToken !== undefined ? (page) => loadJourneyMediaPage(preview.id, preview.snapshotToken!, page) : undefined} onClose={() => setShowMedia(false)} />}
     {!canExplore && <InsetPanel><Body>Your local journey Timeline will appear below after a supported journey is available.</Body></InsetPanel>}
     <View style={{ gap: 2 }} accessibilityLabel="Chronological local journey Timeline">
       <Text style={{ color: palette.limestone, fontSize: 20, fontWeight: '800' }}>Journeys · {exploration.visibleJourneys.length}</Text>
-      {exploration.visibleJourneys.map((journey) => <View key={journey.id} style={{ gap: 4 }}><ActionButton accessibilityLabel={`${journey.label}, ${journey.periodLabel}${exploration.selectedJourneyId === journey.id ? ', selected' : ''}`} accessibilityState={{ selected: exploration.selectedJourneyId === journey.id }} onPress={() => selectJourney(journey.id)} variant="secondary"><Text style={{ color: palette.limestone, fontWeight: '700' }}>{journey.label}{'\n'}<Text style={{ color: palette.sage }}>{journey.periodLabel} · {journey.status}{journey.ordering === 'Order uncertain' ? ' · order uncertain' : ''}{journey.hasMapSupport ? '' : ' · location unknown'}</Text></Text></ActionButton></View>)}
+      {exploration.visibleJourneys.map((journey) => {
+        const cover = timelineCovers[journey.id];
+        return <TripListCard key={journey.id} accessibilityRole="button" accessibilityLabel={`${journey.label}, ${journey.periodLabel}${exploration.selectedJourneyId === journey.id ? ', selected' : ''}`} accessibilityState={{ selected: exploration.selectedJourneyId === journey.id }} onPress={() => selectJourney(journey.id)} selected={exploration.selectedJourneyId === journey.id} title={journey.label} detail={`${journey.periodLabel} · ${journey.status}${journey.ordering === 'Order uncertain' ? ' · order uncertain' : ''}${journey.hasMapSupport ? '' : ' · location unknown'}`} cover={cover?.uri ? <LocalTripMediaCover uri={cover.uri} kind={cover.kind} /> : <TripCoverFallback />} trailing={<Text style={tripListCardStyles.arrow}>›</Text>} />;
+      })}
         {!exploration.visibleJourneys.length && search.length > 0 && <Body>No visible local journeys match “{search}”. Clear or change the local search.</Body>}
         {year !== null && !exploration.visibleJourneys.length && !search.length && <Body>No journeys have an observed visit in {year}. Choose All years to see the full available record.</Body>}
         {!model.journeys.length && <Body>No supported journey is available to show.</Body>}

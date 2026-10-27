@@ -725,6 +725,34 @@ The Given/When/Then matrix and AC-M4.7-1/2/3 mapping in verification-contract.md
 
 ## Implementation Notes
 
+### Native share handoff correction (2026-10-26)
+
+Owner evidence establishes that Gemini can open the selected Replay video while
+Gmail received an empty attachment. Treat the renderer as unproven for the Gmail
+boundary rather than calling the video empty. Android sharing remains one native
+Sharesheet: Gmail, Messenger and Facebook are target choices only when their
+installed versions advertise support for `video/mp4`; Travel Life must not hardcode
+or promise third-party package targets.
+
+Diagnostic map: `REPLAY_EXPORT` starts in `components/replay-screen.tsx` with one
+action correlation. `replay/renderer.ts:shareReplayArtifact` copies the verified
+MP4 into a new private cache handoff file, reopens it and verifies stream/size
+before native dispatch. A copy/reopen/verification failure returns
+`handoff-failed`, maps to `SAVE_FAILED / REPLAY_HANDOFF / unchanged`, and retains
+the private preview. An invalid source output remains
+`SAVE_FAILED / REPLAY_OUTPUT / unchanged`; unavailable sharing remains
+`RESTRICTED / null / unchanged`. The collection recipe is the current Android
+development build's `Travel Life diagnostic` filter plus its per-tap correlation;
+it records no file path, media ID, native error, recipient, or share target.
+
+The persistent-artifact provider must recover the committed soundtrack before the
+handoff check, so an AAC Replay is not reclassified as a silent invalid output.
+Host tests cover the handoff copy, its failure classification and audio-preserving
+validation. Owner acceptance remains: build fresh, use a synthetic-safe Replay,
+select Gmail, then confirm a received playable attachment; independently confirm
+Messenger/Facebook appear only when installed and accepting the system's video
+share target.
+
 2026-10-22: Owner requested revision after review. No application/dependency/native changes in this revision. Candidate adoption, installed behaviors and budgets are unmeasured. Agent-selected policy defaults are recorded in the canonical spec/selection contract; no engine threshold changes.
 
 ## Spec Change Log

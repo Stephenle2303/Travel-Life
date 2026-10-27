@@ -1,0 +1,7 @@
+[workflow]
+persistent_facts = ["file:{project-root}/docs/development/diagnostic-implementation-policy.md"]
+activation_steps_prepend = ["Read AGENTS.md and apply the mandatory diagnostic delivery gate to every runtime implementation. Put the operation/stage/reason-to-source map in the existing delivery record before coding; carry this policy and AGENTS.md into every implementation/review handoff, including context-free agents."]
+activation_steps_append = ["Before declaring runtime delivery complete, verify diagnostic mapping, precise collection instructions, failure/redaction tests and correlated lifecycle outcomes. Diagnose incidents from actual current-runtime events; keep UNKNOWN causes and missing device evidence explicit."]
+implementation_handoff = """
+Launch a subagent with no prior conversation context. Require it to read {spec_file}, every declared context/companion, AGENTS.md and docs/development/diagnostic-implementation-policy.md before implementing. The diagnostic gate is mandatory alongside the product contract: map exact operation/stage/reason to source boundaries before coding, instrument them with safe correlated events, verify fault classification/redaction, and attach the collection recipe and evidence to the existing delivery record. Preserve unrelated changes. Report verified work and unresolved evidence honestly.
+"""

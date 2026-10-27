@@ -102,6 +102,24 @@ cancellation, stale work, unavailable optional APIs, and already-running work
 must be represented with fixed lifecycle outcomes rather than unexpected-error
 diagnostics.
 
+Every implementation or runtime bug fix, through BMAD or directly, MUST follow
+`docs/development/diagnostic-implementation-policy.md`. Before changing behavior,
+define its operation/stage/reason-to-source diagnostic map in the delivery record.
+Instrument each fallible boundary with a fixed actionable category, carry one local
+action correlation across its layers, and verify failure classification/redaction
+with meaningful tests. A generic recovery message without the corresponding
+specific diagnostic is incomplete. Backend and browser implementations need the
+same closed, privacy-safe contract at their own boundary; never import mobile
+native code into those runtimes merely to log.
+
+For an incident, inspect the current build/process's correlated diagnostics first,
+then follow the mapped source boundary. If evidence is missing, add the smallest
+safe diagnostic and reproduce; do not guess a cause or change unrelated subsystems.
+`UNKNOWN` must identify the known operation and failure stage and remain explicitly
+unknown until evidence establishes more. A timeout is not proof of rollback or of
+which writer holds a lock. Completion requires the diagnostic map, collection
+recipe, failure/redaction test evidence and honest unresolved-device limitations.
+
 ## Mandatory error learning
 
 Before implementation or verification, read the index and relevant entries in

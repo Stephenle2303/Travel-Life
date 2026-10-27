@@ -337,7 +337,7 @@ Users can repair history and deliberately share a journey or selected lifetime h
 
 ### Story M4.5: Publish and manage selected share snapshots
 
-**Status:** planned · **Priority:** P0 · **Dependencies:** M3.4, M4.3
+**Status:** deferred after MLP · **Priority:** post-MLP · **Dependencies:** M3.4, M4.3
 
 **Acceptance criteria:**
 
@@ -351,7 +351,7 @@ Users can repair history and deliberately share a journey or selected lifetime h
 
 ### Story M4.6: Share an interactive journey or lifetime highlight in a browser
 
-**Status:** planned · **Priority:** P0 · **Dependencies:** M4.5
+**Status:** deferred after MLP · **Priority:** post-MLP · **Dependencies:** M4.5
 
 **Acceptance criteria:**
 
@@ -371,7 +371,7 @@ Users can repair history and deliberately share a journey or selected lifetime h
 
 - **AC-M4.7-1:** One Replay action automatically prepares/verifies/plays every policy-visible scoped trip as an adaptively timed curated chapter (one memory about4-6s, two about6-10s, enough distinct moments usually15-20s; no filler), with no fixed total duration. Choose a meaningful subset from effective attached photos/videos using owner intent, supported moment/scene variety, redundancy and usable quality; AI is optional/local-first and provider visual processing requires purpose-specific consent. Preserve missing dates/corrections/precision, honest clip/still/technical states and the full album. Optional persistent Replace/Add/Remove/Reorder edits regenerate affected chapters; no mandatory Prepare, rebuild or scope narrowing solely for trip count (decision 0009 amendments, 2026-10-23).
 - **AC-M4.7-2:** Validate local silent720p chapter rendering, video-window/still fallback, progressive long playback, bounded memory/cache/background expiration and exact long export on iOS and Android. Retain visibility/metadata rules and destination transitions without invented travelled routes, presence, narration or music. Measure curation preference and optional AI benefit separately from native correctness.
-- **AC-M4.7-3:** Support explicit native video export/share and optional deliberate publication to the selected shared highlight; no automatic upload occurs and previously exported copies cannot be revoked.
+- **AC-M4.7-3:** Support explicit native video export/share through the operating-system share sheet; no automatic upload occurs, recipient app availability is platform-dependent, and previously exported copies cannot be revoked. Hosted selected-highlight publication is deferred after MLP.
 
 **AI/eval impact:** No new generative inference task. Verify selected-content provenance, visibility, snapshot/media isolation and revocation; exported video is a deliberate, non-revocable copy.
 

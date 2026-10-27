@@ -35,6 +35,8 @@ jest.mock('expo-video', () => ({
   VideoView: () => null,
 }));
 
+jest.mock('@/replay/thumbnail-service', () => ({ replayThumbnails: { request: jest.fn(async () => ({ width: 1, height: 1, release: jest.fn() })), pin: jest.fn(), unpin: jest.fn(), subscribeInvalidation: jest.fn(() => jest.fn()) } }));
+
 const actions = { onImport: jest.fn(), onRetry: jest.fn(), onCatchUp: jest.fn(), onManualEntry: jest.fn(), onReplay: jest.fn(), onSettings: jest.fn() };
 
 function modelFor(overrides: Partial<Parameters<typeof projectReveal>[0]>) {
@@ -71,6 +73,43 @@ describe('private Atlas reveal', () => {
     expect(model.replay).toEqual({ eligible: false, reason: 'Replay needs observed destinations; owner-entered journeys are not evidence.' });
   });
 
+  it('uses a first local media page when a Timeline detail has no cover preview', async () => {
+    const load = jest.fn(async (id: string) => ({ detail: { id, title: 'Private journey', observedSpan: `Observed ${id}`, visits: [], memories: [{ id: `memory-${id}`, availability: 'unknown' as const, association: 'Associated locally.' }], uncertainty: [] }, previews: [], snapshotToken: 9 }));
+    const loadPage = jest.fn(async (id: string, snapshotToken: number, page: number) => ({ page: { items: [{ id: `media-${id}`, availability: 'available' as const, association: 'Associated locally.', kind: id === 'journey-two' ? 'video' as const : 'photo' as const }], hasMore: false }, previews: [{ uri: `file:///${id}.jpg`, availability: 'available' as const, kind: id === 'journey-two' ? 'video' as const : 'photo' as const }] }));
+    const model = modelFor({ durableRecord: { journeys: [
+      { displayId: 'journey-one', state: 'inferred', anchor: null, years: [2024], periodLabel: 'January 2024', ordering: 'chronological' },
+      { displayId: 'journey-two', state: 'inferred', anchor: null, years: [2024], periodLabel: 'February 2024', ordering: 'chronological' },
+    ] } });
+    const view = await render(<AtlasReveal model={model} {...actions} loadJourneyPreview={load} loadJourneyMediaPage={loadPage} />);
+    await waitFor(() => expect(load).toHaveBeenCalledWith('journey-one'));
+    await waitFor(() => expect(load).toHaveBeenCalledWith('journey-two'));
+    await waitFor(() => expect(loadPage).toHaveBeenCalledWith('journey-one', 9, 0));
+    await waitFor(() => expect(loadPage).toHaveBeenCalledWith('journey-two', 9, 0));
+    expect(view.getByLabelText('photo thumbnail')).toBeOnTheScreen();
+    expect(view.getByLabelText('video poster')).toBeOnTheScreen();
+    expect(view.getAllByText('›')).toHaveLength(2);
+  });
+
+  it('keeps a resolved Timeline cover when the selected detail has no preview', async () => {
+    const result = { detail: { id: 'journey-one', title: 'Private journey', observedSpan: 'Observed journey-one', visits: [], memories: [{ id: 'memory-one', availability: 'unknown' as const, association: 'Associated locally.' }], uncertainty: [] }, previews: [], snapshotToken: 9 };
+    let resolveSelected: (value: typeof result) => void = () => undefined;
+    const selectedRead = new Promise<typeof result>((resolve) => { resolveSelected = resolve; });
+    let previewRequestCount = 0;
+    const load = jest.fn(() => {
+      previewRequestCount += 1;
+      return previewRequestCount === 1 ? Promise.resolve(result) : selectedRead;
+    });
+    const loadPage = jest.fn(async () => ({ page: { items: [{ id: 'media-one', availability: 'available' as const, association: 'Associated locally.', kind: 'photo' as const }], hasMore: false }, previews: [{ uri: 'file:///journey-one.jpg', availability: 'available' as const, kind: 'photo' as const }] }));
+    const model = modelFor({ durableRecord: { journeys: [{ displayId: 'journey-one', state: 'inferred', anchor: null, years: [2024], periodLabel: 'January 2024', ordering: 'chronological' }] } });
+    const view = await render(<AtlasReveal model={model} {...actions} loadJourneyPreview={load} loadJourneyMediaPage={loadPage} />);
+    await waitFor(() => expect(view.getByLabelText('photo thumbnail')).toBeOnTheScreen());
+    await fireEvent.press(view.getByRole('button', { name: 'Private journey, January 2024' }));
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+    resolveSelected(result);
+    await waitFor(() => expect(view.getByText('Observed journey-one')).toBeOnTheScreen());
+    expect(view.getByLabelText('photo thumbnail')).toBeOnTheScreen();
+  });
+
   it('labels every durable journey related to a pending correction and keeps Edit reachable', async () => {
     const onEditJourney = jest.fn();
     const model = modelFor({ durableRecord: { journeys: [
@@ -85,6 +124,16 @@ describe('private Atlas reveal', () => {
     await waitFor(() => expect(view.getByText('Needs review')).toBeOnTheScreen());
     await fireEvent.press(view.getByRole('button', { name: 'Edit trip' }));
     expect(onEditJourney).toHaveBeenCalledWith('related-one', expect.objectContaining({ selectedJourneyId: 'related-one' }));
+  });
+
+  it('offers an owner-only share preparation action from a loaded journey preview', async () => {
+    const onShareJourney = jest.fn();
+    const load = jest.fn(async (id: string) => ({ detail: { id, title: 'Private journey', observedSpan: 'Observed 2024', visits: [], memories: [], uncertainty: [] }, previews: [], snapshotToken: 7 }));
+    const view = await render(<AtlasReveal model={modelFor({ durableRecord: { journeys: [{ displayId: 'journey-1', state: 'inferred', anchor: null, years: [2024], periodLabel: '2024', ordering: 'chronological' }] } })} {...actions} loadJourneyPreview={load} onShareJourney={onShareJourney} />);
+    await fireEvent.press(view.getByRole('button', { name: 'Private journey, 2024' }));
+    await waitFor(() => expect(view.getByRole('button', { name: 'Prepare selected share' })).toBeOnTheScreen());
+    await fireEvent.press(view.getByRole('button', { name: 'Prepare selected share' }));
+    expect(onShareJourney).toHaveBeenCalledWith({ displayId: 'journey-1', snapshotToken: 7 });
   });
 
   it('emits and restores the exact Atlas context for manual entry', async () => {

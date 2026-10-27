@@ -1,3 +1,16 @@
 [functions.travel-life-ai-proxy]
 # The platform verifies the anonymous access token before invoking this function.
 verify_jwt = true
+
+[functions.travel-life-share]
+# Owner mutations require the current anonymous session. Recipient reads will be
+# added as a distinct capability-checked function, never as Data API access.
+verify_jwt = true
+
+[functions.travel-life-share-read]
+# Capability validation happens on every snapshot/media request in the handler.
+verify_jwt = false
+
+[functions.travel-life-share-cleanup]
+# Scheduler uses a dedicated 256-bit secret checked before any cleanup work.
+verify_jwt = false

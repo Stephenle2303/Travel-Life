@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
-import { keepsReplayRoute, musicSaveFailureCopy, ReplayScreen, replayVideoSceneSeconds, shareableCommittedMemories } from '@/components/replay-screen';
+import { keepsReplayRoute, musicSaveFailureCopy, ReplayScreen, replayVideoSceneSeconds, selectedShareMemoryKeys, shareableCommittedMemories, shareableCommittedTrips } from '@/components/replay-screen';
 import { ReplayDraftSaveError } from '@/photo-access/provider';
 import { ReplayPreparationError } from '@/replay/renderer';
 import { Alert } from 'react-native';
@@ -116,11 +116,13 @@ describe('Replay screen', () => {
     await waitFor(() => expect(view.getByLabelText('Mute Replay audio')).toBeOnTheScreen());
     expect(mockPreparePrivateReplay).toHaveBeenCalledTimes(1);
     await fireEvent.press(view.getByLabelText('Choose Replay for sharing'));
-    await waitFor(() => expect(view.getByLabelText('Select photo 1 for sharing')).toBeOnTheScreen());
-    await fireEvent.press(view.getByLabelText('Select photo 1 for sharing'));
-    await waitFor(() => expect(view.getByLabelText('Open Replay share sheet')).not.toBeDisabled());
-    await fireEvent.press(view.getByLabelText('Open Replay share sheet'));
-    await waitFor(() => expect(mockPreparePrivateReplay).toHaveBeenLastCalledWith(['memory-a'], undefined, { kind: 'bundled', revision: 'happy-moments-1.4' }));
+    await waitFor(() => expect(view.getByLabelText('Select Observed destination trip 1 for sharing')).toBeOnTheScreen());
+    await fireEvent.press(view.getByLabelText('Select Observed destination trip 1 for sharing'));
+    await waitFor(() => expect(view.getByLabelText('Preview selected Replay')).not.toBeDisabled());
+    await fireEvent.press(view.getByLabelText('Preview selected Replay'));
+    await waitFor(() => expect(view.getByLabelText('Share selected Replay video')).toBeOnTheScreen());
+    await fireEvent.press(view.getByLabelText('Share selected Replay video'));
+    await waitFor(() => expect(mockPreparePrivateReplay).toHaveBeenLastCalledWith([], undefined, { kind: 'bundled', revision: 'happy-moments-1.4' }, undefined, ['a']));
   });
   it('keeps the player listening state through app-owned fullscreen without rendering again', async () => {
     mockPreparePrivateReplay.mockResolvedValue({ uri: 'file:///private-replay.mp4', renderedMemoryCount: 1, omittedMemoryCount: 0, durationSeconds: 5 });
@@ -142,16 +144,33 @@ describe('Replay screen', () => {
     expect(view.queryByLabelText('Prepare private Replay')).toBeNull();
     mockExportPrivateReplay.mockResolvedValue('closed');
     await fireEvent.press(view.getByLabelText('Choose Replay for sharing'));
-    await waitFor(() => expect(view.getByLabelText('Open Replay share sheet')).toBeDisabled());
-    await fireEvent.press(view.getByLabelText('Select photo 1 for sharing'));
-    await waitFor(() => expect(view.getByLabelText('Open Replay share sheet')).not.toBeDisabled());
-    await fireEvent.press(view.getByLabelText('Open Replay share sheet'));
+    await waitFor(() => expect(view.getByLabelText('Preview selected Replay')).toBeDisabled());
+    await fireEvent.press(view.getByLabelText('Select Observed destination trip 1 for sharing'));
+    await waitFor(() => expect(view.getByLabelText('Preview selected Replay')).not.toBeDisabled());
+    await fireEvent.press(view.getByLabelText('Preview selected Replay'));
+    await waitFor(() => expect(view.getByLabelText('Share selected Replay video')).toBeOnTheScreen());
+    await fireEvent.press(view.getByLabelText('Share selected Replay video'));
     await waitFor(() => expect(view.getByText(/Share sheet closed/)).toBeOnTheScreen());
-    expect(mockPreparePrivateReplay).toHaveBeenLastCalledWith(['memory-a'], undefined, { kind: 'bundled', revision: 'happy-moments-1.4' });
+    expect(mockPreparePrivateReplay).toHaveBeenLastCalledWith([], undefined, { kind: 'bundled', revision: 'happy-moments-1.4' }, undefined, ['a']);
     expect(view.queryByText(/0 selected/)).toBeNull();
     await fireEvent.press(view.getByLabelText('Cancel Replay preparation'));
-    await waitFor(() => expect(view.getByText(/Your private Replay/)).toBeOnTheScreen());
+    await waitFor(() => expect(view.getByText('Your private Replay.')).toBeOnTheScreen());
 
+  });
+  it('retains the private preview and emits a precise diagnostic when creating the share handoff fails', async () => {
+    const diagnostic = jest.spyOn(console, 'info').mockImplementation(() => undefined);
+    mockPreparePrivateReplay.mockResolvedValue({ uri: 'file:///private-replay.mp4', renderedMemoryCount: 1, omittedMemoryCount: 0, durationSeconds: 5 });
+    mockExportPrivateReplay.mockResolvedValue('handoff-failed');
+    const view = await render(<ReplayScreen />);
+    await waitFor(() => expect(view.getByLabelText('Choose Replay for sharing')).toBeOnTheScreen());
+    await fireEvent.press(view.getByLabelText('Choose Replay for sharing'));
+    await fireEvent.press(view.getByLabelText('Select Observed destination trip 1 for sharing'));
+    await fireEvent.press(view.getByLabelText('Preview selected Replay'));
+    await waitFor(() => expect(view.getByLabelText('Share selected Replay video')).toBeOnTheScreen());
+    await fireEvent.press(view.getByLabelText('Share selected Replay video'));
+    await waitFor(() => expect(view.getByText(/could not create a verified share copy/)).toBeOnTheScreen());
+    expect(diagnostic).toHaveBeenLastCalledWith('[Travel Life diagnostic]', expect.objectContaining({ operation: 'REPLAY_EXPORT', reasonCode: 'SAVE_FAILED', stage: 'REPLAY_HANDOFF', retryable: true, durableOutcome: 'unchanged' }));
+    diagnostic.mockRestore();
   });
   it('shows active local preparation phases while Replay is resolving and rendering', async () => {
     let resolveManifest!: (value: { snapshotToken: number; privacyRevision: number; memories: { key: string; groupKey: string; kind: 'photo'; available: boolean; eligible: boolean }[]; groups: { key: string; label: string; interval: { startDay: string; endDay: string }; inferred: boolean; eligible: boolean; orderCertain: boolean }[] }) => void;
@@ -270,12 +289,13 @@ describe('Replay screen', () => {
     const view = await render(<ReplayScreen />);
     await waitFor(() => expect(view.getByLabelText('Choose Replay for sharing')).toBeOnTheScreen());
     await fireEvent.press(view.getByLabelText('Choose Replay for sharing'));
-    await waitFor(() => expect(view.getByLabelText('Select photo 1 for sharing')).toBeOnTheScreen());
-    await fireEvent.press(view.getByLabelText('Select photo 1 for sharing'));
-    await waitFor(() => expect(view.getByLabelText('Open Replay share sheet')).not.toBeDisabled());
-    await fireEvent.press(view.getByLabelText('Open Replay share sheet'));
+    await waitFor(() => expect(view.getByLabelText('Select Observed destination trip 1 for sharing')).toBeOnTheScreen());
+    await fireEvent.press(view.getByLabelText('Select Observed destination trip 1 for sharing'));
+    await fireEvent.press(view.getByLabelText('Preview selected Replay'));
+    await waitFor(() => expect(view.getByLabelText('Share selected Replay video')).toBeOnTheScreen());
+    await fireEvent.press(view.getByLabelText('Share selected Replay video'));
     await waitFor(() => expect(mockExportPrivateReplay).toHaveBeenCalledTimes(1));
-    await fireEvent.press(view.getByLabelText('Open Replay share sheet'));
+    await fireEvent.press(view.getByLabelText('Share selected Replay video'));
     expect(mockExportPrivateReplay).toHaveBeenCalledTimes(1);
     finishShare('closed');
     await waitFor(() => expect(view.getByText(/Share sheet closed/)).toBeOnTheScreen());
@@ -285,11 +305,194 @@ describe('Replay screen', () => {
     const view = await render(<ReplayScreen />);
     await waitFor(() => expect(view.getByLabelText('Choose Replay for sharing')).toBeOnTheScreen());
     await fireEvent.press(view.getByLabelText('Choose Replay for sharing'));
-    await waitFor(() => expect(view.getByLabelText('Select all Replay moments for sharing')).toBeOnTheScreen());
-    expect(view.getByLabelText('Open Replay share sheet')).toBeDisabled();
-    await fireEvent.press(view.getByLabelText('Select all Replay moments for sharing'));
-    await waitFor(() => expect(view.getByLabelText('Open Replay share sheet')).not.toBeDisabled());
-    expect(view.getByText('Clear all moments')).toBeOnTheScreen();
+    await waitFor(() => expect(view.getByLabelText('Select all Replay trips for sharing')).toBeOnTheScreen());
+    expect(view.getByLabelText('Preview selected Replay')).toBeDisabled();
+    await fireEvent.press(view.getByLabelText('Select all Replay trips for sharing'));
+    await waitFor(() => expect(view.getByLabelText('Preview selected Replay')).not.toBeDisabled());
+    expect(view.getByText('Clear all trips')).toBeOnTheScreen();
+  });
+  it('selects the canonical trip set when Select all follows a partial choice', async () => {
+    mockPreparePrivateReplay.mockResolvedValue({ uri: 'file:///private-replay.mp4', renderedMemoryCount: 2, omittedMemoryCount: 0, durationSeconds: 8 });
+    const view = await render(<ReplayScreen />);
+    await waitFor(() => expect(view.getByLabelText('Choose Replay for sharing')).toBeOnTheScreen());
+    await fireEvent.press(view.getByLabelText('Choose Replay for sharing'));
+    await fireEvent.press(view.getByLabelText('Select Observed destination trip 1 for sharing'));
+    await fireEvent.press(view.getByLabelText('Select all Replay trips for sharing'));
+    await fireEvent.press(view.getByLabelText('Preview selected Replay'));
+    await waitFor(() => expect(mockPreparePrivateReplay).toHaveBeenLastCalledWith([], undefined, expect.anything(), undefined, ['a', 'b']));
+  });
+  it('prepares a selected card-only committed chapter with no media keys', async () => {
+    mockLoadReplayManifestInput.mockResolvedValue({ snapshotToken: 7, privacyRevision: 1, soundtrack: { kind: 'custom', revision: 'committed-track', localUri: 'file:///committed.m4a' }, includedGroupKeys: ['chapter'], groups: [{ key: 'chapter', label: 'Card-only trip', inferred: true, eligible: true, orderCertain: true }], memories: [] });
+    mockPreparePrivateReplay.mockResolvedValue({ uri: 'file:///chapter.mp4', renderedMemoryCount: 0, omittedMemoryCount: 0, durationSeconds: 3 });
+    const view = await render(<ReplayScreen />);
+    await waitFor(() => expect(view.getByLabelText('Choose Replay for sharing')).toBeOnTheScreen());
+    await fireEvent.press(view.getByLabelText('Choose Replay for sharing'));
+    await fireEvent.press(view.getByLabelText('Select Card-only trip trip 1 for sharing'));
+    await fireEvent.press(view.getByLabelText('Preview selected Replay'));
+    await waitFor(() => expect(mockPreparePrivateReplay).toHaveBeenLastCalledWith([], undefined, { kind: 'custom', revision: 'committed-track', localUri: 'file:///committed.m4a' }, undefined, ['chapter']));
+    expect(view.getByLabelText('Share selected Replay video')).toBeOnTheScreen();
+  });
+  it('keeps the selected trips when returning from the exact private subset preview', async () => {
+    mockPreparePrivateReplay.mockResolvedValue({ uri: 'file:///private-replay.mp4', renderedMemoryCount: 2, omittedMemoryCount: 0, durationSeconds: 8 });
+    const view = await render(<ReplayScreen />);
+    await waitFor(() => expect(view.getByLabelText('Choose Replay for sharing')).toBeOnTheScreen());
+    await fireEvent.press(view.getByLabelText('Choose Replay for sharing'));
+    await fireEvent.press(view.getByLabelText('Select Observed destination trip 1 for sharing'));
+    await waitFor(() => expect(view.getByLabelText('Preview selected Replay')).not.toBeDisabled());
+    await fireEvent.press(view.getByLabelText('Preview selected Replay'));
+    await waitFor(() => expect(view.getByLabelText('Back to Replay trip selection')).toBeOnTheScreen());
+    await fireEvent.press(view.getByLabelText('Back to Replay trip selection'));
+    await waitFor(() => expect(view.getByLabelText('Remove Observed destination trip 1 for sharing')).toBeOnTheScreen());
+    expect(mockExportPrivateReplay).not.toHaveBeenCalled();
+    expect(mockDiscardPrivateReplay).toHaveBeenCalledWith('file:///private-replay.mp4');
+  });
+  it('classifies a stale subset scope without serializing a native error or opening the OS sheet', async () => {
+    const diagnostic = jest.spyOn(console, 'info').mockImplementation(() => undefined);
+    mockPreparePrivateReplay.mockResolvedValueOnce({ uri: 'file:///private-replay.mp4', renderedMemoryCount: 2, omittedMemoryCount: 0, durationSeconds: 8 }).mockRejectedValueOnce(new ReplayPreparationError('REPLAY_STALE'));
+    const view = await render(<ReplayScreen />);
+    await waitFor(() => expect(view.getByLabelText('Choose Replay for sharing')).toBeOnTheScreen());
+    await fireEvent.press(view.getByLabelText('Choose Replay for sharing'));
+    await fireEvent.press(view.getByLabelText('Select Observed destination trip 1 for sharing'));
+    await fireEvent.press(view.getByLabelText('Preview selected Replay'));
+    await waitFor(() => expect(view.getByText(/Replay choices changed/)).toBeOnTheScreen());
+    expect(mockExportPrivateReplay).not.toHaveBeenCalled();
+    expect(diagnostic).toHaveBeenLastCalledWith('[Travel Life diagnostic]', expect.objectContaining({ operation: 'REPLAY_EXPORT', reasonCode: 'REPLAY_SCOPE_INVALID', stage: 'REPLAY_STALE', retryable: true, durableOutcome: 'unchanged' }));
+    expect(diagnostic.mock.calls.flat().join(' ')).not.toContain('private-replay.mp4');
+    expect(view.getByLabelText('Choose Replay for sharing')).toBeOnTheScreen();
+    expect(view.queryByLabelText('Preview selected Replay')).toBeNull();
+    diagnostic.mockRestore();
+  });
+  it('uses committed audio copy when presenting Share Replay choices', async () => {
+    const current = await mockLoadReplayManifestInput();
+    mockLoadReplayManifestInput.mockResolvedValue({ ...current, soundtrack: { kind: 'custom', revision: 'committed-track', localUri: 'file:///committed.m4a' } });
+    mockPreparePrivateReplay.mockResolvedValue({ uri: 'file:///private-replay.mp4', renderedMemoryCount: 2, omittedMemoryCount: 0, durationSeconds: 8 });
+    const view = await render(<ReplayScreen />);
+    await waitFor(() => expect(view.getByLabelText('Choose Replay for sharing')).toBeOnTheScreen());
+    await fireEvent.press(view.getByLabelText('Choose Replay for sharing'));
+    expect(view.getByText('Your selected video uses your committed custom audio.')).toBeOnTheScreen();
+  });
+  it('loads a local cover for every committed Share trip whose bounded manifest page lacks one', async () => {
+    const current = await mockLoadReplayManifestInput();
+    mockLoadReplayManifestInput.mockResolvedValue({ ...current, memories: current.memories.map((memory: { key: string }) => memory.key === 'memory-b' ? { ...memory, available: false, previewUri: undefined } : memory) });
+    mockPreparePrivateReplay.mockResolvedValue({ uri: 'file:///private-replay.mp4', renderedMemoryCount: 2, omittedMemoryCount: 0, durationSeconds: 8 });
+    mockLoadReplayEditorPreviewPage.mockResolvedValue([{ key: 'memory-b', available: true, previewUri: 'file:///private-b.mp4' }]);
+    const view = await render(<ReplayScreen />);
+    await waitFor(() => expect(view.getByLabelText('Choose Replay for sharing')).toBeOnTheScreen());
+    await fireEvent.press(view.getByLabelText('Choose Replay for sharing'));
+    await waitFor(() => expect(mockLoadReplayEditorPreviewPage).toHaveBeenCalledWith(['memory-b'], 7, 1, expect.any(Function)));
+    await waitFor(() => expect(view.getByLabelText('video poster')).toBeOnTheScreen());
+  });
+  it('loads an Edit Replay overview cover for every trip whose opening manifest lacks one', async () => {
+    const current = await mockLoadReplayManifestInput();
+    mockLoadReplayManifestInput.mockResolvedValue({ ...current, memories: current.memories.map((memory: { key: string }) => memory.key === 'memory-b' ? { ...memory, available: false, previewUri: undefined } : memory) });
+    mockPreparePrivateReplay.mockResolvedValue({ uri: 'file:///private-replay.mp4', renderedMemoryCount: 2, omittedMemoryCount: 0, durationSeconds: 8 });
+    mockLoadReplayEditorPreviewPage.mockResolvedValue([{ key: 'memory-b', available: true, previewUri: 'file:///private-b.mp4' }]);
+    const view = await render(<ReplayScreen />);
+    await waitFor(() => expect(view.getByLabelText('Edit private Replay')).toBeOnTheScreen());
+    await fireEvent.press(view.getByLabelText('Edit private Replay'));
+    await waitFor(() => expect(mockLoadReplayEditorPreviewPage).toHaveBeenCalledWith(['memory-b'], 7, 1, expect.any(Function)));
+    await waitFor(() => expect(view.getByLabelText('video poster')).toBeOnTheScreen());
+  });
+  it('discards a late subset result after share selection is abandoned', async () => {
+    let finishSubset!: (value: { uri: string; renderedMemoryCount: number; omittedMemoryCount: number; durationSeconds: number }) => void;
+    mockPreparePrivateReplay.mockResolvedValueOnce({ uri: 'file:///private-replay.mp4', renderedMemoryCount: 2, omittedMemoryCount: 0, durationSeconds: 8 }).mockImplementationOnce(() => new Promise((resolve) => { finishSubset = resolve; }));
+    const view = await render(<ReplayScreen />);
+    await waitFor(() => expect(view.getByLabelText('Choose Replay for sharing')).toBeOnTheScreen());
+    await fireEvent.press(view.getByLabelText('Choose Replay for sharing'));
+    await fireEvent.press(view.getByLabelText('Select Observed destination trip 1 for sharing'));
+    await fireEvent.press(view.getByLabelText('Preview selected Replay'));
+    await waitFor(() => expect(view.getByText('Preparing your selected private Replay.')).toBeOnTheScreen());
+    await fireEvent.press(view.getByLabelText('Cancel Replay share selection'));
+    await act(async () => { finishSubset({ uri: 'file:///late-subset.mp4', renderedMemoryCount: 1, omittedMemoryCount: 0, durationSeconds: 5 }); });
+    await waitFor(() => expect(view.getByLabelText('Choose Replay for sharing')).toBeOnTheScreen());
+    expect(view.queryByText('Preview selected Replay')).toBeNull();
+    expect(mockDiscardPrivateReplay).toHaveBeenCalledWith('file:///late-subset.mp4');
+  });
+  it('fences a late subset result after native beforeRemove returns to the Replay', async () => {
+    let finishSubset!: (value: { uri: string; renderedMemoryCount: number; omittedMemoryCount: number; durationSeconds: number }) => void;
+    mockPreparePrivateReplay.mockResolvedValueOnce({ uri: 'file:///private-replay.mp4', renderedMemoryCount: 2, omittedMemoryCount: 0, durationSeconds: 8 }).mockImplementationOnce(() => new Promise((resolve) => { finishSubset = resolve; }));
+    const view = await render(<ReplayScreen />);
+    await waitFor(() => expect(view.getByLabelText('Choose Replay for sharing')).toBeOnTheScreen());
+    await fireEvent.press(view.getByLabelText('Choose Replay for sharing'));
+    await fireEvent.press(view.getByLabelText('Select Observed destination trip 1 for sharing'));
+    await fireEvent.press(view.getByLabelText('Preview selected Replay'));
+    const preventDefault = jest.fn();
+    await act(async () => { mockBeforeRemove?.({ preventDefault }); });
+    await act(async () => { finishSubset({ uri: 'file:///native-late-subset.mp4', renderedMemoryCount: 1, omittedMemoryCount: 0, durationSeconds: 5 }); });
+    expect(preventDefault).toHaveBeenCalled();
+    await waitFor(() => expect(view.getByLabelText('Choose Replay for sharing')).toBeOnTheScreen());
+    expect(mockDiscardPrivateReplay).toHaveBeenCalledWith('file:///native-late-subset.mp4');
+  });
+  it('returns from subset preview even if temporary cleanup fails', async () => {
+    mockPreparePrivateReplay.mockResolvedValue({ uri: 'file:///private-replay.mp4', renderedMemoryCount: 2, omittedMemoryCount: 0, durationSeconds: 8 });
+    mockDiscardPrivateReplay.mockRejectedValueOnce(new Error('synthetic cleanup failure'));
+    const view = await render(<ReplayScreen />);
+    await waitFor(() => expect(view.getByLabelText('Choose Replay for sharing')).toBeOnTheScreen());
+    await fireEvent.press(view.getByLabelText('Choose Replay for sharing'));
+    await fireEvent.press(view.getByLabelText('Select Observed destination trip 1 for sharing'));
+    await fireEvent.press(view.getByLabelText('Preview selected Replay'));
+    await waitFor(() => expect(view.getByLabelText('Back to Replay trip selection')).toBeOnTheScreen());
+    await fireEvent.press(view.getByLabelText('Back to Replay trip selection'));
+    await waitFor(() => expect(view.getByLabelText('Remove Observed destination trip 1 for sharing')).toBeOnTheScreen());
+  });
+  it('classifies a stale handoff without exposing the provider failure', async () => {
+    const diagnostic = jest.spyOn(console, 'info').mockImplementation(() => undefined);
+    const sentinel = 'synthetic-private-handoff-sentinel';
+    mockPreparePrivateReplay.mockResolvedValue({ uri: 'file:///private-replay.mp4', renderedMemoryCount: 2, omittedMemoryCount: 0, durationSeconds: 8 });
+    mockExportPrivateReplay.mockRejectedValue(Object.assign(new Error(sentinel), { stage: 'REPLAY_STALE' }));
+    const view = await render(<ReplayScreen />);
+    await waitFor(() => expect(view.getByLabelText('Choose Replay for sharing')).toBeOnTheScreen());
+    await fireEvent.press(view.getByLabelText('Choose Replay for sharing'));
+    await fireEvent.press(view.getByLabelText('Select Observed destination trip 1 for sharing'));
+    await fireEvent.press(view.getByLabelText('Preview selected Replay'));
+    await waitFor(() => expect(view.getByLabelText('Share selected Replay video')).toBeOnTheScreen());
+    await fireEvent.press(view.getByLabelText('Share selected Replay video'));
+    await waitFor(() => expect(view.getByText(/Replay access changed/)).toBeOnTheScreen());
+    expect(diagnostic).toHaveBeenLastCalledWith('[Travel Life diagnostic]', expect.objectContaining({ operation: 'REPLAY_EXPORT', reasonCode: 'REPLAY_SCOPE_INVALID', stage: 'REPLAY_STALE', durableOutcome: 'unchanged' }));
+    expect(JSON.stringify(diagnostic.mock.calls)).not.toContain(sentinel);
+    diagnostic.mockRestore();
+  });
+  it('starts only one subset render when Preview selected Replay is tapped twice', async () => {
+    let finishSubset!: (value: { uri: string; renderedMemoryCount: number; omittedMemoryCount: number; durationSeconds: number }) => void;
+    mockPreparePrivateReplay.mockResolvedValueOnce({ uri: 'file:///private-replay.mp4', renderedMemoryCount: 2, omittedMemoryCount: 0, durationSeconds: 8 }).mockImplementationOnce(() => new Promise((resolve) => { finishSubset = resolve; }));
+    const view = await render(<ReplayScreen />);
+    await waitFor(() => expect(view.getByLabelText('Choose Replay for sharing')).toBeOnTheScreen());
+    await fireEvent.press(view.getByLabelText('Choose Replay for sharing'));
+    await fireEvent.press(view.getByLabelText('Select Observed destination trip 1 for sharing'));
+    await fireEvent.press(view.getByLabelText('Preview selected Replay'));
+    await fireEvent.press(view.getByLabelText('Preview selected Replay'));
+    expect(mockPreparePrivateReplay).toHaveBeenCalledTimes(2);
+    await act(async () => { finishSubset({ uri: 'file:///subset.mp4', renderedMemoryCount: 1, omittedMemoryCount: 0, durationSeconds: 5 }); });
+    await waitFor(() => expect(view.getByLabelText('Share selected Replay video')).toBeOnTheScreen());
+  });
+  it('retains rapid distinct trip taps before subset preparation', async () => {
+    mockPreparePrivateReplay.mockResolvedValue({ uri: 'file:///private-replay.mp4', renderedMemoryCount: 2, omittedMemoryCount: 0, durationSeconds: 8 });
+    const view = await render(<ReplayScreen />);
+    await waitFor(() => expect(view.getByLabelText('Choose Replay for sharing')).toBeOnTheScreen());
+    await fireEvent.press(view.getByLabelText('Choose Replay for sharing'));
+    await fireEvent.press(view.getByLabelText('Select Observed destination trip 1 for sharing'));
+    await fireEvent.press(view.getByLabelText('Select Observed destination trip 2 for sharing'));
+    await waitFor(() => expect(view.getByLabelText('Remove Observed destination trip 1 for sharing')).toBeOnTheScreen());
+    await waitFor(() => expect(view.getByLabelText('Remove Observed destination trip 2 for sharing')).toBeOnTheScreen());
+    await fireEvent.press(view.getByLabelText('Preview selected Replay'));
+    await waitFor(() => expect(mockPreparePrivateReplay).toHaveBeenLastCalledWith([], undefined, { kind: 'bundled', revision: 'happy-moments-1.4' }, undefined, ['a', 'b']));
+  });
+  it('keeps share-preview navigation disabled until the native handoff settles', async () => {
+    let finishShare!: (value: 'closed') => void;
+    mockPreparePrivateReplay.mockResolvedValue({ uri: 'file:///private-replay.mp4', renderedMemoryCount: 2, omittedMemoryCount: 0, durationSeconds: 8 });
+    mockExportPrivateReplay.mockImplementation(() => new Promise((resolve) => { finishShare = resolve; }));
+    const view = await render(<ReplayScreen />);
+    await waitFor(() => expect(view.getByLabelText('Choose Replay for sharing')).toBeOnTheScreen());
+    await fireEvent.press(view.getByLabelText('Choose Replay for sharing'));
+    await fireEvent.press(view.getByLabelText('Select Observed destination trip 1 for sharing'));
+    await fireEvent.press(view.getByLabelText('Preview selected Replay'));
+    await waitFor(() => expect(view.getByLabelText('Share selected Replay video')).toBeOnTheScreen());
+    await fireEvent.press(view.getByLabelText('Share selected Replay video'));
+    await waitFor(() => expect(view.getByLabelText('Back to Replay trip selection')).toBeDisabled());
+    expect(view.getByLabelText('Cancel Replay preparation')).toBeDisabled();
+    expect(mockDiscardPrivateReplay).not.toHaveBeenCalledWith('file:///private-replay.mp4');
+    finishShare('closed');
+    await waitFor(() => expect(view.getByLabelText('Back to Replay trip selection')).not.toBeDisabled());
   });
   it('offers Share only the committed editor composition, never an unselected eligible candidate', () => {
     const candidates = shareableCommittedMemories({ snapshotToken: 7, privacyRevision: 1, groups: [], memories: [
@@ -298,6 +501,21 @@ describe('Replay screen', () => {
       { key: 'memory-c', groupKey: 'b', kind: 'photo', available: false, eligible: true },
     ] }, ['memory-b', 'memory-c']);
     expect(candidates.map((memory) => memory.key)).toEqual(['memory-b']);
+  });
+  it('offers every committed Replay chapter, including a trip whose usable media is currently empty', () => {
+    const input = { snapshotToken: 7, privacyRevision: 1, includedGroupKeys: ['a', 'b', 'chapter-only'], groups: [
+      { key: 'a', label: 'First trip', interval: { startDay: '2024-01-01', endDay: '2024-01-02' }, inferred: false, eligible: true, orderCertain: true },
+      { key: 'b', label: 'Second trip', interval: { startDay: '2024-02-01', endDay: '2024-02-02' }, inferred: false, eligible: true, orderCertain: true },
+      { key: 'chapter-only', label: 'Card-only trip', interval: { startDay: '2024-03-01', endDay: '2024-03-02' }, inferred: false, eligible: true, orderCertain: true },
+      { key: 'outside', label: 'Album only', inferred: false, eligible: true, orderCertain: true },
+    ], memories: [
+      { key: 'a-2', groupKey: 'a', kind: 'photo' as const, available: true, eligible: true },
+      { key: 'b-1', groupKey: 'b', kind: 'video' as const, available: true, eligible: true },
+      { key: 'a-1', groupKey: 'a', kind: 'photo' as const, available: true, eligible: true },
+      { key: 'outside-1', groupKey: 'outside', kind: 'photo' as const, available: true, eligible: true },
+    ] };
+    expect(shareableCommittedTrips(input, ['b-1', 'a-1', 'a-2']).map(({ group }) => group.key)).toEqual(['a', 'b', 'chapter-only']);
+    expect(selectedShareMemoryKeys(input, ['b-1', 'a-1', 'a-2'], ['a'])).toEqual(['a-1', 'a-2']);
   });
   const verifyDirectSelectionAndAggregateUpdate = async () => {
     mockPreparePrivateReplay.mockResolvedValue({ uri: 'file:///private-replay.mp4', renderedMemoryCount: 1, omittedMemoryCount: 0, durationSeconds: 5 });
@@ -404,7 +622,7 @@ describe('Replay screen', () => {
     const current = await mockLoadReplayManifestInput();
     mockLoadReplayManifestInput.mockResolvedValue({ ...current, memories: [{ ...current.memories[0], available: false, previewUri: undefined }, current.memories[1]] });
     let finishPreview!: (page: { key: string; available: boolean; previewUri: string }[]) => void;
-    mockLoadReplayEditorPreviewPage.mockResolvedValueOnce([]).mockImplementationOnce(() => new Promise((resolve) => { finishPreview = resolve; }));
+    mockLoadReplayEditorPreviewPage.mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockImplementationOnce(() => new Promise((resolve) => { finishPreview = resolve; }));
     const view = await render(<ReplayScreen />);
     await waitFor(() => expect(view.getByLabelText('Edit private Replay')).toBeOnTheScreen());
     await fireEvent.press(view.getByLabelText('Edit private Replay'));

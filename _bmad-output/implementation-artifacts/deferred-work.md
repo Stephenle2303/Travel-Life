@@ -37,3 +37,8 @@
 - source_spec: `C:\Users\vothi\Desktop\Travel Life\_bmad-output\implementation-artifacts\spec-m4-3-private-visibility-and-exclusion.md`
   summary: Normalize native visit ordering at the split-command adapter and verify an owner split end to end.
   evidence: M4.3 fixture setup exposed persisted reconstruction_visit ordering `ordered` being passed into a split check expecting `chronological`. M4.3 did not change that pre-existing adapter; seeded persisted-split tests prove privacy exclusion/restoration only, not native split acceptance.
+
+## Deferred from: code review of spec-share-replay-trip-selection (2026-10-27)
+
+- Existing `photo-access/provider.tsx:984-986` registered-artifact export bypasses refreshed photo-access checks. The trip-selection patch did not introduce that gate, but the spec's access-change acceptance remains incomplete. Add final scope revalidation and a permission-change integration regression; actual owner-device behavior remains unverified.
+- Unverified concurrent committed-media exclusion: `photo-access/provider.tsx:763-767` accepts eligible/available album keys even if marked `intent: exclude`. A normal flow changing committed media while retaining these selected keys was not established; use a controlled composition-change/provider integration test to establish reachability and impact before treating this as a confirmed defect.

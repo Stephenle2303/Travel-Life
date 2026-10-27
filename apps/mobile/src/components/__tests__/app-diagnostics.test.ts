@@ -42,4 +42,12 @@ describe('app diagnostics', () => {
       log.mockRestore();
     }
   });
+  it('allows a redacted selected-share publication boundary without a capability or payload', () => {
+    const log = jest.spyOn(console, 'info').mockImplementation(() => {});
+    try {
+      recordAppDiagnostic({ operation: 'SHARE_PUBLISH', reasonCode: 'SHARE_DELETE_FENCED', stage: 'SHARE_ACTIVATE', retryable: false, durableOutcome: 'blocked', correlationId: createDiagnosticCorrelationId() });
+      expect(JSON.stringify(log.mock.calls)).not.toMatch(/capability|token|private-sentinel|payload/i);
+      expect(log.mock.calls[0][1]).toMatchObject({ operation: 'SHARE_PUBLISH', reasonCode: 'SHARE_DELETE_FENCED', stage: 'SHARE_ACTIVATE' });
+    } finally { log.mockRestore(); }
+  });
 });

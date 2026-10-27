@@ -12,6 +12,16 @@ function repository(state: 'connected' | 'disconnected' | 'deleted' = 'connected
 }
 
 describe('private record lifecycle controller', () => {
+  it('persists remote removal before evidence purge and reports pending acknowledgement truthfully', async () => {
+    const order: string[] = []; const local = repository(); local.deleteLocalHistory = async () => { order.push('purge'); };
+    const controller = new HistoryRecordController(local, async () => {}, () => {}, () => {}, async () => { order.push('queue'); return 'pending'; });
+    await controller.delete(); expect(order).toEqual(['queue', 'purge']); expect(controller.snapshot.message).toMatch(/Remote removal is pending/);
+  });
+  it('keeps evidence when durable removal intent cannot be saved', async () => {
+    const local = repository(); local.deleteLocalHistory = jest.fn();
+    const controller = new HistoryRecordController(local, async () => {}, () => {}, () => {}, async () => { throw new Error('PRIVATE_SENTINEL'); });
+    await controller.delete(); expect(local.deleteLocalHistory).not.toHaveBeenCalled(); expect(controller.snapshot.message).not.toContain('PRIVATE_SENTINEL');
+  });
   it('keeps disconnect, reconnect, and deletion as separate owner actions', async () => {
     const snapshots: LifecycleSnapshot[] = [];
     const stopImports = jest.fn(async () => {});
