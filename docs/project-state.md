@@ -23,6 +23,13 @@ Android export must still be obtained successfully, followed by the previously
 blocked native Android build and owner-operated share-sheet acceptance; neither
 is established by the configuration check.
 
+The connected Android device subsequently installed the debug APK successfully.
+Its first launch lacked the required Metro server and therefore could not load
+the development bundle; after USB port reversal and Metro startup, the device
+log reached `ReactNativeJS: Running "main"` without a resolver or native crash.
+This establishes debug-bundle loading only. Unlocking and owner-operated screen
+and share-sheet acceptance remain required.
+
 ## Selected snapshot sharing and browser viewer continuation (2026-10-27)
 
 The owner reports preceding trip covers and selected Replay video sharing steps

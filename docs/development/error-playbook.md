@@ -47,6 +47,15 @@
   its `--device` value; that retry also stopped before compilation. Consult the
   installed CLI help and use its supported selector instead of repeating the
   serial form.
+- **Runtime evidence:** The successful `installDebug` result installs an Expo
+  development client, not a self-contained production bundle. Device logs show
+  it launching normally and repeatedly failing to reach
+  `ws://localhost:8081/message`; there is no native crash or
+  share-protocol-resolution error in that launch. **Correction:** start Metro
+  for the development client and create the USB `tcp:8081` reverse before
+  evaluating the app. **Prevention:** distinguish an installed debug client
+  from an app whose JavaScript development server is available; record the
+  launch log before treating an installation result as device acceptance.
 
 ## Review workflow uv-cache permission failure (2026-10-27)
 
