@@ -45,3 +45,12 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-defer-hosted-sharing-ui.md`
   summary: Confirm on a connected iOS device that hosted-link affordances are absent and the local Replay Share video handoff remains available.
   evidence: Source and host checks establish route removal, but physical iOS navigation and system-share behavior require an available device.
+- source_spec: `C:\Users\vothi\Desktop\Travel Life\_bmad-output\implementation-artifacts\spec-fix-mobile-ci-privacy-deletion-assertion.md`
+  summary: Reconcile M5 launch and beta acceptance criteria with the approved MLP deferral of hosted sharing and browser viewing.
+  evidence: The epics overview declares older hosted-sharing wording superseded, but M5.3/M5.4 and the derived backlog still require hosted snapshot/media and browser-viewer deployment.
+- source_spec: `C:\Users\vothi\Desktop\Travel Life\_bmad-output\implementation-artifacts\spec-fix-mobile-ci-privacy-deletion-assertion.md`
+  summary: Resolve M6/M7 future account, retention, restore-selection, and offline revision-activation semantics.
+  evidence: A review of concurrently edited P0-next planning raised possible gaps in consent withdrawal, retention, recovery and cross-device activation; the planning owner must confirm intended behavior before implementation.
+- source_spec: `C:\Users\vothi\Desktop\Travel Life\_bmad-output\implementation-artifacts\spec-fix-mobile-ci-privacy-deletion-assertion.md`
+  summary: Confirm the intended M9 Google Photos dependency on the M8 shared connection boundary.
+  evidence: The review alleged that M9.1 blocks Photos on Drive work, while the current plan explicitly says M9 depends on M8's shared connection boundary; planning-owner clarification is required.

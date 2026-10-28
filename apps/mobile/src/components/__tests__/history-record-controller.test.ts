@@ -17,6 +17,11 @@ describe('private record lifecycle controller', () => {
     const controller = new HistoryRecordController(local, async () => {}, () => {}, () => {}, async () => { order.push('queue'); return 'pending'; });
     await controller.delete(); expect(order).toEqual(['queue', 'purge']); expect(controller.snapshot.message).toMatch(/Remote removal is pending/);
   });
+  it('persists confirmed remote-link removal before evidence purge and reports its retention limit', async () => {
+    const order: string[] = []; const local = repository(); local.deleteLocalHistory = async () => { order.push('purge'); };
+    const controller = new HistoryRecordController(local, async () => {}, () => {}, () => {}, async () => { order.push('confirm'); return 'complete'; });
+    await controller.delete(); expect(order).toEqual(['confirm', 'purge']); expect(controller.snapshot.message).toBe('Local history was deleted. Remote link access removal is confirmed. Original photos and saved recipient copies were not changed.');
+  });
   it('keeps evidence when durable removal intent cannot be saved', async () => {
     const local = repository(); local.deleteLocalHistory = jest.fn();
     const controller = new HistoryRecordController(local, async () => {}, () => {}, () => {}, async () => { throw new Error('PRIVATE_SENTINEL'); });

@@ -4321,3 +4321,26 @@ Verification: new scheduler/session tests were RED before the integration and GR
 - **Evidence:** A read-only release-readiness search from the repository root included absent root-level Expo configuration filenames and a PowerShell wildcard filename argument. `rg` reported the missing/invalid paths before it could inspect those files; no source, build artifact, or account state changed.
 - **Correction/prevention:** Re-ran the inspection against the actual `apps/mobile/app.json` and package configuration. When checking a monorepo package, first identify its configuration directory and use concrete paths; do not pass shell globs as positional `rg` paths on PowerShell.
 - **Auxiliary research-command incident:** The initial read-only Google Play lookup assumed a collection-shaped result and failed while formatting the tool response. The lookup itself returned successfully; a safe serialization retry recovered the official sources. Preserve and inspect an unfamiliar tool result before accessing nested fields; no release assertion relied on the failed formatter.
+
+## CI diagnosis command collection mistakes (2026-10-28)
+
+- **Evidence:** While diagnosing the mobile CI failure, a PowerShell inventory
+  combined `Get-Content -Raw` with `-TotalCount`, which PowerShell rejects, and
+  `gh` was assumed available although it was not installed. Neither command
+  inspected the intended data or changed product files.
+- **Correction/prevention:** Use either `-Raw` or `-TotalCount`, not both, and
+  check a CLI is installed before depending on it. The GitHub REST run/job
+  metadata identified the failed step; job-log download then correctly reported
+  that the available account lacks repository-admin log access. Diagnose from
+  accessible CI metadata plus a locally reproduced targeted test rather than
+  inferring an assertion from the screenshot alone.
+- **Verification-command recurrence:** `npm --prefix apps/mobile exec jest`
+  resolved Jest from the repository root, which selected the wrong Babel
+  context and failed before test collection on TypeScript `import type` syntax.
+  Run package-local Jest from `apps/mobile` with package-relative test paths
+  and the local cache directory; do not use the root-context `exec` form as
+  evidence for mobile CI.
+- **Staging-command incident:** A PowerShell here-string added trailing
+  whitespace to the staged patch. Reapplied that index-only hunk with Git's
+  whitespace fixer and verified `git diff --cached --check`; do not treat a
+  patch-stream warning as a clean staged diff.

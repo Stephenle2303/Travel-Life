@@ -151,7 +151,7 @@ describe('private record settings', () => {
     await fireEvent.press(view.getByRole('button', { name: 'Delete local history' }));
     expect(view.getByText('Delete private history from this device?')).toBeOnTheScreen();
     await fireEvent.press(view.getByRole('button', { name: 'Confirm delete local history' }));
-    await waitFor(() => expect(view.getByText(/Local history was deleted from this device/)).toBeOnTheScreen());
+    await waitFor(() => expect(view.getByText('Local history was deleted. Remote link access removal is confirmed. Original photos and saved recipient copies were not changed.')).toBeOnTheScreen());
     expect(view.getByRole('button', { name: 'Start a new private record' })).toBeOnTheScreen();
   });
 
