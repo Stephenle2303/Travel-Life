@@ -8,6 +8,14 @@ strategy: build-then-learn
 
 # MLP delivery epics and stories
 
+**Next-scope extension (2026-10-28):** [M6-M9: private multi-source history](epics-multi-source.md)
+adds 20 planned stories after the existing M1-M5 baseline. This file retains the
+historical 27-story baseline; `backlog.csv` is the combined derived view (47 rows).
+The owner approved account/restore, multi-device history/Replay, selected Drive
+files and selected Google Photos memories. The 2026-10-27 approved sharing
+correction supersedes older required-hosted-link wording below: M4.5/M4.6 remain
+deferred and native Replay-video sharing is the local MLP route.
+
 **Current direction:** The MLP first loop is the private lifetime map reveal,
 replay video and owner-selected sharing experience in
 [decision 0009](../../docs/decisions/0009-mlp-lifetime-reveal-and-replay.md).

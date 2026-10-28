@@ -1,5 +1,14 @@
 # Travel Life working context
 
+Next-scope direction (2026-10-28): the owner approved one private account across
+devices and selected cloud sources, preserving local-only use without signup.
+[Decision 0015](../decisions/0015-private-multi-source-travel-history.md) and
+[M6-M9](../../_bmad-output/planning-artifacts/epics-multi-source.md) govern account
+restore, unified history/Replay, selected Drive files and selected Photos memories.
+This supersedes the identity-as-hypothesis wording below for this bounded scope.
+The 2026-10-27 sharing correction defers hosted links; native Replay video sharing
+remains the local MLP route. Private sync does not authorize public publication.
+
 Current direction update (2026-10-07): the Minimum Lovable Product is a private
 lifetime map reveal, replay video and owner-selected share; see
 [decision 0009](../decisions/0009-mlp-lifetime-reveal-and-replay.md).

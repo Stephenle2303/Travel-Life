@@ -1,5 +1,7 @@
 # Decision log
 
+- [0015 - Private multi-source travel history](0015-private-multi-source-travel-history.md): accepted next scope for account/restore, unified device history and Replay, selected Drive files and selected Photos memories; implementation planned.
+
 Use a numbered record for consequential choices. Record status, context, options,
 decision, evidence, consequences, and when it should be reconsidered. A proposal
 is not an accepted decision. Supersede old records rather than rewriting history.

@@ -1,5 +1,29 @@
 # Project state
 
+## Next scope approved: private multi-source history (2026-10-28)
+
+The owner accepted one account with multiple devices/sources and requested the
+next delivery backlog. Decision 0015 records the direction; the canonical
+`_bmad-output/planning-artifacts/epics-multi-source.md` defines 20 planned stories
+across M6 (account/restore), M7 (unified device history and Replay), M8 (selected
+Drive files), and M9 (selected Google Photos memories). The existing `backlog.csv`
+contains the derived rows. Local-only use remains account-free.
+
+The first complete milestone is two-device evidence/correction convergence plus
+authorized media playback with the source phone offline. Private account sync
+does not re-enable hosted M4.5/M4.6 publication. Google Photos selection lacks a
+whole-library historical scan and cannot be assumed to provide GPS; Drive folder
+crawling is deferred. No app code, service deployment or private upload is part
+of this planning task. All M6-M9 device/provider acceptance remains open. Begin
+M6.1 when implementation is delegated; resolve exact APIs, retention/quotas and
+service configuration inside the owning stories before enabling cloud transfers.
+
+Planning verification: 20 unique new stories and 76 acceptance criteria; all
+dependencies point backward, 47 combined CSV rows match the backlog, and 79 local
+links resolve. Root `npm run check` passes 49 tests, pinned framework integrity
+and eval smoke; whitespace validation passes. These are planning/foundation
+checks only. Concurrent privacy-settings test/spec work is outside this task.
+
 ## MLP sharing scope correction approved (2026-10-27)
 
 The owner approved the batch scope correction in

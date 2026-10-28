@@ -32,8 +32,12 @@ platform share sheet; minimal instrumentation/feedback; beta builds and real-dev
 checks. P1: static share card and the first post-rollout evidence review. Hosted
 selected-highlight links and a browser viewer are deferred post-MLP.
 
-Excluded: historical Google Photos connector, second source, cloud history backup,
-email account signup, precise travelled distance, proven routes, exact unobserved
+Excluded from this local MLP baseline (now approved for the next scope): selected
+Google Photos import, second sources, private cloud history sync/restore and email
+account signup. See [M6-M9](epics-multi-source.md) and
+[decision 0015](../../docs/decisions/0015-private-multi-source-travel-history.md).
+An autonomous historical Google Photos scan remains excluded. Also excluded:
+precise travelled distance, proven routes, exact unobserved
 travel duration, a longer cinematic editor, personality types, recommendations, Pulse,
 payments and community. Background maintenance is required in this MLP.
 

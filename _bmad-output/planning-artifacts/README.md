@@ -1,5 +1,13 @@
 # Travel Life MVP planning
 
+**Next scope approved 2026-10-28:** [M6-M9 private multi-source epics/stories](epics-multi-source.md)
+adds 20 planned stories to the 27-story local baseline. The combined
+[backlog](backlog.csv) has 47 story rows. Account/restore, unified device history
+and Replay, selected Drive files, and selected Photos memories are governed by
+[decision 0015](../../docs/decisions/0015-private-multi-source-travel-history.md).
+The historical verification/counts below describe the earlier baseline only.
+Hosted sharing remains deferred under the approved 2026-10-27 scope correction.
+
 **Current product goal: Minimum Lovable Product (MLP).** Decision
 [0009](../../docs/decisions/0009-mlp-lifetime-reveal-and-replay.md) defines its
 private lifetime map reveal, replay and selected-sharing bar. Existing filenames

@@ -1,13 +1,36 @@
 ---
 title: Travel Life MLP roadmap
 status: working-plan
-revision: 5
-updated: 2026-10-07
+revision: 6
+updated: 2026-10-28
 strategy: build-then-learn
 platforms: [ios, android]
 ---
 
 # Minimum Lovable Product roadmap
+
+## Approved next scope: one account, multiple sources
+
+The owner approved [decision 0015](../../docs/decisions/0015-private-multi-source-travel-history.md)
+on 2026-10-28. [M6-M9 epics/stories](epics-multi-source.md) are the canonical
+20-story extension; the combined CSV contains 47 baseline/next-scope stories.
+
+| Order | Epic | Exit value |
+| --- | --- | --- |
+| 1 | M6 - Account and private restore (5 stories) | Email OTP, explicit sync consent, preserved local history and account controls |
+| 2 | M7 - Unified devices and Replay (7 stories) | Combined evidence/corrections and private media usable away from the source phone |
+| 3 | M8 - Selected Google Drive files (4 stories) | Direct cloud import and authorized-file maintenance |
+| 4 | M9 - Selected Google Photos memories (4 stories) | Picker import, GPS-less batch assignment and cross-device media |
+
+M6 + M7 is the first complete multi-device milestone. M8/M9 are next-scope
+requirements, not prerequisites for validating that milestone. No promised dates
+or completed implementation are implied. Local-only use stays account-free;
+original-library backup and broad folder/Photos scans are excluded.
+
+The existing M1-M5 plan below remains the local baseline. The approved
+[2026-10-27 sharing correction](sprint-change-proposal-2026-10-27.md) supersedes
+its older hosted-link requirements: M4.5/M4.6 remain deferred. Private account
+sync is not public publication and does not unlock that gate.
 
 **Direction:** The MLP is a private whole-life map reveal, replay video and
 owner-selected sharing experience; see

@@ -4344,3 +4344,15 @@ Verification: new scheduler/session tests were RED before the integration and GR
   whitespace to the staged patch. Reapplied that index-only hunk with Git's
   whitespace fixer and verified `git diff --cached --check`; do not treat a
   patch-stream warning as a clean staged diff.
+
+## Multi-source planning tooling incidents (2026-10-28)
+
+- **Environment evidence:** The BMAD uv resolver could not persist interpreter metadata to the sandbox cache (access denied); both read-only resolver commands failed. Read installed customization and the four config layers directly instead; no product runtime failed.
+- **Editing evidence:** A multi-file documentation patch included an unmatched readiness heading and was rejected atomically. Verified the diff and actual heading, then reapplied successfully; no partially applied planning changes were assumed.
+- **Prevention:** Use the documented direct-config fallback for an inaccessible resolver cache; use exact inspected headings for patch contexts and inspect changes after rejected batches. Preserve concurrent unrelated test edits observed during planning.
+
+## Multi-source recommendation lookup recurrence (2026-10-28)
+
+- **Evidence/cause:** A read-only architecture search passed a wildcard as a positional rg path on PowerShell and returned OS error 123. No product behavior changed.
+- **Correction/verification:** Repeated successfully with the planning-artifacts directory and `-g '*architecture*'`. The Google Photos API-updates URL was also unavailable through the web tool; the accessible official API overview and Picker media guide established the actual constraints instead.
+- **Prevention:** Reuse the existing Windows lookup lesson: directory arguments plus rg glob filters, never positional wildcard paths. Do not infer API capabilities from inaccessible pages.

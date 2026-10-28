@@ -9,6 +9,14 @@ release_ready: false
 
 # MLP implementation readiness
 
+**Next-scope planning update (2026-10-28):** [M6-M9](epics-multi-source.md) records
+20 planned stories for the accepted multi-source direction. Product scope and
+dependencies are recorded; exact API/schema contracts, provider policies, service
+configuration/retention and actual Android/iOS evidence are story delivery gates.
+The historical baseline statements below are not evidence that cloud sync is
+implemented, deployed or ready to release. Start with M6.1; no private upload or
+hosted-publication enablement is authorized by this readiness note.
+
 **Technical defaults and MLP release scope are recorded.** Decision
 [0009](../../docs/decisions/0009-mlp-lifetime-reveal-and-replay.md) defines the
 private lifetime map reveal, replay video and selected-highlight sharing contract.
