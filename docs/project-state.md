@@ -43,8 +43,10 @@ The MLP provider also no longer dynamically imports the deferred hosted-sharing
 service for startup or history deletion. This is safe because no hosted M4.5/M4.6
 service or publication was deployed. The current debug client can receive this
 JavaScript-only correction through the active Metro session; a fresh native
-build is not required for the navigation change, but Android and iOS owner
-acceptance still remains open.
+build is not required for the navigation change. The owner confirmed the
+Android test is complete: the MLP route has no hosted-link publishing action,
+the local Replay share flow works, and Gmail receives the shared video. iOS
+owner acceptance remains open because no iOS device is currently available.
 
 ## Selected snapshot sharing and browser viewer continuation (2026-10-27)
 

@@ -28,6 +28,26 @@
   bundle evidence. **Prevention:** use one shell's native argument and log
   handling; do not compose `cmd.exe` quoting inside PowerShell for this check.
 
+## MLP completion status lookup path mistake (2026-10-27)
+
+- **Evidence:** A status lookup assumed
+  `_bmad-output/implementation-artifacts/sprint-status.yaml`, which does not
+  exist. No product file, device state or delivery decision changed.
+- **Correction/prevention:** Use the current `docs/project-state.md` and the
+  actual planning-artifact inventory for completion evidence; do not infer that
+  a sprint-status file exists from a workflow convention.
+
+## Git staging sandbox boundary (2026-10-28)
+
+- **Evidence:** While preparing the owner-requested cleanup commit, `git add`
+  could not create `.git/index.lock` under the workspace sandbox. A follow-up
+  found no pre-existing lock; its direct `.git` inspection is unavailable in
+  this environment even though Git can read the repository.
+- **Correction/prevention:** Treat this as an environment permission boundary,
+  not an existing-lock or repository-corruption diagnosis. Request the scoped
+  elevated Git staging/commit permission before retrying; do not delete or
+  manufacture index-lock files.
+
 ## Deferred hosted-sharing UI remained in the MLP build (2026-10-27)
 
 - **Owner evidence:** The installed Android build exposes a `Publish highlight
@@ -4295,3 +4315,9 @@ Verification: new scheduler/session tests were RED before the integration and GR
 
 - **Evidence:** The first provider permission-revalidation regression inferred its mocked `inspect` result as only the initial `full` literal, so the later synthetic `denied` result failed mobile TypeScript before validation.
 - **Correction/prevention:** Replaced the narrow inferred mock with an explicitly `Promise<PermissionSnapshot>`-typed inspector; rerun TypeScript before describing the provider regression as complete. Keep permission mocks typed to the complete closed scope union when a test changes access state.
+
+## Play-publication reconnaissance command path mistake (2026-10-27)
+
+- **Evidence:** A read-only release-readiness search from the repository root included absent root-level Expo configuration filenames and a PowerShell wildcard filename argument. `rg` reported the missing/invalid paths before it could inspect those files; no source, build artifact, or account state changed.
+- **Correction/prevention:** Re-ran the inspection against the actual `apps/mobile/app.json` and package configuration. When checking a monorepo package, first identify its configuration directory and use concrete paths; do not pass shell globs as positional `rg` paths on PowerShell.
+- **Auxiliary research-command incident:** The initial read-only Google Play lookup assumed a collection-shaped result and failed while formatting the tool response. The lookup itself returned successfully; a safe serialization retry recovered the official sources. Preserve and inspect an unfamiliar tool result before accessing nested fields; no release assertion relied on the failed formatter.
