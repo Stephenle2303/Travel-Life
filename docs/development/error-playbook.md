@@ -7379,3 +7379,28 @@ ran. The cause was whitespace in the staged additions, separate from the
 CRLF/LF conversion warnings. Removed only the reported non-semantic whitespace;
 the staged check then passed across all 407 paths. Keep this check as a
 pre-commit gate instead of bypassing it.
+
+## 2026-11-18 history-domain bundle freshness
+
+`npm run check` failed in `worker native-free generated graph is current and
+direct consoles stay forbidden` because `scripts/build-history-domain.mjs
+--check` detected `HISTORY_DOMAIN_BUNDLE_STALE`. The generated
+`supabase/functions/_shared/history-domain.js` retained the prior source
+digest after its mobile TypeScript dependency graph changed. Regenerating it
+with the repository-owned builder updated only the source-digest header and
+export. The generator check and `npm run check` now pass, including all 281
+foundation tests. Keep the generator check as the required guard whenever its
+source graph changes.
+
+## 2026-11-18 blind-review inspection command
+
+The blind reviewer's first PowerShell line-number inspection had unmatched
+braces and stopped with a parser error before reading or writing a project
+file. A simpler read-only command completed the inspection. Use small literal
+PowerShell reads when reviewing generated artifacts; verify a parser failure
+made no mutation before retrying a different inspection command.
+
+The final whitespace preflight found one extra blank line at EOF in the newly
+appended deferred-work entry. Removed only that non-semantic line and reran
+the generator and whitespace checks. Keep `git diff --check` after every
+append-only delivery-record update.

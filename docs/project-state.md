@@ -1,5 +1,14 @@
 # Project state
 
+## Generated history-domain bundle freshness
+
+The foundation check initially rejected a stale generated
+`supabase/functions/_shared/history-domain.js` after its mobile TypeScript
+source graph changed. Regenerating with `node scripts/build-history-domain.mjs`
+updated the checked-in digest artifact; `--check` now passes. This does not
+deploy a worker or change runtime behavior. The complete foundation check
+passed with all 281 tests and the eval smoke check.
+
 ## City-level GPS-less proposals
 
 The Android development preview now shows a city-level **Possible trips**

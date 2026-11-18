@@ -115,3 +115,6 @@
 - source_spec: `_bmad-output/specs/spec-atlas-reconstruction-recovery/SPEC.md`
   summary: Establish native Hanoi named-landmark recognition before claiming a full city-level route for that library.
   evidence: The default native visual index is Ewha-only, and the Hanoi provider test injects a landmark observation. A qualified regional artifact and independent native positives are still required.
+- source_spec: `_bmad-output/implementation-artifacts/spec-fix-history-domain-bundle-staleness.md`
+  summary: Harden the history-domain generator with concise stale-artifact remediation and atomic output replacement.
+  evidence: The reviewed direct write can leave a partial bundle after interruption, and its stale error exposes only a raw Node exception; this existed before the digest refresh and is deferred to keep the repair scoped.
