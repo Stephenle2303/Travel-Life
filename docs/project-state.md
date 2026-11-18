@@ -1,5 +1,16 @@
 # Project state
 
+## Foundation CI dependency order (2026-11-18)
+
+GitHub Actions runs 22 and 23 both stopped in the root generated history-domain
+guard because its generator requires the mobile TypeScript package, which CI
+installed only after `npm run check`. The workflow now installs mobile
+dependencies first. The failing guard passed in the local foundation run after
+the dependency was available. The full Windows check had one separate
+`ARTIFACT_WRITE` failure in the offline-landmark publication test (280 passed,
+1 failed); a same-directory rename probe passed, so its exact cause is unknown
+and remains an environment/check limitation, not part of this CI ordering fix.
+
 ## Generated history-domain bundle freshness
 
 The foundation check initially rejected a stale generated

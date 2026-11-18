@@ -497,6 +497,16 @@ the generated test outputs under the repository's ignored `evals/runs`
 directory. The regression exercises real rename and injected interruption
 and verifies that an existing result cannot be replaced.
 
+On 2026-11-18, `npm run check` on Windows (Node v24.21.0, npm 11.19.0) again
+reported `ARTIFACT_WRITE` in
+`tests/offline-landmarks.test.mjs:517`; the stack points to the final real
+publication call at line 542. The test already uses `evals/runs`, and a separate
+same-directory rename probe in that location passed. The failing publication
+substage and native cause remain unknown; do not assume this recurrence is the
+earlier OS-temp `EPERM`. The CI generated-bundle guard passed locally. Recheck
+the exact test on Linux CI or collect a bounded safe stage-level cause before
+attributing or changing it.
+
 The first scored public run also stopped at `IMAGE_DECODE` before model
 inference. An isolated decoder check found two original photographs below
 the 20 MP and 10 MiB encoded limits exceeded the 128 MiB JPEG workspace
@@ -6585,6 +6595,13 @@ Verification: new scheduler/session tests were RED before the integration and GR
   whitespace to the staged patch. Reapplied that index-only hunk with Git's
   whitespace fixer and verified `git diff --cached --check`; do not treat a
   patch-stream warning as a clean staged diff.
+- **2026-11-18 recurrence:** Initial PowerShell `ConvertFrom-Json` and Node
+  `JSON.parse` attempts failed while extracting the latest GitHub job logs
+  because the saved MCP response was a wrapped, escaped payload rather than
+  raw JSON. Bounded text extraction then identified the failing test and exact
+  missing-module error. For large saved tool responses, inspect a bounded
+  substring or search for a known log marker instead of assuming the wrapper
+  is directly parseable.
 
 ## Multi-source planning tooling incidents (2026-10-28)
 
