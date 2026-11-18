@@ -38,6 +38,7 @@ export type TripDetectorEvidence = ReconstructionEvidence & {
   supportPlaceSeparationMeters?: number | null;
   /** Set only by the date-scoped configured-home-area normalization pass. */
   configuredHomeAreaId?: string | null;
+  configuredHomeAreaIds?: readonly string[];
 };
 export type QualifiedTrip = {
   id: string; classification: TripClassification; score: number; path: TripQualificationPath;

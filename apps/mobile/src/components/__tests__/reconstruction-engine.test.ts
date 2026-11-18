@@ -6,6 +6,69 @@ const e = (id: string, latitude: number | null, longitude: number | null, overri
 });
 
 describe('reconstruction-v1 deterministic baseline', () => {
+  it('reuses pure civil-day validation across repeated comparisons without changing invalid-date handling', () => {
+    const parse = jest.spyOn(Date, 'parse');
+    try {
+      const input = Array.from({length:120},(_,index)=>e(`civil-cache-${index}`,index%2?null:10+(index%8)*.2,index%2?null:100+(index%8)*.2,{
+        capturedDay:'2018-04-13',capturedAtMillis:Date.UTC(2018,3,13)+index*1000,hasPreciseOffset:index%3!==0,
+      }));
+      const first = reconstructV1(input);
+      expect(parse.mock.calls.filter(([value])=>value==='2018-04-13T00:00:00Z').length).toBeLessThan(500);
+      expect(reconstructV1([...input].reverse())).toEqual(first);
+      expect(reconstructV1([e('invalid-cache-day',10,100,{capturedDay:'2018-02-30',hasPreciseOffset:false,capturedAtMillis:null})]).visits).toEqual([]);
+      expect(reconstructV1([e('leap-cache-day',10,100,{capturedDay:'2020-02-29',hasPreciseOffset:false,capturedAtMillis:null})]).visits).toHaveLength(1);
+    } finally { parse.mockRestore(); }
+  });
+  it('materializes journey support once for diverse GPS-less association', () => {
+    let idReads = 0;
+    const input = Array.from({ length: 600 }, (_, index) => {
+      const timestamp = Date.UTC(2020, 0, 1) + index * 3_600_000;
+      const item = e(`point-${index}`, index % 2 ? null : 10 + (index % 40) * .2,
+        index % 2 ? null : 100 + (index % 40) * .2, {
+          capturedAtMillis: timestamp, capturedDay: new Date(timestamp).toISOString().slice(0, 10),
+          hasPreciseOffset: index % 3 !== 0,
+        });
+      Object.defineProperty(item, 'id', { enumerable: true, get() { idReads++; return `point-${index}`; } });
+      return item;
+    });
+    const graph = reconstructV1(input);
+    // The former nested Array.find materialization reads IDs over27 million
+    // times here. This checks work performed, without a host timing threshold.
+    expect(idReads).toBeLessThan(50_000);
+    expect(graph.memberships.some(member => Number(member.evidenceId.slice(6)) % 2 === 1)).toBe(true);
+    expect(reconstructV1([...input].reverse())).toEqual(graph);
+  });
+
+  it('retains every colocated observation without quadratic distance evaluation', () => {
+    const input = Array.from({ length: 600 }, (_, index) => e(`point-${String(index).padStart(4, '0')}`, 10, 100));
+    const sine = jest.spyOn(Math, 'sin');
+    try {
+      const graph = reconstructV1(input);
+      expect(graph.places).toEqual([expect.objectContaining({
+        representativeId: 'point-0000', memberIds: input.map(item => item.id),
+      })]);
+      expect(sine.mock.calls.length).toBeLessThan(5000);
+      expect(reconstructV1([...input].reverse())).toEqual(graph);
+    } finally { sine.mockRestore(); }
+  });
+
+  it('keeps minimax ties and membership with repeated mixed coordinates across the dateline', () => {
+    const input = Array.from({ length: 120 }, (_, index) => e(
+      `mixed-${String(119 - index).padStart(3, '0')}`,
+      10 + (index % 3) * 0.00001,
+      index % 2 ? -179.999 : 179.999,
+      { reportedAccuracyMeters: index % 7 ? 10 : null },
+    ));
+    const graph = reconstructV1(input);
+    // Duplicate coordinate candidates have equal scores; the original ID tie
+    // remains authoritative, and unknown accuracy is retained for every member.
+    expect(graph.places).toHaveLength(1);
+    expect(graph.places[0].memberIds).toEqual(input.map(item => item.id).sort());
+    expect(graph.places[0].representativeId).toBe('mixed-001');
+    expect(graph.places[0].uncertainty).toContain('reported-accuracy-unknown');
+    expect(reconstructV1([...input].reverse())).toEqual(graph);
+  });
+
   it('is invariant to input enumeration and preserves an observed representative', () => {
     const input = [e('b', 0, 0.01), e('a', 0, 0)];
     expect(reconstructV1(input)).toEqual(reconstructV1([...input].reverse()));
@@ -227,6 +290,46 @@ describe('trip-detector-v1.1 qualification boundary', () => {
     expect(result.trips).toHaveLength(3);
     expect(result.trips.find((trip) => trip.supportIds.includes('home'))).toMatchObject({ classification: 'NOT_TRIP', reasons: expect.arrayContaining(['configured-home-area']) });
     expect(result.trips.filter((trip) => trip.classification === 'AUTO_CONFIRMED')).toHaveLength(2);
+  });
+
+  it('links consecutive day-only blocks across a long away episode', () => {
+    const daily = Array.from({ length: 15 }, (_, index) => ({
+      ...qualified(`daily-${index}`, index),
+      capturedAtMillis: Date.UTC(2026, 0, index + 1),
+      capturedDay: `2026-01-${String(index + 1).padStart(2, '0')}`,
+      hasPreciseOffset: false,
+    }));
+    for (const distance of [null, 200_000]) {
+      const rows = daily.map((item) => ({ ...item, effectiveBaseDistanceMeters: distance }));
+      expect(buildV11Episodes(rows.reverse(), { baseContext: true }).trips).toHaveLength(1);
+    }
+  });
+
+  it('does not corroborate a return with a home observation weeks later', () => {
+    const dated = (id: string, day: number) => ({
+      ...qualified(id, day), capturedAtMillis: Date.UTC(2026, 0, day),
+      capturedDay: `2026-01-${String(day).padStart(2, '0')}`, hasPreciseOffset: false,
+    });
+    const home = (day: number) => ({ ...dated(`home-${day}`, day), latitude: 10, longitude: 10 });
+    const result = buildV11Episodes([dated('away-before', 1), home(2), dated('away-after', 3), home(27)], {
+      baseContext: true, ownerHomeAreas: [{ id: 'home', latitude: 10, longitude: 10 }],
+    });
+    expect(result.trips.find((trip) => trip.supportIds.includes('away-before'))?.supportIds).toContain('away-after');
+  });
+
+  it('uses corroborated consecutive civil Home days without attaching their media', () => {
+    const civil = (id: string, day: string) => ({
+      ...qualified(id, 0), capturedDay: day, hasPreciseOffset: false,
+    });
+    const before = civil('before', '2026-01-01');
+    const after = civil('after', '2026-01-04');
+    const home = { id: 'home', latitude: 10, longitude: 10 };
+    const homes = applyOwnerConfiguredHomeAreas(['2026-01-02', '2026-01-03'].map((day) => ({
+      ...civil(day, day), latitude: 10, longitude: 10,
+    })), [home]);
+    const options = { baseContext: true, homeObservations: homes };
+    expect(buildV11Episodes([before, after], { baseContext: true }).trips).toHaveLength(1);
+    expect(buildV11Episodes([before, after], options).trips.map((trip) => trip.supportIds)).toEqual([['after'], ['before']]);
   });
 
   it('derives deterministic C0/C1-ready context without letting candidate evidence establish its own base', () => {

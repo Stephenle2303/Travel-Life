@@ -23,9 +23,9 @@ export function stripJpegMetadata(bytes: Uint8Array): Uint8Array {
   }
   const result = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0)); let offset = 0; for (const part of parts) { result.set(part, offset); offset += part.length; } return result;
 }
-export async function prepareSelectedDerivative(sourceUri: string, kind: 'photo' | 'video', correlationId: string): Promise<{ uri: string; manifest: ShareMedia }> {
+export async function prepareSelectedDerivative(sourceUri: string, kind: 'photo' | 'video', correlationId: string, diagnostic: (event: AppDiagnosticEvent) => void = recordAppDiagnostic): Promise<{ uri: string; manifest: ShareMedia }> {
   let stage: AppDiagnosticEvent['stage'] = 'SHARE_COPY';
-  const emit = (reasonCode: AppDiagnosticEvent['reasonCode'], durableOutcome: AppDiagnosticEvent['durableOutcome']) => recordAppDiagnostic({ operation: 'SHARE_DERIVATIVE', stage, reasonCode, retryable: reasonCode === 'SHARE_STORAGE', durableOutcome, correlationId });
+  const emit = (reasonCode: AppDiagnosticEvent['reasonCode'], durableOutcome: AppDiagnosticEvent['durableOutcome']) => diagnostic({ operation: 'SHARE_DERIVATIVE', stage, reasonCode, retryable: reasonCode === 'SHARE_STORAGE', durableOutcome, correlationId });
   const key = Crypto.randomUUID(); const directory = FileSystem.cacheDirectory;
   if (!directory) { emit('SHARE_STORAGE', 'failed'); throw new ShareOwnerError('SHARE_STORAGE', stage); }
   const staged = `${directory}share-source-${key}`; const uri = `${directory}share-derivative-${key}.${kind === 'photo' ? 'jpg' : 'mp4'}`;

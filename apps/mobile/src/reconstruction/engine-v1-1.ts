@@ -27,6 +27,22 @@ const haversineMeters = (latitude: number, longitude: number, otherLatitude: num
   return 6_371_000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
 };
 
+function validLocation(item: { latitude: number | null; longitude: number | null }) {
+  return item.latitude !== null && Number.isFinite(item.latitude) && Math.abs(item.latitude) <= 90
+    && item.longitude !== null && Number.isFinite(item.longitude) && Math.abs(item.longitude) <= 180;
+}
+
+export function effectiveConfiguredHomeDistanceV11(item: Pick<TripDetectorEvidence, 'latitude' | 'longitude' | 'capturedDay'>, areas: readonly OwnerConfiguredHomeArea[]) {
+  if (!validLocation(item)) return null;
+  let closest = Infinity;
+  for (const area of areas) {
+    if (validLocation(area) && isActiveOn(area, item.capturedDay)) {
+      closest = Math.min(closest, haversineMeters(item.latitude!, item.longitude!, area.latitude, area.longitude));
+    }
+  }
+  return Number.isFinite(closest) ? closest : null;
+}
+
 /** Applies all active owner-configured homes independently. A row with no
  * reliable date or coordinate remains unclassified rather than borrowing a
  * current home or silently extending a period. */
@@ -38,13 +54,16 @@ export function applyOwnerConfiguredHomeAreas(evidence: TripDetectorEvidence[], 
     && (!area.effectiveStartDay || !area.effectiveEndDay || area.effectiveStartDay <= area.effectiveEndDay))
     .sort((left, right) => left.id.localeCompare(right.id));
   return evidence.map((item) => {
-    if (!validDay(item.capturedDay) || !Number.isFinite(item.latitude) || !Number.isFinite(item.longitude)) return item;
+    const accuracy = item.reportedAccuracyMeters ?? 0;
+    if (!validDay(item.capturedDay) || !validLocation(item) || !Number.isFinite(accuracy)
+      || accuracy < 0 || accuracy > 5_000 || item.excluded || item.duplicateConflict
+      || item.supportEligible === false || item.availability === 'unavailable' || item.timeConflict) return item;
     const active = canonicalAreas.filter((area) => isActiveOn(area, item.capturedDay)
-      && haversineMeters(item.latitude!, item.longitude!, area.latitude, area.longitude) <= (area.radiusMeters ?? 50_000));
+      && haversineMeters(item.latitude!, item.longitude!, area.latitude, area.longitude) + accuracy <= (area.radiusMeters ?? 50_000));
     if (!active.length) return item;
     // Stable choice is an opaque local diagnostic only; qualification uses the
     // presence of any configured-home context, never the chosen ID.
-    return { ...item, usualAreaContext: true, configuredHomeAreaId: active[0].id };
+    return { ...item, usualAreaContext: true, configuredHomeAreaId: active[0].id, configuredHomeAreaIds: active.map((area) => area.id) };
   });
 }
 
@@ -178,11 +197,12 @@ export function reconstructV11(episodes: ({ id: string; evidence: TripDetectorEv
  * It is deliberately conservative: an active owner home is a local boundary,
  * and incomparable/contradictory time never gets sorted by source ID as though
  * it were chronology. Context qualification remains a separate pure pass. */
-export function buildV11Episodes(evidence: TripDetectorEvidence[], options: QualificationOptions & { ownerHomeAreas?: OwnerConfiguredHomeArea[] }): TripDetectionResult {
+export function buildV11Episodes(evidence: TripDetectorEvidence[], options: QualificationOptions & { ownerHomeAreas?: OwnerConfiguredHomeArea[]; homeObservations?: TripDetectorEvidence[] }): TripDetectionResult {
   const normalized = applyOwnerConfiguredHomeAreas(evidence, options.ownerHomeAreas ?? []);
   const routineContext = deriveRoutineVetoV11(normalized, null);
-  const candidates = normalized.filter((item) => item.captureLike === true && item.origin === 'capture-like'
-    && item.availability !== 'unavailable' && !item.excluded && !item.duplicateConflict);
+  const externalHomes = (options.homeObservations ?? []).filter((item) => item.configuredHomeAreaId);
+  const candidates = [...normalized, ...externalHomes].filter((item) => item.captureLike === true && item.origin === 'capture-like'
+    && item.availability !== 'unavailable' && !item.excluded && !item.duplicateConflict && item.supportEligible !== false);
   // Android's media API supplies a creation timestamp but no trustworthy
   // offset.  That is a civil-day observation, not an instant.  Build one
   // block per observed day so mixed precision can share trip membership while
@@ -191,19 +211,13 @@ export function buildV11Episodes(evidence: TripDetectorEvidence[], options: Qual
   const blocks = new Map<string, TripDetectorEvidence[]>();
   for (const item of candidates) {
     const key = validDay(item.capturedDay) ? `day:${item.capturedDay}` : `unknown:${item.id}`;
-    blocks.set(key, [...(blocks.get(key) ?? []), item]);
+    const block = blocks.get(key);
+    if (block) block.push(item);
+    else blocks.set(key, [item]);
   }
   // A single near-home observation is explicitly not a return.  Only an
   // observed configured-home block with two civil days or two captures at
   // least an hour apart may close an away episode.
-  const homeRowsByArea = new Map<string, TripDetectorEvidence[]>();
-  for (const item of normalized) if (item.configuredHomeAreaId) homeRowsByArea.set(item.configuredHomeAreaId, [...(homeRowsByArea.get(item.configuredHomeAreaId) ?? []), item]);
-  const corroboratedHomeAreas = new Set<string>();
-  for (const [areaId, homeRows] of homeRowsByArea) {
-    const homeDays = new Set(homeRows.map((item) => item.capturedDay).filter((day): day is string => validDay(day)));
-    const homeTimes = homeRows.map(preciseTimestamp).filter((time): time is number => time !== null).sort((left, right) => left - right);
-    if (homeDays.size >= 2 || homeTimes.some((time, index) => index > 0 && time - homeTimes[index - 1] >= 60 * 60 * 1000)) corroboratedHomeAreas.add(areaId);
-  }
   const groups: TripDetectorEvidence[][] = [];
   const dayMillis = (items: TripDetectorEvidence[]) => {
     const day = items.map((item) => item.capturedDay).find(validDay);
@@ -211,30 +225,79 @@ export function buildV11Episodes(evidence: TripDetectorEvidence[], options: Qual
   };
   const orderedBlocks = [...blocks.values()].sort((left, right) => (dayMillis(left) ?? Number.MAX_SAFE_INTEGER) - (dayMillis(right) ?? Number.MAX_SAFE_INTEGER)
     || left.map((item) => item.id).sort().join('|').localeCompare(right.map((item) => item.id).sort().join('|')));
-  const isCorroboratedHomeBlock = (items: TripDetectorEvidence[]) => items.some((item) => item.configuredHomeAreaId !== null
-    && item.configuredHomeAreaId !== undefined && corroboratedHomeAreas.has(item.configuredHomeAreaId));
+  const corroboratesReturn = (homeRows: TripDetectorEvidence[]) => {
+    const byArea = new Map<string, TripDetectorEvidence[]>();
+    for (const item of homeRows) {
+      if (!item.configuredHomeAreaId || item.timeConflict) continue;
+      for (const areaId of item.configuredHomeAreaIds ?? [item.configuredHomeAreaId]) {
+        const areaRows = byArea.get(areaId) ?? [];
+        areaRows.push(item);
+        byArea.set(areaId, areaRows);
+      }
+    }
+    for (const areaRows of byArea.values()) {
+      const units = new Map(ordered(areaRows).map((item) => [item.duplicateFamilyId ?? item.id, item]));
+      const days = new Set<number>();
+      const firstTimeByDay = new Map<number, number>();
+      for (const item of [...units.values()].sort((a, b) => (a.capturedDay ?? '').localeCompare(b.capturedDay ?? '')
+        || (preciseTimestamp(a) ?? Infinity) - (preciseTimestamp(b) ?? Infinity) || a.id.localeCompare(b.id))) {
+        const day = dayMillis([item]);
+        if (day === null) continue;
+        if (days.has(day - 86_400_000)) return true;
+        days.add(day);
+        const time = preciseTimestamp(item);
+        if (time === null) continue;
+        const first = firstTimeByDay.get(day);
+        if (first === undefined) firstTimeByDay.set(day, time);
+        else if (time - first >= 3_600_000) return true;
+      }
+    }
+    return false;
+  };
   const allKnownPointsAreAway = (items: TripDetectorEvidence[]) => {
     const distances = items.map((item) => item.effectiveBaseDistanceMeters).filter((distance): distance is number => Number.isFinite(distance));
     return distances.length > 0 && distances.every((distance) => distance >= 50_000);
   };
-  for (const block of orderedBlocks) {
-    const prior = groups.at(-1);
-    const priorBlock = prior === undefined ? undefined : prior;
+  let priorBlock: TripDetectorEvidence[] | undefined;
+  let priorGroup: TripDetectorEvidence[] | undefined;
+  let priorDayHomes: TripDetectorEvidence[] = [];
+  let interveningHomes: TripDetectorEvidence[] = [];
+  const inputIds = new Set(normalized.map((item) => item.id));
+  for (const dayBlock of orderedBlocks) {
+    const homeRows = dayBlock.filter((item) => item.configuredHomeAreaId);
+    const block = dayBlock.filter((item) => !item.configuredHomeAreaId);
+    if (!block.length) {
+      interveningHomes.push(...homeRows);
+      const standalone = homeRows.filter((item) => inputIds.has(item.id));
+      if (standalone.length) groups.push(standalone);
+      continue;
+    }
     const priorDay = priorBlock ? dayMillis(priorBlock) : null;
     const currentDay = dayMillis(block);
     const civilGap = priorDay === null || currentDay === null ? null : (currentDay - priorDay) / 86_400_000;
     const priorExact = priorBlock?.map(preciseTimestamp).filter((time): time is number => time !== null).sort((a, b) => a - b).at(-1) ?? null;
     const currentExact = block.map(preciseTimestamp).filter((time): time is number => time !== null).sort((a, b) => a - b)[0] ?? null;
     const exactGap = priorExact === null || currentExact === null ? null : currentExact - priorExact;
-    const homeBoundary = isCorroboratedHomeBlock(block) || Boolean(priorBlock && isCorroboratedHomeBlock(priorBlock));
+    const orderedEdgeHomes = priorExact === null || currentExact === null ? [] : [...priorDayHomes, ...homeRows].filter((item) => {
+      const time = preciseTimestamp(item);
+      return time !== null && time > priorExact && time < currentExact;
+    });
+    const homeBoundary = corroboratesReturn([...interveningHomes, ...orderedEdgeHomes]);
     const shortComparableLink = exactGap !== null && exactGap >= 0 && exactGap <= 72 * 60 * 60 * 1000;
     const shortCivilLink = civilGap !== null && civilGap >= 0 && civilGap <= 2;
     // A longer photo-silent city stay is still one away episode only when the
     // complete local context independently places both blocks away from home.
     const awayContinuation = civilGap !== null && civilGap >= 0 && civilGap <= 10
       && priorBlock !== undefined && allKnownPointsAreAway(priorBlock) && allKnownPointsAreAway(block);
-    if (!priorBlock || homeBoundary || !(shortComparableLink || shortCivilLink || awayContinuation)) groups.push([...block]);
-    else priorBlock.push(...block);
+    const blocked = homeBoundary || priorBlock?.some((item) => item.ownerBoundaryAfter || item.timeConflict)
+      || block.some((item) => item.timeConflict) || (exactGap !== null && exactGap < 0);
+    if (!priorGroup || blocked || !(shortComparableLink || shortCivilLink || awayContinuation)) {
+      priorGroup = [...block];
+      groups.push(priorGroup);
+    } else priorGroup.push(...block);
+    priorBlock = block;
+    priorDayHomes = homeRows;
+    interveningHomes = [];
   }
   return reconstructV11(groups.map((group) => ({
     id: `episode:${group.map((item) => item.id).sort().join('|')}`,

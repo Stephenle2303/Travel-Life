@@ -1,0 +1,5 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": { "modules": ["TravelLifeSignageModule"] },
+  "android": { "modules": ["expo.modules.travellifesignage.TravelLifeSignageModule"] }
+}

@@ -1,8 +1,16 @@
 import type { PermissionSnapshot, PhotoAccessAdapter } from '@/photo-access/types';
+import { classifyAppDiagnosticError, createDiagnosticCorrelationId, recordAppDiagnostic, type AppDiagnosticEvent } from '@/diagnostics/app-diagnostics';
 
 import type { ImportCheckpoint, ImportCoverage, ImportRepository, ImportScope, SourceCandidate } from './types';
 
 const PAGE_SIZE = 100;
+
+class ImportReadStopped extends Error {
+  constructor(readonly reason: 'SKIPPED' | 'RESTRICTED' | 'BLOCKED') { super('Import read stopped.'); }
+}
+class ImportBoundaryError extends Error {
+  constructor(readonly stage: AppDiagnosticEvent['stage'], readonly originalError: unknown) { super('Import boundary failed.'); }
+}
 
 const idleCoverage: ImportCoverage = {
   scope: null,
@@ -43,6 +51,51 @@ export class ImportCoordinator {
   private serial = 0;
   private activeCheckpoint: ImportCheckpoint | null = null;
   private pausePending: Promise<void> | null = null;
+  private correlationId = createDiagnosticCorrelationId();
+  private commitUnknown = false;
+
+  private failure(stage: AppDiagnosticEvent['stage'], error: unknown, token = this.serial) {
+    if (token !== this.serial || error instanceof ImportReadStopped) {
+      const reasonCode = token !== this.serial ? 'SKIPPED' : (error as ImportReadStopped).reason;
+      recordAppDiagnostic({ operation: 'METADATA_IMPORT', stage: error instanceof ImportReadStopped && reasonCode !== 'SKIPPED' ? 'IMPORT_ACCESS' : stage, reasonCode, retryable: false, durableOutcome: reasonCode === 'SKIPPED' ? 'skipped' : 'blocked', correlationId: this.correlationId });
+      return;
+    }
+    recordAppDiagnostic({ operation: 'METADATA_IMPORT', stage: error instanceof ImportBoundaryError ? error.stage : stage, reasonCode: classifyAppDiagnosticError(error), retryable: true, durableOutcome: 'unknown', correlationId: this.correlationId });
+  }
+
+  private async readWithRetry<T>(read: () => Promise<T>, token: number, scope: ImportScope): Promise<T> {
+    for (let attempt = 0; ; attempt += 1) {
+      try { return await read(); }
+      catch (error) {
+        if (token !== this.serial) throw new ImportReadStopped('SKIPPED');
+        const category = classifyAppDiagnosticError(error);
+        if (attempt >= 2 || token !== this.serial || (category !== 'DATABASE_BUSY' && category !== 'NATIVE_HANDLE')) throw error;
+        await new Promise<void>((resolve) => setTimeout(resolve, attempt === 0 ? 1000 : 3000));
+        if (token !== this.serial) throw new ImportReadStopped('SKIPPED');
+        try {
+          const lifecycle = await this.repository.getPrivateRecordLifecycle();
+          if (token !== this.serial) throw new ImportReadStopped('SKIPPED');
+          if (lifecycle.state !== 'connected') throw new ImportReadStopped('BLOCKED');
+          if (scope !== 'selected') {
+            const permission = await this.adapter.inspect();
+            if (token !== this.serial) throw new ImportReadStopped('SKIPPED');
+            if (!isPermitted(scope, permission)) throw new ImportReadStopped('RESTRICTED');
+          }
+        } catch (guardError) {
+          if (guardError instanceof ImportReadStopped) throw guardError;
+          throw new ImportBoundaryError('IMPORT_ACCESS', guardError);
+        }
+      }
+    }
+  }
+
+  private async commitPageWithAcknowledgement(checkpoint: ImportCheckpoint, candidates: SourceCandidate[]) {
+    // Aggregate counts cannot prove that this exact page/selection committed.
+    // A rejected acknowledgement stays unresolved until an acknowledged,
+    // authorized stable-ID rescan completes; never infer success from counts.
+    try { await this.repository.commitPage(checkpoint, candidates); }
+    catch (error) { this.commitUnknown = true; throw error; }
+  }
 
   constructor(
     private readonly adapter: PhotoAccessAdapter,
@@ -52,6 +105,7 @@ export class ImportCoordinator {
 
   get coverage() { return this.current; }
   get isRunning() { return this.current.status === 'running'; }
+  get hasUnresolvedCommit() { return this.commitUnknown; }
 
   private set(next: ImportCoverage) {
     this.current = next;
@@ -95,7 +149,8 @@ export class ImportCoordinator {
           await pending;
           this.activeCheckpoint = checkpoint;
           this.set({ ...this.current, status: 'paused', message: 'Import paused. Committed pages are ready to resume.' });
-        } catch {
+        } catch (error) {
+          this.failure('IMPORT_CHECKPOINT', error);
           this.set({ ...this.current, status: 'paused', message: 'Import stopped, but its pause marker could not be saved. Retry when ready.' });
         } finally {
           if (this.pausePending === pending) this.pausePending = null;
@@ -105,10 +160,12 @@ export class ImportCoordinator {
     }
   }
 
-  async start(scope: Extract<ImportScope, 'full' | 'limited'>, accessible: number | null) {
+  async start(scope: Extract<ImportScope, 'full' | 'limited'>, accessible: number | null, correlationId = createDiagnosticCorrelationId()) {
     if (this.isRunning) return;
+    this.commitUnknown = false;
+    this.correlationId = correlationId;
     const token = ++this.serial;
-    if (!await this.canReadCurrentSource(scope, accessible) || token !== this.serial) return;
+    if (!await this.canReadCurrentSource(scope, accessible, token) || token !== this.serial) return;
     if (this.pausePending) {
       try {
         await this.pausePending;
@@ -119,7 +176,8 @@ export class ImportCoordinator {
     let saved: ImportCheckpoint | null;
     try {
       saved = await this.repository.getCheckpoint(scope);
-    } catch {
+    } catch (error) {
+      this.failure('IMPORT_CHECKPOINT', error, token);
       if (token === this.serial) {
         this.set({ ...idleCoverage, scope, accessible, status: 'paused', message: 'Local import progress could not be read. Retry when ready.' });
       }
@@ -137,10 +195,12 @@ export class ImportCoordinator {
     await this.runPages(token, checkpoint, accessible);
   }
 
-  async importSelected(assetIds: string[], missingIds: number) {
+  async importSelected(assetIds: string[], missingIds: number, correlationId = createDiagnosticCorrelationId()) {
     if (this.isRunning) return;
+    this.commitUnknown = false;
+    this.correlationId = correlationId;
     const token = ++this.serial;
-    if (!await this.canReadCurrentSource('selected', assetIds.length + missingIds) || token !== this.serial) return;
+    if (!await this.canReadCurrentSource('selected', assetIds.length + missingIds, token) || token !== this.serial) return;
     if (this.pausePending) {
       try {
         await this.pausePending;
@@ -151,7 +211,8 @@ export class ImportCoordinator {
     let saved: ImportCheckpoint | null;
     try {
       saved = await this.repository.getCheckpoint('selected');
-    } catch {
+    } catch (error) {
+      this.failure('IMPORT_CHECKPOINT', error, token);
       if (token === this.serial) {
         this.set({ ...idleCoverage, scope: 'selected', accessible: assetIds.length + missingIds, status: 'paused', message: 'Local import progress could not be read. Retry when ready.' });
       }
@@ -167,19 +228,22 @@ export class ImportCoordinator {
     this.set(checkpointToCoverage({ ...checkpoint, status: 'running' }, assetIds.length + missingIds));
     let candidates: SourceCandidate[];
     try {
-      candidates = await this.adapter.readSelectedMetadata(assetIds);
-    } catch {
-      if (token === this.serial) this.set({ ...checkpointToCoverage({ ...checkpoint, status: 'paused' }, assetIds.length + missingIds), message: 'Selected metadata could not be read. Retry when ready.' });
+      candidates = await this.readWithRetry(() => this.adapter.readSelectedMetadata(assetIds), token, 'selected');
+    } catch (error) {
+      this.failure('IMPORT_READ', error, token);
+      if (token === this.serial) this.set({ ...checkpointToCoverage({ ...checkpoint, status: 'paused' }, assetIds.length + missingIds), status: error instanceof ImportReadStopped ? 'blocked' : 'paused', message: 'Selected metadata could not be read. Retry when ready.' });
       return;
     }
     if (token !== this.serial) return;
+    if (!await this.canReadCurrentSource('selected', assetIds.length + missingIds, token) || token !== this.serial) return;
     // A stable picker ID can disappear before lookup. Count it unavailable but
     // never fabricate a replacement identity or source row.
     const disappeared = Math.max(0, assetIds.length - candidates.length);
     const updated = this.advance({ ...checkpoint, status: 'complete' }, candidates, missingIds + disappeared);
     try {
-      await this.repository.commitPage(updated, candidates);
-    } catch {
+      await this.commitPageWithAcknowledgement(updated, candidates);
+    } catch (error) {
+      this.failure('IMPORT_COMMIT', error, token);
       if (token === this.serial) this.set({ ...checkpointToCoverage({ ...checkpoint, status: 'paused' }, assetIds.length + missingIds), message: 'Selected metadata could not be saved. Retry when ready.' });
       return;
     }
@@ -187,10 +251,12 @@ export class ImportCoordinator {
     if (token === this.serial) this.set(checkpointToCoverage(updated, assetIds.length + missingIds));
   }
 
-  private async canReadCurrentSource(scope: ImportScope, accessible: number | null) {
+  private async canReadCurrentSource(scope: ImportScope, accessible: number | null, token = this.serial) {
     try {
       const lifecycle = await this.repository.getPrivateRecordLifecycle();
+      if (token !== this.serial) return false;
       if (lifecycle.state === 'connected') return true;
+      recordAppDiagnostic({ operation: 'METADATA_IMPORT', stage: 'IMPORT_READ', reasonCode: 'BLOCKED', retryable: false, durableOutcome: 'blocked', correlationId: this.correlationId });
       this.activeCheckpoint = null;
       this.set({
         ...idleCoverage,
@@ -201,8 +267,9 @@ export class ImportCoordinator {
           ? 'Photo-source reads are disconnected. Reconnect your private record before importing.'
           : 'No private record is available. Reconnect your private record before importing.',
       });
-    } catch {
-      this.set({ ...idleCoverage, scope, accessible, status: 'paused', message: 'Private record status could not be read. Retry when ready.' });
+    } catch (error) {
+      this.failure('IMPORT_CHECKPOINT', error, token);
+      if (token === this.serial) this.set({ ...idleCoverage, scope, accessible, status: 'paused', message: 'Private record status could not be read. Retry when ready.' });
     }
     return false;
   }
@@ -218,6 +285,7 @@ export class ImportCoordinator {
   }
 
   private async runPages(token: number, initial: ImportCheckpoint, accessible: number | null) {
+    let stage: AppDiagnosticEvent['stage'] = 'IMPORT_READ';
     let checkpoint: ImportCheckpoint = { ...initial, status: 'running' };
     // Only this checkpoint has definitely reached durable storage. Keep it so
     // a failed page write never appears committed and never requires another
@@ -227,23 +295,32 @@ export class ImportCoordinator {
     this.set(checkpointToCoverage(checkpoint, accessible));
     try {
       while (token === this.serial) {
+        stage = 'IMPORT_READ';
+        if (!await this.canReadCurrentSource(checkpoint.scope, accessible, token) || token !== this.serial) return;
+        stage = 'IMPORT_ACCESS';
         const before = await this.adapter.inspect();
         if (token !== this.serial) return;
         if (!isPermitted(checkpoint.scope, before)) {
+          recordAppDiagnostic({ operation: 'METADATA_IMPORT', stage: 'IMPORT_ACCESS', reasonCode: 'RESTRICTED', retryable: false, durableOutcome: 'blocked', correlationId: this.correlationId });
           this.set({ ...checkpointToCoverage({ ...checkpoint, status: 'paused' }, accessible), status: 'blocked', message: 'Photo access changed. No further items were read.' });
           return;
         }
-        const page = await this.adapter.readMetadataPage(checkpoint.nextOffset, PAGE_SIZE);
+        stage = 'IMPORT_READ';
+        const page = await this.readWithRetry(() => this.adapter.readMetadataPage(checkpoint.nextOffset, PAGE_SIZE), token, checkpoint.scope);
         if (token !== this.serial) return; // A late page is intentionally discarded.
+        stage = 'IMPORT_ACCESS';
         const after = await this.adapter.inspect();
         if (token !== this.serial) return;
+        if (!await this.canReadCurrentSource(checkpoint.scope, accessible, token) || token !== this.serial) return;
         if (!isPermitted(checkpoint.scope, after)) {
+          recordAppDiagnostic({ operation: 'METADATA_IMPORT', stage: 'IMPORT_ACCESS', reasonCode: 'RESTRICTED', retryable: false, durableOutcome: 'blocked', correlationId: this.correlationId });
           this.set({ ...checkpointToCoverage({ ...checkpoint, status: 'paused' }, accessible), status: 'blocked', message: 'Photo access changed. A late page was discarded.' });
           return;
         }
         checkpoint = this.advance(checkpoint, page);
         checkpoint.status = page.length < PAGE_SIZE ? 'complete' : 'running';
-        await this.repository.commitPage(checkpoint, page);
+        stage = 'IMPORT_COMMIT';
+        await this.commitPageWithAcknowledgement(checkpoint, page);
         lastCommitted = checkpoint;
         this.activeCheckpoint = checkpoint;
         if (token !== this.serial) return;
@@ -251,14 +328,19 @@ export class ImportCoordinator {
         if (checkpoint.status === 'complete') return;
       }
     } catch (error) {
+      this.failure(stage, error, token);
       if (token === this.serial) {
         const paused = { ...lastCommitted, status: 'paused' as const };
+        if (error instanceof ImportReadStopped) {
+          this.set({ ...checkpointToCoverage(paused, accessible), status: 'blocked', message: 'Photo access changed. Choose what to use next.' });
+          return;
+        }
         // A busy commit has made no durable change. Do not immediately submit
         // a second pause-marker write to the same locked database; preserve
         // the last durable checkpoint and let the owner retry safely.
-        if (isDatabaseBusy(error)) {
+        if (stage === 'IMPORT_COMMIT' || isDatabaseBusy(error)) {
           this.activeCheckpoint = paused;
-          this.set({ ...checkpointToCoverage(paused, accessible), message: 'Local storage is busy. No metadata page was committed. Retry when ready.' });
+          this.set({ ...checkpointToCoverage(paused, accessible), message: stage === 'IMPORT_COMMIT' ? 'Checking saved metadata progress. Retry when ready.' : 'Local storage is busy. No metadata page was committed. Retry when ready.' });
           return;
         }
         try {

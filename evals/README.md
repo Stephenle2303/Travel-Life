@@ -5,6 +5,10 @@ The current executable runner checks a trace envelope and evidence references.
 It does not invoke a model, reconstruct trips, grade factual accuracy, or decide
 release readiness. Every report explicitly marks product quality as not measured.
 
+The independent [Atlas landmark pilot](landmarks/README.md) runs the visual
+recognition models locally on a pinned public fixture. Its report measures
+image retrieval and assembled episode stop coverage on that fixture.
+
 ## M2.4 engine regression evidence
 
 The local `reconstruction-v1` suite contains 35 synthetic deterministic cases for

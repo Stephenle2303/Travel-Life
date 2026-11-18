@@ -2,7 +2,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 
 import { palette, useReducedMotion } from '@/components/ui';
-import { PhotoAccessProvider } from '@/photo-access/provider';
+import { PrivateRecordProvider } from '@/account/root-provider';
 import '@/maintenance/task';
 
 export function getRootStackOptions(reducedMotion: boolean) {
@@ -16,9 +16,9 @@ export function getRootStackOptions(reducedMotion: boolean) {
 export default function RootLayout() {
   const reducedMotion = useReducedMotion();
   return (
-    <PhotoAccessProvider>
+    <PrivateRecordProvider>
       <StatusBar style="light" />
       <Stack screenOptions={getRootStackOptions(reducedMotion)} />
-    </PhotoAccessProvider>
+    </PrivateRecordProvider>
   );
 }

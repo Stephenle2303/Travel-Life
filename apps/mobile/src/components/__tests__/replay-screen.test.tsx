@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react
 import { keepsReplayRoute, musicSaveFailureCopy, ReplayScreen, replayVideoSceneSeconds, selectedShareMemoryKeys, shareableCommittedMemories, shareableCommittedTrips } from '@/components/replay-screen';
 import { ReplayDraftSaveError } from '@/photo-access/provider';
 import { ReplayPreparationError } from '@/replay/renderer';
+import { ReplayDiagnosticError } from '@/replay/preparation-diagnostics';
 import { Alert } from 'react-native';
 import { ReplayEditSession, ReplaySaveOutcomeError } from '@/replay/edit-session';
 
@@ -32,6 +33,41 @@ jest.mock('@/replay/thumbnail-service', () => ({ replayThumbnails: { request: je
 jest.mock('@/photo-access/provider', () => ({ ReplayDraftSaveError: class ReplayDraftSaveError extends Error { stage = 'REPLAY_STALE'; reason: 'scope' | 'revision' | 'branch' | 'unknown'; constructor(mockReason: 'scope' | 'revision' | 'branch' | 'unknown') { super('REPLAY_STALE'); this.reason = mockReason; } }, usePhotoAccess: () => ({ replayEditSession: mockReplayEditSession, loadReplayManifestInput: mockLoadReplayManifestInput, loadReplayEditorPreviewPage: mockLoadReplayEditorPreviewPage, loadPreparedReplay: mockLoadPreparedReplay, saveReplayDraft: mockSaveReplayDraft, stageReplayWorkingDraft: mockStageReplayWorkingDraft, resetReplayDraft: mockResetReplayDraft, preparePrivateReplay: mockPreparePrivateReplay, exportPrivateReplay: mockExportPrivateReplay, discardPrivateReplay: mockDiscardPrivateReplay }) }));
 
 describe('Replay screen', () => {
+  it('prepares the committed account soundtrack on first open rather than the previous render state',async()=>{
+    const soundtrack={kind:'custom',revision:'committed-track',localUri:'file:///committed.m4a'};
+    mockLoadReplayManifestInput.mockResolvedValue({snapshotToken:7,privacyRevision:1,soundtrack,groups:[{key:'trip',label:'Synthetic trip',eligible:true,inferred:true,orderCertain:true}],memories:[]});
+    mockPreparePrivateReplay.mockResolvedValue({uri:'file:///committed-replay.mp4',renderedMemoryCount:0,omittedMemoryCount:0,durationSeconds:5});
+    await render(<ReplayScreen/>);
+    await waitFor(()=>expect(mockPreparePrivateReplay).toHaveBeenCalled());
+    expect(mockPreparePrivateReplay.mock.calls[0][2]).toEqual(soundtrack);
+  });
+  it('shares the selected-preview action correlation with its provider render', async () => {
+    const log = jest.spyOn(console, 'info').mockImplementation(() => {});
+    try {
+      mockPreparePrivateReplay.mockResolvedValue({ uri: 'file:///private-replay.mp4', renderedMemoryCount: 1, omittedMemoryCount: 0, durationSeconds: 5 });
+      const view = await render(<ReplayScreen />);
+      await waitFor(() => expect(view.getByLabelText('Choose Replay for sharing')).toBeOnTheScreen());
+      await fireEvent.press(view.getByLabelText('Choose Replay for sharing'));
+      await fireEvent.press(view.getByLabelText('Select Observed destination trip 1 for sharing'));
+      await fireEvent.press(view.getByLabelText('Preview selected Replay'));
+      await waitFor(() => expect(view.getByLabelText('Share selected Replay video')).toBeOnTheScreen());
+      const action = log.mock.calls.map(([, event]) => event).find(event => event.operation === 'REPLAY_EXPORT' && event.reasonCode === 'START');
+      expect(mockPreparePrivateReplay.mock.calls.at(-1)![5]).toBe(action.correlationId);
+    } finally { log.mockRestore(); }
+  });
+  it('passes one action correlation through manifest and rendering without duplicating a recorded failure', async () => {
+    const log = jest.spyOn(console, 'info').mockImplementation(() => {});
+    mockPreparePrivateReplay.mockRejectedValue(new ReplayDiagnosticError('REPLAY_ACCESS'));
+    try {
+      const view = await render(<ReplayScreen />);
+      await waitFor(() => expect(view.getByText('Replay could not be prepared.')).toBeOnTheScreen());
+      const start = log.mock.calls.map(([, event]) => event).find(event => event.operation === 'REPLAY_RENDER' && event.reasonCode === 'START');
+      expect(start.correlationId).toEqual(expect.any(String));
+      expect(mockLoadReplayManifestInput).toHaveBeenCalledWith(start.correlationId);
+      expect(mockPreparePrivateReplay.mock.calls[0][5]).toBe(start.correlationId);
+      expect(log.mock.calls.map(([, event]) => event).filter(event => event.operation === 'REPLAY_RENDER')).toHaveLength(1);
+    } finally { log.mockRestore(); }
+  });
   const openTrip = async (view: Awaited<ReturnType<typeof render>>, startDay = '2024-01-01') => {
     await waitFor(() => expect(view.getByLabelText('Replay trip overview')).toBeOnTheScreen());
     await fireEvent.press(view.getByLabelText(`Edit trip Observed destination ${startDay}`));
@@ -109,7 +145,7 @@ describe('Replay screen', () => {
     mockExportPrivateReplay.mockResolvedValue('closed');
     const view = await render(<ReplayScreen />);
     await waitFor(() => expect(view.getByLabelText('Mute Replay audio')).toBeOnTheScreen());
-    expect(mockPreparePrivateReplay).toHaveBeenLastCalledWith(undefined, expect.any(Function), { kind: 'bundled', revision: 'happy-moments-1.4' }, expect.any(Function));
+    expect(mockPreparePrivateReplay).toHaveBeenLastCalledWith(undefined, expect.any(Function), { kind: 'bundled', revision: 'happy-moments-1.4' }, expect.any(Function), undefined, expect.any(String));
     await fireEvent.press(view.getByLabelText('Mute Replay audio'));
     await waitFor(() => expect(view.getByLabelText('Unmute Replay audio')).toBeOnTheScreen());
     await fireEvent.press(view.getByLabelText('Unmute Replay audio'));
@@ -122,7 +158,7 @@ describe('Replay screen', () => {
     await fireEvent.press(view.getByLabelText('Preview selected Replay'));
     await waitFor(() => expect(view.getByLabelText('Share selected Replay video')).toBeOnTheScreen());
     await fireEvent.press(view.getByLabelText('Share selected Replay video'));
-    await waitFor(() => expect(mockPreparePrivateReplay).toHaveBeenLastCalledWith([], undefined, { kind: 'bundled', revision: 'happy-moments-1.4' }, undefined, ['a']));
+    await waitFor(() => expect(mockPreparePrivateReplay).toHaveBeenLastCalledWith([], undefined, { kind: 'bundled', revision: 'happy-moments-1.4' }, undefined, ['a'], expect.any(String)));
   });
   it('keeps the player listening state through app-owned fullscreen without rendering again', async () => {
     mockPreparePrivateReplay.mockResolvedValue({ uri: 'file:///private-replay.mp4', renderedMemoryCount: 1, omittedMemoryCount: 0, durationSeconds: 5 });
@@ -151,7 +187,7 @@ describe('Replay screen', () => {
     await waitFor(() => expect(view.getByLabelText('Share selected Replay video')).toBeOnTheScreen());
     await fireEvent.press(view.getByLabelText('Share selected Replay video'));
     await waitFor(() => expect(view.getByText(/Share sheet closed/)).toBeOnTheScreen());
-    expect(mockPreparePrivateReplay).toHaveBeenLastCalledWith([], undefined, { kind: 'bundled', revision: 'happy-moments-1.4' }, undefined, ['a']);
+    expect(mockPreparePrivateReplay).toHaveBeenLastCalledWith([], undefined, { kind: 'bundled', revision: 'happy-moments-1.4' }, undefined, ['a'], expect.any(String));
     expect(view.queryByText(/0 selected/)).toBeNull();
     await fireEvent.press(view.getByLabelText('Cancel Replay preparation'));
     await waitFor(() => expect(view.getByText('Your private Replay.')).toBeOnTheScreen());
@@ -319,7 +355,7 @@ describe('Replay screen', () => {
     await fireEvent.press(view.getByLabelText('Select Observed destination trip 1 for sharing'));
     await fireEvent.press(view.getByLabelText('Select all Replay trips for sharing'));
     await fireEvent.press(view.getByLabelText('Preview selected Replay'));
-    await waitFor(() => expect(mockPreparePrivateReplay).toHaveBeenLastCalledWith([], undefined, expect.anything(), undefined, ['a', 'b']));
+    await waitFor(() => expect(mockPreparePrivateReplay).toHaveBeenLastCalledWith([], undefined, expect.anything(), undefined, ['a', 'b'], expect.any(String)));
   });
   it('prepares a selected card-only committed chapter with no media keys', async () => {
     mockLoadReplayManifestInput.mockResolvedValue({ snapshotToken: 7, privacyRevision: 1, soundtrack: { kind: 'custom', revision: 'committed-track', localUri: 'file:///committed.m4a' }, includedGroupKeys: ['chapter'], groups: [{ key: 'chapter', label: 'Card-only trip', inferred: true, eligible: true, orderCertain: true }], memories: [] });
@@ -329,7 +365,7 @@ describe('Replay screen', () => {
     await fireEvent.press(view.getByLabelText('Choose Replay for sharing'));
     await fireEvent.press(view.getByLabelText('Select Card-only trip trip 1 for sharing'));
     await fireEvent.press(view.getByLabelText('Preview selected Replay'));
-    await waitFor(() => expect(mockPreparePrivateReplay).toHaveBeenLastCalledWith([], undefined, { kind: 'custom', revision: 'committed-track', localUri: 'file:///committed.m4a' }, undefined, ['chapter']));
+    await waitFor(() => expect(mockPreparePrivateReplay).toHaveBeenLastCalledWith([], undefined, { kind: 'custom', revision: 'committed-track', localUri: 'file:///committed.m4a' }, undefined, ['chapter'], expect.any(String)));
     expect(view.getByLabelText('Share selected Replay video')).toBeOnTheScreen();
   });
   it('keeps the selected trips when returning from the exact private subset preview', async () => {
@@ -475,7 +511,7 @@ describe('Replay screen', () => {
     await waitFor(() => expect(view.getByLabelText('Remove Observed destination trip 1 for sharing')).toBeOnTheScreen());
     await waitFor(() => expect(view.getByLabelText('Remove Observed destination trip 2 for sharing')).toBeOnTheScreen());
     await fireEvent.press(view.getByLabelText('Preview selected Replay'));
-    await waitFor(() => expect(mockPreparePrivateReplay).toHaveBeenLastCalledWith([], undefined, { kind: 'bundled', revision: 'happy-moments-1.4' }, undefined, ['a', 'b']));
+    await waitFor(() => expect(mockPreparePrivateReplay).toHaveBeenLastCalledWith([], undefined, { kind: 'bundled', revision: 'happy-moments-1.4' }, undefined, ['a', 'b'], expect.any(String)));
   });
   it('keeps share-preview navigation disabled until the native handoff settles', async () => {
     let finishShare!: (value: 'closed') => void;
@@ -538,7 +574,7 @@ describe('Replay screen', () => {
     });
     await waitFor(() => expect(mockSaveReplayDraft).toHaveBeenCalledWith(['memory-b', 'memory-a'], 7, 1, 'oldest-first', { kind: 'bundled', revision: 'happy-moments-1.4' }, undefined, ['a', 'b'], ['b']));
     await waitFor(() => expect(mockPreparePrivateReplay).toHaveBeenCalledTimes(2));
-    expect(mockPreparePrivateReplay).toHaveBeenLastCalledWith(undefined, expect.any(Function), { kind: 'bundled', revision: 'happy-moments-1.4' }, expect.any(Function));
+    expect(mockPreparePrivateReplay).toHaveBeenLastCalledWith(undefined, expect.any(Function), { kind: 'bundled', revision: 'happy-moments-1.4' }, expect.any(Function), undefined, expect.any(String));
   };
   it('serializes rapid working saves using the acknowledged working revision', async () => {
     mockPreparePrivateReplay.mockResolvedValue({ uri: 'file:///private-replay.mp4', renderedMemoryCount: 2, omittedMemoryCount: 0, durationSeconds: 8 });
@@ -860,7 +896,7 @@ describe('Replay screen', () => {
     await waitFor(() => expect(view.getByLabelText('Update Replay')).not.toBeDisabled());
     await fireEvent.press(view.getByLabelText('Update Replay'));
     await waitFor(() => expect(mockSaveReplayDraft).toHaveBeenCalledWith(['memory-a', 'memory-b'], 7, 1, 'oldest-first', expect.objectContaining({ kind: 'custom', localUri: expect.stringMatching(/\.m4a$/) }), undefined, ['a', 'b'], ['a', 'b']));
-    await waitFor(() => expect(mockPreparePrivateReplay).toHaveBeenLastCalledWith(undefined, expect.any(Function), expect.objectContaining({ kind: 'custom', localUri: expect.stringMatching(/\.m4a$/) }), expect.any(Function)));
+    await waitFor(() => expect(mockPreparePrivateReplay).toHaveBeenLastCalledWith(undefined, expect.any(Function), expect.objectContaining({ kind: 'custom', localUri: expect.stringMatching(/\.m4a$/) }), expect.any(Function), undefined, expect.any(String)));
   });
   it('selects an unknown photo already resolved by a previous gallery page', async () => {
     const current = await mockLoadReplayManifestInput();

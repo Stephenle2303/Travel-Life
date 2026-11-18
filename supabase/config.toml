@@ -14,3 +14,20 @@ verify_jwt = false
 [functions.travel-life-share-cleanup]
 # Scheduler uses a dedicated 256-bit secret checked before any cleanup work.
 verify_jwt = false
+
+[functions.travel-life-history-merge]
+# Gateway verification stays enabled alongside handler Auth and live-session checks.
+# The merge remains disabled unless its separate server-side gate is enabled.
+verify_jwt = true
+
+[functions.travel-life-private-media]
+# Separate server media gate remains off until full runtime/device acceptance.
+verify_jwt = true
+
+[functions.travel-life-private-media-cleanup]
+# Scheduler must pass a JWT and the separate cleanup-only secret.
+verify_jwt = true
+
+[functions.travel-life-account-cleanup]
+# Scheduler must pass a JWT and a separate cleanup capability; gate defaults off.
+verify_jwt = true

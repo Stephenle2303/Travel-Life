@@ -6,6 +6,7 @@ import { PrivacySettingsScreen } from '@/components/privacy-settings-screen';
 import { PhotoAccessProvider, usePhotoAccess } from '@/photo-access/provider';
 import type { PhotoAccessAdapter } from '@/photo-access/types';
 import type { ImportRepository } from '@/import-record';
+import type { ConfiguredHomeArea } from '@/import-record/types';
 import type { ReconstructionGraph } from '@/reconstruction';
 
 jest.mock('expo-video', () => ({
@@ -64,8 +65,62 @@ function HomeSetupHarness({ graph }: { graph: ReconstructionGraph }) {
 }
 
 describe('private record settings', () => {
+  it('replaces a legacy Home by typed place after exact readback, retaining its dates and radius', async () => {
+    let stored: ConfiguredHomeArea = {
+      id: 'legacy-home', label: null, origin: 'legacy', latitude: 10.2, longitude: 105.7,
+      effectiveStartDay: '2019-02-04', effectiveEndDay: '2020-04-18', radiusMeters: 50_000,
+    };
+    let failReadback = false;
+    const saveConfiguredHomeArea = jest.fn(async (area: ConfiguredHomeArea) => { stored = area; failReadback = true; });
+    const repository: ImportRepository = {
+      ...lifecycleRepository(),
+      saveConfiguredHomeArea,
+      loadConfiguredHomeAreas: async () => {
+        if (failReadback) { failReadback = false; throw new Error('PRIVATE_HOME_POINT SQL error'); }
+        return [stored];
+      },
+    };
+    const graph = { ruleVersion: 'reconstruction-v1' as const, places: [], visits: [], journeys: [], possibleMerges: [], dispositions: [], memberships: [] };
+    const rebuild = jest.fn(async () => graph);
+    const reconstructionRepository = {
+      loadDurableReveal: async () => ({ journeys: [] }),
+      loadJourneyDetail: async () => ({ detail: null as never, previewSourceRefs: [], snapshotToken: 1 }),
+      loadJourneyMediaPage: async () => ({ items: [], previewSourceRefs: [], hasMore: false }),
+      loadUncertainMemories: async () => ({ memories: [], hasMore: false }),
+      saveJourneyCorrection: async () => ({ revisionId: 'review', state: 'confirmed' as const, graph }),
+      saveJourneyMemoryCorrection: async () => ({ revisionId: 'memory', graph }),
+      discardJourneyCorrectionPending: async () => ({ graph }), markJourneyCorrectionPending: async () => {},
+      saveConfiguredHomeAreaFromJourney: async () => {}, rebuild, reconcileQueued: async () => ({ graph, newJourneyCount: 0, updatedJourneyCount: 0 }),
+    };
+    const log = jest.spyOn(console, 'info').mockImplementation(() => {});
+    try {
+      const view = await render(<PhotoAccessProvider adapter={adapter} repository={repository} reconstructionRepository={reconstructionRepository}><PrivacySettingsScreen /></PhotoAccessProvider>);
+      await fireEvent.press(view.getByRole('button', { name: 'Home bases' }));
+      await fireEvent.press(await view.findByRole('button', { name: 'Edit area for unnamed Home base' }));
+      await fireEvent.changeText(view.getByLabelText('Search for a city, province, district, ward or commune'), 'Sa Dec Dong Thap');
+      expect(stored).toMatchObject({ latitude: 10.2, longitude: 105.7, origin: 'legacy' });
+      await fireEvent.press(view.getByRole('button', { name: /^Sa Đéc · City/ }));
+      expect(view.getByLabelText('From date YYYY-MM or YYYY-MM-DD')).toHaveDisplayValue('2019-02-04');
+      expect(view.getByLabelText('Until date YYYY-MM or YYYY-MM-DD')).toHaveDisplayValue('2020-04-18');
+      await fireEvent.press(view.getByRole('button', { name: 'Save Home base' }));
+      expect(await view.findByText(/Couldn't verify your Home setup/)).toBeOnTheScreen();
+      expect(rebuild).not.toHaveBeenCalled();
+      expect(log).toHaveBeenCalledWith('[Travel Life diagnostic]', expect.objectContaining({
+        operation: 'ONBOARDING_SETUP', stage: 'HOME_COMMAND_READBACK', durableOutcome: 'complete',
+      }));
+      expect(JSON.stringify(log.mock.calls)).not.toContain('PRIVATE_HOME_POINT');
+      await fireEvent.press(view.getByRole('button', { name: 'Check again' }));
+      expect(await view.findByText(/Home base saved\. Your updated local history is ready in Atlas/)).toBeOnTheScreen();
+      expect(saveConfiguredHomeArea).toHaveBeenCalledTimes(1);
+      expect(stored).toMatchObject({ id: 'legacy-home', label: 'Sa Đéc', latitude: 10.29085, longitude: 105.75635,
+        effectiveStartDay: '2019-02-04', effectiveEndDay: '2020-04-18', radiusMeters: 50_000 });
+      expect(rebuild).toHaveBeenCalledTimes(1);
+    } finally { log.mockRestore(); }
+  });
+
   it('offers a private existing-place home-base setup without asking for coordinates', async () => {
     const view = await render(<PhotoAccessProvider adapter={adapter} repository={lifecycleRepository()}><PrivacySettingsScreen /></PhotoAccessProvider>);
+    await fireEvent.press(view.getByRole('button', { name: 'Home bases' }));
     await waitFor(() => expect(view.getByText('Home bases')).toBeOnTheScreen());
     expect(view.getByText(/Choose a private journey, review its photos and videos/)).toBeOnTheScreen();
     expect(view.queryByLabelText(/latitude|longitude|coordinate/i)).toBeNull();
@@ -73,6 +128,7 @@ describe('private record settings', () => {
 
   it('shows a migrated Home base as unnamed instead of inventing a locality', async () => {
     const view = await render(<PhotoAccessProvider adapter={adapter} repository={namedHomeRepository()}><PrivacySettingsScreen /></PhotoAccessProvider>);
+    await fireEvent.press(view.getByRole('button', { name: 'Home bases' }));
     await waitFor(() => expect(view.getByText('Unnamed home base')).toBeOnTheScreen());
     expect(view.getByText(/Within 50 km/)).toBeOnTheScreen();
     expect(view.getByRole('button', { name: 'Rename unnamed Home base' })).toBeOnTheScreen();
@@ -95,6 +151,7 @@ describe('private record settings', () => {
       reconcileQueued: async () => ({ graph, newJourneyCount: 0, updatedJourneyCount: 0 }),
     };
     const view = await render(<PhotoAccessProvider adapter={adapter} repository={lifecycleRepository()} reconstructionRepository={reconstructionRepository}><HomeSetupHarness graph={graph} /></PhotoAccessProvider>);
+    await fireEvent.press(view.getByRole('button', { name: 'Home bases' }));
     await waitFor(() => expect(view.getByRole('button', { name: 'Review Vietnam for a home base' })).toBeOnTheScreen());
     await fireEvent.press(view.getByRole('button', { name: 'Review Vietnam for a home base' }));
     await waitFor(() => expect(view.getByText('Review this journey')).toBeOnTheScreen());
@@ -115,6 +172,7 @@ describe('private record settings', () => {
       saveJourneyCorrection: async () => ({ revisionId: 'review', state: 'confirmed' as const, graph }), saveJourneyMemoryCorrection: async () => ({ revisionId: 'memory', graph: null }), discardJourneyCorrectionPending: async () => ({ graph: null }), markJourneyCorrectionPending: async () => {}, saveConfiguredHomeAreaFromJourney: async () => {}, rebuild: async () => graph, reconcileQueued: async () => ({ graph, newJourneyCount: 0, updatedJourneyCount: 0 }),
     };
     const view = await render(<PhotoAccessProvider adapter={adapter} repository={lifecycleRepository()} reconstructionRepository={reconstructionRepository}><HomeSetupHarness graph={graph} /></PhotoAccessProvider>);
+    await fireEvent.press(view.getByRole('button', { name: 'Home bases' }));
     await waitFor(() => expect(view.getByRole('button', { name: 'Review Observed trip for a home base' })).toBeOnTheScreen());
     expect(view.queryByRole('button', { name: /Review Kyoto/ })).toBeNull();
   });
@@ -125,6 +183,7 @@ describe('private record settings', () => {
         <PrivacySettingsScreen />
       </PhotoAccessProvider>,
     );
+    await fireEvent.press(view.getByRole('button', { name: 'Privacy & data' }));
 
     await waitFor(() => expect(view.getByRole('button', { name: 'Delete local history' })).toBeOnTheScreen());
     await fireEvent.press(view.getByRole('button', { name: 'Delete local history' }));
@@ -140,8 +199,9 @@ describe('private record settings', () => {
         <PrivacySettingsScreen />
       </PhotoAccessProvider>,
     );
+    await fireEvent.press(view.getByRole('button', { name: 'Privacy & data' }));
 
-    await waitFor(() => expect(view.getByText('Private record controls')).toBeOnTheScreen());
+    await waitFor(() => expect(view.getByText('Privacy & data')).toBeOnTheScreen());
     expect(view.getByText(/Normal device backups may restore this private record/)).toBeOnTheScreen();
 
     await fireEvent.press(view.getByRole('button', { name: 'Disconnect photo source' }));
@@ -164,6 +224,7 @@ describe('private record settings', () => {
       deleteLocalHistory: async () => pendingDelete,
     };
     const view = await render(<PhotoAccessProvider adapter={adapter} repository={repository}><PrivacySettingsScreen /></PhotoAccessProvider>);
+    await fireEvent.press(view.getByRole('button', { name: 'Privacy & data' }));
     await waitFor(() => expect(view.getByRole('button', { name: 'Disconnect photo source' })).toBeOnTheScreen());
     await fireEvent.press(view.getByRole('button', { name: 'Disconnect photo source' }));
     await waitFor(() => expect(view.getByRole('button', { name: 'Reconnect private record' })).toBeOnTheScreen());

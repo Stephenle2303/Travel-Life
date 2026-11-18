@@ -90,6 +90,25 @@ for behavior and acceptance. This is accepted direction, not a shipped editor.
 
 ## Official screen set
 
+### Lean Atlas amendment (2026-10-30)
+
+The owner accepted the Atlas review direction including the existing Home action.
+Use Home / Your Atlas / Settings, concise scope information and a quiet Details
+sheet; remove the default statistics/explanation stack above the map. Make Replay
+reachable independently of list length and keep Add journey secondary. Preview
+journeys through recognizable media, concise period/status and expandable evidence.
+Keep the Atlas-only navy/glass/cyan extension consistent without recoloring shared
+screens. Preserve explicit Home to landing and View my Atlas return, separately
+from automatic startup; retain authorized exploration context on adjacent tasks.
+
+[Decision0016](../decisions/0016-lean-atlas-exploration.md) and the
+[implementation spec](../../_bmad-output/specs/spec-atlas-lean-exploration/SPEC.md)
+define this amendment. Compact Map/Timeline separation and detailed sizing/copy
+are documented engineering defaults for native validation. Wide map/list
+co-presence remains allowed. This governs conflicting older compact screen chrome;
+decision0013 cartography and deferred control scope remain unchanged. Acceptance
+of direction is not evidence of delivered layout or device acceptance.
+
 The following prototype screens define the product's intended composition,
 navigation, and interaction. Adapt layout for native safe areas, device sizes,
 browser use, accessibility, and real data. Preserve the recognizable experience

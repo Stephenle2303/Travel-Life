@@ -232,4 +232,12 @@ export const nativePhotoAccess: PhotoAccessAdapter = {
     if (permission?.scope !== 'full' && permission?.scope !== 'limited') throw new Error('Photo access is not permitted');
     return resolveOwnerPreviewPage(assetIds, limit, onResolved);
   },
+  async inspectOwnerMedia(assetId) {
+    const permission = await this.inspect();
+    if (permission?.scope !== 'full' && permission?.scope !== 'limited') return null;
+    const asset = new (mediaLibrary().Asset)(assetId);
+    const uri = await asset.getUri();
+    const location = await asset.getLocation();
+    return { uri, location };
+  },
 };

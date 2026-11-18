@@ -30,6 +30,15 @@ function adapter(pages: SourceCandidate[][], scope: 'full' | 'limited' = 'full')
 }
 
 describe('headless maintenance reconciliation', () => {
+  it('never broadens an exact selected intent using an old full-library checkpoint', async () => {
+    const store = repository();
+    store.loadPreparationIntent = async () => ({ version: 1, id: 'synthetic-selected', scope: 'selected', selectedIds: ['synthetic-only'], missingIds: 0, phase: 'complete' });
+    const access = adapter([]); access.readMetadataPage = jest.fn(async () => []);
+    await expect(reconcilePermittedLibrary({ repository: store, photoAccess: access, now: () => 8 })).resolves.toBe('restricted');
+    await expect(reconcilePermittedLibrary({ repository: store, photoAccess: access, now: () => 8, allowDisabled: true })).resolves.toBe('restricted');
+    expect(access.readMetadataPage).not.toHaveBeenCalled();
+    expect(store.completed).toEqual([]);
+  });
   it('runs from persisted dependencies without mounted UI and completes a bounded full scan', async () => {
     const store = repository();
     await expect(reconcilePermittedLibrary({ repository: store, photoAccess: adapter([[candidate('a')], []]), now: () => 8 })).resolves.toBe('complete');

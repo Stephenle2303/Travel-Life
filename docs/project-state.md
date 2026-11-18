@@ -1,5 +1,1013 @@
 # Project state
 
+## City-level GPS-less proposals
+
+The Android development preview now shows a city-level **Possible trips**
+card as soon as independent supported sessions establish the city and trip
+continuity. The existing Seoul recognizer can supply named and civic clues.
+Synthetic cases verify the same policy for Hà Nội. Review lists
+only verified named stops, and confirmation saves the exact eligible album
+with capture locations still unknown. Insufficient or conflicting evidence
+continues to abstain. Discovery uses the existing on-device permission.
+
+Synthetic provider and SQLite cases passed. The frozen public comparison
+retained two exact multi-stop albums and withheld the single-session Hanoi
+holdout. The regional release remains unqualified, and named-place recognition
+for the Hà Nội scenario has no demonstrated native path with that pack off.
+Mobile Jest (1,314 tests), SQLite (141 tests), TypeScript, Expo lint,
+foundation (281 tests) and the
+Android development JavaScript bundle passed. ADB saw no device during these
+checks. A later USB session loaded the current city policy and started the
+authorized Local scan on the owner's Android. Three analyzed groups returned
+no recognized place and committed scan progress. Android paused the app
+during several attempts, which resumed on returning to Atlas. USB disconnected
+during a later eligibility action. After reconnecting and restoring the Metro
+route, the next scan settled after 13 acknowledged checkpoints. Six groups
+reached recognition, and none returned a usable place. Atlas had no Possible
+trips card for the target. Episode-specific sample coverage and owner-device
+album acceptance remain open.
+[Decision 0018](decisions/0018-city-level-possible-trips.md).
+
+## Automatic regional landmark retrieval
+
+The Android development code can verify a pinned public release, search a
+starter index across regions, and acquire a deeper pack after independent
+capture sessions agree. The same flow feeds Possible trips and exact album
+review in both regions. Consent or scope withdrawal discards stale work.
+Transient starter failure preserves the checkpoint. A retryable deep failure
+preserves an unresolved episode or keeps its independently qualified album.
+
+Whole-image retrieval produced no exact positive albums in the public cases.
+A separate host comparison using agreeing crops and the existing local-detail
+verifier produced the exact Seoul and first Hanoi episodes and no false match
+in the scored camera controls. A second Hanoi set remained unresolved. Even
+the full Vietnam pack and crop policy missed both fresh Tháp Rùa views.
+The starter and largest deep artifact exceeded the combined pack budget.
+No qualified pack was emitted. The Android flag remains off. The next quality
+gate needs wider independent viewpoint coverage, camera reproduction controls,
+and a bounded model profile measured on Android.
+Final host checks passed 1,295 Jest cases, 139 SQLite cases, TypeScript,
+Expo lint, 281 foundation cases and the routed Android JavaScript bundle.
+[Frozen benchmark and holdout](../evals/landmarks/README.md#automatic-regional-retrieval).
+
+## Partial Seoul proposal in Possible trips
+
+The Local development preview separates the optional Nami clue from the
+qualified stops and album. The owner opens the automatically generated card
+and reviews the exact album before confirmation. The separate development
+flag uses the current on-device recognizer. The image reference index remains
+Ewha-only and Namsan recognition still depends on existing signage support.
+
+The five public partial comparisons reproduced their expected album and clue
+results. The wider quality gate still misses genuine Nami coverage. Jest
+(1,267 tests), SQLite (138 tests), TypeScript, lint and foundation (281 tests)
+passed. Expo Doctor flagged existing SDK 57 patch-version drift.
+
+The owner connected Android and opened the reviewed localhost bundle. Local
+eligibility initially blocked recognition on stale evidence. The existing
+catch-up action reported an active lease, then an SQLite busy open on retry.
+Afterward discovery verified eligibility, opened media and ran the model.
+Ten observed recognition batches abstained. The foreground Timeline showed
+no Possible trips card after checkpoint activity stopped. The diagnostic
+cannot identify whether a particular batch contained the target Seoul photos.
+No Seoul proposal or owner album confirmation was verified on the phone.
+[Delivery and diagnostics](../_bmad-output/specs/spec-atlas-reconstruction-recovery/delivery-and-diagnostics.md#partial-seoul-proposal-in-possible-trips).
+
+## Partial Seoul proposal and independent membership
+
+Five public fixture episodes reconstructed the expected Seoul proposal
+with Ewha and Namsan, four exact album photos and two correct covers.
+Nami appeared once as a place-only pending clue in four cases. No
+pending Nami source photo entered the proposal album or covers.
+
+The existing scene rule admitted an unnamed GPS-less photo in a
+controlled synthetic scene bracket and preserved its unknown location.
+It excluded the same-time reproduction, unrelated image and screenshot.
+The public Ewha panorama entered the test follow-up sample but did not
+clear scene similarity against either anchor. An exploratory scan of
+additional campus photographs also failed to meet both anchor
+thresholds. This supports the partial proposal structure on the host.
+Real GPS-less album recall and Android acceptance remain open.
+[Host evidence](../evals/landmarks/README.md#partial-seoul-proposal-and-photo-membership).
+
+## GPS-less multi-view Nami experiment
+
+The same-sample host comparison recognized all three simulated
+reproductions when the corresponding original was available. The
+genuine GPS-less ferry and zipline photos showed different scenes.
+They yielded five mutual correspondences and no usable geometric
+model. The mixed genuine and unindexed-copy pair also abstained.
+The stricter policy kept the reproduction out of the album and lost
+the two Nami photos from the genuine episode. Three public pairs
+showing closer views of the same subject also fell short.
+
+The experiment demonstrates a useful known-source copy check and
+insufficient geometric coverage for trip recovery. A synthetic
+nonplanar control supported a stop through the existing assembler.
+The genuine public episode did not. Keep the Android acceptance
+gate open. [Multi-view evidence](../evals/landmarks/README.md#nami-multi-view-geometry-comparison).
+
+## Capture evidence split for Nami
+
+The host comparison kept each model match as a private clue. When
+the two Nami photos had their own qualifying fixture location
+records, the existing assembler produced Ewha, Nami and Namsan
+with six exact album members. Foreign coordinates and known copies
+stayed out. A nearby located capture did not attach the sampled
+GPS-less match.
+
+The rule improved exact results from five to six of ten constructed
+cases. It missed the actual Nami stop in three genuine scenarios
+with missing or coarse location evidence. An uncaught copy carrying
+the same qualifying location signal still entered the album. The
+current GPS-less SQL excludes located assets and the available
+metadata does not validate original-camera provenance. Keep the
+policy experimental. The next candidate needs an independent signal
+available for GPS-less media before applying it to the Local library.
+[Capture evidence comparison](../evals/landmarks/README.md#nami-capture-evidence-comparison).
+
+## Nami visual detail and copied-image evaluation
+
+The frozen 0.70 detail rule accepted zero of one fresh Nami views,
+zero of three prior Nami views and zero of twelve controls. A local
+geometry check identified the simulated copies of two indexed images
+and missed a borderless crop derived from an unindexed original.
+
+At an exploratory 0.50 threshold, real zipline and ferry photos
+produced one Seoul trip across Ewha, Nami and Namsan with six exact
+photos. Replacing the ferry photo with the unindexed copy also
+produced a Nami stop and put the copy into the album. The Android
+gate remains open. Evaluate separate capture context before treating
+an image match as trip evidence, and acquire more independent
+campaigns for the next quality gate.
+[Visual detail evidence](../evals/landmarks/README.md#nami-visual-detail-and-copied-images).
+
+## Nami independent host evaluation
+
+The frozen ferry OCR policy missed all four new landmark views, while
+accepting three of four synthetic printed controls. Two plain prints
+with different names for the same island produced a false Nami stop and
+both entered the six-photo album. The other ferry and Damyang inputs
+stayed out. The bounded follow-up could not recover the crowded
+episode when no Nami observation survived the first pass.
+
+An after-the-fact check requiring the existing scene verifier to
+corroborate Nami text blocked the printed inputs and also suppressed
+the original ferry success. Keep the tested Nami OCR policy out of
+Android. The next recognizer needs visual evidence for multiple
+independent Nami landmarks and adversarial examples with printed
+place names. Preserve this set as regression evidence and use fresh
+captures for the next holdout.
+[Holdout evidence](../evals/landmarks/README.md#nami-independent-host-evaluation).
+
+## Seoul multi-stop host experiment
+
+The local experiment recovered one Seoul proposal with Ewha, Nami and
+Namsan and exactly six intended photos on a two-day public fixture with
+simulated capture times. DINOv2 identified Ewha and Namsan. Windows OCR
+over fixed overlapping tiles, with a narrow spelling tolerance for the
+ferry banner, supplied the two Nami observations. Whole-image OCR and
+exact tiled OCR both missed Nami. Moving the water-meter image into the
+same four-hour sample bucket displaced one ferry photo and removed Nami
+from the result. A bounded follow-up on one Nami observation recovered
+that photo and restored the exact album. The photographed meter, billing
+screenshot and winter Damyang false match stayed out.
+
+This is calibration on public inputs with the deep references loaded
+locally. The host candidate has not been integrated into the app. Next
+verify the signage and follow-up policy on untouched Nami viewpoints,
+lookalikes and printed-media negatives, then verify region routing and
+native Android OCR, latency and exact album readback. [Experiment record](../evals/landmarks/README.md#seoul-multi-stop-host-experiment).
+
+## Namsan local landmark pilot
+
+Two licensed Seoul Tourism Archive references complement the Seoul
+Institute collection. On the 13-query v3 public follow-up, matching
+the spatial layout of DINOv2 patches found 3/3 Namsan views compared
+with 1/3 using either scene baseline, with zero Namsan false accepts
+on ten non-target photos. This passes a single-landmark host gate.
+Both scene baselines still mistake the winter Damyang control for Nami.
+Automatic regional routing, trip and album accuracy, and device resources
+remain open. The next test needs a combined recognition policy with
+independent landmark or signage evidence for Nami and full episodes.
+[Namsan pilot evidence](../evals/landmarks/README.md#local-landmark-detail-v3).
+
+## Offline landmark verification pilot
+
+The host benchmark now tests DINOv2 candidates against reviewed competing
+references. It rejected a new Damyang-to-Nami false match and retained
+three of seven correct positives. The original winter Damyang failure
+still reproduces. Four 2020 Namsan references and two 1995 queries are
+pinned to item-level licenses from the Seoul Institute. Both Namsan
+queries abstained and the reference publisher diversity requirement remains
+open. Neither matcher routed the two known regions, so the device
+integration gate remains closed. The next candidate needs a distinct
+landmark signal and independent modern Namsan views.
+[Verifier evidence](../evals/landmarks/README.md#competing-reference-verifier-v2).
+
+## Offline landmark pilot scored
+
+The host tool audited five landmarks against Google Landmarks v2,
+Wikidata and Commons, froze 24 public or synthetic inputs, and generated
+starter, Korea and Vietnam descriptor packs. With the same nine reference
+originals, the deeper DINOv2 index matched seven of eight positive queries
+and misidentified one of seven controls. SALAD abstained on all 15 under
+the frozen policy. Both starter policies routed zero of two assembled
+episodes. The benchmark now counts wrong predictions per photo and checks
+for false routes on wholly out-of-index episodes before a pack can qualify.
+Namsan has no admitted references after rights and content review.
+The quality gate keeps the packs out of the app. Next measure corroboration
+and hard negatives on a separate calibration set, then rerun with an
+untouched holdout and rights-cleared Namsan coverage. Phone scan time,
+resource use and the owner's trip/album acceptance are still open.
+[Source audit, commands and results](../evals/landmarks/README.md).
+
+## Multi-stop visual recovery and Vietnamese labels in development
+
+The Atlas reconstruction recovery spec now separates visual stop hypotheses,
+trip continuity, album membership and card covers. It requires an automatic
+multi-stop proposal and exact album readback after one owner confirmation.
+The domestic label slice covers verified city and province names beyond the
+current two pilot footprints and preserves supported stops in multi-place
+titles and detail. The Local build now carries per-photo visual evidence,
+qualifies stops and album attachments independently, and saves the exact
+reviewed album with SQLite v45. Historic administrative labels cover the
+63-province archive for its conservatively supported 2020–2024 interval.
+The urban layer has 42 footprints for 14 locality names. The default
+Android scanner remains bounded and development-gated. Public tower views
+abstained in image comparison. The new catalog can read verified landmark
+signage, but multi-landmark image coverage and physical-device recovery
+remain open. The first Android load stalled in destination computation and
+exited. The optimized resolver completed the same phase, published Atlas,
+and reached the incident window using the normal discovery budget. The
+recognizer completed and advanced beyond the window with no place match
+or proposal. The owner's trip and album have not passed native acceptance.
+[Updated recovery spec](../_bmad-output/specs/spec-atlas-reconstruction-recovery/SPEC.md).
+
+## Native image recognition for automatic trip discovery (2026-11-12)
+
+The Android development scanner now uses a quantized DINOv2 Small model
+through Atlas's native Expo module when OCR yields no place or conflict. The
+reference catalog covers the Ewha Campus Complex. The Local consent and
+confirmation gates remain in effect. The model does not use photo dates or
+owner selections as recognition inputs.
+
+The model matched both public independent views excluded from the reference
+index and abstained on the different campus scene and three architectural
+controls. These were development controls. A broader blind dataset and the
+Android proposal are still required. The arm64 debug APK uses a pinned ONNX
+runtime and was installed in place over the previous app. Metro served the
+updated Android bundle. iOS retains its OCR-only recognizer. Android loaded
+the model in two seconds and completed image comparison on the reported
+episode in 11 seconds, then advanced with no proposal.
+
+The wider-sample policy now keeps the 32-photo OCR limit and checks up to
+96 representatives with the Android image model after OCR abstains. A dense
+synthetic episode verifies that the later representatives can supply the
+clue and survive SQLite staging and review. The 122 focused mobile tests,
+two SQLite discovery controls, TypeScript, lint, and foundation checks passed.
+The wider Android pass took 35 seconds for image comparison and abstained.
+The next reference version covers both ECC and Pfeiffer Hall in full and
+portrait crops and recognizes exact Seoul municipal signage. Three independent
+public target views matched. Five comparison views abstained. The corresponding
+96-photo Android pass completed image comparison in 36 seconds and staged no
+proposal. The latest host verification passed 123 mobile tests, two SQLite
+discovery controls, TypeScript, lint, and the foundation check.
+
+The optional dense diagnostic passed a synthetic 471-photo coverage check.
+On Android, a metadata-only count found 471 capture-like, available images
+with no GPS in the reported window. After a committed-view refresh and a
+foreground interruption, the expanded Android pass validated and stored an
+image-backed proposal for the incident window. Atlas read it back and displayed
+it under Possible trips with Confirm trip. Owner confirmation is pending. The
+successful pass used the development-only diagnostic. The default 96-image
+pass did not recover this trip.
+
+Owner review then reported that the four-photo album omitted the other stops
+and included unrelated media. AC-13 remains unmet. The prior device check
+verified proposal visibility and visual recognition only. Source inspection
+found that automatic discovery carries one resolved place for the episode and
+uses the four-photo review limit as the album membership limit. It selects
+decodable media from another session without requiring positive association
+with the trip. The individual device asset paths remain unverified.
+
+## Historical geometric recognition pilot for automatic trip discovery (2026-11-12)
+
+The Local development scanner can compare image features against public
+references of Ewha Campus Complex when OCR supplies neither an accepted
+place nor a conflict. The new recognizer policy allows one fresh automatic
+pass under the existing on-device authorization. The existing review flow
+requires owner confirmation to add a trip.
+
+The host matcher accepted a cropped reference and rejected a different campus
+scene. It missed two independent target views. After reconnecting and waiting
+for the Atlas evidence revision to catch up, the Android scan reached the
+episode. It spent 467 seconds in recognition, advanced the checkpoint and
+staged no proposal. The native model replaces this geometric implementation.
+[CAP-4 delivery and diagnostics](../_bmad-output/specs/spec-atlas-reconstruction-recovery/delivery-and-diagnostics.md).
+
+## Android OCR result debug (2026-11-12)
+
+The foreground v4 run showed a sampling v3 checkpoint inside the reported
+window before the recognition batch. The correlated batch finished with
+VISUAL_NO_PLACE_MATCH, then the checkpoint moved beyond the window with
+no proposal. Native OCR returned at least one alphanumeric character, and
+none of the processed OCR outputs resolved to an accepted catalog place.
+This does not establish whether the sample contained an Ewha sign or what
+OCR returned. The visible Local Atlas still had no Possible trips card.
+No recognition or sampling behavior changed in this diagnostic update.
+
+## Wider automatic sampling for dense GPS-less trips (2026-11-12)
+
+The Local development scanner retains its original 12 session representatives
+and uses up to 32 for dense episodes, with a bounded hourly checkpoint.
+The existing episode and dismissal identities remain stable. A synthetic
+471-image episode now recovers an OCR clue outside the original sample and
+the SQLite resume test rejects malformed coverage. Focused Jest, SQLite,
+TypeScript, lint and the foundation check passed.
+
+The fresh Android sampling v3 checkpoint began inside the reported window.
+The next recognition batch completed with VISUAL_NO_PLACE_MATCH after about
+35 seconds including preview resolution, and the checkpoint advanced past
+the window with no proposal. The visible Local Atlas showed no Possible
+trips card. Sampling alone has not recovered Seoul. Image-only recognition
+remains outside this build pending a measured local recognizer.
+
+## Android automatic discovery follow-up (2026-11-12)
+
+Owner enablement and automatic recognition of multiple candidate groups are
+confirmed by retained Android development events. A read-only device probe
+showed that the scanner passed the target window without a saved proposal.
+The target metadata forms one eligible episode with 11 independent sessions
+and no overlap with a confirmed trip. The historical result event combined
+three abstention outcomes, so the exact recognition cause remains unknown.
+The diagnostic-only v3 policy distinguishes no place match, place conflict
+and insufficient episode support. The new version allows one fresh blind
+scan under the existing owner authorization. This is still a signage
+recognizer, and the Seoul acceptance remains open. The 29 focused mobile
+tests, two SQLite discovery controls, TypeScript, lint, and foundation
+check passed. Metro served the updated Android bundle over IPv4. After
+unlocking, the Android foreground run resumed with the owner setting still
+enabled. The v3 checkpoint advanced beyond the incident interval without a
+proposal. Several native recognition batches returned VISUAL_NO_PLACE_MATCH.
+The visible Local Atlas showed no Possible trips card. The diagnostics
+carry no episode identifiers, so they do not establish which recognition
+batch corresponds to the reported trip or why the catalog did not match.
+The blind Seoul recovery criterion remains unmet.
+
+## Automatic GPS-less trip discovery development build (2026-11-11)
+
+The gated Local Atlas now discovers GPS-less episodes and chooses
+representative photos automatically after the owner enables on-device
+discovery in Settings. Atlas presents a Possible trips card with a suggested
+place, observed dates and photos. Confirmation writes and verifies the
+owner-entered trip and album. Dismissal persists for unchanged evidence.
+The device-development and owner-consent gates both default off.
+
+Focused Jest and synthetic SQLite controls passed for the six-day paged
+episode, independent capture sessions, resume, late access withdrawal,
+deduplication, Home overlap, exact save retry and closed diagnostics. The
+development recognizer matches a versioned signage catalog using native OCR.
+The blind Seoul recovery, image-only recognition, physical iOS checks,
+resource measurements and held-out quality remain open.
+[CAP-4 delivery and diagnostics](../_bmad-output/specs/spec-atlas-reconstruction-recovery/delivery-and-diagnostics.md).
+
+## Owner-directed recovery for trips without GPS (2026-11-11)
+
+Read-only Android counts confirmed the reported recent interval was imported
+and assessed by the current run. The records have no stored GPS, and the
+image availability state is unknown. The passive visual hint requires known
+availability and nearby travel corroboration. The Local development visual
+review now offers a date-range search independently of the passive hint.
+It pages eligible photos, resolves them through the existing native preview
+path, and analyzes up to four owner-selected photos from one page after
+approval. The owner confirms the suggested place before Atlas saves the
+private trip and selected album. An inconclusive result leaves the trip
+unsaved. Android previously displayed 12 selectable tiles for the reported
+period. The updated suggestion-to-confirmation contract passed focused Jest
+and SQLite tests, TypeScript, lint and the foundation check. The current
+on-device recognizer covers Ewha signage. Actual photo recognition, original
+EXIF and broader place-recognition accuracy remain unverified.
+[Delivery and diagnostics](../_bmad-output/specs/spec-atlas-reconstruction-recovery/delivery-and-diagnostics.md).
+
+## Atlas reconstruction recovery build (2026-11-11)
+
+The [recovery build](../_bmad-output/specs/spec-atlas-reconstruction-recovery/SPEC.md)
+includes observed-date Timeline order, exact-pair review with a dotted cue,
+offline typed Home search and verified Sa Đéc and Cần Thơ label controls.
+Timeline, detail, album and Replay use the same published-run selector. The
+two-connection SQLite fixture browses the saved Atlas while the replacement
+writer has uncommitted rows. Late authority loss rolls back the experimental
+projection.
+
+The Settings comparison ran baseline and candidate on the same 20,002
+synthetic evidence records. A separate opt-in Local development policy
+persists eligible pairs with an exact reviewed merge and retry, protects
+Replay choices and fences incompatible Account export. The on-device
+signage experiment requires exact selected photos and consent, then supports
+confirming a private owner-entered album with capture location unknown.
+The recognizer currently covers catalogued Ewha signage, and hints require
+separately corroborated nearby travel.
+
+The Android arm64 APK built after regenerable ABI cache cleanup and
+serializing the failing C++ compilation. It installed after USB reconnection
+and opened with the current development bundle. The same-input comparison
+completed read-only on 19,429 real Local records in 161.7 seconds.
+On the device, typing `Sa Dec` in Settings Home search displayed Sa Đéc with
+province context. Android Timeline subsequently displayed 49 trips. A sampled
+trip opened its album, showed 18 visible photo tiles and rendered a selected
+photo in the full-screen viewer. The Replay checks, Seoul recognition on actual
+photos, iOS build and holdout quality remain open. The Local projection and
+signage gates default off. The device session enabled only the read-only
+comparison and consent-gated signage experiment.
+
+## Atlas reconstruction recovery spec (2026-11-10)
+
+The owner chose a quiet proactive Atlas hint for a promising GPS-less cluster.
+AI runs only after the owner selects media and explicitly approves processing.
+The [development contract](../_bmad-output/specs/spec-atlas-reconstruction-recovery/SPEC.md)
+covers the eight reviewed items, including cross-border grouping, Timeline
+merge cues and chronology, searchable Home, verified Vietnam labels, reliable
+rebuild and album readback, and full-scale Local comparison. Visual recognition
+has its own consent and activation gate. Provider, dataset and measured policy
+thresholds remain open.
+
+## Trip merge suggestions and searchable Home bases (2026-11-10)
+
+The owner chose to keep two independently qualified trips visible when the
+connection is plausible but lacks supporting evidence, with an optional merge
+suggestion. Home base setup must start with typed place search and result
+selection. [Decision 0017](decisions/0017-trip-merge-review-and-home-search.md)
+records these choices. The continuity thresholds and place dataset remain
+open. The owner confirmed that city, province, district, ward, and commune
+search is sufficient and requires a visible pair cue on Timeline for merge
+suggestions. The exact visual treatment is a design proposal.
+
+## Recognizable travel reconstruction and first reveal (2026-11-10)
+
+The owner chose one optional first-reveal question when an answer could
+recover several trips, and a separate Possible trips section. The
+[development spec](../_bmad-output/specs/spec-recognizable-travel-reconstruction/SPEC.md)
+builds on optional editable Home setup. It defines a versioned local candidate,
+first reveal with eligible Replay, scoped review decisions and a held-out
+comparison before activation. AI remains a separate optional experiment.
+Implementation and product-quality measurements are pending.
+
+Development has started in shadow mode. Candidate engine, controlled reveal
+and review components, bounded clarification simulation, and local receipt
+storage have executable coverage. An opt-in read-only Settings preview now
+compares authorized committed Local history with the candidate. Device
+acceptance and production actions remain open. The live Atlas continues on the existing
+policy. See the [implementation record](../_bmad-output/specs/spec-recognizable-travel-reconstruction/delivery.md)
+for runtime integration and activation gates.
+
+D2 adds an opt-in development Atlas for connected Local history with full
+photo access. It shows passive photo observations, a first-use featured trip
+with temporary private playback, and separate paged Possible trips. Keep
+publishes only an exact compatible grouping. Not a trip records a Local
+rejection for the exact candidate; account export is fenced while that receipt
+has no portable format. Remaining work includes Keep for candidate-only
+regroupings, rejection restoration, D3, the held-out comparison and physical
+Android/iOS acceptance. The owner has no device available for this pass.
+
+Android reconnect follow-up: an authorized USB phone loaded the current
+development bundle from a separate Metro session with both reconstruction
+flags enabled. The foreground accessibility hierarchy confirmed Your Atlas
+and Open Settings. Android denied injected taps. Owner-driven navigation
+and the actual comparison, playback and review checks remain pending.
+The owner opened the read-only comparison. The current Android process
+confirmed `ROW_LIMIT` at the committed evidence read. This development
+comparison supports up to 4,000 canonical records. The screen now explains the
+limit. Use a small isolated fixture for D2 device acceptance while retaining
+the owner's full Local history.
+During follow-up the Local Timeline briefly showed zero journeys while the
+phone's complete run still held 49 qualified journeys. A later preview read
+completed and the foreground Android gallery showed an associated thumbnail.
+The transient empty view and earlier failure remain unattributed.
+The owner requested a direct Android Atlas inspection. Timeline rendered 49
+journeys with thumbnails. The durable display order had 16 adjacent date
+inversions because it sorts by year and then internal journey ID. Fifteen
+trips shared a country and start month with another trip. Chronology and
+Timeline density are verified issues. Exact grouping quality remains open.
+
+## Offline regional label defect reproduced (2026-11-09)
+
+An inspected owner photo's original metadata, saved GPS and gallery reference
+agreed. Two independent public Sa Dec reference points reproduce the incorrect
+Can Tho label in the production resolver and in a direct check of the bundled
+Vietnam Admin-1 polygons. The correction belongs to offline regional data or
+its confidence policy. The shared resolver now withholds Vietnam Admin-1
+labels and uses the country fallback. Public regression points cover the
+wrong labels in Sa Dec and Can Tho, with existing unaffected-region
+controls retained. Exact province display awaits verified boundaries.
+
+The current CAP-6 replacement recovers only the reviewed Sa Đéc and Cần Thơ
+footprints. Owner review reported the loss of useful labels for other domestic
+trips. A host comparison at a public Huế city point reproduced the change
+from Thừa Thiên Huế in the previous resolver to Vietnam in the current
+resolver. General domestic destination coverage remains open.
+
+## Home-first local implementation awaiting device acceptance (2026-11-09)
+
+First-use Home setup now precedes photo choice, with multiple dated areas,
+an offline picker and Skip. Local Home editing and the shared reconstruction
+repair are implemented. SQLite tracks the committed Home revision and the
+gallery has a private development inspection for the selected original.
+Foundation, mobile and SQLite checks passed. Exact owner cases, Android/iOS
+acceptance and account compatibility negotiation remain open. See the
+[delivery record](../_bmad-output/specs/spec-home-first-journey-integrity/delivery.md).
+
+## Home-first journey integrity spec ready for development (2026-11-09)
+
+The owner asked for a development contract after the BMAD discussion. The
+[spec](../_bmad-output/specs/spec-home-first-journey-integrity/SPEC.md)
+defines optional Home selection before first build, effective Home filtering,
+the adjacent-block continuity repair, scoped Local/Account publication and
+exact-item media diagnosis. Six capabilities and 30 acceptance cases define
+implementation and rollout. The wrong-image incident still needs a matched
+asset comparison. Runtime implementation and physical acceptance are pending.
+
+## Home-first onboarding and journey diagnosis (2026-11-09)
+
+The owner is discussing optional, independent Home base selection before
+the first automatic build. The current Settings flow still requires a
+published trip. The shared continuity engine was shown to measure civil-day
+gaps from the start of the accumulated episode and to corroborate Home
+returns across distant dates. Read-only Android aggregates match the former
+defect at multiple nearby trip boundaries. In the reported album window,
+local committed GPS supports the displayed destination, but the owner
+recognizes another location in the cover and album. Exact asset resolution
+versus original metadata remains open. See the
+[investigation](../_bmad-output/implementation-artifacts/home-first-journey-diagnosis-2026-11-09.md).
+Foundation checks passed; no behavior or owner data changed.
+
+## Lean Atlas continuation
+
+Wide Map/Timeline composition, bounded 24-row Timeline paging with scoped page
+restoration, access-first presentation and selected-preview lifecycle diagnostics
+are implemented. Android foreground accessibility smoke confirmed core Atlas
+controls. Physical interaction/layout acceptance and the complete fault matrix
+remain open. See the [delivery record](../_bmad-output/specs/spec-atlas-lean-exploration/delivery.md).
+
+## Lean Atlas UI implementation — acceptance open (2026-11-09)
+
+Home/Settings, Details, distinct Map/Timeline views, year selection, media-led
+preview, provider-scoped return context and a fixed Replay action are implemented.
+[Delivery evidence](../_bmad-output/specs/spec-atlas-lean-exploration/delivery.md)
+records passing host checks and remaining native and implementation acceptance.
+The complete 36-case contract has not been accepted. No owner data or gates changed.
+
+## Lean Atlas specification accepted for implementation (2026-10-30)
+
+Owner agreed with the whole-page Atlas review including visible Home and requested
+a detailed spec. [Decision0016](decisions/0016-lean-atlas-exploration.md) records the
+direction; [SPEC](../_bmad-output/specs/spec-atlas-lean-exploration/SPEC.md) and four
+authored companions define8 capabilities,36 acceptance cases, layout/copy/state
+contracts, context preservation, diagnostic mapping and ordered implementation.
+Home remains explicit landing return; About becomes Details, map/list content is
+focused, Replay stays reachable and uncertainty remains honest. Exact responsive
+defaults are labeled assumptions. This supersedes the earlier review's pending
+direction status. Runtime implementation and Android/iOS viewport/flow acceptance
+remain pending; no app code, gates, owner records or deployment changed.
+
+## Development loader restored; unlock needed (2026-10-30)
+
+Current owner load report coincided with no Metro8081 listener and no USB reverse.
+Restored hidden local Expo dev server and Android reverse, verified IPv4 status,
+and reopened the installed exp+travel-life development link. Metro delivered the
+fresh Android bundle1779 modules. Timestamp-bounded current-process sampling found
+no loader/module/native-module/fatal or JS type/reference/syntax markers.
+Final device state was keyguard showing rather than resumed Travel Life; owner
+unlock/foreground is required to confirm UI. No app code, local record, account
+or sync checkpoint was reset. A task-manager registration warning remains
+unattributed and is not established as the loading cause.
+
+## Explicit landing return restored (2026-10-30)
+
+Atlas now exposes Home to a dedicated `/welcome` landing route, separate from
+automatic startup at `/`. Its View my Atlas action returns directly to the
+existing Atlas context without photo setup or onboarding-state writes. Initial
+onboarding and returning-user startup remain intact. Four affected suites pass
+54 tests; mobile typing/lint, root136/eval smoke and scoped diff checks pass.
+Independent source review found no actionable findings. Actual phone stack/Back
+and visual confirmation remain unobserved. No commit/push or data reset occurred.
+See [repair record](../_bmad-output/implementation-artifacts/spec-atlas-landing-return.md).
+
+## Atlas UX party review (2026-10-30)
+
+Owner requested a whole-page review after finding the information below Settings
+cluttered. Source review identifies excessive ready-state statistics, competing
+header controls, a full list in Map mode, buried Replay, verbose journey preview
+and mixed Atlas/global styling. Proposed hierarchy and native acceptance checks:
+[_review record](../_bmad-output/implementation-artifacts/atlas-ux-party-review-2026-10-30.md).
+This is a discussion proposal, not an approved redesign or runtime change.
+Current phone layout was not inspected. Next: settle the compact information and
+Map/Timeline composition, then implement with physical viewport/flow evidence.
+
+## Development app load recovery (2026-10-30)
+
+Owner could not load the app after the sync handoff. Current host evidence showed
+Metro stopped and USB reverse absent. Restarted the existing development server
+on localhost8081 with IPv4-first resolution, restored USB reverse and opened the
+installed development client. IPv4 /status is running; a fresh Android bundle
+with1788 modules was delivered and the app activity resumed. Sampled current
+process logs contain no native fatal or JS syntax/type/reference fatal marker.
+No app code, storage, account or sync checkpoint was reset. Owner-visible UI
+acceptance remains pending; server readiness alone does not establish it.
+
+## Hosted sync CPU and finalization repair (2026-10-30)
+
+The resumed correction removes repeated Replay parsing/serialization and exact-ID
+scans, optimizes bundle startup, and materializes evidence scalars before source
+provenance joins. Source activation and aggregate commit now use restricted
+SECURITY INVOKER RPCs with60s function budgets; role/global timeouts stay unchanged.
+Mobile final activation waits65s and merge120s, retaining the original saved
+mutation/operation on uncertain acknowledgement. No owner checkpoint or data reset.
+
+Hosted synthetic3000-evidence/19MB Replay source upload and exact activation retry
+pass; the final merge completes in86.129s. Same-operation retry returns the same
+aggregate/revision; two independent sessions pull all76 pages with identical
+semantic history,3000 unique evidence rows and retained Replay order. Readback
+now skips repeated whole-source comparisons only for identical immutable
+snapshots, after live-source/removal checks; changed source/privacy guards remain.
+Physical owner/two-device acceptance remains open. Frozen-
+engine parity matches60 synthetic datasets and reversed enumeration. Mobile99
+suites/916 tests, SQLite105, worker57, PostgreSQL16 fixtures, typing/lint and
+root136/framework/eval smoke pass. One scoped reviewer confirmed the follow-ups;
+original blind/edge review completion was unavailable due to tool/usage failures.
+Evidence is in spec-m7-unified-history.md; the broader M6/M7 delivery stays open.
+
+## Lean onboarding implemented; device acceptance pending (2026-10-30)
+
+Welcome now leads to a concise photo choice and automatic local preparation in
+Atlas. Returning entry, scoped durable intent, pause/resume, exact selected-photo
+processing, contextual Settings/Back, optional update invitation and gated account
+entry are implemented. Review fixes cover lifecycle/native-picker Activity
+handling, source shutdown, unknown acknowledgements, selected-only updates and
+privacy-safe diagnostic attribution. No commit, push, owner-data reset or
+deployment was performed; concurrent dirty account/engine changes are preserved.
+
+Final mobile verification passes 99 suites/913 tests, 105 actual SQLite cases,
+TypeScript and lint. Root check passes 136 tests plus framework/eval smoke;
+Expo Doctor passes 21/21 and Android Expo export compiles to Hermes bytecode.
+Three review layers were triaged; correction audits confirmed the filed lifecycle
+and integration gaps resolved. Evidence and the AC matrix are in the
+[delivery record](../_bmad-output/implementation-artifacts/spec-lean-onboarding-and-navigation.md).
+
+Native Android isolated-profile first use/permission/Back/viewport/accessibility,
+physical iOS, process interruption, measured latency and actual OS scheduling
+remain pending. Read-only Android inventory and host mocks do not close these.
+Next: owner/device walkthrough using isolated data without clearing the current
+record; keep delivery in-review until physical acceptance is established.
+
+## Lean onboarding review corrections (2026-10-30)
+
+The scoped delivery adapter records lifecycle/disposal fences, durable
+pause/Continue recovery, truthful metadata acknowledgement, selected-only update
+authority, exact diagnostics and lean recovery/UI corrections. The focused gate
+passes six suites/141 tests and mobile lint; fresh integrated verification is
+separate. Mounted entry, delayed provider publication and Updates consent
+interactions are covered. Android isolated-profile/native flow/viewport and
+physical iOS acceptance remain pending. This correction pass performed no owner
+data reset, external transfer or deployment. See
+`_bmad-output/implementation-artifacts/spec-lean-onboarding-and-navigation.md`.
+
+## Final transfer activation timeout correction (2026-10-29)
+
+Hosted57014 context isolated repeated growing Replay assembly; scale verification
+also proved per-character Unicode regex overhead. Migration20261029143353 replaces
+both without changing quota, authority or immutable transfer recovery. Applied only
+this scoped migration; live definitions, helper privacy and Unicode bounds verified.
+Root130 and full PostgreSQL14 fixtures pass.24MiB source/aggregate activation took
+1.259s/1.099s locally;60MiB additional synthetic rollback probe3.502s/2.699s, below
+the authenticated server8s budget. Three scoped static reviewers found no defects.
+Actual owner Save reached64/65 before the correction. Resume the same checkpoint;
+owner receipt and physical two-device convergence remain unconfirmed. No private
+record was read, reset or deleted during the SQL correction.
+
+## Lean onboarding and navigation specification (2026-10-29)
+
+At the owner's request after the BMAD party discussion, the detailed contract is
+[_bmad-output/specs/spec-lean-onboarding-and-navigation/SPEC.md](../_bmad-output/specs/spec-lean-onboarding-and-navigation/SPEC.md).
+Eleven capabilities and four authored companions specify Welcome → access choice
+→ automatic local preparation inside Atlas, contextual Back/Settings, honest
+progress/recovery, optional account entry and explicit continued-update enrollment.
+The spec defines 36 future acceptance scenarios, source/authority/lifecycle fences,
+the diagnostic map and collection recipe, and five ordered implementation slices.
+English copy, Settings placement, retry timing and first-run persistence are
+explicit engineering defaults. Account enrollment/restore and hosted-sharing
+restrictions remain separate; no gates, app code or deployments changed here.
+
+Root `npm run check` passed 130 tests, framework integrity and eval infrastructure
+smoke. Artifact links/capability coverage and both specification self-validation
+passes are recorded in the spec evidence. Runtime implementation, Android/iOS
+viewport/navigation/native scheduling and owner usability acceptance remain
+pending; document/foundation passes do not establish an intuitive working UI.
+Next work: implement I-1/I-2 persistence and single-run orchestration before
+exposing the simplified I-3 UI, then finish I-4/I-5 and the device matrix.
+
+## Owner Save reached final receipt reconciliation (2026-10-29)
+
+After Metro transform-cache rebuild, actual device export passed the long Replay
+validation and transfer acknowledged64/65 steps. Final activation returned local
+HISTORY_ACK/HISTORY_NETWORK with unknown durable outcome. Same saved operation
+must be resumed/reconciled; completion and account authority are not established.
+No new transfer, checkpoint deletion or local record clearing was performed.
+
+## Owner long-Replay save compatibility (2026-10-29)
+
+Actual owner diagnostics proved initial Save fails at Replay array item size:
+structural journey references exceed the old10k wire bound. Added lossless bounded
+Replay fragments at transport boundaries, complete atomic SQL reassembly before
+source/aggregate activation, and a distinct SHA256 mapping namespace for long
+source-local IDs. Semantic composition/order/soundtrack remain the authority;
+metadata stores bounded graph/Replay summaries rather than duplicate bodies.
+
+Migration20261029140350 applied and matching worker deployed. Root130, mobile97
+suites/858 tests, SQLite104, PostgreSQL13, mobile/backend typing, lint and bundle
+freshness pass. Malformed/missing/mixed/order/Unicode fragments retain previous
+authority. Owner Save retry and physical convergence remain unconfirmed. Large
+post-sync correction requests still retain the existing explicit journal quota;
+no truncation, Replay deletion or local record clearing was performed.
+
+## Development load recovery (2026-10-29)
+
+During owner OTP testing, Metro was not listening and USB reverse was absent.
+Started the current dev server on8081, restored Android reverse and opened the
+verified exp+travel-life link. Android bundle delivered1786 modules; process runs.
+Phone system shade/lock state prevents confirming actual app UI until owner
+unlocks/foregrounds it. Preserved all local data and account/media state.
+
+## Device-test code/service closeout; SMTP input required (2026-10-29)
+
+Live Dashboard proved the previous HTTP546 was Memory limit exceeded at
+MEDIA_DECODE. Bounded WASM streaming and removal of redundant hash copies now
+pass hosted trusted decode: synthetic JPEG, short H264/AAC video and AAC audio
+activate and download byte-identically from a second session; another owner and
+anonymous access are denied. This does not validate long/large/concurrent media
+or physical OS playback. Native receipt handling now accepts SQL complete only
+for the saved artifact and exact positive expected revision, preserving active
+recovery; focused retry/redaction regressions pass.
+
+Final root128 and full mobile95 suites/825 tests pass. Local development account,
+history, corrections, controls, source removal and private media gates are enabled
+for the requested device test; hosted matching services are deployed. Latest
+synthetic deletion inventory reports4 completed/7 pending; pending upload leases
+and scheduled retention remain honest, not claimed complete. No owner media used.
+
+User confirmed no SMTP provider exists. Dashboard SMTP toggle is off and template
+editing requires SMTP. The SMTP page is open and docs/development/account-email-setup.md
+lists required provider fields and Token templates. Actual email OTP registration
+and physical two-device acceptance require those provider credentials and testing.
+
+## Live account/history smoke and remaining email/media setup (2026-10-29)
+
+Worker version11 is active; a corrective migration restores service_role EXECUTE
+on the replaced private entrypoint. Live synthetic testing now passes two real
+Auth sessions, two source uploads, hosted merge and pull by both sessions;
+anonymous RPC access is denied. No owner media was used. Three test accounts
+reached durable deletion completed via the deployed cleanup functions.
+
+Cleanup now uses private synchronous http functions with Vault and pg_cron,
+bounded checked curl options and pre-secret logging guards, avoiding pg_net's
+public queue. Both fixed jobs were installed and their initial requests were
+acknowledged. SchedulerSuite8 and root126 pass; actual continuing scheduling is
+not inferred from one manual invocation. Additional synthetic media test owners
+remain pending cleanup after upload returned HTTP546; stage/cause unproven.
+
+Local ignored development environment now enables account/history convergence,
+corrections, controls and source removal for the owner's requested device test;
+private media remains off pending HTTP546 investigation. Server history and
+account cleanup are enabled. User confirmed no SMTP service exists; setup fields
+are documented in docs/development/account-email-setup.md. Actual email delivery
+requires provider credentials entered in Supabase. Dashboard log access currently
+requires the owner's browser login; no password/OTP is requested in chat.
+
+## M6/M7 device-test preparation (2026-10-29)
+
+Eight previously reviewed drafts are consolidated in the CLI-generated local
+M6/M7 migration; FullSuite passes 12 PostgreSQL fixture files against it, and
+an executable guard checks the bundle matches the drafts. Cleanup endpoints now
+accept bounded empty JSON for Supabase scheduling with capability checks and
+redaction intact; 27 focused endpoint tests pass. A local scheduler draft and
+synthetic negative/positive PostgreSQL suite cover distinct Vault capabilities,
+client queue privileges, fixed endpoints and empty request envelopes. Root check
+passes 125 tests and backend typecheck passes. No real scheduling is proven.
+
+The existing Travel Life project lacks the media migration and later M6/M7
+schema and functions; pg_cron and pg_net are not installed. A dry-run of the
+normal db push refused because three unrelated older local migrations are absent
+from remote history. A separate ignored staging workdir contains exactly the
+eight matching remote versions and two required M6/M7 migrations; its `--dry-run
+--skip-vault` lists only the media and consolidated M6/M7 migrations. The scoped
+route was applied successfully; do not use include-all against the main tree.
+Private-media, media-cleanup and account-cleanup functions deployed with JWT
+verification. History-merge deployment failed with HTTP 413; inventory confirms
+its previous version 10 remains active. Its generated bundle is 11,355,792 bytes;
+the precise service limit and an accepted compact deployment route remain to verify.
+Worker version 11 was deployed via local Docker bundling and a synthetic gated
+request returned HISTORY_UNAVAILABLE. pg_cron/pg_net were installed and cleanup
+capabilities provisioned, but scheduler preflight discovered PUBLIC access to the
+pg_net request queue; a postgres REVOKE left its supabase_admin-owned ACL unchanged.
+No scheduler jobs were created and temporary local capability files were removed.
+Use provider-supported permission changes or a secure alternative before cleanup.
+All feature gates remain disabled. SMTP/template, cleanup operation and real authenticated service
+smokes remain unverified; gates remain off. This is not device-test readiness.
+
+## M7 legacy owner edit migration (2026-10-29)
+
+The local M7 implementation now admits a provable dirty initial or legacy
+aggregate baseline through an immutable migration checkpoint, typed identity
+mapping and the canonical owner correction journal. Original owner revisions
+remain conflict guards; accepted local edits remain retained until a verified
+canonical pull. Unknown authority, source changes and ambiguous Replay targets
+remain protected. Independent review identified and corrected the accepted-pull
+guard and concurrent privacy revision collision, with synthetic regressions.
+
+Local checks after review: foundation 116 tests and eval smoke, 103 SQLite cases,
+12 PostgreSQL rollback fixture files, 95 mobile suites/807 tests, mobile typing,
+lint and shared backend TypeScript passed. Review evidence is in the legacy migration
+delivery record. Gates remain disabled; SQL and worker changes are local drafts.
+Hosted Auth/worker/receipt checks, real media and two-device Android acceptance
+remain open; the owner cannot connect a second device currently. No claim of
+production readiness or real-data migration is made.
+
+## M6-M7 interrupted work recovered and reviewed (2026-10-29)
+
+Recovered the failed account/history session and completed its locally implementable
+integration review fixes: offline verification preserves unlocked identity; source
+resume reconciles acknowledged generations atomically; selected account repositories
+rebind after a new replica; temporary owner-pending privacy hides old content while
+preserving account intent; explicit restore protects unsent edits. Control recovery
+distinguishes definitive server rejection from unknown acknowledgement. Media recovery
+checks receipts before cache bytes and supports explicitly reconciled abandonment,
+late-stage tombstones and generated-file cleanup. Bounded replica staging/reclamation
+closes only safe tracked account connections and preserves active/local histories.
+
+Three independent review lenses produced 14 individually recorded findings; the
+existing M7 delivery record contains triage, corrections, diagnostic maps and the
+M6-M7 acceptance evidence matrix. The mounted provider remount regression was checked
+again by its reviewer. Parent completed remaining patches after the implementation
+agent exhausted its usage limit. No worktree reset, commit, push, remote deployment,
+actual OTP or owner-media upload occurred.
+
+Root check passes 90 tests plus eval smoke; the maintained `-FullSuite` PostgreSQL
+command passes all 11 synthetic rollback fixture files. SQLite passes 102 cases,
+including source-generation rollback, bounded replicas and owner-only deletion.
+Expo Doctor passes 21/21 on the host after sandbox DNS failure. Final integrated
+mobile verification passes 95 suites/790 tests, typecheck/lint and shared backend
+TypeScript. The M7 delivery record retains exact commands and failed-attempt history.
+
+All sync/media/control gates remain disabled. The owner cannot connect the second
+Android now, so physical two-device/OS/viewport/Replay acceptance remains open, as do
+real SMTP/Auth/receipt-gateway/cleanup-retention service checks and iOS. Dirty initial
+or unknown legacy account replicas remain preserved as Needs review rather than
+silently remapped. M6-M7 is still in progress; host passes do not close those limits.
+
+## M6 account controls/deletion continuation (2026-10-28)
+
+Gated account controls now include owner-scoped session inventory/revocation,
+versioned consent withdrawal and fresh-auth account deletion. A protected random
+receipt is persisted before deletion, survives signout, and reports pending until
+media/metadata and Auth deletion are acknowledged. Local PostgreSQL9 rollback
+fixtures and backend cleanup fault tests pass; mobile typecheck/lint and focused
+deletion tests pass. The controls and cleanup gates remain off, SQL stays in local
+drafts, and actual SMTP/refresh/receipt gateway/identity deletion plus Android/iOS
+acceptance remain unobserved. No remote deployment or private upload occurred.
+
+## Gated account continuity and source removal preview (2026-10-28)
+
+Local drafts retain the accepted aggregate through append-only pending evidence while
+fencing changed privacy/removal; mobile hides an observed unreadable prior authority.
+Foreground merge/pull scheduling guards unsent account edits with semantic baselines
+and never implicitly restores into a local-only record. Source coverage and gated
+all-page removal preview now show actual facts, derivative availability and separate
+metadata/media counts, with full-request preview CAS receipts. Automatic convergence
+and removal remain disabled. Parent verified all eight local Postgres rollback
+fixtures; four focused mobile suites pass20 tests, account SQLite6, typecheck/lint.
+No hosted migrations, owner media uploads or physical acceptance occurred. General
+correction conflict journal/resolution and headless merge/pull remain open.
+
+## M6 continuation session and restore fences (2026-10-28)
+
+Confirmed provider session-denial codes and the installed SDK session-missing
+error now lock the local owner and persist the secure access block. History API
+session denial uses the same fence and returns to the independent local record;
+retryable network failure preserves already unlocked offline identity. Restore now
+reports exact pull/stage/rebuild/read/authority/pointer boundaries and fences each
+awaited step, including signout during staging. Synthetic regressions passed and
+mobile typecheck/lint pass. No real OTP, revocation, remote mutation or physical
+acceptance was observed. Full M6–M7 delivery remains in progress.
+
+## Account derivative playback substrate (2026-10-28)
+
+Continuation adds selected-copy preparation/upload and the gated gallery, exact
+custom-audio consent, immutable SQLite upload receipts and same-source foreground/OS
+lease coordination. Automatic history sync remains separately disabled. Actual local
+Postgres17 verified the source-media selection draft with five rollback fixtures;
+this is synthetic Auth/Storage evidence only. Pure coordinator tests pass four
+scenarios and real SQLite six. General correction conflicts, source coverage/removal
+preview, prior aggregate continuity under pending input and physical acceptance remain
+open. No hosted migration or private media transfer occurred in this continuation.
+
+The account replica now has a gated private-media adapter: canonical account evidence
+and the exact custom soundtrack revision resolve through current owner authorization,
+byte/hash/type verification and a bounded private session cache. Account Replay blocks
+missing committed media and rechecks live media/history consent and active aggregate
+before render completion/export. Context changes fence callbacks and cache access.
+The explicit media flag remains false; this does not establish synchronized playback.
+Four focused suites pass 75 tests; mobile typecheck/lint and root checks (86 tests)
+pass. Selected native derivative upload, durable synchronization, concurrent correction
+resolution, removal preview and physical two-device/cache acceptance remain open.
+
+## Source removal retention substrate (2026-10-28)
+
+M7 source controls now retain current readable history across pause/disconnect while
+fencing old worker plans. Source removal has a tested server fence/purge path that
+preserves independent owner trips/home areas and retains dependent corrections and
+privacy scopes as inactive review proposals. Explicit versioned archival preserves
+the original proposals and allows surviving-source rebuilding. Removal remains
+unexposed until its affected-content preview exists. The Account Sources panel
+supports pause/disconnect and inspection of retained/archived owner facts, with an
+explicit archival confirmation. It does not claim media playback synchronization.
+
+Migration `20261028081801_m7_source_owner_fact_retention.sql` passed hosted rollback
+fixtures before application; parent applied it and reran retention rollback tests.
+The worker was redeployed with JWT verification and its merge gate still disabled.
+Root checks pass 70 tests; mobile typecheck/lint and 23 focused merge/control/UI
+tests pass; four account SQLite tests pass. General offline correction convergence,
+affected-content removal preview, private media and two-device acceptance remain open.
+
+## Multi-source implementation in progress (2026-10-28)
+
+M6 account and separately consented history transfer, the shared canonical merge,
+and a gated M7 worker have local implementations and synthetic coverage. The
+existing Supabase project has the account/history schema and worker RPC migrations;
+the merge Edge Function is deployed with gateway JWT verification and remains disabled. The initial follow-up migration
+blocked source removal; the source-retention section above records its superseding
+preservation design and deployed migration. Initial root checks passed 67 tests (now
+70 with retention regressions), mobile
+typecheck and lint pass, and focused merge/contract tests pass. These are not
+two-device or real-media acceptance. The mobile SQLite suite passes 96 synthetic
+and local database tests; no physical device result is inferred from it.
+
+The unexposed mobile merge entry point now persists an owner-scoped operation ID
+before contacting the worker. It retains the ID for unknown acknowledgements and
+failed status refreshes, fences sign-out, and clears a matching checkpoint after a
+confirmed result or explicit stale response. Synthetic tests cover retries, redaction,
+owner isolation and replica invalidation. The worker remains disabled pending
+integration, retention and device acceptance.
+
+Replica pointer and source-scope updates now commit atomically with an action fence;
+stale cleanup is limited to the matching staged database. Synthetic SQLite covers
+write failure, in-transaction sign-out, newer-pointer preservation and refusal to
+select a legacy pointer lacking its scope. Restore's
+remaining diagnostic boundaries and actual device lifecycle still need verification.
+Account status parsing now rejects malformed source and aggregate identity/state
+fields before selection; focused tests also retain support for more than 100
+inactive source records. Root checks, mobile typecheck/lint, and focused tests pass.
+Status publication now waits for the final owner/action fence after scope reads;
+a held-promise unit test covers the fence, while full device sign-out remains open.
+Transfer checks the current action before/after source registration and before
+checkpointing. The stale-before-checkpoint regression passes; delayed registration
+is fenced by a shared helper and tested with a held synthetic registration. Requests
+now bind token owner and action generation after asynchronous
+token lookup; synthetic RPC/worker tests cover mismatch and sign-out before fetch.
+Already-sent requests and physical-device lifecycle still require verification.
+
+Two server-side bundle deployments returned HTTP 413. After Docker Desktop was
+started, local CLI bundling deployed the worker successfully (reported bundle
+5.6 MB); a synthetic unauthenticated request received HTTP 401. The worker gate
+remains disabled. The gateway's compatibility with real account tokens, authenticated
+runtime loading, actual CPU/memory and end-to-end behavior remain open.
+In a local Supabase Edge Runtime container, the actual shared merge handler loaded,
+returned HISTORY_UNAVAILABLE while disabled, and completed a synthetic manual-journey
+merge against mock Auth/RPC without exposing fixture text in diagnostics. The probe
+container was stopped. This is local Deno evidence, not hosted or device acceptance.
+
+The isolated Supabase Edge decoder probe passed a tiny generated JPEG and H.264
+case and rejected a truncated MP4; its endpoint and secret were removed. Realistic
+size, duration, concurrency and corruption limits remain unmeasured; media sync is
+not enabled. Remaining work includes rollout of the worker integration,
+source lifecycle and correction convergence, safe retention/cleanup, media transfer
+and offline playback, real authentication delivery and owner-operated two-device
+verification. M8/M9 follow M6–M7 and are not implemented.
+
+A local Node decoder ladder additionally passed fixed two-second 720p/1080p H.264
+and 720p H.264/AAC synthetic full decode, rejecting three truncated variants. These
+are not hosted Edge, real-media, concurrency or long-duration measurements.
+The attempted hosted 720p probe deployment was rejected by automatic approval
+review due to its disabled gateway JWT verification. It was not deployed and its
+new probe secret was removed. A separate JWT-gated probe then showed that its
+combined 720p encode/decode test failed at synthetic encoding with an unknown
+cause; a pre-encoded two-second 720p H.264/AAC synthetic fixture subsequently
+fully decoded and rejected a truncated file (942 ms including setup, 32 MiB WASM
+heap). That temporary function and its secret were removed. Neither result proves
+real-media, concurrency, user-session or long-duration acceptance.
+Another JWT-gated synthetic probe fully decoded a fixed two-second 1080p H.264
+fixture and rejected truncation (1,208 ms including setup, 32 MiB WASM heap).
+It had no audio; probe and secret were removed. Product media sync remains gated.
+
 ## Next scope approved: private multi-source history (2026-10-28)
 
 The owner accepted one account with multiple devices/sources and requested the
@@ -3973,3 +4981,187 @@ To locate the remaining device-only draft failure without exposing local media o
 ## Replay custom-audio recovery receipt repair (2026-10-26)
 
 The device checkpoint log isolated the remaining failure to the replacement-stage write after a successful local recovery reset. That write reused an obsolete idempotency receipt identity even though its expected revision had changed, so the native receipt contract correctly rejected it. Recovery now uses a fresh operation ID while preserving the same edit session/version and exact visible selection. The provider regression suite passes 49 tests, plus mobile TypeScript/lint. Owner retest remains required for confirmed Android save, Update Replay, and rendered-video playback.
+
+## Resumed M7 host integration (2026-10-29)
+
+Gated correction and history convergence now share the headless runner without a
+second foreground upload; failure propagates to the OS result. Offline live-token
+verification preserves the unlocked owner, source-only read restrictions leave
+independently authorized account convergence available, selected conflict resolutions
+retain an immutable checkpoint until authoritative pull, and explicit M7 restore
+merges initial authority before storing a canonical correction baseline. Dirty
+legacy/unknown initial replicas are preserved for compatibility review. Account
+Jest passes 33 suites/163 tests, actual account SQLite seven, mobile typecheck and
+22 worker runtime tests pass; the generated native-free graph is current. Gates
+remain disabled, with physical two-device/Android/iOS, native-media, hosted service
+and dirty-legacy compatibility acceptance open. No remote operation occurred.
+
+## Owner private-history export contention (2026-10-30)
+
+Correlated Android diagnostics isolate the reported private-history failure to the local export transaction begin, before upload. Export now uses a deferred consistent read under the existing ownership gate, retaining immediate writes and rollback quarantine. A real file-backed SQLite concurrent-writer regression reproduces the old failure and passes the correction. Exact begin/commit/rollback diagnostic stages and checkpoint-preserving busy copy are covered by failure/redaction tests.
+
+Export correction checks pass: mobile99 suites/921 tests, SQLite106, TypeScript/lint, generated-domain freshness and root136/framework/eval smoke. Later owner diagnostics confirm corrected BEGIN/read/COMMIT/CLOSE on device. Native writer identity remains unknown; no app data or checkpoint was cleared. Delivery record remains spec-m7-unified-history.md.
+
+## Hosted Replay mapping CPU investigation (2026-10-30)
+
+Owner retries reach hosted merge but terminate with546/CPU Time exceeded. A varied-place/GPS-less synthetic profile exposed repeated support lookup; ordered immutable support summaries reduce3000-row local projection87.162s to0.383s, with120 frozen graph parity cases and a deterministic complexity regression. Full mobile99 suites/924 tests, worker57 and typing/lint/root136 pass; three scoped reviews found no concrete issue. Worker deployed through Docker after API-source upload413.
+
+Twenty closed canonical checkpoints (worker78 tests) isolate remaining work to HISTORY_REPLAY_MAP. Exact support mapping now uses an inverted index preserving complete-support uniqueness. GPS-less memberships and old Replay groups reconcile only through a unique complete-visit successor; ambiguous/split/missing support remains reviewable. A bounded2048-entry pure civil-day cache removes repeated validation work, reducing local synthetic merge CPU~1.016s to0.562s with120 frozen graph parity cases; repeated-day parse count3518 to9. Binary bracket experiment was rejected and is absent.
+
+Final hosted photo-Replay fixture passes:3000 mixed-GPS evidence,80 selected references, merge71.558s, same-operation retry retains aggregate/revision, two independent Auth sessions read all57 pages identically with3000 unique evidence and committed reverse Replay order. Synthetic account deletion fenced/purge scheduled. Software checks:100 mobile suites/929 tests, SQLite106, worker78, typing/lint and root157/framework/eval smoke. Latest membership/mapping independent reviewers hit usage limits and did not complete; parent source review found no further defect. Latest owner server event on the preceding increment is HISTORY_REPLAY_MAP/HISTORY_REVIEW/blocked; final-cache owner acknowledgement remains unobserved. Do not drop selected Replay or reset the checkpoint to bypass review. Whole owner sync/physical acceptance remains open despite synthetic success.
+
+Owner final-cache retry still logs REVIEW/blocked at Replay mapping followed by CPU termination (06:06:04UTC). Current ADB confirms client NETWORK/unknown; Metro JSONL is stale. Fixed source-group absent/target and review correction/duplicate categories are now deployed to isolate the retained authority issue without reading private IDs.82 worker/86 focused mobile tests, typing/lint, root161 and120 frozen parity pass. Hosted negative synthetic manual/absent-Replay group returns explicit review on exact retry with no activation; cleanup fenced. Await current owner subtype before choosing recovery; no checkpoint or selected Replay was discarded.
+
+Owner06:10:48UTC confirms HISTORY_REVIEW_CORRECTION plus HISTORY_REPLAY_GROUP_TARGET. Backend now distinguishes retained removed-source facts from canonical correction remap using fixed categories and field-presence checks only; values remain private.84 worker tests and current root checks pass; deployment acknowledged. Next evidence is the owner retry's corrective subtype. Existing data/Replay/checkpoints remain unchanged; owner sync is still open.
+
+## Correction remap and nullable provenance repair (2026-10-30)
+
+Owner subtype confirms canonical remap. Reproduced a correction successfully mapped in the final graph but still carrying intermediate pending status; now clear only the same revision's resolved flag and preserve other unresolved revisions. Transport also rewrote nullable Android source_origin to explicit unknown, changing native/account graph semantics; null is now retained and explicit unknown remains unknown. Correction support indexing preserves visit-row multiplicity and all missing/split/overlap guards;600-visit work regression falls from2,160,000 reads to under10k and500 frozen correction outcomes match. Three independent reviews completed, with mixed-revision test gap corrected/rechecked.
+
+Current checks:100 mobile suites/931 tests, SQLite106, worker84, TypeScript/lint and root163/framework/eval smoke pass. Hosted3000 nullable-provenance evidence + effective correction +80 selected Replay references completes55.157s; same-operation retry preserves aggregate/revision; two Auth sessions read all57 pages identically with null provenance, effective correction and exact Replay order retained. Synthetic deletion fenced/purge scheduled. Worker version28 ACTIVE deployed17:38:20.667Bangkok. Owner17:38:12 review predates that deployment; current-version acceptance remains pending. Restored missing USB reverse without restarting healthy Metro; owner confirms app visible. No owner data/checkpoint reset or Git stage/commit/push.
+
+## Private sync CPU continuation (2026-11-07)
+
+Owner's last correlated retry passed correction/Replay review but terminated on CPU after ACTIVATE began. Version29 is now ACTIVE after Docker bundle deployment. Successful immutable Replay-body validation is memoized by weak value-object reference and exact body string; row fields always revalidate. UTF8 accounting uses bounded surrogate-safe TextEncoder chunks where available, with exact native-free fallback. Full synthetic worker3000 evidence/correction/200Replay local user CPU falls2.031s to1.359s.100 mobile suites/932 tests, SQLite106, worker84, root163/framework/eval smoke, typing/lint and generated freshness pass. Three scoped source reviewers report no concrete findings. Hosted200-reference convergence test is running; owner success remains unconfirmed. No owner storage/checkpoint reset or Git stage/commit/push.
+
+
+Version29 hosted result: source upload and exact activation retry pass; larger200-reference merge returns546. Synthetic cleanup fenced/purge scheduled. Current server phase is unknown because dashboard session expired. Owner authorization/self-login is pending after automatic browser review blocked GitHub sign-in; no workaround attempted. Runtime fix remains open. Additional local worker probe including RPC JSON encode/decode consumes1.625s user CPU; this still does not prove hosted success.
+
+
+## Resumable private sync repair (2026-11-07)
+
+Single-request workers v29–31 still hit hosted cumulative CPU limits with3000 synthetic evidence/correction/200Replay. New service-only checkpoint splits preparation, canonical build and final CAS into separate authenticated requests, preserving source/owner/domain fences, exactReplay/corrections and unknown-ack operation identity. Client automaticallycontinues progress and retries one explicitly stale operation with newUUID. Private preparedbody releases on complete/stale/expiry, tombstones preventrebase, activeaggregates/sourcefacts remain protected. Migration20261107140000 deployed alone transactionally and newworker deployed; hostedconvergence test running.101mobile suites/956tests, root197/framework/evalsmoke, strictbackend+mobiletyping/lint, SQLite106 and17PostgreSQLfixtures pass. Three scoped reviews yielded concrete tuple/quota fixes andownerjournal/twoowner tests, allchecked. LocalperrequestCPU preparation376–421ms/build921–1078ms excludeshosting. Owner/runtime success remains open; no ownerstorage/sourcecheckpoint reset, stage/commit/push, or unrelatedmigrationdeployment.
+
+
+Hosted checkpoint refinement: PREPARE returns200/CHECKPOINTED but firstBUILDstillhitCPU atACTIVATE_START due246individualcheckpointreadRPCs. Addedboundedservice-only read-batch action(1–8orderedchunks) reusingeveryoriginalguard; workerreads31batchesinsteadof246RPCs for4MiBartifact. Migration20261107142500 andworker deployed,17SQLfixtures/23checkpointtests/strictbackendtypes/root197 pass, independentsourcereviewfoundnoconcreteissue. Latesthostedtesthasnowreturnedtwoprogressreceipts (PREPARE andBUILDbothcomplete); FINALIZE/two-sessionreadbackstillrunning. A concurrentcompletedreceipt race is additionallyfixedand25checkpointtests/root199pass, pendingfinalworkerrolloutaftercurrentacceptance run. App freshbundle delivered1789modules; sampledlogsafter21:17show nofatal/loadermarkers; noowner-visiblecompletionclaim.
+
+
+Batchedhostedmergeandimmutableexactretrycompleted184.201s; fullacceptanceremainedopenbecausefirstsessionreadbackafter20/97pageshitSQL57014. NarrowaggregatepullreadRPC60s/client65s nowdeployedasmigration20261107144000; unchangedpublichistorysession/privacy/source/ownerrevisionguarddelegation. NewfixedHISTORY_READ_TIMEOUTdiagnosticisretryableunknownandkeepspreviousreplica. Worker34ACTIVE includeslatestreceipt-racefix; fullhostedtwo-session200Replayruninprogress. Aggregate/source/statusglobalbudgetsunchangedexceptthisexplicitreadfunction. Readbudgetclient/servicefailure-redactiontestsand17SQLfixturespass; finalmobile/rootchecksruninparallel.
+
+Hosted final result (2026-11-07): worker34 completes3000 synthetic evidence +effective place correction +200 Replay references in197.575s; exact retry retains aggregate/revision; two independent Auth sessions read all97pages identically with3000 unique evidence, null provenance, correction and exact reverse Replay selection retained. Synthetic account deletion fenced; scheduled purge pending.101 mobile suites/958tests, root199/framework/eval smoke, strict mobile/backend typing, lint and17 PostgreSQL fixtures pass; generated native-free bundle current. Owner retry requested; actual owner completion and physical two-device acceptance remain open. No owner storage/source checkpoint reset, Git stage/commit/push, or unrelated migration deployment.
+
+Owner-operated Android Sync confirmed (2026-11-07): action runtime-mw6ijdz6-6 completed export, resumable prepare/build and server commit (HTTP200/COMPLETE21:45:35Bangkok). Fresh ADB closed diagnostics then confirm HISTORY_TRANSFER/HISTORY_AUTHORITY/COMPLETE with durableOutcome complete after account-status refresh under the same correlation. Owner's Saved revision0 report occurred while this action was still processing; that always-visible status label is not completion evidence. This confirms the reported owner Sync operation; independent physical second-device restore/playback and fullM7 acceptance remain open. No owner record or source checkpoint reset.
+
+
+## Account View remount authentication repair (2026-11-07)
+
+Owner observed login after View account history despite successful Sync/revision1. Closedrestore diagnostics and REDrealcontroller test establish providercontext-keyremount ->AccountScreen.restore ->transientownerloss ->cleanupcancellation/credentialblock. Restore now skipsalready-signed-in identity inside its serialized queue; coldbootstrap, liveverification, explicitdenial/signout fences preserved. RealScreen/controller/PhotoAccessProvider integration proves View retainsowner/selection andexplicitSignoutstilldisposes/fences. AddedopenAUTH/REPLICA/SCOPE/BINDdiagnostics, typedfailures andredaction.102mobile suites/965tests, root199/framework/evalsmoke, typing/lint andbundlefreshnesspass; threescopedreviewsfoundnoconcreteissues. Queue-deferredrestore regressionalsopasses. Appbundlehandoff/retestpending; priorerroneouscredentialblockrequiresnormalowneremailverification ifloggedout. Savedserverrevision/sourcefactsandlocalreplicapointersnotreset. WholeM7remainsin-progress.
+
+## Owner account browsing confirmed; Replay diagnosis open (2026-11-08)
+
+Owner confirms View account history retains sign-in and Atlas/Timeline trips are visible. This verifies the bounded View remount repair after correcting task Metro CI mode (reloads disabled) to interactive watch mode; the routed Android bundle was checked for the restore guard and open-stage markers. It does not complete physical second-device or whole M7 acceptance.
+
+Owner next reports Replay could not be prepared. Current device fixed events show PRIVATE_MEDIA/MEDIA_AUTH/MEDIA_ACCESS/skipped before REPLAY_RENDER/REPLAY_ACCESS/UNKNOWN. Exact authorization guard remains unknown. Native denial subtypes and correlated provider boundary diagnostics are being added; no permission, media consent, selection, source checkpoint or user storage is reset or bypassed. Delivery remains spec-m7-unified-history.md. Root199/framework/evalsmoke and native authorization diagnostics10 tests pass; further Replay verification and owner evidence remain open.
+
+## Replay prepared-artifact writer correction (2026-11-08)
+
+Current frozen-bundle owner action runtime-mw7clonr-a proves REPLAY_LOCAL and exact REPLAY_OUTPUT_SAVE/DATABASE_BUSY after directory/copy/file verification/composition identity pass. The earlier generic output catch violated the diagnostic policy by erasing classified cause; fixed source/output substages and typed repository lifecycle/mapping/run/privacy/CAS guards now survive cleanup to one terminal under the same action correlation, with failure/redaction regressions.
+
+The direct prepared-artifact mutation did not join the existing native writer queue. Two real file-backed connections reproduce old SQLITE_BUSY before writer settlement; the correction gates the full guards/read/CAS in a foreground owned transaction. It waits, preserves the other committed composition, and rechecks lifecycle after queue admission. All100AtlasSQLite tests pass; full mobile102/990 passed for diagnostic patch, transition5suites34 and finalmobile typing/lint/root199/framework/evalsmoke pass. Independent follow-up source review finds no concrete blocker. A final full mobile run is in progress for context-transition diagnostics.
+
+Exact routed Android bundle compiled writer gate and context diagnostics were verified (hash2b3f28b6af2b08d2f4ab48a81040deb50c6e060d228e69a322b352e1c2de254d). Restarted only Travel Life normally to release stale native connections; owner Replay validation requested. Actual source switch after preceding View remains unknown, now mapped to closed caller-specific transition events. No owner data, credentials, checkpoints or storage reset. Physical Replay acceptance and wholeM7 remain open, along with recorded pre-existing media cache/composition/publication-fence follow-ups.
+
+Final mobile verification now complete:102suites/997tests pass, replacing the in-progress run above. Physical post-restart Replay validation remains pending; no current owner success claim.
+
+Owner Replay writer acceptance (2026-11-08): owner confirms preparation and playback after the foreground-writer correction and ordinary app restart. Current Android runtime-mw7dnuq6-a reaches DIRECTORY/COPY/VERIFY/IDENTITY/SAVE/CLEANUP then REPLAY_RENDER/COMPLETE, durableOutcome complete. This closes the observed prepared-artifact DATABASE_BUSY incident; no storage or checkpoint reset. Software evidence:102mobile suites/997tests,100AtlasSQLite, root199/framework/evalsmoke, typing/lint and scopedreview pass. Source caveat: this action explicitly logs REPLAY_LOCAL. Earlier View runtime-mw7dn9kg-6 completed HISTORY_OPEN_BIND, but no HISTORY_CONTEXT_* switch event is present in current process collection. Therefore account-source continuity remains unknown/unresolved and physical account/two-device Replay acceptance is not established by this successful local playback. Keep wholeM7 in-progress and source-continuity follow-up open; do not conflate writer-incident closure with full account acceptance.
+
+## Simple account sync owner flow (2026-11-08)
+
+Owner rejected the technical multi-step interface. Signed-in Account now offers one explicit Sync to account action: authorize private scope from adjacent copy, converge/restore history, upload only the media already committed to account Replay using existing exact durable jobs, select account source, then open Atlas. No second gallery selection, Check or Restore is needed in the default path; advanced controls remain in collapsed Details. Live acknowledged-copy progress is shown; failures retain saved operations and exact redacted cause. Playback resolves only required account refs and keeps the committed soundtrack on first open.
+
+Software evidence:106mobile suites/1024tests,112SQLite, root199/framework/evalsmoke, mobiletyping/lint and scopedwhitespace pass. Actual compiled Android bundle verified with one-action/consent/committed-scope/focus/atomic-source markers (hashcff6786d8e2f2bdc2261aa96cce82f389af830917a449a28f50056f4be85135c), app normally reopened without storage reset. Owner one-button Sync acceptance pending. Independent reviewer layers remain limited by service quota; parent scoped source review completed, no broad release/fullM7 acceptance claim. No Git stage/commit/push or unrelated backend deployment.
+
+### One-button account Sync timeout correction (2026-11-08)
+
+Current owner action completed consent/history but source-media mapping timed out
+in PostgreSQL pre_account_controls count query (SQLSTATE57014). New migration
+20261108190000 projects compact source/privacy/evidence values before joins and
+shares eligible rows between count/page; retains every source/session/account
+and privacy/revision guard and existing RPC timeout budgets. Transport now carries
+specific SQL-timeout versus own-read-deadline stages into one redacted diagnostic.
+
+Evidence: old synthetic query reproduces statement timeout; full19 PostgreSQL
+fixtures pass. 3000-evidence/8MiB metadata/4MiB Replay count+page+audio regression
+2.419s under5s; complete125-page sequential enumeration86.317s locally (synthetic,
+not hosted/device latency). Nonzero evidence/audio revisions and both privacy
+fields verified. This remains a per-request optimization; whole enumeration can
+still take time. Mobile106 suites/1027 pass, final affected3 suites/32 pass including
+two additional old-owner cleanup races; typecheck/lint and root199/framework/eval
+smoke pass. Required generated domain digest refreshed, no worker deployment.
+Deployment and owner one-button completion still pending at this checkpoint.
+
+Deployment follow-through: only migration20261108190000 applied and recorded;
+live function/security metadata verified. Final SQL NULL-sensitive assertion
+subset passes6files; final Android compiled proof includes exact timeout stages
+and simple Sync. Code is frozen for owner retry; native media upload and automatic
+Atlas completion remain unaccepted.
+
+2026-11-09 continuation: restored stopped development Metro/USB transport and
+verified unchanged Android bundle plus fresh closed account/history diagnostics.
+Previous Sync terminal outcome unavailable in retained log buffer. No code/server
+or data reset; owner one-button Sync completion remains pending.
+
+### Source-media session-network recovery (2026-11-09)
+
+Same owner Sync correlation proves ACCOUNT_REFRESH/ACCOUNT_PROVIDER/ACCOUNT_NETWORK
+immediately before media mapping fails. Client now permits exactly one extra fresh
+verified-session read for source-media with still-current owner fence; no cached
+token or write retry. Precise transport categories propagate to one closed diagnostic;
+403 permission denial preserves sign-in, stale responses/progress are fenced, and
+first mapping authority must match the loaded Replay replica. Committed custom
+soundtrack missing/mismatch/acknowledged cases have consumer-level regressions.
+
+BMAD three reviews plus exact-patch follow-up completed. Final106 mobile suites/
+1084 tests, focused2/83, root199/framework/eval smoke, typecheck/lint/whitespace pass.
+No server change in this continuation. Android bundle frozen; existing app reopened
+with data retained. Native Sync/upload/automatic Atlas completion still requires
+owner evidence; wholeM7 remains in-progress, deferred issues recorded in its record.
+
+### One-button media receipt recovery (2026-11-09)
+
+Owner action completed history/mapping and30 of31 private copies before final
+MEDIA_STAGE lost acknowledgement with matched hosted503. Prior saves confirmed
+by same-correlation durable completion events; underlying service503 cause
+remains unknown. One-button Sync now reconciles an eligible transport interruption
+once using the exact persisted job and existing receipts. Keeps prior saves,
+rechecks current ownership/consent, and separates expected upload lease work and
+malformed acknowledgement from retryable transport. No server deployment/data
+reset. Confirmed live receipt guards and4 PostgreSQL fixtures; full mobile106/1123
+before final cleanup classification, final focused5/123, SQLite112, root199,
+typecheck/lint/scoped whitespace pass. BMAD review findings patched or recorded
+as pre-existing deferrals. Frozen Android bundle verified and app reopened; final
+owner Sync/account Atlas and Replay playback acceptance remain open.
+
+Android acceptance follow-up. The owner started Sync on bundle 732093b7 and correlation runtime-mw8wrekk-8 reached ACCOUNT_SYNC_OPEN COMPLETE with durableOutcome complete. HISTORY_OPEN_BIND, HISTORY_CONSUMER_ACCOUNT and HISTORY_PROVIDER_ACCOUNT each completed. This confirms account binding. The captured action did not include a separate final-copy upload receipt, so the prior 30/31 count is not independently updated. Subsequent MEDIA_FETCH/MEDIA_UNAVAILABLE events have separate correlations. Owner confirmation of Atlas navigation and Replay playback is pending.
+
+Owner acceptance confirmed on Android. After the Sync rerun, Atlas opened automatically and Replay played successfully. This closes the owner-visible Sync and playback check for this incident. The exact final media copy count remains unverified.
+
+Settings now shows restore progress beside Restore saved history. Validated download pages drive the measured bar and percentage. Preparation, local rebuild, and final publication show indeterminate activity. The existing success or failure message takes over when work settles. Verification passed 53 focused mobile tests, mobile TypeScript, and the foundation check. Owner observation of the progress on the second device remains pending.
+
+Second Android device. Owner confirmed restored trips and Atlas display and reported slow photos and local Replay preparation. Closed logs confirmed account binding and account-sourced Replay render completion. The action took about 161 seconds, with two preview intervals of about 47 and 60 seconds and about 27 seconds from encode start to the next stage. Current sync stores the composition and eligible private media copies. Each phone prepares and caches the rendered output locally. Preview resolution currently awaits one item at a time with authorization and cache checks. Atlas photo latency itself was not separately measured. Next performance investigation can profile first-view thumbnails and repeated preview preparation.
+
+Account previews now resolve up to three items per call for Atlas and Replay, with original result order and owner scope checks. All 1,132 mobile tests, mobile typecheck and 199 foundation tests passed. Cold timing on the second phone remains open. Final MP4 reuse across devices remains open and requires an authenticated private artifact bound to the current committed composition and aggregate.
+
+Second-device local Atlas recovery. Android reported heap exhaustion after rebuild completion and a destination read failure. Destination support now crosses the SQLite bridge in batches of up to 256 rows. Duplicate-family validation still spans the complete support set. Separate fixed query and computation diagnostics preserve the existing recovery boundary. Focused mobile tests (63), real SQLite tests (112), typecheck and foundation checks passed. Device recovery and the preceding Sync export fence remain separate open checks.
+
+The patched Android bundle was verified through Metro and reopened on the second phone. The new process loaded local history and remained alive for over 90 seconds without a new recorded exit. The last matching onboarding stage was RUN_WAIT. Atlas visibility still needs owner confirmation.
+
+The owner reported continued loading. Device phase timing isolated the first paging plan's destination query. Index-ordered paging reduced the first measured destination query to about 10 seconds. The first destination computation then took about 74 seconds and the projection completed. A second concurrent read reached destination computation before the USB connection dropped. Onboarding completion and visible Atlas remain unconfirmed. The temporary profile override was removed.
+
+After USB reconnection, the owner device reached the completed onboarding checkpoint in about three minutes and the finishing indicator cleared. The owner later reported unresponsive controls. Destination calculation now yields to pending input between short batches. The final privacy read checks remain in place. Focused mobile tests (61), SQLite (112), typecheck and foundation checks passed. Physical touch verification remains open because Android denied ADB input injection.
+
+Cold launch after an account merge bound the local provider because the source choice was process-local. The account control database now records the chosen owner. Startup restores the choice after session hydration and checks replica scope before binding. Older installations must open the already-saved account history once to record the choice. Account suite (432), typecheck and foundation checks passed. Device cold-launch validation remains open.
+
+The owner opened account history and Android recorded a completed account binding. After a cold restart, the new process restored that binding and displayed Atlas and Timeline. The View account history button previously left the owner in Account after a successful bind. It now routes to Atlas on success and retains the existing restore guidance on failure. Twelve focused tests and typecheck passed. The updated button route has host coverage and awaits a physical tap.
+
+The owner confirmed the new button returns to Atlas but reported a blank view. The account binding completed on Android. Aggregate-only inspection of the on-device SQLite copy found retained qualified and manual journeys and a disconnected lifecycle. The Atlas read requires a connected record. The screen now offers explicit reconnect for disconnected account records instead of rendering a sparse Atlas. The existing Settings recovery action remains available. Temporary local SQLite snapshots were removed after inspection. Physical confirmation is pending.
+
+The owner confirmed the trips appeared in Atlas on the second Android device after reconnecting the private record from Settings. The origin of the disconnected flag remains unconfirmed.
+
+The owner reported a rebuild error and difficulty finding Rebuild inside Details. Android recorded completion for all three observed rebuild and reveal actions. The Details sheet remained visible after the action. Rebuild and Recheck now appear directly on Atlas. The 41 Atlas component tests passed. The new placement awaits physical verification.
+
+The owner reported that the rebuilt account Atlas still omitted many trips from the second phone. Aggregate inspection of the local database found a connected record with 19,424 evidence rows and 66 qualified trips in the latest completed run. The prior account replica inspection found 7 qualified and 2 manual trips. The latest retained local-export diagnostics recorded a lifecycle fence before export. Rebuilding the selected account replica does not merge the separate local source. A successful second-device sync and resulting account view remain unverified.
+
+The owner wants to inspect and edit device journeys and Replay before explicitly syncing. Atlas now shows the active source and offers a direct switch to the other source. Foreground, account-edit and OS maintenance triggers no longer send account changes. Explicit sync can attach an unregistered device. The 486 focused tests and foundation check passed. Workspace typecheck reported errors for the concurrent journey-media snapshot and manual home pin changes. The second phone was disconnected, so device verification remains open.
+
+The second Android phone later reported local reconstruction failure. Account and local startup logged SCHEMA at DURABLE_RUN_READ. Read-only account replica inspection found a v39 marker with no home_revision column and only one Home table. Import schema v40 completes that known partial Home layout transactionally, retains the receipt and completed runs, and also accepts the complete v39 layout. The synthetic partial-layout regression, 115 SQLite tests, 23 import tests and the foundation check passed. Android was reopened with the repair and awaits completion evidence.

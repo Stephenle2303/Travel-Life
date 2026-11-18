@@ -44,7 +44,7 @@ function useHeroEnvironment() {
   return { motionPreference, appActive, pageVisible };
 }
 
-export function TravelHero({ onStart, screenActive = true }: { onStart: () => void; screenActive?: boolean }) {
+export function TravelHero({ onStart, screenActive = true, startLabel = 'Explore my travel life' }: { onStart: () => void; screenActive?: boolean; startLabel?: string }) {
   const { width } = useWindowDimensions();
   const desktop = width >= 900;
   const environment = useHeroEnvironment();
@@ -78,7 +78,7 @@ export function TravelHero({ onStart, screenActive = true }: { onStart: () => vo
       <Text accessibilityRole="header" style={[styles.title, desktop && styles.titleWide]}>Your travels.{ '\n' }<Text style={styles.alive}>Alive again.</Text></Text>
       <Text style={[styles.body, desktop && styles.bodyWide]}>The places you’ve been. The life you’ve lived.</Text>
       <View style={[styles.footer, desktop && styles.footerWide]}>
-        <View style={styles.startGroup}><Pressable accessibilityRole="button" accessibilityLabel="Explore my travel life" onPress={onStart} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} style={({ pressed }) => [styles.startButton, focused && styles.focused, pressed && styles.pressed, pressed && environment.motionPreference === 'full' && styles.pressedMotion]}><Text style={styles.startText}>Explore my travel life</Text><Text style={styles.startArrow}>↗</Text></Pressable><Text style={styles.privateNote}>Yours to explore. Yours to share.</Text></View>
+        <View style={styles.startGroup}><Pressable accessibilityRole="button" accessibilityLabel={startLabel} onPress={onStart} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} style={({ pressed }) => [styles.startButton, focused && styles.focused, pressed && styles.pressed, pressed && environment.motionPreference === 'full' && styles.pressedMotion]}><Text style={styles.startText}>{startLabel}</Text><Text style={styles.startArrow}>↗</Text></Pressable><Text style={styles.privateNote}>Yours to explore. Yours to share.</Text></View>
         <Text style={[styles.demoNote, desktop && styles.demoNoteWide]}>Illustrative footage · not your photos or Replay{mediaFailed ? '\nVideo unavailable · still view' : autoplayBlocked ? '\nMotion paused · play to retry' : ''}</Text>
       </View>
     </View>

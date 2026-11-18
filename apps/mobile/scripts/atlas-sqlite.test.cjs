@@ -1,6 +1,7 @@
 /* Synthetic compatibility tests. Never opens an owner database or native app. */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const Module = require('node:module');
 const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
@@ -32,6 +33,7 @@ Module._resolveFilename = function resolveAlias(request, ...arguments_) {
 };
 const originalLoad = Module._load;
 Module._load = function loadNativeBoundary(request, ...arguments_) {
+  if (request === 'expo-crypto') return { randomUUID: require('node:crypto').randomUUID };
   if (request === 'expo-sqlite') return {
     openDatabaseAsync: async (name) => {
       assert.equal(name, 'travel-life-import-v1.db');
@@ -44,11 +46,13 @@ Module._load = function loadNativeBoundary(request, ...arguments_) {
 
 const { createNativeImportRepository, ensureNativeImportSchema } = require(path.join(sourceRoot, 'import-record/repository.ts'));
 const { createNativeReconstructionRepository } = require(path.join(sourceRoot, 'reconstruction/repository.ts'));
+const { associateVisualAlbum, qualifyVisualTrip } = require(path.join(sourceRoot, 'visual-place/trip-recovery.ts'));
 const { ReplayDraftStaleError } = require(path.join(sourceRoot, 'replay/draft-error.ts'));
 const { classifyAppDiagnosticError } = require(path.join(sourceRoot, 'diagnostics/app-diagnostics.ts'));
+const { exportLocalHistory } = require(path.join(sourceRoot, 'account/history-native.ts'));
 
-function syntheticDatabase() {
-  const sqlite = new DatabaseSync(':memory:');
+function syntheticDatabase(filename = ':memory:') {
+  const sqlite = new DatabaseSync(filename);
   const statements = [];
   const calls = [];
   const failures = [];
@@ -97,6 +101,63 @@ async function withDatabase(run) {
   finally { activeDatabase = undefined; database.sqlite.close(); }
 }
 
+test('repairs a partial version 39 Home layout and retains its saved receipt', async () => withDatabase(async (database) => {
+  retainHistoricalSchema(database, 38);
+  database.sqlite.exec(`
+    UPDATE import_schema_version SET version = 39;
+    CREATE TABLE home_setup_receipt (record_id INTEGER PRIMARY KEY, command_key TEXT NOT NULL, payload TEXT NOT NULL, disposition TEXT NOT NULL);
+    INSERT INTO home_setup_receipt VALUES (1, 'synthetic-home-command', '[]', 'skipped');
+    INSERT INTO reconstruction_run (rule_version, evidence_revision, status, completed_at_millis)
+      VALUES ('synthetic', 0, 'complete', 1);
+  `);
+  await ensureNativeImportSchema(database.adapter);
+  assert.equal(database.sqlite.prepare('SELECT version FROM import_schema_version').get().version, schemaVersion);
+  assert.equal(database.sqlite.prepare('SELECT home_revision FROM reconstruction_run').get().home_revision, 0);
+  assert.equal(database.sqlite.prepare('SELECT command_key FROM home_setup_receipt').get().command_key, 'synthetic-home-command');
+  assert.equal(database.sqlite.prepare('SELECT revision FROM home_projection_context').get().revision, 0);
+}));
+
+test('onboarding intent survives SQLite reopen, preserves exact selected handles, and deletion fences late intent writes', async () => {
+  await withDatabase(async (database) => {
+    retainHistoricalSchema(database, 37);
+    const repository = createNativeImportRepository();
+    const intent = { version: 1, id: 'synthetic-onboarding-run', scope: 'selected', selectedIds: ['synthetic-a', 'synthetic-b'], missingIds: 0, phase: 'paused' };
+    await repository.savePreparationIntent(intent);
+    assert.equal(database.sqlite.prepare('SELECT version FROM import_schema_version').get().version, schemaVersion);
+    assert.deepEqual(await createNativeImportRepository().loadPreparationIntent(), intent);
+    await repository.disconnectPrivateRecord();
+    await assert.rejects(repository.savePreparationIntent({ ...intent, phase: 'queued' }));
+    assert.deepEqual(await repository.loadPreparationIntent(), intent);
+    await repository.deleteLocalHistory();
+    assert.equal(await repository.loadPreparationIntent(), null);
+    await assert.rejects(repository.savePreparationIntent(intent));
+  });
+});
+
+test('first reveal receipt survives reopen and fences duplicate offers and stale writes', async () => withDatabase(async (database) => {
+  retainHistoricalSchema(database, 40);
+  const repository = createNativeImportRepository();
+  const offer = { offerKey: 'synthetic-question', scope: 'synthetic-scope', command: 'offer', decision: 'offer', expectedRevision: 0 };
+  assert.equal(await repository.loadFirstRevealReceipt(), null);
+  const saved = await repository.saveFirstRevealReceipt(offer, () => true);
+  assert.equal(saved.status, 'saved');
+  const restarted = createNativeImportRepository();
+  assert.deepEqual(await restarted.loadFirstRevealReceipt(), saved.receipt);
+  assert.deepEqual(await restarted.saveFirstRevealReceipt(offer, () => true), saved);
+  assert.deepEqual(await restarted.saveFirstRevealReceipt({ ...offer, offerKey: 'other' }, () => true), { status: 'conflict' });
+  const answer = { ...offer, decision: 'yes', command: 'answer', expectedRevision: 1 };
+  let checks = 0;
+  await assert.rejects(restarted.saveFirstRevealReceipt(answer, () => ++checks === 1));
+  assert.deepEqual(await restarted.loadFirstRevealReceipt(), saved.receipt);
+  assert.equal((await restarted.saveFirstRevealReceipt(answer, () => true)).status, 'saved');
+  const undo = { ...answer, decision: 'undo', command: 'undo', expectedRevision: 2 };
+  assert.deepEqual(await restarted.saveFirstRevealReceipt({ ...undo, command: offer.command }, () => true), { status: 'conflict' });
+  assert.equal((await restarted.saveFirstRevealReceipt(undo, () => true)).status, 'saved');
+  assert.equal((await restarted.saveFirstRevealReceipt(offer, () => true)).status, 'conflict');
+  await restarted.deleteLocalHistory();
+  assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS n FROM first_reveal_receipt').get().n, 0);
+}));
+
 function syntheticCandidates() {
   return [0, 1, 2].map((offset) => ({
     assetId: `synthetic-source-${offset}`, mediaType: 'image',
@@ -109,6 +170,391 @@ function syntheticCandidates() {
 async function importSyntheticEvidence(repository) {
   await repository.commitPage({ scope: 'full', nextOffset: 3, scanned: 3, geotagged: 3, unavailable: 0, status: 'complete' }, syntheticCandidates());
 }
+
+test('committed SQLite history can be compared without publishing and invalidates stale preview authority', async () => withDatabase(async (database) => {
+  const importer = createNativeImportRepository();
+  const home = { id: 'synthetic-shadow-home', label: 'Synthetic home', origin: 'manual-pin', latitude: 10, longitude: 100,
+    radiusMeters: 5_000, effectiveStartDay: null, effectiveEndDay: null };
+  await importer.saveConfiguredHomeArea(home);
+  const photos = [9, 16].map((hour, index) => ({ ...syntheticCandidates()[0], assetId: `synthetic-shadow-photo-${index}`,
+    latitude: 10.2, capturedAtMillis: Date.UTC(2025, 0, 2, hour) }));
+  await importer.commitPage({ scope: 'full', nextOffset: 2, scanned: 2, geotagged: 2, unavailable: 0, status: 'complete' }, photos);
+  const repository = createNativeReconstructionRepository();
+  const events = [];
+  const originalLog = console.info;
+  console.info = (_, event) => events.push(event);
+  try {
+    assert.equal((await repository.loadCandidateShadowSnapshot({ canUseSource: () => true })).status, 'unavailable');
+    const cancelled = new AbortController();
+    cancelled.abort();
+    assert.equal((await repository.loadCandidateShadowSnapshot({ canUseSource: () => true, signal: cancelled.signal })).status, 'stale');
+    await repository.rebuild();
+    insertScaleEvidence(database, 24_001);
+    assert.equal((await repository.loadCandidateShadowSnapshot({ canUseSource: () => true })).status, 'too-large');
+    database.sqlite.exec("DELETE FROM canonical_evidence WHERE evidence_id LIKE 'scale-row-%'");
+    const outcomes = events.filter((event) => event.stage === 'CANDIDATE_INPUT_READ' && event.durableOutcome === 'skipped');
+    assert.deepEqual(outcomes.map((event) => event.reasonCode), ['HISTORY_INCOMPLETE', 'SKIPPED', 'ROW_LIMIT']);
+    assert.doesNotMatch(JSON.stringify(events), /SYNTHETIC_PRIVATE_SENTINEL/);
+  } finally { console.info = originalLog; }
+  const count = () => database.sqlite.prepare('SELECT COUNT(*) AS n FROM reconstruction_run').get().n;
+  const before = count();
+  assert.equal((await repository.loadDurableReveal()).journeys.length, 0);
+  assert.equal((await repository.loadCandidateShadowSnapshot({ canUseSource: () => false })).status, 'blocked');
+  const result = await repository.loadCandidateShadowSnapshot({ canUseSource: () => true });
+  assert.equal(result.status, 'complete');
+  assert.equal(result.cards.length, 1);
+  assert.equal(result.cards[0].state, 'reliable');
+  assert.ok(result.cards[0].id.startsWith('shadow-'));
+  assert.equal(result.cards[0].coverRefs.length, 2);
+  assert.equal(count(), before);
+  assert.equal((await repository.loadDurableReveal()).journeys.length, 0);
+  assert.equal(await repository.verifyCandidateShadowSnapshot(result.token, () => true), true);
+  assert.equal(await repository.verifyCandidateShadowSnapshot(result.token, () => false), false);
+  assert.equal(await createNativeReconstructionRepository().verifyCandidateShadowSnapshot(result.token, () => true), false);
+  await importer.saveConfiguredHomeArea({ ...home, radiusMeters: 6_000 });
+  assert.equal(await repository.verifyCandidateShadowSnapshot(result.token, () => true), false);
+  assert.equal((await repository.loadCandidateShadowSnapshot({ canUseSource: () => true })).status, 'stale');
+}));
+
+function insertScaleEvidence(database, count) {
+  database.sqlite.prepare(`WITH RECURSIVE numbered(i) AS (
+    SELECT 1 UNION ALL SELECT i + 1 FROM numbered WHERE i < ?
+  ) INSERT INTO canonical_evidence (evidence_id, source_ref, media_type, captured_at_millis, captured_day,
+    has_precise_offset, location_available, availability, latitude, longitude, reported_accuracy_meters)
+  SELECT printf('scale-row-%05d', i), printf('SYNTHETIC_PRIVATE_SENTINEL-%05d', i), 'image',
+    1719792000000 + i * 60000, date(1719792000 + i * 60, 'unixepoch'), 1, i % 4 = 0, 'available',
+    CASE WHEN i % 4 = 0 THEN 10 END, CASE WHEN i % 4 = 0 THEN 100 END, CASE WHEN i % 4 = 0 THEN 10 END
+  FROM numbered`).run(count);
+}
+
+test('comparison presents exact changed grouping as safe labels and withholds a hidden pair', async () => withDatabase(async (database) => {
+  const importer = createNativeImportRepository();
+  await importer.saveConfiguredHomeArea({ id: 'synthetic-pair-home', label: 'Synthetic home', origin: 'manual-pin', latitude: 10, longitude: 100,
+    radiusMeters: 5_000, effectiveStartDay: null, effectiveEndDay: null });
+  const photos = [2, 4].flatMap((day, group) => [9, 16].map((hour) => ({ ...syntheticCandidates()[0],
+    assetId: `SYNTHETIC_PRIVATE_PAIR_${day}_${hour}`, capturedDay: `2025-01-0${day}`, capturedAtMillis: Date.UTC(2025, 0, day, hour),
+    latitude: group ? 25.04 : 10.82, longitude: group ? 121.56 : 106.63 })));
+  await importer.commitPage({ scope: 'full', nextOffset: 4, scanned: 4, geotagged: 4, unavailable: 0, status: 'complete' }, photos);
+  const repository = createNativeReconstructionRepository();
+  await repository.rebuild();
+  const read = await repository.loadCandidateShadowSnapshot({ canUseSource: () => true });
+  assert.equal(read.status, 'complete');
+  assert.equal(read.separatePairs.length, 1);
+  const [pair] = read.separatePairs;
+  assert.equal(pair.left.observedPeriod, 'January 2, 2025');
+  assert.equal(pair.right.observedPeriod, 'January 4, 2025');
+  assert.notEqual(pair.left.title, pair.right.title);
+  assert.equal(pair.baselineGrouping, 'joined');
+  assert.deepEqual(Object.keys(pair).sort(), ['baselineGrouping', 'id', 'left', 'right']);
+  for (const side of [pair.left, pair.right]) assert.deepEqual(Object.keys(side).sort(), ['observedPeriod', 'title']);
+  assert.doesNotMatch(JSON.stringify(pair), /SYNTHETIC_PRIVATE_PAIR/);
+
+  const { evidence_id } = database.sqlite.prepare('SELECT evidence_id FROM canonical_evidence WHERE captured_day = ? ORDER BY evidence_id LIMIT 1').get('2025-01-04');
+  const { run_id } = database.sqlite.prepare('SELECT MAX(run_id) AS run_id FROM reconstruction_run').get();
+  database.sqlite.prepare(`INSERT INTO journey_privacy_revision (policy_id, command_key, action, target_kind, source_run_id,
+    reviewed_evidence_json, reviewed_family_json, reviewed_label, created_at_millis) VALUES
+    ('synthetic-pair-policy', 'synthetic-pair-command', 'hide', 'inferred', ?, ?, '[]', 'Synthetic hidden trip', 1)`).run(run_id, JSON.stringify([evidence_id]));
+  const hidden = await repository.loadCandidateShadowSnapshot({ canUseSource: () => true });
+  assert.equal(hidden.status, 'complete');
+  assert.deepEqual(hidden.separatePairs, []);
+  assert.equal(await repository.verifyCandidateShadowSnapshot(read.token, () => true), false);
+}));
+
+async function prepareLocalRecoveryOutings() {
+  const importer = createNativeImportRepository();
+  await importer.saveConfiguredHomeArea({ id: 'synthetic-local-recovery-home', label: 'Synthetic Home', origin: 'observed-area',
+    latitude: 10.82, longitude: 106.63, radiusMeters: 5_000, effectiveStartDay: null, effectiveEndDay: null });
+  const photos = [2, 9].flatMap((firstDay, visit) => [9, 12, 16, 32, 40].map((hour) => {
+    const day = firstDay + Math.floor(hour / 24);
+    return { ...syntheticCandidates()[0], assetId: `synthetic-local-recovery-${firstDay}-${hour}`,
+      capturedDay: `2025-01-${String(day).padStart(2, '0')}`, capturedAtMillis: Date.UTC(2025, 0, day, hour % 24),
+      latitude: visit ? 13.75 : 25.04, longitude: visit ? 100.50 : 121.56, sourceOrigin: 'capture-like', supportEligible: true };
+  }));
+  await importer.commitPage({ scope: 'full', nextOffset: photos.length, scanned: photos.length, geotagged: photos.length,
+    unavailable: 0, status: 'complete' }, photos);
+  const baseline = createNativeReconstructionRepository();
+  await baseline.rebuild();
+  assert.equal((await baseline.loadDurableReveal()).journeys.length, 1);
+  return baseline;
+}
+
+test('opt-in Local recovery persists an eligible pair, fences Account export and confirms the exact merge', async () => withDatabase(async (database) => {
+  await prepareLocalRecoveryOutings();
+  const optedIn = createNativeReconstructionRepository({ databaseName: 'travel-life-import-v1.db', enableLocalRecovery: true });
+  await optedIn.rebuild();
+  const before = await optedIn.loadDurableReveal();
+  assert.equal(before.journeys.length, 2);
+  assert.equal(before.mergePairs?.length, 1);
+  const [pair] = before.mergePairs;
+  const rule = database.sqlite.prepare("SELECT rule_version FROM reconstruction_run WHERE status = 'complete' ORDER BY run_id DESC LIMIT 1");
+  assert.equal(rule.get().rule_version, 'atlas-recovery-local-v1');
+  assert.equal((await optedIn.loadReplayManifestInput()).groups.length, 2);
+  await assert.rejects(exportLocalHistory(), { reason: 'HISTORY_VERSION_UNSUPPORTED', boundary: 'HISTORY_EXPORT_CANDIDATE_COMPATIBILITY' });
+  const { detail } = await optedIn.loadJourneyDetail(pair.leftId);
+  const payload = { withJourneyId: pair.rightId, suggested: true, expectedPrivacyRevision: pair.privacyRevision, canUseSource: async () => true };
+  await optedIn.saveJourneyCorrection(pair.leftId, 'merge', pair.generation, detail, 'synthetic-local-recovery-merge', payload);
+  assert.equal(await optedIn.verifySuggestedMergeReceipt(pair, 'synthetic-local-recovery-merge'), true);
+  const after = await optedIn.loadDurableReveal();
+  assert.equal(after.journeys.length, 1);
+  assert.equal(after.mergePairs, undefined);
+  assert.equal((await optedIn.loadReplayManifestInput()).groups.length, 1);
+}));
+
+test('opt-in Local recovery preserves the baseline grouping with an existing saved Replay choice', async () => withDatabase(async () => {
+  const baseline = await prepareLocalRecoveryOutings();
+  const before = await baseline.loadReplayManifestInput();
+  assert.equal(before.groups.length, 1);
+  await baseline.saveReplayDraft([before.memories[0].key], before.snapshotToken, before.privacyRevision, 'newest-first', undefined, undefined, [before.groups[0].key], []);
+  const saved = await baseline.loadReplayManifestInput();
+  const optedIn = createNativeReconstructionRepository({ databaseName: 'travel-life-import-v1.db', enableLocalRecovery: true });
+  await optedIn.rebuild();
+  const reveal = await optedIn.loadDurableReveal();
+  assert.equal(reveal.journeys.length, 1);
+  assert.equal(reveal.mergePairs, undefined);
+  const after = await optedIn.loadReplayManifestInput();
+  assert.deepEqual(after.groups, saved.groups);
+  assert.deepEqual(after.memories, saved.memories);
+  assert.deepEqual(after.includedGroupKeys, saved.includedGroupKeys);
+  assert.deepEqual(after.autoGroupKeys, saved.autoGroupKeys);
+  assert.equal(after.direction, saved.direction);
+}));
+
+test('opt-in Local recovery rolls back if full access is withdrawn before acknowledgement', async () => withDatabase(async (database) => {
+  const baseline = await prepareLocalRecoveryOutings();
+  const before = await baseline.loadDurableReveal();
+  let checks = 0;
+  const optedIn = createNativeReconstructionRepository({
+    databaseName: 'travel-life-import-v1.db',
+    enableLocalRecovery: true,
+    canUseRecoverySource: async () => ++checks < 3,
+  });
+  await assert.rejects(optedIn.rebuild(), (error) =>
+    error.stage === 'CANDIDATE_READBACK' && classifyAppDiagnosticError(error) === 'ACCESS');
+  assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS count FROM reconstruction_run').get().count, 1);
+  assert.deepEqual(await optedIn.loadDurableReveal(), before);
+}));
+
+test('full comparison reads 20,000+ SQLite rows in bounded pages without writes and discards interrupted results', async (t) => withDatabase(async (database) => {
+  const importer = createNativeImportRepository();
+  await importer.saveConfiguredHomeArea({ id: 'synthetic-scale-home', label: 'Synthetic home', origin: 'manual-pin', latitude: 10, longitude: 100,
+    radiusMeters: 5_000, effectiveStartDay: '2024-01-01', effectiveEndDay: '2026-01-01' });
+  const photos = [9, 16].map((hour, index) => ({ ...syntheticCandidates()[0], assetId: `synthetic-scale-photo-${index}`,
+    latitude: 10.2, capturedAtMillis: Date.UTC(2025, 0, 2, hour) }));
+  await importer.commitPage({ scope: 'full', nextOffset: 2, scanned: 2, geotagged: 2, unavailable: 0, status: 'complete' }, photos);
+  database.sqlite.exec("UPDATE canonical_evidence SET evidence_id = 'a-scale-trip' WHERE source_ref LIKE '%synthetic-scale-photo-0'");
+  database.sqlite.exec("UPDATE canonical_evidence SET evidence_id = 'z-scale-trip' WHERE source_ref LIKE '%synthetic-scale-photo-1'");
+  insertScaleEvidence(database, 20_000);
+  const repository = createNativeReconstructionRepository();
+  await repository.rebuild();
+  const firstCall = database.calls.length;
+  const read = await repository.loadCandidateShadowSnapshot({ canUseSource: () => true });
+  assert.equal(read.status, 'complete');
+  assert.equal(read.comparison.evidenceRows, 20_002);
+  assert.equal(read.comparison.baselineRuleVersion, 'reconstruction-v1');
+  assert.equal(read.comparison.baselineTripDetectorVersion, 'trip-detector-v1.1');
+  assert.equal(read.policyVersion, 'atlas-recovery-shadow-v1');
+  assert.equal(read.cards.length, 1);
+  assert.equal(read.cards[0].state, 'reliable');
+  assert.equal(read.cards[0].coverRefs.length, 2);
+  const calls = database.calls.slice(firstCall);
+  const pages = calls.filter(([, sql]) => /FROM canonical_evidence(?: WHERE evidence_id > \?)? ORDER BY evidence_id LIMIT/.test(sql));
+  assert.equal(pages.length, Math.ceil(20_002 / 512) + 1);
+  assert.ok(pages.every((page) => page.at(-1) === 512));
+  assert.ok(calls.every(([, sql]) => !/\b(?:INSERT|UPDATE|DELETE|REPLACE)\b/i.test(sql)));
+  t.diagnostic(`Synthetic host comparison completed in ${read.comparison.elapsedMillis} ms. Peak device resource use is unmeasured.`);
+
+  const getAll = database.adapter.getAllAsync;
+  database.adapter.getAllAsync = (sql, ...parameters) => /FROM canonical_evidence(?: WHERE evidence_id > \?)? ORDER BY evidence_id LIMIT/.test(sql)
+    ? getAll(sql, ...parameters.slice(0, -1), Math.min(127, parameters.at(-1))) : getAll(sql, ...parameters);
+  try {
+    const smallerPages = await repository.loadCandidateShadowSnapshot({ canUseSource: () => true });
+    assert.equal(smallerPages.status, 'complete');
+    assert.equal(smallerPages.comparison.evidenceRows, read.comparison.evidenceRows);
+    assert.equal(smallerPages.policyVersion, read.policyVersion);
+    assert.deepEqual(smallerPages.cards, read.cards);
+  } finally { database.adapter.getAllAsync = getAll; }
+
+  const events = [];
+  const originalLog = console.info;
+  console.info = (_, event) => events.push(event);
+  try {
+    const abort = new AbortController();
+    database.beforeNext(/WHERE evidence_id > \? ORDER BY evidence_id LIMIT/, () => abort.abort());
+    assert.deepEqual(await repository.loadCandidateShadowSnapshot({ canUseSource: () => true, signal: abort.signal, correlationId: 'synthetic-scale-cancel' }), { status: 'stale' });
+    let accessChecks = 0;
+    const changed = await repository.loadCandidateShadowSnapshot({ correlationId: 'synthetic-scale-stale', canUseSource: () => {
+      if (++accessChecks === 3) database.sqlite.exec('UPDATE home_projection_context SET revision = revision + 1 WHERE record_id = 1');
+      return true;
+    } });
+    assert.deepEqual(changed, { status: 'stale' });
+    assert.equal(await repository.verifyCandidateShadowSnapshot(read.token, () => true), false);
+    assert.deepEqual(events.filter(({ reasonCode }) => reasonCode !== 'START').map(({ stage, reasonCode, durableOutcome, correlationId }) =>
+      ({ stage, reasonCode, durableOutcome, correlationId })), [
+      { stage: 'CANDIDATE_INPUT_READ', reasonCode: 'SKIPPED', durableOutcome: 'skipped', correlationId: 'synthetic-scale-cancel' },
+      { stage: 'CANDIDATE_READBACK', reasonCode: 'HISTORY_STALE', durableOutcome: 'skipped', correlationId: 'synthetic-scale-stale' },
+    ]);
+    assert.doesNotMatch(JSON.stringify(events), /SYNTHETIC_PRIVATE_SENTINEL/);
+  } finally { console.info = originalLog; }
+}));
+
+test('comparison retains one correlated terminal diagnostic and redacts failures at input, classification, presentation and readback', async () => withDatabase(async (database) => {
+  const importer = createNativeImportRepository();
+  await importer.saveConfiguredHomeArea({ id: 'synthetic-fault-home', label: 'Synthetic Home', origin: 'manual-pin',
+    latitude: 10.15, longitude: 100, radiusMeters: 5_000, effectiveStartDay: null, effectiveEndDay: null });
+  await importSyntheticEvidence(importer);
+  const repository = createNativeReconstructionRepository();
+  await repository.rebuild();
+  const events = [];
+  const originalLog = console.info;
+  console.info = (_, event) => events.push(event);
+  const projection = require(path.join(sourceRoot, 'reconstruction/candidate-projection.ts'));
+  const project = projection.projectCanonicalCandidateHistory;
+  const labels = require(path.join(sourceRoot, 'reconstruction/destination-label.ts'));
+  const destinationLabel = labels.destinationLabel;
+  const sentinel = 'SYNTHETIC_PRIVATE_SENTINEL';
+  try {
+    database.failOnce(/FROM canonical_evidence ORDER BY evidence_id LIMIT/, new Error(`database is locked: ${sentinel}`));
+    assert.deepEqual(await repository.loadCandidateShadowSnapshot({ canUseSource: () => true, correlationId: 'synthetic-input' }), { status: 'failed' });
+    projection.projectCanonicalCandidateHistory = async () => { throw new Error(sentinel); };
+    assert.deepEqual(await repository.loadCandidateShadowSnapshot({ canUseSource: () => true, correlationId: 'synthetic-classify' }), { status: 'failed' });
+    projection.projectCanonicalCandidateHistory = project;
+    labels.destinationLabel = async () => { throw new Error(sentinel); };
+    assert.deepEqual(await repository.loadCandidateShadowSnapshot({ canUseSource: () => true, correlationId: 'synthetic-presentation' }), { status: 'failed' });
+    labels.destinationLabel = destinationLabel;
+    let checks = 0;
+    const readback = await repository.loadCandidateShadowSnapshot({ correlationId: 'synthetic-readback', canUseSource: () => {
+      if (++checks === 2) database.failOnce(/AS run_evidence/, new Error(`no such table: ${sentinel}`));
+      return true;
+    } });
+    assert.deepEqual(readback, { status: 'failed' });
+    assert.deepEqual(events.filter(({ reasonCode }) => reasonCode !== 'START'), [
+      { operation: 'ATLAS_REBUILD', stage: 'CANDIDATE_INPUT_READ', reasonCode: 'DATABASE_BUSY', retryable: true, durableOutcome: 'unchanged', correlationId: 'synthetic-input' },
+      { operation: 'ATLAS_REBUILD', stage: 'CANDIDATE_CLASSIFY', reasonCode: 'UNKNOWN', retryable: false, durableOutcome: 'unchanged', correlationId: 'synthetic-classify' },
+      { operation: 'ATLAS_REBUILD', stage: 'CANDIDATE_PRESENTATION', reasonCode: 'UNKNOWN', retryable: false, durableOutcome: 'unchanged', correlationId: 'synthetic-presentation' },
+      { operation: 'ATLAS_REBUILD', stage: 'CANDIDATE_READBACK', reasonCode: 'SCHEMA', retryable: false, durableOutcome: 'unchanged', correlationId: 'synthetic-readback' },
+    ]);
+    assert.deepEqual(events.filter(({ reasonCode }) => reasonCode === 'START').map(({ correlationId }) => correlationId),
+      ['synthetic-input', 'synthetic-classify', 'synthetic-classify', 'synthetic-presentation', 'synthetic-presentation', 'synthetic-presentation',
+        'synthetic-readback', 'synthetic-readback', 'synthetic-readback', 'synthetic-readback']);
+    assert.doesNotMatch(JSON.stringify(events), new RegExp(sentinel));
+  } finally {
+    projection.projectCanonicalCandidateHistory = project;
+    labels.destinationLabel = destinationLabel;
+    console.info = originalLog;
+  }
+}));
+
+for (const decision of ['keep', 'reject']) {
+  test(`D2 verifies an exact ${decision} and fences rollback, reuse and stale authority`, async () => withDatabase(async (database) => {
+    const importer = createNativeImportRepository();
+    await importer.saveConfiguredHomeArea({ id: 'synthetic-home', label: 'Synthetic home', origin: 'manual-pin', latitude: 10, longitude: 100,
+      radiusMeters: 5_000, effectiveStartDay: null, effectiveEndDay: null });
+    const photo = { ...syntheticCandidates()[0], assetId: 'synthetic-private-photo', latitude: 10.2034 };
+    const other = { ...photo, assetId: 'synthetic-unrelated-photo', capturedDay: '2025-02-08', capturedAtMillis: Date.UTC(2025, 1, 8) };
+    await importer.commitPage({ scope: 'full', nextOffset: 2, scanned: 2, geotagged: 2, unavailable: 0, status: 'complete' }, [photo, other]);
+    const repository = createNativeReconstructionRepository();
+    await repository.rebuild();
+    const canUseSource = () => true;
+    const snapshot = await repository.loadCandidateShadowSnapshot({ canUseSource, purpose: 'reveal' });
+    assert.equal(snapshot.status, 'complete');
+    assert.deepEqual(snapshot.observed, [{ latitude: 10.2, longitude: 100 }]);
+    const card = snapshot.cards.find((entry) => entry.coverRefs.includes(photo.assetId));
+    const unrelated = snapshot.cards.find((entry) => entry.coverRefs.includes(other.assetId));
+    assert.equal(card.state, 'possible');
+    assert.equal(card.canReview, true);
+    assert.equal(card.canReject, true);
+    assert.equal((await repository.loadDurableReveal()).journeys.length, 0);
+    const correlationId = 'synthetic_d2_decision';
+    const write = (action = decision, source = canUseSource, id = card.id, signal) => repository.saveCandidateShadowDecision(snapshot.token, id, action, 'synthetic-command', { canUseSource: source, correlationId, signal });
+    const table = decision === 'keep' ? 'journey_correction_revision' : 'recognizable_candidate_rejection';
+    const count = () => database.sqlite.prepare(`SELECT COUNT(*) n FROM ${table}`).get().n;
+    const sentinel = 'synthetic-private-sql-sentinel';
+    const originalLog = console.info;
+    const events = [];
+    console.info = (_, event) => events.push(event);
+    try {
+      database.failOnce(new RegExp(`^INSERT INTO ${table}`), new Error(`database is locked ${sentinel}`));
+      assert.equal(await write(), 'retry');
+      assert.equal(count(), 0);
+      let inspected = 0;
+      assert.equal(await write(decision, () => ++inspected < 3), 'stale', JSON.stringify(events));
+      assert.equal(count(), 0);
+      if (decision === 'keep') {
+        database.beforeNext(/^COMMIT$/, () => {
+          database.sqlite.exec('COMMIT');
+          throw new Error(`lost acknowledgement ${sentinel}`);
+        });
+        assert.equal(await write(), 'unknown');
+        assert.equal(count(), 1);
+        assert.ok(events.some((event) => event.stage === 'POSSIBLE_TRIP_ACK' && event.reasonCode === 'UNKNOWN' && event.durableOutcome === 'unknown'));
+      } else {
+        const originalExec = database.adapter.execAsync;
+        let enterCommit;
+        let settleCommit;
+        const committing = new Promise((resolve) => { enterCommit = resolve; });
+        const settle = new Promise((resolve) => { settleCommit = resolve; });
+        database.adapter.execAsync = async (sql) => {
+          if (sql === 'COMMIT') { database.adapter.execAsync = originalExec; enterCommit(); await settle; }
+          return originalExec(sql);
+        };
+        const request = new AbortController();
+        const first = write(decision, canUseSource, card.id, request.signal);
+        await committing;
+        let duplicateDone = false;
+        const duplicate = write().then((result) => { duplicateDone = true; return result; });
+        try {
+          await new Promise((resolve) => setImmediate(resolve));
+          assert.equal(duplicateDone, false, 'Concurrent retry cannot see an uncommitted receipt.');
+        } finally { request.abort(); settleCommit(); }
+        assert.deepEqual(await Promise.all([first, duplicate]), ['stale', 'applied']);
+        assert.ok(events.some((event) => event.stage === 'POSSIBLE_TRIP_READBACK' && event.reasonCode === 'SKIPPED' && event.durableOutcome === 'complete'));
+      }
+      assert.equal(await write(), 'applied');
+      assert.equal(await write(decision === 'keep' ? 'reject' : 'keep'), 'stale');
+      assert.equal(await write(decision, canUseSource, unrelated.id), 'stale');
+      assert.equal(count(), 1);
+      assert.equal((await repository.loadDurableReveal()).journeys.length, decision === 'keep' ? 1 : 0);
+      const replay = await repository.loadReplayManifestInput();
+      assert.equal(replay.memories.length, decision === 'keep' ? 1 : 0);
+      const reopened = createNativeReconstructionRepository();
+      await reopened.rebuild();
+      const rebuilt = await reopened.loadCandidateShadowSnapshot({ canUseSource, purpose: 'reveal' });
+      assert.equal(rebuilt.status, 'complete');
+      assert.ok(rebuilt.cards.some((entry) => entry.coverRefs.includes(other.assetId) && entry.state === 'possible'));
+      assert.equal(rebuilt.cards.some((entry) => entry.coverRefs.includes(photo.assetId)), decision === 'keep');
+      assert.ok(events.some((event) => event.operation === 'POSSIBLE_TRIP_REVIEW' && event.stage === 'POSSIBLE_TRIP_SAVE'
+        && event.reasonCode === 'DATABASE_BUSY' && event.durableOutcome === 'unchanged' && event.correlationId === correlationId));
+      assert.ok(events.some((event) => event.operation === 'POSSIBLE_TRIP_REVIEW' && event.stage === 'POSSIBLE_TRIP_READBACK'
+        && event.reasonCode === 'COMPLETE' && event.correlationId === correlationId));
+      assert.doesNotMatch(JSON.stringify(events), /synthetic-private|synthetic-command/);
+    } finally { console.info = originalLog; }
+  }));
+}
+
+test('initial Home receipt is exact and the first projection excludes matched media', async () => withDatabase(async (database) => {
+  retainHistoricalSchema(database, 38);
+  const importer = createNativeImportRepository();
+  const area = { id: 'synthetic-home', label: 'Synthetic Home', origin: 'manual-pin', latitude: 10, longitude: 100,
+    radiusMeters: 20_000, effectiveStartDay: '2025-01-01', effectiveEndDay: null };
+  assert.equal(await importer.loadHomeSetup(), null);
+  await importer.saveHomeSetup('synthetic-command', [area]);
+  await importer.saveHomeSetup('synthetic-command', [area]);
+  await assert.rejects(importer.saveHomeSetup('synthetic-command', []));
+  assert.equal(await createNativeImportRepository().loadHomeSetup(), 'saved');
+  assert.deepEqual(await importer.loadConfiguredHomeAreas(), [area]);
+  await importSyntheticEvidence(importer);
+  const repository = createNativeReconstructionRepository();
+  const graph = await repository.rebuild();
+  assert.equal(graph.journeys.length, 0);
+  assert.equal(graph.memberships.length, 0);
+  assert.equal(database.sqlite.prepare('SELECT COUNT(*) n FROM canonical_evidence').get().n, 3);
+  assert.equal(await repository.hasPendingHomeProjection(), false);
+  await importer.deleteConfiguredHomeArea(area.id);
+  assert.equal(await repository.hasPendingHomeProjection(), true);
+  assert.equal((await repository.loadDurableReveal()).journeys.length, 0);
+  await repository.rebuild();
+  assert.equal(await repository.hasPendingHomeProjection(), false);
+}));
 
 test('reviewed privacy hides manual records durably, restores, and delete-all clears policies', async () => withDatabase(async (database) => {
   const importer = createNativeImportRepository();
@@ -345,6 +791,50 @@ test('Replay receipt reconciliation cannot read an uncommitted receipt before wr
   assert.equal(receiptReads(), before + 1);
 }));
 
+for (const invalidate of [false, true]) test(`Replay artifact foreground write waits for a file-backed writer and rechecks scope (invalidate ${invalidate})`, async () => {
+  const { runOwnedTransaction } = require(path.join(sourceRoot, 'database/native-transaction.ts'));
+  const root = path.resolve(__dirname, '../../../.local'); fs.mkdirSync(root, { recursive: true });
+  const directory = fs.mkdtempSync(path.join(root, 'replay-artifact-writer-'));
+  const filename = path.join(directory, 'synthetic.db');
+  const database = syntheticDatabase(filename); activeDatabase = database.adapter;
+  const writer = new DatabaseSync(filename);
+  let release; let entered;
+  const hold = new Promise(resolve => { release = resolve; });
+  const started = new Promise(resolve => { entered = resolve; });
+  let writing;
+  try {
+    const repository = createNativeReconstructionRepository();
+    await prepareConfirmedJourney(database, repository);
+    const input = await repository.loadReplayManifestInput();
+    await repository.saveReplayDraft([], input.snapshotToken, input.privacyRevision);
+    database.sqlite.exec('PRAGMA busy_timeout = 0');
+    writing = runOwnedTransaction({ execAsync: async sql => writer.exec(sql) }, { kind: 'background' }, async () => {
+      writer.exec("UPDATE replay_draft SET committed_overrides_json = '{\"direction\":\"newest-first\"}' WHERE record_id = 1");
+      if (invalidate) writer.exec("UPDATE private_record_lifecycle SET state = 'disconnected' WHERE record_id = 1");
+      entered(); await hold;
+    });
+    await Promise.race([started, writing]);
+    let outcome = null;
+    const artifact = { identity: 'synthetic-composition', cacheVersion: 2, fileKey: 'replay-abc-def.mp4', durationSeconds: 45, renderedMemoryCount: 0 };
+    const saving = repository.saveReplayPreparedArtifact(artifact, input.snapshotToken, input.privacyRevision).then(() => { outcome = { ok: true }; }, error => { outcome = { error }; });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(outcome, null, 'Artifact must wait outside the active native writer instead of issuing an uncoordinated SQLite write');
+    release(); await writing; await saving;
+    const row = database.sqlite.prepare('SELECT committed_overrides_json FROM replay_draft WHERE record_id = 1').get();
+    const overrides = JSON.parse(row.committed_overrides_json);
+    assert.equal(overrides.direction, 'newest-first');
+    if (invalidate) {
+      assert.equal(outcome.error.diagnosticStage, 'REPLAY_OUTPUT_LIFECYCLE');
+      assert.equal(overrides.preparedArtifact, undefined);
+    } else {
+      assert.equal(outcome.ok, true); assert.deepEqual(overrides.preparedArtifact, artifact);
+    }
+  } finally {
+    release(); if (writing) await writing;
+    activeDatabase = undefined; writer.close(); database.sqlite.close(); fs.unlinkSync(filename); fs.rmdirSync(directory);
+  }
+});
+
 test('Replay artifact metadata preserves working composition revision and genuine conflicts', async () => withDatabase(async (database) => {
   const repository = createNativeReconstructionRepository();
   await prepareConfirmedJourney(database, repository);
@@ -371,11 +861,12 @@ test('Replay artifact metadata preserves working composition revision and genuin
   await assert.rejects(repository.stageReplayWorkingDraft(selected, before.snapshotToken, before.privacyRevision, 'oldest-first', music, staleRevision), /Replay draft conflict/);
 }));
 
-for (const existingDraft of [false, true]) test(`Replay artifact write rejects a newer composition after its metadata read (existing draft ${existingDraft})`, async () => withDatabase(async (database) => {
+for (const existingDraft of [false, true]) test(`Replay artifact CAS rejects an interleaved mutation and rolls back its owned transaction (existing draft ${existingDraft})`, async () => withDatabase(async (database) => {
   const repository = createNativeReconstructionRepository();
   await prepareConfirmedJourney(database, repository);
   const before = await repository.loadReplayManifestInput();
   if (existingDraft) await repository.saveReplayDraft([], before.snapshotToken, before.privacyRevision);
+  const beforeRow = database.sqlite.prepare('SELECT revision, committed_overrides_json FROM replay_draft WHERE record_id = 1').get();
   const newerOverrides = JSON.stringify({ direction: 'newest-first', directionPreferenceVersion: 1, keptMemoryRefs: [], excludedGroupJourneyIds: [], autoGroupJourneyIds: [] });
   database.beforeNext(/(?:INSERT INTO|UPDATE) replay_draft/, () => {
     // Interleave a newer committed composition after the cache method reads its
@@ -383,10 +874,32 @@ for (const existingDraft of [false, true]) test(`Replay artifact write rejects a
     database.sqlite.prepare('INSERT INTO replay_draft (record_id, revision, committed_overrides_json, updated_at_millis) VALUES (1, 50, ?, 1) ON CONFLICT(record_id) DO UPDATE SET revision = 50, committed_overrides_json = excluded.committed_overrides_json').run(newerOverrides);
   });
   const artifact = { identity: 'synthetic-old-composition', cacheVersion: 2, fileKey: 'synthetic-old-preview.mp4', durationSeconds: 45, renderedMemoryCount: 1 };
-  await assert.rejects(repository.saveReplayPreparedArtifact(artifact, before.snapshotToken, before.privacyRevision), /Replay artifact is stale/);
+  await assert.rejects(repository.saveReplayPreparedArtifact(artifact, before.snapshotToken, before.privacyRevision), (error) => {
+    assert.match(error.message, /Replay artifact is stale/);
+    assert.equal(error.diagnosticReason, 'REPLAY_RECEIPT_CONFLICT');
+    assert.equal(error.diagnosticStage, 'REPLAY_OUTPUT_CAS');
+    return true;
+  });
   const retained = database.sqlite.prepare('SELECT revision, committed_overrides_json FROM replay_draft WHERE record_id = 1').get();
-  assert.equal(retained.revision, 50);
-  assert.equal(retained.committed_overrides_json, newerOverrides);
+  assert.deepEqual(retained, beforeRow, 'The synthetic same-transaction interleave rolls back with the rejected cache mutation');
+}));
+
+for (const guard of ['lifecycle', 'mapping', 'run', 'privacy']) test(`Replay prepared artifact identifies ${guard} rejection without changing the record`, async () => withDatabase(async (database) => {
+  const repository = createNativeReconstructionRepository();
+  await prepareConfirmedJourney(database, repository);
+  const before = await repository.loadReplayManifestInput();
+  if (guard === 'lifecycle') database.sqlite.exec("UPDATE private_record_lifecycle SET state = 'disconnected' WHERE record_id = 1");
+  if (guard === 'run') database.sqlite.exec("UPDATE reconstruction_run SET status = 'pending' WHERE status = 'complete'");
+  if (guard === 'privacy') database.sqlite.prepare("INSERT INTO journey_privacy_revision (policy_id, command_key, action, target_kind, source_run_id, reviewed_evidence_json, reviewed_family_json, reviewed_label, created_at_millis) VALUES ('synthetic-policy', 'synthetic-command', 'hide', 'inferred', ?, '[]', '[]', 'synthetic-private-label', 1)").run(before.snapshotToken);
+  const artifact = { identity: 'synthetic-composition', cacheVersion: 2, fileKey: 'synthetic-preview.mp4', durationSeconds: 45, renderedMemoryCount: 1 };
+  await assert.rejects(repository.saveReplayPreparedArtifact(artifact, before.snapshotToken + (guard === 'mapping' ? 1 : 0), before.privacyRevision), (error) => {
+    assert.equal(error.message, 'Replay artifact is stale.');
+    assert.equal(error.diagnosticReason, guard === 'mapping' ? 'REPLAY_MAPPING_INVALID' : 'REPLAY_SCOPE_INVALID');
+    assert.equal(error.diagnosticStage, `REPLAY_OUTPUT_${guard.toUpperCase()}`);
+    assert.doesNotMatch(JSON.stringify(error), /synthetic-composition|synthetic-preview|synthetic-private-label/);
+    return true;
+  });
+  assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS count FROM replay_draft').get().count, 0);
 }));
 
 test('Replay draft guards distinguish stale intent from native write failures', async () => withDatabase(async (database) => {
@@ -747,6 +1260,728 @@ function seedRetainedProjection(database, version) {
   if (version >= 3) database.sqlite.exec("INSERT INTO maintenance_change_queue (asset_id, change_kind, source_revision) VALUES ('synthetic-retained-source', 'modified', 1)");
 }
 
+test('Timeline sorts qualified same-year journeys by observed dates and distinguishes similar cards', async () => withDatabase(async (database) => {
+  await ensureNativeImportSchema(database.adapter);
+  seedRetainedProjection(database, 42);
+  database.sqlite.exec(`INSERT INTO canonical_evidence (evidence_id,source_ref,media_type,availability,captured_day)
+    VALUES ('new-photo','new-photo','image','available','2025-01-17');
+    INSERT INTO reconstruction_visit (visit_id,run_id,place_id,ordering) VALUES ('new-visit',1,'synthetic-retained-place','chronological');
+    INSERT INTO reconstruction_journey (journey_id,run_id,journey_state) VALUES ('aaa-new-trip',1,'inferred');
+    INSERT INTO reconstruction_link (run_id,link_kind,parent_id,child_id) VALUES (1,'journey-visit','aaa-new-trip','new-visit'),(1,'visit-support','new-visit','new-photo');
+    INSERT INTO reconstruction_trip_qualification (run_id,journey_id,classification,score,reasons_json) VALUES (1,'aaa-new-trip','USER_CONFIRMED',0,'[]');`);
+  const { journeys } = await createNativeReconstructionRepository().loadDurableReveal();
+  assert.deepEqual(journeys.map(({ periodLabel, ordering }) => [periodLabel, ordering]), [
+    ['January 17, 2025', 'chronological'], ['January 2, 2025', 'chronological'],
+  ]);
+}));
+
+test('durable Atlas rejects a generation replaced during readback instead of returning an empty list', async () => withDatabase(async (database) => {
+  await ensureNativeImportSchema(database.adapter);
+  seedRetainedProjection(database, schemaVersion);
+  const reconstruction = createNativeReconstructionRepository();
+  assert.equal((await reconstruction.loadDurableReveal()).journeys.length, 1);
+  database.beforeNext(/WITH journey_anchor AS/, () => database.sqlite.exec(`
+    DELETE FROM reconstruction_journey WHERE run_id = 1;
+    INSERT INTO reconstruction_run (run_id, rule_version, evidence_revision, status, completed_at_millis)
+      VALUES (2, 'reconstruction-v1', 1, 'complete', 2);
+  `));
+  await assert.rejects(reconstruction.loadDurableReveal(), (error) => {
+    assert.equal(error.stage, 'DURABLE_PROJECTION');
+    assert.equal(classifyAppDiagnosticError(error), 'HISTORY_STALE');
+    return true;
+  });
+  assert.deepEqual((await reconstruction.loadDurableReveal()).journeys, []);
+}));
+
+test('the last committed Atlas, album and Replay remain readable on a distinct SQLite connection during rebuild', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'travel-life-atlas-'));
+  const filename = path.join(directory, 'synthetic.db');
+  const reader = syntheticDatabase(filename);
+  const writer = syntheticDatabase(filename);
+  let continueRebuild;
+  const paused = new Promise((resolve) => { continueRebuild = resolve; });
+  let uncommittedWrite;
+  const reachedDelete = new Promise((resolve) => { uncommittedWrite = resolve; });
+  let running;
+  try {
+    activeDatabase = reader.adapter;
+    await ensureNativeImportSchema(reader.adapter);
+    seedRetainedProjection(reader, schemaVersion);
+    const reconstruction = createNativeReconstructionRepository();
+    const [trip] = (await reconstruction.loadDurableReveal()).journeys;
+    const originalRun = writer.adapter.runAsync;
+    writer.adapter.runAsync = async (sql, ...parameters) => {
+      const result = await originalRun(sql, ...parameters);
+      if (sql === 'DELETE FROM reconstruction_journey') {
+        uncommittedWrite();
+        await paused;
+      }
+      return result;
+    };
+    activeDatabase = writer.adapter;
+    running = reconstruction.rebuild();
+    await Promise.race([reachedDelete, running.then(() => assert.fail('Rebuild finished before its write checkpoint'))]);
+    assert.equal((await reconstruction.loadDurableReveal()).journeys[0].displayId, trip.displayId);
+    assert.equal((await reconstruction.loadJourneyDetail(trip.displayId)).snapshotToken, 1);
+    assert.deepEqual((await reconstruction.loadJourneyMediaPage(trip.displayId, 1, 0)).previewSourceRefs, ['synthetic-retained-source']);
+    assert.equal((await reconstruction.loadReplayManifestInput()).snapshotToken, 1);
+    continueRebuild();
+    await running;
+    assert.equal((await reconstruction.loadDurableReveal()).journeys.length, 0);
+    await assert.rejects(reconstruction.loadJourneyMediaPage(trip.displayId, 1, 0), /Gallery changed/);
+  } finally {
+    continueRebuild();
+    await running?.catch(() => {});
+    activeDatabase = undefined;
+    writer.sqlite.close();
+    reader.sqlite.close();
+    fs.unlinkSync(filename);
+    fs.rmdirSync(directory);
+  }
+});
+
+test('Timeline, detail, album and Replay agree on the retained published generation', async () => withDatabase(async (database) => {
+  await ensureNativeImportSchema(database.adapter);
+  seedRetainedProjection(database, schemaVersion);
+  database.sqlite.exec(`
+    INSERT INTO reconstruction_run (run_id, rule_version, evidence_revision, status, completed_at_millis)
+      VALUES (2, 'reconstruction-v1', 0, 'complete', 2);
+  `);
+  const reconstruction = createNativeReconstructionRepository();
+  const [journey] = (await reconstruction.loadDurableReveal()).journeys;
+  assert.ok(journey);
+  const detail = await reconstruction.loadJourneyDetail(journey.displayId);
+  assert.equal(detail.snapshotToken, 1);
+  const album = await reconstruction.loadJourneyMediaPage(journey.displayId, 1, 0);
+  assert.deepEqual(album.previewSourceRefs, ['synthetic-retained-source']);
+  assert.equal(await reconstruction.verifyJourneyMediaSnapshot(journey.displayId, 1, album.privacyRevision), true);
+  assert.equal((await reconstruction.loadJourneyEligibility(journey.displayId, 1, 'replay')).eligible, true);
+  assert.equal((await reconstruction.loadReplayManifestInput()).snapshotToken, 1);
+  database.sqlite.exec('UPDATE home_projection_context SET revision = revision + 1 WHERE record_id = 1');
+  assert.equal(await reconstruction.verifyJourneyMediaSnapshot(journey.displayId, 1, album.privacyRevision), false);
+  await assert.rejects(reconstruction.loadJourneyMediaPage(journey.displayId, 1, 0), /Gallery changed/);
+}));
+
+test('Timeline merge reviews one exact qualified pair and verifies the committed receipt on retry', async () => withDatabase(async (database) => {
+  const importer = createNativeImportRepository();
+  await importer.saveConfiguredHomeArea({ id: 'pair-home', label: 'Synthetic Home', origin: 'manual-pin',
+    latitude: 30, longitude: 110, radiusMeters: 5_000, effectiveStartDay: null, effectiveEndDay: null });
+  const photos = [2, 13].flatMap((day, visit) => [8, 10, 12, 14, 16].map((hour) => ({
+    ...syntheticCandidates()[0], assetId: `pair-${day}-${hour}`, capturedDay: `2025-01-${String(day).padStart(2, '0')}`,
+    capturedAtMillis: Date.UTC(2025, 0, day, hour), sourceOrigin: 'capture-like', supportEligible: true,
+    latitude: visit === 0 ? 13.75 : 10.77, longitude: visit === 0 ? 100.5 : 106.7,
+  })));
+  await importer.commitPage({ scope: 'full', nextOffset: photos.length, scanned: photos.length, geotagged: photos.length, unavailable: 0, status: 'complete' }, photos);
+  const reconstruction = createNativeReconstructionRepository();
+  await reconstruction.rebuild();
+  // Independently exercise the persisted proposal contract, regardless of the
+  // baseline continuity policy's eligibility window.
+  const endpoints = database.sqlite.prepare(`SELECT j.run_id, j.journey_id, MIN(e.captured_at_millis) AS first_at
+    FROM reconstruction_journey j JOIN reconstruction_link v ON v.run_id = j.run_id AND v.parent_id = j.journey_id AND v.link_kind = 'journey-visit'
+    JOIN reconstruction_link s ON s.run_id = j.run_id AND s.parent_id = v.child_id AND s.link_kind = 'visit-support'
+    JOIN canonical_evidence e ON e.evidence_id = s.child_id GROUP BY j.run_id, j.journey_id ORDER BY first_at`).all();
+  assert.equal(endpoints.length, 2);
+  database.sqlite.exec("UPDATE reconstruction_trip_qualification SET classification = 'AUTO_CONFIRMED'");
+  database.sqlite.prepare("INSERT INTO reconstruction_link (run_id, link_kind, parent_id, child_id) VALUES (?, 'possible-merge:adjacent-gap', ?, ?)")
+    .run(endpoints[0].run_id, endpoints[0].journey_id, endpoints[1].journey_id);
+  const before = await reconstruction.loadDurableReveal();
+  assert.equal(before.journeys.length, 2);
+  const [pair] = before.mergePairs ?? [];
+  assert.ok(pair);
+  const { detail } = await reconstruction.loadJourneyDetail(pair.leftId);
+  const payload = { withJourneyId: pair.rightId, suggested: true, expectedPrivacyRevision: pair.privacyRevision, canUseSource: async () => true };
+  await assert.rejects(reconstruction.saveJourneyCorrection(pair.leftId, 'merge', pair.generation, detail, 'wrong-pair', { ...payload, expectedPrivacyRevision: -1 }), /stale/);
+  let access = true;
+  await assert.rejects(reconstruction.saveJourneyCorrection(pair.leftId, 'merge', pair.generation, detail, 'revoked-pair',
+    { ...payload, canUseSource: async () => access, onStage: (stage) => { if (stage === 'POSSIBLE_TRIP_REBUILD') access = false; } }), /not permitted/);
+  assert.equal((await reconstruction.loadDurableReveal()).journeys.length, 2);
+  let loseAcknowledgement = false;
+  const originalExec = database.adapter.execAsync;
+  database.adapter.execAsync = async (sql) => {
+    await originalExec(sql);
+    if (sql === 'COMMIT' && loseAcknowledgement) {
+      loseAcknowledgement = false;
+      throw new Error('Synthetic lost commit acknowledgement');
+    }
+  };
+  await assert.rejects(reconstruction.saveJourneyCorrection(pair.leftId, 'merge', pair.generation, detail, 'exact-pair-command',
+    { ...payload, onStage: (stage) => { if (stage === 'POSSIBLE_TRIP_ACK') loseAcknowledgement = true; } }), /lost commit acknowledgement/);
+  assert.equal(await reconstruction.verifySuggestedMergeReceipt(pair, 'exact-pair-command'), true,
+    JSON.stringify(database.sqlite.prepare(`SELECT r.journey_id, r.state, a.run_id, a.application_state, q.journey_id AS qualified_id, q.classification
+      FROM journey_correction_revision r LEFT JOIN journey_correction_application a ON a.revision_id = r.revision_id
+      LEFT JOIN reconstruction_trip_qualification q ON q.run_id = a.run_id`).all()));
+  assert.equal((await reconstruction.loadDurableReveal()).journeys.length, 1);
+  const retry = await reconstruction.saveJourneyCorrection(pair.leftId, 'merge', pair.generation, detail, 'exact-pair-command', payload);
+  assert.equal(retry.graph, null);
+  assert.equal(await reconstruction.verifySuggestedMergeReceipt(pair, 'exact-pair-command'), true);
+  assert.equal(database.sqlite.prepare("SELECT COUNT(*) AS n FROM journey_correction_revision WHERE action = 'merge'").get().n, 1);
+}));
+
+test('visual review fences GPS-less trip attachments and persists unchanged dismissal and exact confirmation', async () => withDatabase(async (database) => {
+  await ensureNativeImportSchema(database.adapter);
+  seedRetainedProjection(database, schemaVersion);
+  const reconstruction = createNativeReconstructionRepository();
+  const canUseSource = async () => true;
+  const signal = new AbortController().signal;
+  for (const index of [1, 2, 3]) {
+    await database.adapter.runAsync(`INSERT INTO canonical_evidence (evidence_id, source_ref, media_type, availability, captured_day, captured_at_millis, source_origin)
+      VALUES (?, ?, 'image', 'available', '2025-01-03', ?, 'capture-like')`, `gpsless-${index}`, `photo-ref-${index}`, Date.UTC(2025, 0, 3, index));
+  }
+  await database.adapter.runAsync(`INSERT INTO canonical_evidence (evidence_id, source_ref, media_type, availability, captured_day, captured_at_millis, source_origin)
+    VALUES ('visual-screenshot', 'visual-screenshot', 'image', 'available', '2025-01-03', ?, 'screenshot')`, Date.UTC(2025, 0, 3, 1, 30));
+  const initial = await reconstruction.loadVisualPlaceOffer(canUseSource);
+  assert.equal(initial.references.length, 3);
+  const dismissed = await reconstruction.reviewVisualPlaceOffer(initial.token, { kind: 'dismiss' }, canUseSource, signal);
+  assert.equal(await dismissed.verify(), true);
+  assert.equal(await createNativeReconstructionRepository().loadVisualPlaceOffer(canUseSource), null);
+  await database.adapter.runAsync(`INSERT INTO canonical_evidence (evidence_id, source_ref, media_type, availability, captured_day, captured_at_millis)
+    VALUES ('gpsless-4', 'photo-ref-4', 'image', 'available', '2025-01-03', ?)`, Date.UTC(2025, 0, 3, 4));
+  const first = await reconstruction.loadVisualPlaceOffer(canUseSource);
+  assert.equal(first.references.length, 4);
+  const only = first.references[0];
+  const command = { kind: 'confirm', selectedIds: [only.id], placeId: 'ewha-womans-university' };
+  database.failOnce(/INSERT INTO visual_place_album/);
+  await assert.rejects(reconstruction.reviewVisualPlaceOffer(first.token, command, canUseSource, signal));
+  assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS count FROM manual_journey').get().count, 0);
+  const saved = await reconstruction.reviewVisualPlaceOffer(first.token, command, canUseSource, signal);
+  assert.equal(await saved.verify(), true);
+  assert.equal((await reconstruction.reviewVisualPlaceOffer(first.token, command, canUseSource, signal)).manualId, saved.manualId);
+  await assert.rejects(reconstruction.reviewVisualPlaceOffer(first.token, { ...command, selectedIds: [first.references[1].id] }, canUseSource, signal));
+  const restarted = createNativeReconstructionRepository();
+  const detail = await restarted.loadJourneyDetail(`manual:${saved.manualId}`);
+  assert.deepEqual(detail.previewSourceRefs, [only.sourceRef]);
+  assert.deepEqual(detail.detail.visits, []);
+  const gallery = await restarted.loadJourneyMediaPage(detail.detail.id, detail.snapshotToken, 0);
+  assert.deepEqual(gallery.previewSourceRefs, [only.sourceRef]);
+  assert.equal(await restarted.verifyJourneyMediaSnapshot(detail.detail.id, detail.snapshotToken, gallery.privacyRevision), true);
+  assert.equal(database.sqlite.prepare("SELECT COUNT(*) AS count FROM canonical_evidence WHERE evidence_id LIKE 'gpsless-%' AND latitude IS NOT NULL").get().count, 0);
+  assert.equal(await restarted.loadVisualPlaceOffer(canUseSource), null);
+  await createNativeImportRepository().deleteLocalHistory();
+  assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS count FROM visual_place_album').get().count, 0);
+  assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS count FROM visual_place_review').get().count, 0);
+}));
+
+test('owner date search pages GPS-less Android photos without a nearby trip and saves only the confirmed selection', async () => withDatabase(async (database) => {
+  await ensureNativeImportSchema(database.adapter);
+  seedRetainedProjection(database, schemaVersion);
+  const reconstruction = createNativeReconstructionRepository();
+  const allow = async () => true;
+  const signal = new AbortController().signal;
+  const dates = { start: '2025-06-01', end: '2025-06-06', page: 0 };
+  for (let index = 0; index < 15; index++) {
+    await database.adapter.runAsync(`INSERT INTO canonical_evidence (evidence_id, source_ref, media_type, availability, captured_day, captured_at_millis, source_origin)
+      VALUES (?, ?, 'image', ?, '2025-06-03', ?, ?)`, `date-photo-${index}`, `ref-${index}`,
+    index === 13 ? 'unavailable' : 'unknown', Date.UTC(2025, 5, 3, index), index === 14 ? 'screenshot' : 'capture-like');
+  }
+  assert.equal(await reconstruction.loadVisualPlaceOffer(allow), null);
+  await assert.rejects(reconstruction.loadVisualPlaceOffer(allow, { ...dates, end: '2025-06-31' }), { reason: 'HISTORY_CONSENT' });
+  await assert.rejects(reconstruction.loadVisualPlaceOffer(async () => false, dates), { reason: 'ACCESS' });
+  const first = await reconstruction.loadVisualPlaceOffer(allow, dates);
+  assert.equal(first.references.length, 12);
+  assert.equal(first.hasMore, true);
+  assert.equal(first.references[0].sourceRef, 'ref-12');
+  const second = await reconstruction.loadVisualPlaceOffer(allow, { ...dates, page: 1 });
+  assert.equal(second.hasMore, false);
+  assert.deepEqual(second.references.map(({ sourceRef }) => sourceRef), ['ref-0']);
+  const command = { kind: 'confirm', placeId: 'ewha-womans-university', selectedIds: [second.references[0].id] };
+  await assert.rejects(reconstruction.reviewVisualPlaceOffer(second.token, { ...command, placeId: null }, allow, signal), { reason: 'HISTORY_CONSENT' });
+  await assert.rejects(reconstruction.reviewVisualPlaceOffer(second.token, { ...command, correction: { id: 'wikidata:Q146695', name: 'Phú Quốc' } }, allow, signal), { reason: 'HISTORY_CONSENT' });
+  await assert.rejects(reconstruction.reviewVisualPlaceOffer(second.token, { ...command, selectedIds: ['photo-2'] }, allow, signal), { reason: 'HISTORY_CONSENT' });
+  await assert.rejects(reconstruction.reviewVisualPlaceOffer(second.token, command, async () => false, signal), { reason: 'HISTORY_STALE' });
+  const result = await reconstruction.reviewVisualPlaceOffer(second.token, command, allow, signal);
+  assert.equal(await result.verify(), true);
+  assert.equal((await reconstruction.reviewVisualPlaceOffer(second.token, command, allow, signal)).manualId, result.manualId);
+  assert.deepEqual({ ...database.sqlite.prepare('SELECT date_start, date_end, owner_label FROM manual_journey WHERE manual_id = ?').get(result.manualId) },
+    { date_start: dates.start, date_end: dates.end, owner_label: 'Ewha Womans University' });
+  const detail = await reconstruction.loadJourneyDetail(`manual:${result.manualId}`);
+  assert.deepEqual(detail.previewSourceRefs, ['ref-0']);
+  assert.deepEqual(detail.detail.visits, []);
+  const gallery = await reconstruction.loadJourneyMediaPage(detail.detail.id, detail.snapshotToken, 0);
+  assert.deepEqual(gallery.previewSourceRefs, ['ref-0']);
+  assert.equal(database.sqlite.prepare('SELECT latitude FROM canonical_evidence WHERE evidence_id = ?').get('date-photo-0').latitude, null);
+}));
+
+function qualifiedVisualFixture(candidate, sample = candidate.representatives) {
+  const photos = [...sample].sort((a, b) => a.captured_at_millis - b.captured_at_millis
+    || a.evidence_id.localeCompare(b.evidence_id));
+  const middle = Math.floor(photos.length / 2);
+  const stops = ['ewha-womans-university', 'namsan-seoul-tower'].map((placeId, index) => ({
+    placeId, supportIds: (index === 0 ? photos.slice(0, middle) : photos.slice(middle)).map((photo) => photo.evidence_id),
+  }));
+  return {
+    photos,
+    result: {
+      placeId: 'locality-seoul', start: photos[0].captured_day, end: photos.at(-1).captured_day,
+      stops,
+      membership: stops.flatMap(({ placeId, supportIds }) => supportIds.map((id) => ({ id, placeId, basis: 'signage' }))),
+      coverIds: stops.map(({ supportIds }) => supportIds[0]),
+    },
+  };
+}
+
+test('partial visual scope stages and reopens only the clue and preserves exact confirmation and dismissals', async () => withDatabase(async (database) => {
+  await ensureNativeImportSchema(database.adapter);
+  seedRetainedProjection(database, schemaVersion);
+  const previousDev = global.__DEV__;
+  const previousPreview = process.env.EXPO_PUBLIC_TRAVEL_LIFE_VISUAL_PLACE_PREVIEW;
+  const previousPartial = process.env.EXPO_PUBLIC_TRAVEL_LIFE_VISUAL_PARTIAL_PREVIEW;
+  global.__DEV__ = true;
+  process.env.EXPO_PUBLIC_TRAVEL_LIFE_VISUAL_PLACE_PREVIEW = 'true';
+  process.env.EXPO_PUBLIC_TRAVEL_LIFE_VISUAL_PARTIAL_PREVIEW = 'false';
+  const insert = database.sqlite.prepare(`INSERT INTO canonical_evidence (evidence_id, source_ref, media_type, availability, captured_day, captured_at_millis)
+    VALUES (?, ?, 'image', 'available', ?, ?)`);
+  for (const day of [1, 10]) {
+    [0, 2, 240, 242, 510, 512].forEach((minute, i) => insert.run(`partial-${day}-${i}`, `partial-ref-${day}-${i}`,
+      `2025-08-${String(day).padStart(2, '0')}`, Date.UTC(2025, 7, day, 9, minute)));
+  }
+  const fixture = (candidate) => {
+    assert.ok(candidate, 'The sample must include independent stops in separate time buckets.');
+    const albumPhotos = candidate.representatives.filter(({ evidence_id }) => !/-(?:2|3)$/.test(evidence_id));
+    return qualifiedVisualFixture(candidate, albumPhotos);
+  };
+  const allow = async () => true;
+  const signal = new AbortController().signal;
+  const acknowledge = () => {};
+  const clueIds = ['nami-island'];
+  const discoveryRow = () => database.sqlite.prepare('SELECT scope, proposal FROM visual_discovery_state').get();
+  try {
+    const repository = createNativeReconstructionRepository();
+    await repository.setVisualDiscoveryEnabled(true, () => true);
+    const scan = await repository.loadVisualDiscoveryPage(allow);
+    const places = ['ewha-womans-university', clueIds[0], 'namsan-seoul-tower'];
+    const observations = scan.candidate.representatives.map(({ evidence_id: id }) => ({
+      id, placeId: places[Math.floor(Number(id.at(-1)) / 2)], kind: 'signage',
+    }));
+    const legacy = associateVisualAlbum(qualifyVisualTrip(scan.candidate.representatives, observations));
+    assert.deepEqual(legacy.stops.map(({ placeId }) => placeId), places);
+    await assert.rejects(repository.checkpointVisualDiscovery(scan.token, { ...legacy, pendingPlaceIds: clueIds }, allow, signal, acknowledge),
+      { reason: 'MEDIA_SCHEMA' });
+    await repository.checkpointVisualDiscovery(scan.token, legacy, allow, signal, acknowledge);
+    const { scope: offScope } = discoveryRow();
+    const old = await repository.loadVisualDiscoveryPage(allow);
+    assert.equal(old.kind, 'proposal');
+    assert.equal(Object.hasOwn(old.proposal, 'pendingPlaceIds'), false);
+    assert.deepEqual(await repository.reviewVisualDiscovery(old.token, 'dismiss', allow, signal, acknowledge), { manualId: null });
+    assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS n FROM visual_place_disposition').get().n, 1);
+
+    process.env.EXPO_PUBLIC_TRAVEL_LIFE_VISUAL_PARTIAL_PREVIEW = 'true';
+    await assert.rejects(repository.verifyVisualDiscovery(old.token, allow), { reason: 'HISTORY_STALE' });
+    const restarted = await repository.loadVisualDiscoveryPage(allow);
+    assert.equal(restarted.kind, 'scan');
+    assert.equal(restarted.candidate.key, old.proposal.key);
+    const partial = associateVisualAlbum(qualifyVisualTrip(restarted.candidate.representatives, observations, true));
+    assert.deepEqual(partial.pendingPlaceIds, clueIds);
+    assert.equal(partial.membership.length, 4);
+    assert.deepEqual(await repository.checkpointVisualDiscovery(restarted.token, partial, allow, signal, acknowledge),
+      { staged: false, more: true });
+    assert.deepEqual(JSON.parse(discoveryRow().scope), [...JSON.parse(offScope), 'visual-partial-preview-v1']);
+    const next = await repository.loadVisualDiscoveryPage(allow);
+    const { photos, result } = fixture(next.candidate);
+    for (const malformed of [null, [], [clueIds[0], clueIds[0]], ['synthetic-private-sentinel'], { label: 'Nami Island' }]) {
+      await assert.rejects(repository.checkpointVisualDiscovery(next.token, { ...result, pendingPlaceIds: malformed }, allow, signal, acknowledge),
+        { reason: 'MEDIA_SCHEMA' });
+    }
+    const foreignStops = result.stops.map((stop) => ({ ...stop, placeId: 'taipei-101' }));
+    const foreignMembers = result.membership.map((item) => ({ ...item, placeId: 'taipei-101' }));
+    await assert.rejects(repository.checkpointVisualDiscovery(next.token,
+      { ...result, pendingPlaceIds: clueIds, stops: foreignStops, membership: foreignMembers }, allow, signal, acknowledge), { reason: 'MEDIA_SCHEMA' });
+    const overlapStops = result.stops.map((stop, index) => index ? stop : { ...stop, placeId: clueIds[0] });
+    const overlapMembers = result.membership.map((item) => overlapStops[0].supportIds.includes(item.id) ? { ...item, placeId: clueIds[0] } : item);
+    await assert.rejects(repository.checkpointVisualDiscovery(next.token,
+      { ...result, pendingPlaceIds: clueIds, stops: overlapStops, membership: overlapMembers }, allow, signal, acknowledge), { reason: 'MEDIA_SCHEMA' });
+    assert.equal((await repository.checkpointVisualDiscovery(next.token, { ...result, pendingPlaceIds: clueIds }, allow, signal, acknowledge)).staged, true);
+    assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS n FROM manual_journey').get().n, 0);
+    const row = discoveryRow();
+    for (const disable of ['partial-flag', 'parent-flag', 'release']) {
+      global.__DEV__ = disable !== 'release';
+      process.env.EXPO_PUBLIC_TRAVEL_LIFE_VISUAL_PLACE_PREVIEW = disable === 'parent-flag' ? 'false' : 'true';
+      process.env.EXPO_PUBLIC_TRAVEL_LIFE_VISUAL_PARTIAL_PREVIEW = disable === 'partial-flag' ? 'false' : 'true';
+      const off = await createNativeReconstructionRepository().loadVisualDiscoveryPage(allow);
+      assert.equal(off.kind, 'scan');
+      assert.equal(off.candidate.key, scan.candidate.key);
+      await assert.rejects(repository.loadVisualDiscoveryPage(allow, undefined, next.token), { reason: 'HISTORY_STALE' });
+    }
+    global.__DEV__ = true;
+    const overwrite = database.sqlite.prepare('UPDATE visual_discovery_state SET proposal = ?');
+    overwrite.run(JSON.stringify({ ...JSON.parse(row.proposal), pendingPlaceIds: ['synthetic-private-sentinel'] }));
+    await assert.rejects(repository.loadVisualDiscoveryPage(allow, undefined, next.token), { reason: 'HISTORY_STALE' });
+    const reopened = createNativeReconstructionRepository();
+    let readingProposal = false;
+    await assert.rejects(reopened.loadVisualDiscoveryPage(allow, () => { readingProposal = true; }), { reason: 'MEDIA_SCHEMA' });
+    assert.equal(readingProposal, true);
+    overwrite.run(row.proposal);
+    const sameAction = await repository.loadVisualDiscoveryPage(allow, undefined, next.token);
+    assert.equal(sameAction.kind, 'proposal');
+    assert.deepEqual(sameAction.proposal, JSON.parse(row.proposal));
+    const page = await reopened.loadVisualDiscoveryPage(allow);
+    assert.equal(page.kind, 'proposal');
+    assert.deepEqual(page.proposal.pendingPlaceIds, clueIds);
+    assert.deepEqual(page.proposal.stops, result.stops);
+    assert.deepEqual(page.proposal.coverIds, result.coverIds);
+    const album = await reopened.loadVisualDiscoveryAlbum(page.token, 0, allow);
+    assert.deepEqual(album.photos.map(({ evidence_id }) => evidence_id), photos.map(({ evidence_id }) => evidence_id));
+    const { manualId } = await reopened.reviewVisualDiscovery(page.token, 'confirm', allow, signal, acknowledge);
+    const written = database.sqlite.prepare('SELECT command, stops, membership FROM visual_place_trip WHERE manual_id = ?').get(manualId);
+    assert.deepEqual(JSON.parse(written.stops), result.stops);
+    assert.deepEqual(JSON.parse(written.membership), result.membership);
+    assert.doesNotMatch(JSON.stringify(written), /nami-island|pendingPlaceIds/);
+    assert.deepEqual(database.sqlite.prepare('SELECT evidence_id FROM visual_place_album WHERE manual_id = ? ORDER BY slot').all(manualId)
+      .map(({ evidence_id }) => evidence_id), photos.map(({ evidence_id }) => evidence_id));
+    const detail = await reopened.loadJourneyDetail(`manual:${manualId}`);
+    const timelineAlbum = await reopened.loadJourneyMediaPage(detail.detail.id, detail.snapshotToken, 0);
+    assert.deepEqual(timelineAlbum.previewSourceRefs, photos.map(({ source_ref }) => source_ref));
+  } finally {
+    if (previousDev === undefined) delete global.__DEV__; else global.__DEV__ = previousDev;
+    if (previousPreview === undefined) delete process.env.EXPO_PUBLIC_TRAVEL_LIFE_VISUAL_PLACE_PREVIEW;
+    else process.env.EXPO_PUBLIC_TRAVEL_LIFE_VISUAL_PLACE_PREVIEW = previousPreview;
+    if (previousPartial === undefined) delete process.env.EXPO_PUBLIC_TRAVEL_LIFE_VISUAL_PARTIAL_PREVIEW;
+    else process.env.EXPO_PUBLIC_TRAVEL_LIFE_VISUAL_PARTIAL_PREVIEW = previousPartial;
+  }
+}));
+
+test('automatic regional proposals are release-fenced while their confirmed Hanoi albums survive the preview gate', async () => withDatabase(async (database) => {
+  await ensureNativeImportSchema(database.adapter);
+  seedRetainedProjection(database, schemaVersion);
+  const previousDev = global.__DEV__;
+  const release = 'a'.repeat(64);
+  const flags = {
+    EXPO_PUBLIC_TRAVEL_LIFE_VISUAL_PLACE_PREVIEW: 'true',
+    EXPO_PUBLIC_TRAVEL_LIFE_VISUAL_REGIONAL_PREVIEW: 'true',
+    EXPO_PUBLIC_TRAVEL_LIFE_VISUAL_REGIONAL_ORIGIN: 'http://127.0.0.1:8198',
+    EXPO_PUBLIC_TRAVEL_LIFE_VISUAL_REGIONAL_MANIFEST_SHA256: release,
+    EXPO_PUBLIC_TRAVEL_LIFE_VISUAL_PARTIAL_PREVIEW: 'false',
+  };
+  const previousFlags = Object.keys(flags).map((key) => [key, process.env[key]]);
+  global.__DEV__ = true;
+  Object.assign(process.env, flags);
+  const insert = database.sqlite.prepare(`INSERT INTO canonical_evidence
+    (evidence_id, source_ref, media_type, availability, captured_day, captured_at_millis, source_origin)
+    VALUES (?, ?, 'image', 'available', ?, ?, 'capture-like')`);
+  const date = '2025-08-01';
+  [0, 2, 240, 242].forEach((minute, index) => insert.run(`region-fixture-${index}`, `region-ref-${index}`, date, Date.UTC(2025, 7, 1, 8, minute)));
+  const allow = async () => true;
+  const signal = new AbortController().signal;
+  const acknowledge = () => {};
+  const repository = createNativeReconstructionRepository();
+  const stops = ['turtle-tower', 'khue-van-cac'];
+  try {
+    await repository.setVisualDiscoveryEnabled(true, () => true);
+    const scan = await repository.loadVisualDiscoveryPage(allow, undefined, undefined, release);
+    assert.equal(scan.kind, 'scan');
+    const observations = scan.candidate.representatives.map(({ evidence_id: id }) => ({
+      id, placeId: stops[Math.floor(Number(id.at(-1)) / 2)], kind: 'image',
+    }));
+    const result = associateVisualAlbum(qualifyVisualTrip(scan.candidate.representatives, observations));
+    assert.equal(result.placeId, 'locality-hanoi');
+    assert.deepEqual(result.stops.map(({ placeId }) => placeId), stops);
+    assert.equal((await repository.checkpointVisualDiscovery(scan.token, result, allow, signal, acknowledge)).staged, true);
+    assert.deepEqual(JSON.parse(database.sqlite.prepare('SELECT scope FROM visual_discovery_state').get().scope).slice(-2),
+      ['visual-regional-preview-v1', release]);
+    const reviewed = await repository.loadVisualDiscoveryPage(allow, undefined, scan.token, release);
+    assert.equal(reviewed.kind, 'proposal');
+    assert.deepEqual(reviewed.proposal.coverIds, ['region-fixture-0', 'region-fixture-2']);
+    assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS n FROM manual_journey').get().n, 0);
+    process.env.EXPO_PUBLIC_TRAVEL_LIFE_VISUAL_REGIONAL_MANIFEST_SHA256 = 'b'.repeat(64);
+    await assert.rejects(repository.verifyVisualDiscovery(reviewed.token, allow), { reason: 'HISTORY_STALE' });
+    assert.equal((await repository.loadVisualDiscoveryPage(allow, undefined, undefined, 'b'.repeat(64))).kind, 'scan');
+    process.env.EXPO_PUBLIC_TRAVEL_LIFE_VISUAL_REGIONAL_PREVIEW = 'false';
+    await assert.rejects(repository.loadVisualDiscoveryAlbum(reviewed.token, 0, allow), { reason: 'HISTORY_STALE' });
+    assert.equal((await repository.loadVisualDiscoveryPage(allow)).kind, 'scan');
+    Object.assign(process.env, flags);
+    const { manualId } = await repository.reviewVisualDiscovery(reviewed.token, 'confirm', allow, signal, acknowledge);
+    process.env.EXPO_PUBLIC_TRAVEL_LIFE_VISUAL_REGIONAL_PREVIEW = 'false';
+    const reopened = createNativeReconstructionRepository();
+    const detail = await reopened.loadJourneyDetail(`manual:${manualId}`);
+    const album = await reopened.loadJourneyMediaPage(detail.detail.id, detail.snapshotToken, 0);
+    assert.deepEqual(album.previewSourceRefs, ['region-ref-0', 'region-ref-1', 'region-ref-2', 'region-ref-3']);
+    assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS n FROM visual_place_review').get().n, 1);
+  } finally {
+    if (previousDev === undefined) delete global.__DEV__; else global.__DEV__ = previousDev;
+    for (const [key, value] of previousFlags) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}));
+
+test('city-level visual discovery confirms the reviewed album and only reports the named stop', async () => withDatabase(async (database) => {
+  await ensureNativeImportSchema(database.adapter);
+  seedRetainedProjection(database, schemaVersion);
+  const insert = database.sqlite.prepare(`INSERT INTO canonical_evidence
+    (evidence_id, source_ref, media_type, availability, captured_day, captured_at_millis, source_origin)
+    VALUES (?, ?, 'image', 'available', '2025-08-01', ?, ?)`);
+  const samples = [
+    ['ewha-a', 0, 'capture-like'],
+    ['ewha-b', 2, 'capture-like'],
+    ['unmatched', 240, 'capture-like'],
+    ['city-a', 480, 'capture-like'],
+    ['city-b', 482, 'capture-like'],
+    ['screen', 483, 'screenshot'],
+  ];
+  for (const [id, minute, origin] of samples) insert.run(id, `city-ref-${id}`, Date.UTC(2025, 7, 1, 8, minute), origin);
+  const allow = async () => true;
+  const signal = new AbortController().signal;
+  const acknowledge = () => {};
+  const repository = createNativeReconstructionRepository();
+  await repository.setVisualDiscoveryEnabled(true, () => true);
+  const scan = await repository.loadVisualDiscoveryPage(allow);
+  assert.equal(scan.kind, 'scan');
+  assert.ok(scan.candidate);
+  const observations = scan.candidate.representatives.map(({ evidence_id: id }) => id.startsWith('ewha')
+    ? { id, placeId: 'ewha-womans-university', kind: 'image' }
+    : id.startsWith('city') || id === 'screen'
+      ? { id, placeId: 'seoul-municipal-signage', kind: 'signage' }
+      : { id, placeId: null, kind: null });
+  const trip = qualifyVisualTrip(scan.candidate.representatives, observations);
+  assert.ok(trip);
+  const result = associateVisualAlbum(trip);
+  assert.equal(result.placeId, 'locality-seoul');
+  const exactIds = ['ewha-a', 'ewha-b', 'city-a', 'city-b'];
+  assert.deepEqual(result.membership.map(({ id }) => id), exactIds);
+  const namedObservations = observations.map((item) => item.placeId === 'seoul-municipal-signage'
+    ? { ...item, placeId: 'namsan-seoul-tower' } : item);
+  const multiStop = associateVisualAlbum(qualifyVisualTrip(scan.candidate.representatives, namedObservations));
+  assert.equal(multiStop.placeId, 'locality-seoul');
+  await assert.rejects(repository.checkpointVisualDiscovery(scan.token, { ...multiStop, placeId: 'locality-hanoi' }, allow, signal, acknowledge),
+    { reason: 'MEDIA_SCHEMA' });
+  assert.equal((await repository.checkpointVisualDiscovery(scan.token, result, allow, signal, acknowledge)).staged, true);
+  const state = database.sqlite.prepare('SELECT proposal FROM visual_discovery_state').get();
+  const proposal = JSON.parse(state.proposal);
+  const immediate = await repository.loadVisualDiscoveryPage(allow, undefined, scan.token);
+  assert.equal(immediate.kind, 'proposal');
+  assert.deepEqual(immediate.proposal, proposal);
+  await assert.rejects(repository.loadVisualDiscoveryPage(allow, undefined, scan.token), { reason: 'HISTORY_STALE' });
+  const reopened = createNativeReconstructionRepository();
+  const setProposal = database.sqlite.prepare('UPDATE visual_discovery_state SET proposal = ?');
+  const invalidMembership = proposal.membership.map((row) => row.id.startsWith('city') ? { ...row, basis: 'image' } : row);
+  setProposal.run(JSON.stringify({ ...proposal, membership: invalidMembership }));
+  await assert.rejects(reopened.loadVisualDiscoveryPage(allow), { reason: 'MEDIA_SCHEMA' });
+  setProposal.run(state.proposal);
+  const reviewed = await reopened.loadVisualDiscoveryPage(allow);
+  assert.equal(reviewed.kind, 'proposal');
+  assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS n FROM manual_journey').get().n, 0);
+  const album = await reopened.loadVisualDiscoveryAlbum(reviewed.token, 0, allow);
+  const exactRefs = exactIds.map((id) => `city-ref-${id}`);
+  assert.deepEqual(album.photos.map(({ source_ref }) => source_ref), exactRefs);
+  await assert.rejects(reopened.reviewVisualDiscovery(reviewed.token, 'confirm', async () => false, signal, acknowledge), { reason: 'ACCESS' });
+  const { manualId } = await reopened.reviewVisualDiscovery(reviewed.token, 'confirm', allow, signal, acknowledge);
+  assert.equal((await reopened.reviewVisualDiscovery(reviewed.token, 'confirm', allow, signal, acknowledge)).manualId, manualId);
+  await reopened.setVisualDiscoveryEnabled(false, () => true);
+  await assert.rejects(reopened.loadVisualDiscoveryAlbum(reviewed.token, 0, allow), { reason: 'HISTORY_CONSENT' });
+  const restarted = createNativeReconstructionRepository();
+  const detail = await restarted.loadJourneyDetail(`manual:${manualId}`);
+  assert.equal(detail.detail.title, 'Seoul');
+  assert.deepEqual(detail.detail.destinationNames, ['Ewha Womans University']);
+  assert.deepEqual(detail.detail.visits, []);
+  assert.ok(detail.detail.memories.every(({ association }) => association.includes('Capture location unknown')));
+  const committed = await restarted.loadJourneyMediaPage(detail.detail.id, detail.snapshotToken, 0);
+  assert.deepEqual(committed.previewSourceRefs, exactRefs);
+  assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS n FROM visual_place_review').get().n, 1);
+}));
+
+test('city policy rechecks a pre-city checkpoint and retains a Hanoi dismissal across proposal shapes', async () => withDatabase(async (database) => {
+  await ensureNativeImportSchema(database.adapter);
+  seedRetainedProjection(database, schemaVersion);
+  const insert = database.sqlite.prepare(`INSERT INTO canonical_evidence
+    (evidence_id, source_ref, media_type, availability, captured_day, captured_at_millis, source_origin)
+    VALUES (?, ?, 'image', 'available', '2025-08-01', ?, 'capture-like')`);
+  [0, 2, 240, 242].forEach((minute, index) => insert.run(`hanoi-photo-${index}`, `hanoi-ref-${index}`, Date.UTC(2025, 7, 1, 8, minute)));
+  const allow = async () => true;
+  const signal = new AbortController().signal;
+  const acknowledge = () => {};
+  const repository = createNativeReconstructionRepository();
+  await repository.setVisualDiscoveryEnabled(true, () => true);
+  const scan = await repository.loadVisualDiscoveryPage(allow);
+  assert.equal(scan.kind, 'scan');
+  assert.ok(scan.candidate);
+  const named = scan.candidate.representatives.map(({ evidence_id: id }) => ({
+    id, placeId: Number(id.at(-1)) < 2 ? 'turtle-tower' : 'khue-van-cac', kind: 'image',
+  }));
+  const namedResult = associateVisualAlbum(qualifyVisualTrip(scan.candidate.representatives, named));
+  assert.equal(namedResult.placeId, 'locality-hanoi');
+  assert.equal((await repository.checkpointVisualDiscovery(scan.token, namedResult, allow, signal, acknowledge)).staged, true);
+  const proposal = await repository.loadVisualDiscoveryPage(allow);
+  assert.equal(proposal.kind, 'proposal');
+  assert.deepEqual(await repository.reviewVisualDiscovery(proposal.token, 'dismiss', allow, signal, acknowledge), { manualId: null });
+  assert.equal((await repository.loadVisualDiscoveryPage(allow)).kind, 'done');
+  const { scope } = database.sqlite.prepare('SELECT scope FROM visual_discovery_state').get();
+  const previousScope = JSON.parse(scope).filter((value) => value !== 'visual-city-support-v1');
+  database.sqlite.prepare('UPDATE visual_discovery_state SET scope = ?').run(JSON.stringify(previousScope));
+
+  const restarted = createNativeReconstructionRepository();
+  const rescan = await restarted.loadVisualDiscoveryPage(allow);
+  assert.equal(rescan.kind, 'scan');
+  assert.equal(rescan.candidate.key, scan.candidate.key);
+  const civic = named.map((item) => item.placeId === 'khue-van-cac' ? { ...item, kind: 'signage', placeId: 'locality-hanoi' } : item);
+  const cityResult = associateVisualAlbum(qualifyVisualTrip(rescan.candidate.representatives, civic));
+  assert.equal(cityResult.placeId, 'locality-hanoi');
+  assert.notDeepEqual(cityResult.stops, namedResult.stops);
+  assert.equal((await restarted.checkpointVisualDiscovery(rescan.token, cityResult, allow, signal, acknowledge)).staged, false);
+  assert.equal((await restarted.loadVisualDiscoveryPage(allow)).kind, 'done');
+  assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS n FROM visual_place_disposition').get().n, 1);
+  assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS n FROM manual_journey').get().n, 0);
+}));
+
+test('automatic visual discovery resumes a dense GPS-less episode and confirms its exact private album once', async () => withDatabase(async (database) => {
+  await ensureNativeImportSchema(database.adapter);
+  seedRetainedProjection(database, schemaVersion);
+  const insert = database.sqlite.prepare(`INSERT INTO canonical_evidence (evidence_id, source_ref, media_type, availability, captured_day, captured_at_millis, source_origin)
+    VALUES (?, ?, 'image', 'unknown', ?, ?, 'capture-like')`);
+  for (let i = 0; i < 471; i++) {
+    const time = Date.UTC(2025, 5, 1 + Math.floor(i / 79), 9, (i % 79) * 6);
+    insert.run(`auto-photo-${i}`, `auto-ref-${i}`, new Date(time).toISOString().slice(0, 10), time);
+  }
+  const allow = async () => true;
+  const deny = async () => false;
+  const signal = new AbortController().signal;
+  const acknowledge = () => {};
+  const first = createNativeReconstructionRepository();
+  assert.equal(await first.loadVisualDiscoveryEnabled(), false);
+  await assert.rejects(first.loadVisualDiscoveryPage(allow), { reason: 'HISTORY_CONSENT' });
+  await first.setVisualDiscoveryEnabled(true, () => true);
+  const page1 = await first.loadVisualDiscoveryPage(allow);
+  assert.equal(page1.kind, 'scan');
+  assert.equal(page1.candidate, null);
+  await assert.rejects(first.checkpointVisualDiscovery(page1.token, null, deny, signal, acknowledge), { reason: 'ACCESS' });
+  assert.equal(database.sqlite.prepare('SELECT checkpoint FROM visual_discovery_state').get().checkpoint, null);
+  assert.deepEqual(await first.checkpointVisualDiscovery(page1.token, null, allow, signal, acknowledge), { staged: false, more: true });
+
+  const second = createNativeReconstructionRepository();
+  const { checkpoint } = database.sqlite.prepare('SELECT checkpoint FROM visual_discovery_state').get();
+  const putCheckpoint = database.sqlite.prepare('UPDATE visual_discovery_state SET checkpoint = ?');
+  putCheckpoint.run(JSON.stringify({ ...JSON.parse(checkpoint), coverage: [{ source_ref: 'synthetic-sentinel' }] }));
+  await assert.rejects(second.loadVisualDiscoveryPage(allow), { reason: 'MEDIA_SCHEMA' });
+  putCheckpoint.run(checkpoint);
+  const page2 = await second.loadVisualDiscoveryPage(allow);
+  assert.equal(page2.kind, 'scan');
+  assert.equal(page2.candidate.start, '2025-06-01');
+  assert.equal(page2.candidate.end, '2025-06-06');
+  const { photos, result } = qualifiedVisualFixture(page2.candidate,
+    [...page2.candidate.representatives.slice(0, 13), page2.candidate.representatives[65]]);
+  await assert.rejects(second.checkpointVisualDiscovery(page2.token, { ...result, placeId: 'unknown-model-place' }, allow, signal, acknowledge), { reason: 'MEDIA_SCHEMA' });
+  await assert.rejects(second.checkpointVisualDiscovery(page2.token,
+    { ...result, membership: [...result.membership].reverse() }, allow, signal, acknowledge), { reason: 'MEDIA_SCHEMA' });
+  assert.equal((await second.checkpointVisualDiscovery(page2.token, result, allow, signal, acknowledge)).staged, true);
+  assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS n FROM manual_journey').get().n, 0);
+  assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS n FROM visual_place_album').get().n, 0);
+
+  const reopened = createNativeReconstructionRepository();
+  const proposal = await reopened.loadVisualDiscoveryPage(allow);
+  assert.equal(proposal.kind, 'proposal');
+  assert.deepEqual(proposal.proposal.photos.map(({ evidence_id }) => evidence_id), result.membership.map(({ id }) => id));
+  const firstAlbum = await reopened.loadVisualDiscoveryAlbum(proposal.token, 0, allow);
+  const secondAlbum = await reopened.loadVisualDiscoveryAlbum(proposal.token, 1, allow);
+  assert.equal(firstAlbum.hasMore, true);
+  assert.equal(secondAlbum.hasMore, false);
+  assert.deepEqual([...firstAlbum.photos, ...secondAlbum.photos].map(({ source_ref }) => source_ref), photos.map(({ source_ref }) => source_ref));
+  await assert.rejects(reopened.reviewVisualDiscovery(proposal.token, 'confirm', deny, signal, acknowledge), { reason: 'ACCESS' });
+  database.failOnce(/INSERT INTO visual_place_album/);
+  await assert.rejects(reopened.reviewVisualDiscovery(proposal.token, 'confirm', allow, signal, acknowledge));
+  assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS n FROM manual_journey').get().n, 0);
+  let loseAck = true;
+  const originalExec = database.adapter.execAsync;
+  database.adapter.execAsync = async (sql) => {
+    await originalExec(sql);
+    if (sql === 'COMMIT' && loseAck) {
+      loseAck = false;
+      throw new Error('Synthetic lost automatic review acknowledgement');
+    }
+  };
+  const saved = await reopened.reviewVisualDiscovery(proposal.token, 'confirm', allow, signal, acknowledge);
+  assert.equal((await reopened.reviewVisualDiscovery(proposal.token, 'confirm', allow, signal, acknowledge)).manualId, saved.manualId);
+  const detail = await reopened.loadJourneyDetail(`manual:${saved.manualId}`);
+  assert.deepEqual(detail.detail.visits, []);
+  const album = await reopened.loadJourneyMediaPage(detail.detail.id, detail.snapshotToken, 0);
+  const overflowAlbum = album.hasMore ? await reopened.loadJourneyMediaPage(detail.detail.id, detail.snapshotToken, 1) : null;
+  assert.deepEqual([...album.previewSourceRefs, ...(overflowAlbum?.previewSourceRefs ?? [])], photos.map(({ source_ref }) => source_ref));
+  assert.equal(database.sqlite.prepare("SELECT COUNT(*) AS n FROM canonical_evidence WHERE evidence_id LIKE 'auto-photo-%' AND latitude IS NOT NULL").get().n, 0);
+  assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS n FROM visual_place_review').get().n, 1);
+  await reopened.setVisualDiscoveryEnabled(false, () => true);
+  await assert.rejects(reopened.loadVisualDiscoveryPage(allow), { reason: 'HISTORY_CONSENT' });
+  assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS n FROM manual_journey').get().n, 1);
+}));
+
+test('automatic visual discovery suppresses Home matches and does not offer an unchanged dismissed episode again', async () => withDatabase(async (database) => {
+  await ensureNativeImportSchema(database.adapter);
+  seedRetainedProjection(database, schemaVersion);
+  const insert = database.sqlite.prepare(`INSERT INTO canonical_evidence (evidence_id, source_ref, media_type, availability, captured_day, captured_at_millis)
+    VALUES (?, ?, 'image', 'available', '2025-08-01', ?)`);
+  [0, 1, 180, 181].forEach((minute, index) => insert.run(`routine-${index}`, `routine-ref-${index}`, Date.UTC(2025, 7, 1, 9, minute)));
+  database.sqlite.exec(`INSERT INTO configured_home_area (area_id, latitude, longitude, radius_meters) VALUES ('home-control', 37.566, 126.978, 20000);
+    UPDATE reconstruction_run SET home_revision = (SELECT revision FROM home_projection_context) WHERE run_id = 1`);
+  const allow = async () => true;
+  const canChange = () => true;
+  const signal = new AbortController().signal;
+  const acknowledge = () => {};
+  const repository = createNativeReconstructionRepository();
+  await repository.setVisualDiscoveryEnabled(true, canChange);
+  const outcome = (candidate) => qualifiedVisualFixture(candidate).result;
+  const nearHome = await repository.loadVisualDiscoveryPage(allow);
+  assert.equal(nearHome.kind, 'scan');
+  assert.equal((await repository.checkpointVisualDiscovery(nearHome.token, outcome(nearHome.candidate), allow, signal, acknowledge)).staged, false);
+
+  database.sqlite.exec(`DELETE FROM configured_home_area WHERE area_id = 'home-control';
+    UPDATE reconstruction_run SET home_revision = (SELECT revision FROM home_projection_context) WHERE run_id = 1`);
+  const away = await repository.loadVisualDiscoveryPage(allow);
+  assert.equal((await repository.checkpointVisualDiscovery(away.token, outcome(away.candidate), allow, signal, acknowledge)).staged, true);
+  const proposal = await repository.loadVisualDiscoveryPage(allow);
+  await repository.setVisualDiscoveryEnabled(false, canChange);
+  await assert.rejects(repository.reviewVisualDiscovery(proposal.token, 'confirm', allow, signal, acknowledge), { reason: 'HISTORY_CONSENT' });
+  await repository.setVisualDiscoveryEnabled(true, canChange);
+  const reenabled = await repository.loadVisualDiscoveryPage(allow);
+  await repository.checkpointVisualDiscovery(reenabled.token, outcome(reenabled.candidate), allow, signal, acknowledge);
+  const current = await repository.loadVisualDiscoveryPage(allow);
+  assert.deepEqual(await repository.reviewVisualDiscovery(current.token, 'dismiss', allow, signal, acknowledge), { manualId: null });
+  assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS n FROM manual_journey').get().n, 0);
+  const reopened = createNativeReconstructionRepository();
+  assert.equal((await reopened.loadVisualDiscoveryPage(allow)).kind, 'done');
+  await reopened.setVisualDiscoveryEnabled(false, canChange);
+  await reopened.setVisualDiscoveryEnabled(true, canChange);
+  const skipped = await reopened.loadVisualDiscoveryPage(allow);
+  assert.equal(skipped.kind, 'scan');
+  assert.ok(skipped.candidate);
+  assert.equal((await reopened.checkpointVisualDiscovery(skipped.token, outcome(skipped.candidate), allow, signal, acknowledge)).staged, false);
+}));
+
+test('automatic visual discovery corrects a legacy album only after confirmation and invalidates its old media token', async () => withDatabase(async (database) => {
+  await ensureNativeImportSchema(database.adapter);
+  seedRetainedProjection(database, schemaVersion);
+  const insert = database.sqlite.prepare(`INSERT INTO canonical_evidence
+    (evidence_id, source_ref, media_type, availability, captured_day, captured_at_millis, source_origin)
+    VALUES (?, ?, 'image', 'available', '2025-08-01', ?, 'capture-like')`);
+  [0, 1, 180, 181].forEach((minute, index) => insert.run(`legacy-${index}`, `legacy-ref-${index}`, Date.UTC(2025, 7, 1, 9, minute)));
+  const allow = async () => true;
+  const signal = new AbortController().signal;
+  const acknowledge = () => {};
+  const repository = createNativeReconstructionRepository();
+  await repository.setVisualDiscoveryEnabled(true, () => true);
+  const initial = await repository.loadVisualDiscoveryPage(allow);
+  database.sqlite.exec(`INSERT INTO manual_journey
+    (manual_id, command_key, owner_label, owner_context, latitude, longitude, date_kind, date_start, date_end, created_at_millis)
+    VALUES ('visual-legacy-trip', 'legacy-command', 'Legacy visual label', 'Synthetic area', 37.56, 126.94, 'exact', '2025-08-01', '2025-08-01', 1);
+    INSERT INTO visual_place_album (manual_id, slot, evidence_id, source_ref) VALUES ('visual-legacy-trip', 1, 'legacy-0', 'legacy-ref-0');`);
+  database.sqlite.prepare(`INSERT INTO visual_place_review (cluster_key, manual_id, place_id, decision)
+    VALUES (?, 'visual-legacy-trip', 'ewha-campus-visual', 'confirmed')`).run(initial.candidate.key);
+
+  const oldDetail = await repository.loadJourneyDetail('manual:visual-legacy-trip');
+  const current = await repository.loadVisualDiscoveryPage(allow);
+  const { photos, result } = qualifiedVisualFixture(current.candidate);
+  assert.equal((await repository.checkpointVisualDiscovery(current.token, result, allow, signal, acknowledge)).staged, true);
+  const proposal = await repository.loadVisualDiscoveryPage(allow);
+  assert.equal(proposal.proposal.correctionId, 'visual-legacy-trip');
+  assert.equal((await repository.loadJourneyDetail('manual:visual-legacy-trip')).detail.title, 'Legacy visual label');
+
+  const review = await repository.reviewVisualDiscovery(proposal.token, 'confirm', allow, signal, acknowledge);
+  assert.equal(review.manualId, 'visual-legacy-trip');
+  assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS n FROM manual_journey').get().n, 1);
+  await assert.rejects(repository.loadJourneyMediaPage(oldDetail.detail.id, oldDetail.snapshotToken, 0), { reason: 'HISTORY_STALE' });
+  const reopened = createNativeReconstructionRepository();
+  const detail = await reopened.loadJourneyDetail('manual:visual-legacy-trip');
+  assert.equal(detail.detail.title, 'Seoul');
+  const album = await reopened.loadJourneyMediaPage(detail.detail.id, detail.snapshotToken, 0);
+  assert.deepEqual(album.previewSourceRefs, photos.map(({ source_ref }) => source_ref));
+}));
+
 async function prepareConfirmedJourney(database, reconstruction, prepare = () => {}) {
   await importSyntheticEvidence(createNativeImportRepository());
   prepare();
@@ -771,7 +2006,7 @@ function seedPendingRemap(database) {
 }
 
 function graphReuseRepository(reference) {
-  const filename = path.join(sourceRoot, 'reconstruction/repository.ts');
+  const filename = path.join(sourceRoot, 'reconstruction/canonical-projection.ts');
   let source = fs.readFileSync(filename, 'utf8');
   const branch = /const confirmedGraph = groupingConstraints\.length\s*\? reconstructV1\(evidenceWithStructuralBoundaries, \{ journeyGroupingConstraints: groupingConstraints \}\)\s*: baselineGraph;/g;
   assert.equal([...source.matchAll(branch)].length, 1, 'Reference must replace exactly the empty-constraint reuse branch.');
@@ -789,7 +2024,16 @@ function graphReuseRepository(reference) {
   loaded._compile(ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }, fileName: filename,
   }).outputText, filename);
-  return { create: loaded.exports.createNativeReconstructionRepository, count: () => reconstructions };
+  const repositoryFilename = path.join(sourceRoot, 'reconstruction/repository.ts');
+  const repository = new Module(repositoryFilename, module);
+  repository.filename = repositoryFilename;
+  repository.paths = Module._nodeModulePaths(path.dirname(repositoryFilename));
+  const repositoryRequire = repository.require.bind(repository);
+  repository.require = (request) => request === './canonical-projection' ? loaded.exports : repositoryRequire(request);
+  repository._compile(ts.transpileModule(fs.readFileSync(repositoryFilename, 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }, fileName: repositoryFilename,
+  }).outputText, repositoryFilename);
+  return { create: repository.exports.createNativeReconstructionRepository, count: () => reconstructions };
 }
 
 for (const scenario of ['none', 'confirm', 'place', 'claim', 'memory-assign', 'reject', 'remove-visit', 'split', 'merge', 'malformed-reject', 'memory-write-failure']) {
@@ -848,10 +2092,13 @@ for (const scenario of ['none', 'confirm', 'place', 'claim', 'memory-assign', 'r
           assert.equal(rebuildCalls, reference || scenario === 'reject' ? 2 : 1,
             'Only an empty rejection-constraint set can skip the second engine pass.');
           if (scenario === 'memory-write-failure') assert.equal(error?.identity, true);
-          // This separated-visit merge fixture is not protected from canonical
-          // continuity. Both implementations must fail closed when its reviewed
-          // support no longer maps to one final journey, preserving stored data.
-          else if (scenario === 'merge') assert.equal(error?.revisionId, 'synthetic-reuse-correction');
+          else if (scenario === 'merge') {
+            assert.equal(error, null);
+            const support = graph.journeys.map((journey) => journey.visitIds
+              .flatMap((id) => graph.visits.find((visit) => visit.id === id).evidenceIds).sort());
+            assert.ok(support.some((ids) => JSON.stringify(ids) === JSON.stringify(['synthetic-source-0', 'synthetic-source-1'])));
+            assert.ok(support.some((ids) => JSON.stringify(ids) === JSON.stringify(['synthetic-source-2'])));
+          }
           else assert.equal(error, null, `Synthetic ${scenario} must complete successfully.`);
         }
         if (error) assert.equal(calls.at(-1)[1], 'ROLLBACK');
@@ -1100,7 +2347,7 @@ test('pending remap candidates execute real family and support reads and mark th
 for (const [stage, pattern, pending] of [
   ['DURABLE_SCHEMA', /^SELECT version FROM import_schema_version/, false],
   ['DURABLE_JOURNEY_READ', /^\s*WITH journey_anchor AS/, false],
-  ['DURABLE_DESTINATION_READ', /^\s*SELECT DISTINCT journey.parent_id AS journey_id, visit.place_id,/, false],
+  ['DURABLE_DESTINATION_QUERY', /^\s*SELECT journey.parent_id AS journey_id, visit.place_id,/, false],
   ['DURABLE_FAMILY_READ', /^SELECT evidence_id, captured_at_millis, captured_day/, true],
   ['DURABLE_SUPPORT_READ', /^\s*SELECT DISTINCT journey.parent_id AS journey_id, support.child_id AS evidence_id/, true],
 ]) {

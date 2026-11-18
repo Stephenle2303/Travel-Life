@@ -78,11 +78,14 @@ describe('durable local reconciliation repository', () => {
       evidence_id: `${place.journey_id}:${index}`, latitude: place.latitude, longitude: place.longitude,
       captured_day: '2025-09-10', availability: 'available', support_eligible: 1,
     }))).flat();
-    mockGetAllAsync.mockImplementation(async (sql: string) => {
+    mockGetAllAsync.mockImplementation(async (sql: string, ...params: (string | number | null)[]) => {
       if (sql.includes('WITH journey_anchor AS')) return places.map((place) => ({
         ...place, run_id: 7, journey_state: 'inferred', year: 2025, first_year: 2025, last_year: 2025, ordering: 'uncertain',
       }));
-      if (sql.includes('AS journey_id, visit.place_id')) return support;
+      if (sql.includes('AS journey_id, visit.place_id')) {
+        const start = support.findIndex((row) => row.evidence_id === params[7]) + 1;
+        return support.slice(start, start + Number(params.at(-1)));
+      }
       return [];
     });
     const label = jest.spyOn(destinationLabels, 'destinationLabel');
@@ -97,6 +100,52 @@ describe('durable local reconciliation repository', () => {
           support.filter((row) => row.journey_id === place.journey_id).map((row) => `E:${row.evidence_id}`),
         );
       }
+    } finally {
+      label.mockRestore();
+    }
+  });
+
+  it('bounds destination query results and excludes duplicate conflicts across batches', async () => {
+    const support = Array.from({ length: 513 }, (_, index) => ({
+      journey_id: 'synthetic:bali', place_id: 'synthetic:place', visit_id: 'synthetic:visit',
+      evidence_id: String(index).padStart(4, '0'), latitude: -8.5069, longitude: 115.2625,
+      availability: 'available', support_eligible: Number(index <= 1 || index === 512),
+      platform_duplicate_family_id: index === 0 || index === 512 ? 'synthetic:family' : null,
+      duplicate_tuple_version: 1, duplicate_tuple_fingerprint: index === 0 ? 'first' : 'different',
+    }));
+    const batchSizes: number[] = [];
+    mockGetAllAsync.mockImplementation(async (sql: string, ...params: (string | number | null)[]) => {
+      if (sql.includes('WITH journey_anchor AS')) return [{
+        journey_id: 'synthetic:bali', run_id: 7, journey_state: 'inferred',
+        latitude: -8.5069, longitude: 115.2625, year: 2025, ordering: 'uncertain',
+      }];
+      if (!sql.includes('AS journey_id, visit.place_id')) return [];
+      const cursor = params[7];
+      const limit = Number(params.at(-1));
+      const page = sql.includes('LIMIT ?')
+        ? support.filter((row) => cursor === undefined || row.evidence_id > String(cursor)).slice(0, limit)
+        : support;
+      batchSizes.push(page.length);
+      return page;
+    });
+    const record = await createNativeReconstructionRepository().loadDurableReveal();
+    expect(batchSizes).toEqual([256, 256, 1]);
+    expect(record.journeys[0].label).toBe('Private journey');
+  });
+
+  it('reports destination computation separately from its SQLite query', async () => {
+    mockGetAllAsync.mockImplementation(async (sql: string) => sql.includes('AS journey_id, visit.place_id') ? [{
+      journey_id: 'synthetic:journey', place_id: 'synthetic:place', evidence_id: 'synthetic:evidence',
+      availability: 'available',
+    }] : []);
+    const label = jest.spyOn(destinationLabels, 'destinationLabel').mockImplementationOnce(() => {
+      throw new Error('synthetic-private-sentinel');
+    });
+    try {
+      await expect(createNativeReconstructionRepository().loadDurableReveal()).rejects.toMatchObject({
+        stage: 'DURABLE_DESTINATION_COMPUTATION',
+        message: 'Local Atlas read did not finish.',
+      });
     } finally {
       label.mockRestore();
     }
@@ -287,7 +336,7 @@ describe('durable local reconciliation repository', () => {
     expect(mockGetFirstAsync).toHaveBeenCalledWith('SELECT MAX(run_id) AS run_id FROM reconstruction_run WHERE status = \'complete\'');
     expect(read).not.toContain('source_ref');
     expect(read).toContain('journey_years');
-    expect(read).toContain('first_year_count');
+    expect(read).toContain('ORDER BY first_day IS NULL, first_day DESC, journey_id DESC');
     expect(read).not.toContain('source_ref');
   });
 
@@ -296,13 +345,13 @@ describe('durable local reconciliation repository', () => {
     mockGetFirstAsync.mockImplementation(async (sql: string, ...args: unknown[]) => {
       if (sql.includes('MAX(run_id)')) return { run_id: 13 };
       if (sql.includes('SELECT evidence_revision FROM reconstruction_run')) return { evidence_revision: 8 };
-      if (sql.includes('FROM reconstruction_run run') && args[0] === 8) return { run_id: 11 };
+      if (sql.includes('qualification.classification IN') && args[0] === 8) return { run_id: 11 };
       return previous(sql, ...args);
     });
 
     await createNativeReconstructionRepository().loadDurableReveal();
 
-    const selection = mockGetFirstAsync.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('FROM reconstruction_run run'));
+    const selection = mockGetFirstAsync.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('qualification.classification IN'));
     expect(selection?.[0]).toContain("qualification.classification IN ('AUTO_CONFIRMED', 'USER_CONFIRMED')");
     const journeyRead = mockGetAllAsync.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('WITH journey_anchor AS'));
     expect(journeyRead?.[1]).toBe(11);
@@ -504,7 +553,7 @@ describe('durable local reconciliation repository', () => {
     expect(result.detail.uncertainty).toEqual(expect.arrayContaining(['Visit ordering is uncertain.', 'Date precision is limited for part of this journey.', 'A source remains unresolved and is not treated as visit support.', 'A GPS-less or date-limited memory is associated with this journey without destination support.']));
     expect(result.previewSourceRefs).toEqual(['private:source-a', null]);
     expect(JSON.stringify(result.detail)).not.toContain('private:');
-    expect(mockGetAllAsync.mock.calls.find(([sql]) => sql.includes('WITH journey_evidence AS'))![0]).toContain("link_kind LIKE 'membership:%'");
+    expect(mockGetAllAsync.mock.calls.find(([sql]) => sql.includes('WITH journey_evidence AS'))![0]).toContain("link_kind LIKE 'membership:owner:%'");
     expect(mockGetAllAsync.mock.calls.find(([sql]) => sql.includes('WITH journey_evidence AS'))![0]).toContain("'visit-support' AS association");
   });
 

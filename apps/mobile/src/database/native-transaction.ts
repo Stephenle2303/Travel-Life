@@ -39,15 +39,17 @@ function finishesTransaction(source: string) { return /^\s*(?:COMMIT|ROLLBACK)\s
 const rawConnections = new WeakMap<object, TransactionDatabase>();
 
 /** Callback ownership cannot be released by a UI deadline or a rejected COMMIT. */
-export async function runOwnedTransaction<T extends TransactionDatabase, R>(database: T, options: { kind: NativeWriterKind; signal?: AbortSignal }, body: (database: T) => Promise<R>): Promise<R> {
+export async function runOwnedTransaction<T extends TransactionDatabase, R>(database: T, options: { kind: NativeWriterKind; signal?: AbortSignal; mode?: 'read' | 'write'; onRollback?: (outcome: 'start' | 'complete' | 'failed') => void }, body: (database: T) => Promise<R>): Promise<R> {
   const release = await acquireTransactionTurn(options.kind, options.signal);
   const raw = (rawConnections.get(database) ?? database) as T;
   let began = false;
+  let acknowledging = false;
   try {
     // A signal can withdraw queued work, but never cancels a running driver call.
     if (options.signal?.aborted) throw new NativeTransactionWithdrawnError();
-    await raw.execAsync('BEGIN IMMEDIATE TRANSACTION'); began = true;
+    await raw.execAsync(options.mode === 'read' ? 'BEGIN DEFERRED TRANSACTION' : 'BEGIN IMMEDIATE TRANSACTION'); began = true;
     const result = await body(raw);
+    acknowledging = true;
     await raw.execAsync('COMMIT'); began = false;
     release();
     return result;
@@ -55,7 +57,21 @@ export async function runOwnedTransaction<T extends TransactionDatabase, R>(data
     if (began) {
       // If rollback itself rejects, quarantine the turn. Subsequent writers
       // must remain fenced until connection health/settlement is established.
-      await raw.execAsync('ROLLBACK');
+      const notify = (outcome: 'start' | 'complete' | 'failed') => { try { options.onRollback?.(outcome); } catch { /* Diagnostics cannot change transaction ownership. */ } };
+      notify('start');
+      try { await raw.execAsync('ROLLBACK'); } catch (rollbackError) {
+        notify('failed');
+        // SQLite can acknowledge COMMIT late. Its explicit no-active-
+        // transaction result proves settlement, but not the durable outcome.
+        // Release only that known-safe connection and preserve the original
+        // acknowledgement failure for command-receipt reconciliation.
+        if (acknowledging && rollbackError instanceof Error && /cannot rollback - no transaction is active/i.test(rollbackError.message)) {
+          release();
+          throw error;
+        }
+        throw rollbackError;
+      }
+      notify('complete');
     }
     release(); throw error;
   }

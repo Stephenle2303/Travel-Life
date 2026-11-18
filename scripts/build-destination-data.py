@@ -14,9 +14,9 @@ import shapefile
 from shapely.geometry import shape
 
 
-def read_archive(path):
+def read_archive(path, stem=None):
     with zipfile.ZipFile(path) as archive:
-        stem = next(name[:-4] for name in archive.namelist() if name.endswith('.shp'))
+        stem = stem or next(name[:-4] for name in archive.namelist() if name.endswith('.shp'))
         reader = shapefile.Reader(shp=io.BytesIO(archive.read(stem + '.shp')),
                                   shx=io.BytesIO(archive.read(stem + '.shx')),
                                   dbf=io.BytesIO(archive.read(stem + '.dbf')))
@@ -58,17 +58,51 @@ def packed_area(code, name, rings):
     return {'code': code, 'name': name, 'rings': packed, 'bounds': bounds}
 
 
-countries = []
-for record, rings in read_archive(sys.argv[1]):
-    code = record['ADM0_A3']
-    countries.append(packed_area(code, record['NAME_EN'], rings))
-regions = []
-for record, rings in read_archive(sys.argv[2]):
-    name = record.get('name_en') or record.get('name')
-    if name and record.get('adm0_a3'):
-        regions.append(packed_area(record['adm0_a3'], name, rings))
-payload = {'version': '5.1.1-10m-0.001deg-4dp', 'sources': [hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in sys.argv[1:3]],
-           'countries': countries, 'regions': regions}
-target = root / 'natural-earth-destinations-5.1.1.json'
-target.write_text(json.dumps(payload, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
-print(json.dumps({'countries': len(countries), 'regions': len(regions), 'bytes': target.stat().st_size}))
+def write_asset(name, payload):
+    target = root / name
+    target.write_text(json.dumps(payload, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
+    print(json.dumps({'asset': name, 'regions': len(payload['regions']), 'bytes': target.stat().st_size}))
+
+
+def build_vietnam_provinces(path):
+    digest = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    if digest != '7bd797108611f0d3d51d6b9743b36ad1ef6eefd89858394c309011bef6066a9c':
+        raise ValueError('Unexpected Viet Nam COD archive digest')
+    provinces = {}
+    for record, rings in read_archive(path, 'vnm_adm1'):
+        code, name = record['ADM1_PCODE'], record['ADM1_VI']
+        if code in provinces or not name or not rings or str(record['VALIDON']) != '2020-01-03':
+            raise ValueError('Unexpected Viet Nam COD province record')
+        provinces[code] = packed_area('VNM', name, rings)
+    if len(provinces) != 63:
+        raise ValueError('Expected 63 historical Viet Nam COD provinces')
+    write_asset('vietnam-provinces-cod-2020.json', {
+        'version': 'ocha-vnm-cod-adm1-2020-0.001deg-4dp',
+        'sourceDigest': digest,
+        'validFrom': '2020-01-03',
+        'validThrough': '2024-12-31',
+        'regions': [provinces[code] for code in sorted(provinces)],
+    })
+
+
+def build_natural_earth(admin0, admin1):
+    countries = [packed_area(record['ADM0_A3'], record['NAME_EN'], rings) for record, rings in read_archive(admin0)]
+    regions = []
+    for record, rings in read_archive(admin1):
+        name = record.get('name_en') or record.get('name')
+        if name and record.get('adm0_a3'):
+            regions.append(packed_area(record['adm0_a3'], name, rings))
+    write_asset('natural-earth-destinations-5.1.1.json', {
+        'version': '5.1.1-10m-0.001deg-4dp',
+        'sources': [hashlib.sha256(Path(path).read_bytes()).hexdigest() for path in (admin0, admin1)],
+        'countries': countries, 'regions': regions,
+    })
+
+
+if __name__ == '__main__':
+    if len(sys.argv) != 3:
+        raise SystemExit('Pass ADMIN0.zip ADMIN1.zip or --vietnam-provinces VIETNAM_COD.zip')
+    if sys.argv[1] == '--vietnam-provinces':
+        build_vietnam_provinces(sys.argv[2])
+    else:
+        build_natural_earth(*sys.argv[1:])

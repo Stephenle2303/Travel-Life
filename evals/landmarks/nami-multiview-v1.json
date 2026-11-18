@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "pairs": [
+    { "id": "genuine-visit", "photos": ["v6-source-41897363", "v4-nami-jocelyn-2"], "expectedGeometry": "inconclusive", "expectedTrip": true },
+    { "id": "genuine-ride-with-copy", "photos": ["v6-source-41897363", "v6-full-bleed-unindexed-ferry"], "expectedGeometry": "inconclusive", "expectedTrip": false },
+    { "id": "same-ferry-different-captures", "photos": ["v2-nami-ferry", "v4-nami-jocelyn-2"], "expectedGeometry": "distinct-view" },
+    { "id": "same-zipline-different-captures", "photos": ["v6-source-56816512", "v6-source-41897363"], "expectedGeometry": "distinct-view" },
+    { "id": "same-memorial-different-captures", "photos": ["v6-source-46295529", "v5-nami-tomb"], "expectedGeometry": "distinct-view" },
+    { "id": "indexed-paper-copy", "photos": ["v2-nami-ferry", "v6-paper-ferry"], "expectedGeometry": "planar-match" },
+    { "id": "indexed-screen-copy", "photos": ["v6-source-46295529", "v6-screen-tomb"], "expectedGeometry": "planar-match" },
+    { "id": "copy-and-original-together", "photos": ["v4-nami-jocelyn-2", "v6-full-bleed-unindexed-ferry"], "expectedGeometry": "planar-match" },
+    { "id": "other-ferry", "photos": ["v4-nami-jocelyn-2", "v6-source-172419971"], "expectedGeometry": "inconclusive", "expectedTrip": false },
+    { "id": "different-burial-site", "photos": ["v5-nami-tomb", "v6-source-13283679"], "expectedGeometry": "inconclusive", "expectedTrip": false },
+    { "id": "known-copy-with-visit", "photos": ["v6-source-41897363", "v6-paper-ferry"], "expectedGeometry": "inconclusive", "expectedTrip": false }
+  ]
+}

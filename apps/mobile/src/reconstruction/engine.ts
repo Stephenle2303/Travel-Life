@@ -31,10 +31,16 @@ function dayGap(a: ReconstructionEvidence, b: ReconstructionEvidence) {
   return Math.abs(Date.parse(`${a.capturedDay}T00:00:00Z`) - Date.parse(`${b.capturedDay}T00:00:00Z`)) / 86_400_000;
 }
 
+const civilDayCache = new Map<string, number | null>();
 function civilDayMillis(value: string | null) {
-  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  if (!value) return null;
+  if (civilDayCache.has(value)) return civilDayCache.get(value)!;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
   const parsed = Date.parse(`${value}T00:00:00Z`);
-  return Number.isFinite(parsed) && new Date(parsed).toISOString().slice(0, 10) === value ? parsed : null;
+  const result = Number.isFinite(parsed) && new Date(parsed).toISOString().slice(0, 10) === value ? parsed : null;
+  if (civilDayCache.size >= 2048) civilDayCache.clear();
+  civilDayCache.set(value, result);
+  return result;
 }
 
 function calendarGap(a: ReconstructionEvidence, b: ReconstructionEvidence) {
@@ -44,8 +50,9 @@ function calendarGap(a: ReconstructionEvidence, b: ReconstructionEvidence) {
   return Math.abs(first - second) / 86_400_000;
 }
 
-function visitEvidence(visit: Visit, input: ReconstructionEvidence[]) {
-  return visit.evidenceIds.map((id) => input.find((item) => item.id === id)).filter((item): item is ReconstructionEvidence => Boolean(item));
+type EvidenceIndex = ReadonlyMap<string, ReconstructionEvidence>;
+function visitEvidence(visit: Visit, input: EvidenceIndex) {
+  return visit.evidenceIds.map((id) => input.get(id)).filter((item): item is ReconstructionEvidence => Boolean(item));
 }
 
 function compareVisitEvidence(a: ReconstructionEvidence, b: ReconstructionEvidence) {
@@ -55,19 +62,19 @@ function compareVisitEvidence(a: ReconstructionEvidence, b: ReconstructionEviden
   return a.id.localeCompare(b.id);
 }
 
-function visitStartEvidence(visit: Visit, input: ReconstructionEvidence[]) {
+function visitStartEvidence(visit: Visit, input: EvidenceIndex) {
   return visitEvidence(visit, input).sort(compareVisitEvidence)[0];
 }
 
-function visitEndEvidence(visit: Visit, input: ReconstructionEvidence[]) {
+function visitEndEvidence(visit: Visit, input: EvidenceIndex) {
   return visitEvidence(visit, input).sort(compareVisitEvidence).at(-1);
 }
 
-function visitHasOwnerBoundary(visit: Visit, input: ReconstructionEvidence[]) {
+function visitHasOwnerBoundary(visit: Visit, input: EvidenceIndex) {
   return visitEvidence(visit, input).some((item) => item.ownerBoundaryAfter);
 }
 
-function visitHasUsualAreaContext(visit: Visit, input: ReconstructionEvidence[]) {
+function visitHasUsualAreaContext(visit: Visit, input: EvidenceIndex) {
   return visitEvidence(visit, input).some((item) => item.usualAreaContext);
 }
 
@@ -86,7 +93,7 @@ function blocksCoMembership(prior: Visit, next: Visit, constraints: JourneyGroup
   ));
 }
 
-function visitCanFollow(prior: Visit, next: Visit, input: ReconstructionEvidence[]) {
+function visitCanFollow(prior: Visit, next: Visit, input: EvidenceIndex) {
   const priorEvidence = visitEndEvidence(prior, input);
   const nextEvidence = visitStartEvidence(next, input);
   if (!priorEvidence || !nextEvidence || visitHasOwnerBoundary(prior, input)) return false;
@@ -105,6 +112,9 @@ function mergeAiCandidates(fromJourneyId: string, toJourneyId: string, prior: Re
 
 /** Pure deterministic baseline. It intentionally produces uncertainty instead of travel claims. */
 export function reconstructV1(input: ReconstructionEvidence[], options: ReconstructionOptions = {}): ReconstructionGraph {
+  // Preserve Array.find first-match behavior while avoiding repeated full scans.
+  const inputById = new Map<string, ReconstructionEvidence>();
+  for (const item of input) if (!inputById.has(item.id)) inputById.set(item.id, item);
   const constraints = options.journeyGroupingConstraints ?? [];
   const family = new Map<string, ReconstructionEvidence[]>();
   for (const item of input) { const key = item.duplicateFamilyId ?? item.id; family.set(key, [...(family.get(key) ?? []), item]); }
@@ -114,17 +124,35 @@ export function reconstructV1(input: ReconstructionEvidence[], options: Reconstr
   const units = [...family.entries()].filter(([id]) => !conflictedFamilies.has(id)).map(([, items]) => items.sort((a, b) => a.id.localeCompare(b.id))[0])
     .filter((item) => Number.isFinite(item.latitude) && Number.isFinite(item.longitude))
     .sort((a, b) => (a.latitude! - b.latitude!) || (normalizedLongitude(a.longitude!) - normalizedLongitude(b.longitude!)) || a.id.localeCompare(b.id));
-  const clusters: ReconstructionEvidence[][] = [];
+  // Distance depends only on exact coordinates. Retain every evidence member,
+  // but evaluate repeated coordinates once without rounding or spatial buckets.
+  const coordinateKey = (item: ReconstructionEvidence) => `${item.latitude},${item.longitude}`;
+  type ClusterPoint = { evidence: ReconstructionEvidence; maxDistance: number };
+  const clusters: { members: ReconstructionEvidence[]; points: Map<string, ClusterPoint>; first: string }[] = [];
   for (const unit of units.filter(eligible)) {
-    const choices = clusters.map((cluster, index) => ({ index, max: Math.max(...cluster.map((member) => distance(unit, member))), first: cluster.map((member) => member.id).sort()[0] }))
+    const key = coordinateKey(unit);
+    const choices = clusters.map((cluster, index) => ({ index, max: cluster.points.get(key)?.maxDistance
+      ?? [...cluster.points.values()].reduce((max, point) => Math.max(max, distance(unit, point.evidence)), 0), first: cluster.first }))
       .filter((choice) => choice.max <= MAX_PLACE_METERS).sort((a, b) => a.max - b.max || a.first.localeCompare(b.first));
-    if (choices.length) clusters[choices[0].index].push(unit); else clusters.push([unit]);
+    if (choices.length) {
+      const cluster = clusters[choices[0].index];
+      cluster.members.push(unit);
+      if (unit.id < cluster.first) cluster.first = unit.id;
+      const prior = cluster.points.get(key);
+      if (prior) {
+        if (unit.id.localeCompare(prior.evidence.id) < 0) prior.evidence = unit;
+      } else {
+        // Preserve the original direction of every floating-point calculation.
+        // Extending a cluster changes existing minimax scores only at this point.
+        for (const point of cluster.points.values()) point.maxDistance = Math.max(point.maxDistance, distance(point.evidence, unit));
+        cluster.points.set(key, { evidence: unit, maxDistance: choices[0].max });
+      }
+    } else clusters.push({ members: [unit], points: new Map([[key, { evidence: unit, maxDistance: 0 }]]), first: unit.id });
   }
-  const places: Place[] = clusters.map((members) => {
+  const places: Place[] = clusters.map(({ members, points }) => {
     // The minimax score is stable for each candidate. Compute it once rather
     // than recomputing every pair for each sort comparison in a dense place.
-    const maxDistanceById = new Map(members.map((candidate) => [candidate.id, members.reduce((max, member) => Math.max(max, distance(candidate, member)), 0)]));
-    const representativeId = [...members].sort((a, b) => maxDistanceById.get(a.id)! - maxDistanceById.get(b.id)! || a.id.localeCompare(b.id))[0].id;
+    const representativeId = [...points.values()].sort((a, b) => a.maxDistance - b.maxDistance || a.evidence.id.localeCompare(b.evidence.id))[0].evidence.id;
     const memberIds = members.map((m) => m.id).sort();
     return { id: `place:${memberIds.join('|')}`, memberIds, representativeId, uncertainty: members.some((m) => m.reportedAccuracyMeters === null) ? ['reported-accuracy-unknown'] : [] };
   });
@@ -163,7 +191,7 @@ export function reconstructV1(input: ReconstructionEvidence[], options: Reconstr
       const prior = uncertainVisit.at(-1);
       const gap = prior ? calendarGap(prior, item) : 0;
       const span = uncertainVisit.length ? calendarGap(uncertainVisit[0], item) : 0;
-      if (prior && (visitHasOwnerBoundary({ id: '', placeId, evidenceIds: uncertainVisit.map((entry) => entry.id), order: 'uncertain' }, input) || item.ownerBoundaryAfter || gap === null || gap > 1 || span === null || span > 30)) {
+      if (prior && (visitHasOwnerBoundary({ id: '', placeId, evidenceIds: uncertainVisit.map((entry) => entry.id), order: 'uncertain' }, inputById) || item.ownerBoundaryAfter || gap === null || gap > 1 || span === null || span > 30)) {
         const evidenceIds = uncertainVisit.map((entry) => entry.id).sort();
         visits.push({ id: `visit:${evidenceIds.join('|')}`, placeId, evidenceIds, order: 'uncertain' });
         uncertainVisit = [];
@@ -176,22 +204,22 @@ export function reconstructV1(input: ReconstructionEvidence[], options: Reconstr
     }
   }
   const orderedVisits = visits.filter((visit) => visit.order === 'ordered').sort((a, b) => {
-    const firstA = visitStartEvidence(a, input)!; const firstB = visitStartEvidence(b, input)!;
+    const firstA = visitStartEvidence(a, inputById)!; const firstB = visitStartEvidence(b, inputById)!;
     return (firstA.capturedAtMillis ?? Number.MAX_SAFE_INTEGER) - (firstB.capturedAtMillis ?? Number.MAX_SAFE_INTEGER) || a.id.localeCompare(b.id);
   });
   const journeys: ReconstructionGraph['journeys'] = []; const possibleMerges: ReconstructionGraph['possibleMerges'] = [];
   for (const visit of orderedVisits) {
     if (blocksAutomaticMembership(visit, constraints)) continue;
     const prior = journeys.at(-1); const priorVisit = prior && visits.find((candidate) => candidate.id === prior.visitIds.at(-1));
-    const priorEvidence = priorVisit && visitEndEvidence(priorVisit, input); const nextEvidence = visitStartEvidence(visit, input);
+    const priorEvidence = priorVisit && visitEndEvidence(priorVisit, inputById); const nextEvidence = visitStartEvidence(visit, inputById);
     const gap = priorEvidence && nextEvidence ? dayGap(priorEvidence, nextEvidence) : null;
     const journeyStartVisit = prior && visits.find((candidate) => candidate.id === prior.visitIds[0]);
-    const journeyStart = journeyStartVisit && visitStartEvidence(journeyStartVisit, input);
+    const journeyStart = journeyStartVisit && visitStartEvidence(journeyStartVisit, inputById);
     const journeySpan = journeyStart && nextEvidence ? calendarGap(journeyStart, nextEvidence) : null;
     const automaticLimit = priorEvidence?.hasPreciseOffset && nextEvidence?.hasPreciseOffset ? 3 : 2;
     const mergeLimit = priorEvidence?.hasPreciseOffset && nextEvidence?.hasPreciseOffset ? 10 : 10;
-    const boundary = priorVisit ? visitHasOwnerBoundary(priorVisit, input) : false;
-    const localContext = visitHasUsualAreaContext(visit, input) || (priorVisit ? visitHasUsualAreaContext(priorVisit, input) : false);
+    const boundary = priorVisit ? visitHasOwnerBoundary(priorVisit, inputById) : false;
+    const localContext = visitHasUsualAreaContext(visit, inputById) || (priorVisit ? visitHasUsualAreaContext(priorVisit, inputById) : false);
     if (prior && priorVisit && !boundary && !localContext && !blocksCoMembership(priorVisit, visit, constraints) && priorVisit.placeId !== visit.placeId && gap !== null && gap <= automaticLimit && journeySpan !== null && journeySpan <= 30) prior.visitIds.push(visit.id);
     else {
       const next = { id: `journey:${visit.id}`, visitIds: [visit.id], state: 'inferred' as const }; journeys.push(next);
@@ -205,25 +233,25 @@ export function reconstructV1(input: ReconstructionEvidence[], options: Reconstr
   // It may use the two-day v1 link window, while same-day alternatives remain
   // separate because their within-day order is unknown.
   const weakVisits = visits.filter((visit) => visit.order === 'uncertain').sort((a, b) => {
-    const firstA = visitStartEvidence(a, input)!; const firstB = visitStartEvidence(b, input)!;
+    const firstA = visitStartEvidence(a, inputById)!; const firstB = visitStartEvidence(b, inputById)!;
     return compareVisitEvidence(firstA, firstB) || a.id.localeCompare(b.id);
   });
   for (const visit of weakVisits) {
     if (blocksAutomaticMembership(visit, constraints)) continue;
     const prior = journeys.at(-1);
     const priorVisit = prior && visits.find((candidate) => candidate.id === prior.visitIds.at(-1));
-    const priorEvidence = priorVisit && visitEndEvidence(priorVisit, input);
-    const nextEvidence = visitStartEvidence(visit, input);
+    const priorEvidence = priorVisit && visitEndEvidence(priorVisit, inputById);
+    const nextEvidence = visitStartEvidence(visit, inputById);
     const sameCivilDay = priorEvidence?.capturedDay === nextEvidence?.capturedDay;
     const journeyStartVisit = prior && visits.find((candidate) => candidate.id === prior.visitIds[0]);
-    const journeyStart = journeyStartVisit && visitStartEvidence(journeyStartVisit, input);
+    const journeyStart = journeyStartVisit && visitStartEvidence(journeyStartVisit, inputById);
     const journeySpan = journeyStart && nextEvidence ? calendarGap(journeyStart, nextEvidence) : null;
-    if (prior && priorVisit?.order === 'uncertain' && !sameCivilDay && !blocksCoMembership(priorVisit, visit, constraints) && visitCanFollow(priorVisit, visit, input) && journeySpan !== null && journeySpan <= 30) {
+    if (prior && priorVisit?.order === 'uncertain' && !sameCivilDay && !blocksCoMembership(priorVisit, visit, constraints) && visitCanFollow(priorVisit, visit, inputById) && journeySpan !== null && journeySpan <= 30) {
       prior.visitIds.push(visit.id);
     } else {
       const next = { id: `journey:${visit.id}`, visitIds: [visit.id], state: 'inferred' as const }; journeys.push(next);
       const gap = priorEvidence && nextEvidence ? dayGap(priorEvidence, nextEvidence) : null;
-      if (prior && priorVisit?.order === 'uncertain' && !sameCivilDay && !blocksCoMembership(priorVisit, visit, constraints) && !visitHasOwnerBoundary(priorVisit, input) && !visitHasUsualAreaContext(priorVisit, input) && !visitHasUsualAreaContext(visit, input) && gap !== null && gap <= 10) {
+      if (prior && priorVisit?.order === 'uncertain' && !sameCivilDay && !blocksCoMembership(priorVisit, visit, constraints) && !visitHasOwnerBoundary(priorVisit, inputById) && !visitHasUsualAreaContext(priorVisit, inputById) && !visitHasUsualAreaContext(visit, inputById) && gap !== null && gap <= 10) {
         const aiCandidates = mergeAiCandidates(prior.id, next.id, priorEvidence, nextEvidence);
         possibleMerges.push({ fromJourneyId: prior.id, toJourneyId: next.id, reason: journeySpan !== null && journeySpan > 30 ? 'span-cap' : 'adjacent-gap', ...(aiCandidates ? { aiCandidates } : {}) });
       }
@@ -233,25 +261,35 @@ export function reconstructV1(input: ReconstructionEvidence[], options: Reconstr
     ? { evidenceId: e.id, state: 'supported', reasons: ['eligible-place-support'] }
     : { evidenceId: e.id, state: e.excluded ? 'unassigned' : 'unresolved', reasons: [e.excluded ? 'owner-excluded' : conflictedFamilies.has(e.duplicateFamilyId ?? e.id) ? 'duplicate-family-conflict' : e.availability === 'unavailable' ? 'source-unavailable' : !e.capturedDay ? 'missing-capture-date' : civilDayMillis(e.capturedDay) === null ? 'invalid-capture-day' : 'insufficient-location-support'] });
   const memberships: JourneyMembership[] = [];
+  // These lists are immutable during association. Preserve Array.find's first
+  // match and the original journey/visit/member order; rebuilding them for every
+  // GPS-less photo otherwise repeats full evidence scans at cubic scale.
+  const visitById = new Map<string, Visit>();
+  for (const visit of visits) if (!visitById.has(visit.id)) visitById.set(visit.id, visit);
+  const associationCandidates = input.filter((candidate) => !placeByEvidence.has(candidate.id) && candidate.availability === 'available' && !candidate.excluded && !conflictedFamilies.has(candidate.duplicateFamilyId ?? candidate.id));
+  const journeySupports = associationCandidates.length ? journeys.map((journey) => {
+    const supports = journey.visitIds.flatMap((visitId) => visitById.get(visitId)?.evidenceIds ?? []).map((id) => inputById.get(id)!).filter(Boolean);
+    const supportDays = supports.map((support) => civilDayMillis(support.capturedDay)).filter((day): day is number => day !== null);
+    return { journey, supports, supportDays,
+      firstDay: supportDays.reduce((first, day) => Math.min(first, day), Number.POSITIVE_INFINITY),
+      lastDay: supportDays.reduce((last, day) => Math.max(last, day), Number.NEGATIVE_INFINITY) };
+  }) : [];
   for (const journey of journeys) for (const visitId of journey.visitIds) for (const evidenceId of visits.find((visit) => visit.id === visitId)?.evidenceIds ?? []) memberships.push({ evidenceId, journeyId: journey.id, state: 'inferred', reason: 'visit-support' });
-  for (const item of input.filter((candidate) => !placeByEvidence.has(candidate.id) && candidate.availability === 'available' && !candidate.excluded && !conflictedFamilies.has(candidate.duplicateFamilyId ?? candidate.id))) {
-    const compatible = journeys.flatMap((journey) => {
-      const supports = journey.visitIds.flatMap((visitId) => visits.find((visit) => visit.id === visitId)?.evidenceIds ?? []).map((id) => input.find((evidence) => evidence.id === id)!).filter(Boolean);
+  for (const item of associationCandidates) {
+    const compatible = journeySupports.map(({ journey, supports, supportDays, firstDay, lastDay }) => {
       const before = supports.filter((support) => support.hasPreciseOffset && support.capturedAtMillis! < item.capturedAtMillis!).at(-1);
       const after = supports.find((support) => support.hasPreciseOffset && support.capturedAtMillis! > item.capturedAtMillis!);
-      return [{ journey, supports, before, after }];
+      return { journey, supportDays, firstDay, lastDay, before, after };
     });
     const bracket = compatible.filter(({ before, after }) => item.hasPreciseOffset && item.capturedAtMillis !== null && before && after && item.capturedAtMillis - before.capturedAtMillis! <= 86_400_000 && after.capturedAtMillis! - item.capturedAtMillis <= 86_400_000);
     if (bracket.length === 1) memberships.push({ evidenceId: item.id, journeyId: bracket[0].journey.id, state: 'inferred', reason: 'ordered-24-hour-bracket' });
     else if (bracket.length === 0) {
-      const suggested = compatible.filter(({ supports }) => {
+      const suggested = compatible.filter(({ supportDays, firstDay, lastDay }) => {
         if (!item.capturedDay) return false;
         const itemDay = civilDayMillis(item.capturedDay);
-        const datedSupports = supports.filter((support) => civilDayMillis(support.capturedDay) !== null);
-        if (itemDay === null || !datedSupports.length) return false;
-        const supportDays = datedSupports.map((support) => civilDayMillis(support.capturedDay)!);
-        const spanContains = itemDay >= Math.min(...supportDays) - 86_400_000 && itemDay <= Math.max(...supportDays) + 86_400_000;
-        const nearestIsClose = datedSupports.some((support) => Math.abs(civilDayMillis(support.capturedDay)! - itemDay) <= 3 * 86_400_000);
+        if (itemDay === null || !supportDays.length) return false;
+        const spanContains = itemDay >= firstDay - 86_400_000 && itemDay <= lastDay + 86_400_000;
+        const nearestIsClose = supportDays.some((day) => Math.abs(day - itemDay) <= 3 * 86_400_000);
         return spanContains && nearestIsClose;
       });
       if (suggested.length === 1) memberships.push({ evidenceId: item.id, journeyId: suggested[0].journey.id, state: 'suggested', reason: 'unique-three-day-suggestion' });

@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "id": "atlas-regional-seoul-hanoi-v1",
+  "parents": [
+    { "file": "public-benchmark-v1.json", "sha256": "608dfb2647fe01cd4dbec2432fe86ed5c633ca5287043d4d517d8f4019952b8e" },
+    { "file": "public-detail-v3.json", "sha256": "b9f50daad8e6ddc0399d9d48de101fb1a1c4a6d2d6751530438de0db8b32a176" }
+  ],
+  "gates": { "minimumStopGain": 1, "maximumFalseMatchRate": 0, "maximumPackBytes": 3145728, "maximumScanMillis": 5000, "maximumPeakMemoryBytes": 536870912 },
+  "references": {
+    "starter": ["campus-eckert", "campus-bolz", "si-06u00109aa40000", "sto-arp008821", "hanoi-turtle-jarvis", "hanoi-khue-thalling"],
+    "deepOnly": ["campus-hdb", "si-06u00102aa10000", "si-06u00103aa80000", "si-06u00108aa40000", "sto-arp007ra1", "hanoi-turtle-fussan", "hanoi-khue-toan"]
+  },
+  "queryPhotos": [
+    {
+      "id": "regional-hanoi-turtle-jakub", "file": "regional-hanoi-turtle-jakub.jpg", "placeId": "turtle-tower",
+      "author": "Jakub Hałun", "captureGroup": "jakub-halun-hanoi-2024-01-23", "license": "CC-BY-4.0", "revision": "1032085394",
+      "url": "https://commons.wikimedia.org/wiki/File:Turtle_Tower,_Hanoi,_Vietnam,_20240123_1422_3347.jpg",
+      "downloadUrl": "https://upload.wikimedia.org/wikipedia/commons/d/da/Turtle_Tower%2C_Hanoi%2C_Vietnam%2C_20240123_1422_3347.jpg",
+      "sha256": "4fc93210d42f1b5f928a037fa71dd9e0f3fcc8b7c8b2c81802615b4255eb69e6"
+    },
+    {
+      "id": "regional-hanoi-turtle-hanoian", "file": "regional-hanoi-turtle-hanoian.jpg", "placeId": "turtle-tower",
+      "author": "The Hanoian", "captureGroup": "the-hanoian-hoan-kiem-2022-09-02", "license": "CC-BY-SA-4.0", "revision": "1224438204",
+      "url": "https://commons.wikimedia.org/wiki/File:Th%C3%A1p_R%C3%B9a_-_2022-09-02_01.jpg",
+      "downloadUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Th%C3%A1p_R%C3%B9a_-_2022-09-02_01.jpg/960px-Th%C3%A1p_R%C3%B9a_-_2022-09-02_01.jpg",
+      "sha256": "7df7b2e02440d1476c08acae62f8ab6cca9cd3fb526bfb92dfdd8e8bee4611d3"
+    },
+    {
+      "id": "regional-hanoi-khue-hughes", "file": "regional-hanoi-khue-hughes.jpg", "placeId": "khue-van-cac",
+      "author": "P. Hughes", "captureGroup": "p-hughes-khue-2014-2015", "license": "CC-BY-4.0", "revision": "1291872030",
+      "url": "https://commons.wikimedia.org/wiki/File:Hanoi_-_Temple_of_Literature.jpg",
+      "downloadUrl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/90/Hanoi_-_Temple_of_Literature.jpg/960px-Hanoi_-_Temple_of_Literature.jpg",
+      "sha256": "89a5b3ed3322b68ce283d53728c3751f2ed37c2170978a10dac09903dd284b6a"
+    },
+    {
+      "id": "regional-hanoi-khue-christophe", "file": "regional-hanoi-khue-christophe.jpg", "placeId": "khue-van-cac",
+      "author": "Christophe95", "captureGroup": "christophe95-khue-2018-08-03", "license": "CC-BY-SA-4.0", "revision": "1132264330",
+      "url": "https://commons.wikimedia.org/wiki/File:Constellation_of_Literature_pavilion.jpg",
+      "downloadUrl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/7a/Constellation_of_Literature_pavilion.jpg/960px-Constellation_of_Literature_pavilion.jpg",
+      "sha256": "138b7257ba2d394ee65d4a5ea0e27f05da966d38ab9d94d44190c2ccb444a47c"
+    }
+  ],
+  "episodes": [
+    {
+      "id": "seoul-regression", "country": "KR", "destination": "locality-seoul",
+      "stops": ["ewha-womans-university", "namsan-seoul-tower"],
+      "sessions": [["ewha-2008", "ewha-2019", "synthetic-meter-screen"], ["si-01101709aa0000", "si-04x00508ac0000", "v2-water-meter"]],
+      "covers": ["ewha-2008", "si-01101709aa0000"],
+      "album": ["ewha-2008", "ewha-2019", "si-01101709aa0000", "si-04x00508ac0000"]
+    },
+    {
+      "id": "hanoi-independent", "country": "VN", "destination": "locality-hanoi",
+      "stops": ["turtle-tower", "khue-van-cac"],
+      "sessions": [["regional-hanoi-turtle-jakub", "regional-hanoi-turtle-hanoian", "synthetic-meter-screen"], ["regional-hanoi-khue-hughes", "regional-hanoi-khue-christophe", "control-hanoi-well"]],
+      "covers": ["regional-hanoi-turtle-jakub", "regional-hanoi-khue-hughes"],
+      "album": ["regional-hanoi-turtle-jakub", "regional-hanoi-turtle-hanoian", "regional-hanoi-khue-hughes", "regional-hanoi-khue-christophe"]
+    },
+    {
+      "id": "mixed-countries", "country": null, "destination": null, "stops": [], "covers": [],
+      "sessions": [["ewha-2008", "ewha-2019"], ["regional-hanoi-turtle-jakub", "regional-hanoi-turtle-hanoian"]],
+      "album": []
+    },
+    {
+      "id": "outside-index", "country": null, "destination": null, "stops": [], "covers": [],
+      "sessions": [["control-tokyo-tower", "v2-skytree-night", "synthetic-meter-screen"], ["control-damyang", "control-japan-lane", "v2-water-meter"]],
+      "album": []
+    }
+  ]
+}

@@ -24,7 +24,8 @@ export type RevealDiagnostics = {
   missingDay: number; invalidDay: number; unavailable: number;
   duplicateConflict: number; insufficientLocation: number; excluded: number;
 };
-export type DurableRevealRecord = { journeys: DurableRevealJourney[]; statistics?: InferredStatistics | null; diagnostics?: RevealDiagnostics | null };
+export type JourneyMergePair = { leftId: string; rightId: string; generation: number; privacyRevision: number };
+export type DurableRevealRecord = { journeys: DurableRevealJourney[]; mergePairs?: JourneyMergePair[]; statistics?: InferredStatistics | null; diagnostics?: RevealDiagnostics | null };
 
 /** The only reconstruction shape that the reveal UI may receive. */
 export type RevealInput = {
@@ -62,6 +63,7 @@ export type RevealModel = {
   coverage: string;
   message: string;
   journeys: RevealJourney[];
+  mergePairs?: JourneyMergePair[];
   replay: { eligible: boolean; reason: string };
   statistics: InferredStatistics | null;
   diagnostics?: RevealDiagnostics | null;
@@ -77,10 +79,11 @@ export type JourneyEligibility = {
   privacyRevision: number;
 };
 export type AtlasCamera = { center: [number, number]; zoom: number };
-export type AtlasExploration = { view: AtlasView; year: number | null; selectedJourneyId: string | null; camera?: AtlasCamera; localViewport?: { scale: number; x: number; y: number } };
+export type AtlasExploration = { query?: string; scrollY?: number; timelineAnchor?: { id: string; index: number }; view: AtlasView; year: number | null; selectedJourneyId: string | null; camera?: AtlasCamera; localViewport?: { scale: number; x: number; y: number } };
 
 /** Owner-readable data for one explicitly selected journey. It is never Atlas state. */
 export type JourneyDetail = {
+  destinationNames?: string[];
   id: string;
   title: string;
   observedSpan: string;

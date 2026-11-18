@@ -11,6 +11,22 @@ context:
   - 'docs/product/context.md'
 ---
 
+### Second-device heap incident follow-up
+
+The second Android device reported SCHEMA at DURABLE_RUN_READ on both source bindings. Read-only replica inspection confirmed version 39 without reconstruction_run.home_revision and with one of the two Home tables. Version 40 must complete the retained layout inside the existing import migration transaction. Preserve receipt and history rows. The existing ATLAS_DURABLE_READ schema boundary and rebuild schema stage apply. Verify a synthetic partial v39 database reopens without clearing data, then compare the same fixed stages on Android.
+
+The owner reported that controls were unresponsive after reopening Atlas. A prior Android trace showed prolonged JavaScript work during destination calculation. Allow the event loop to run between short geometry batches, including within a single large journey. Keep the same support order, label rules, computation stage, and final privacy check.
+
+The second device remained on the loading screen. The local debug profile identified `DURABLE_DESTINATION_QUERY` as the long-running phase. Seek using the indexed journey link and visit support keys, then deduplicate journey, place and evidence tuples across pages before family validation. Keep the existing query and computation diagnostics.
+
+After the indexed query completed, Android spent over 50 seconds in `DURABLE_DESTINATION_COMPUTATION` with the JavaScript thread busy. Before calculating point-to-edge distance, reject edges whose bounding rectangle is farther than the existing margin along either axis. Keep the exact distance test for nearby edges and test existing country, region and border behavior.
+
+Read committed destination support in bounded SQLite batches for Atlas and journey detail. Keep duplicate-family checks across the complete result and preserve destination labels and existing privacy guards. Given a result spanning batches, Atlas must compute the same labels and reject conflicting duplicate families even when their members fall in separate batches. This reduces the peak native result size. Device evidence is needed to establish whether this resolves the crash.
+
+For `ATLAS_DURABLE_READ`, `DURABLE_DESTINATION_QUERY` maps to each bounded support query in `readDestinationLabels` and retains existing schema, busy, native handle and unknown classifications. `DURABLE_DESTINATION_COMPUTATION` maps to family validation and label calculation and retains UNKNOWN for an unclassified computation failure. Both preserve the prior durable Atlas and existing retry policy. The journey detail caller retains its existing error handling. On the second Android device, verify the current Metro bundle, match the running package PID and collect only closed ReactNativeJS events for the Atlas action correlation plus Android exit reason. Compare query versus computation failures and check for a new exit.
+
+Verification passed 63 focused mobile tests, 112 SQLite tests, typecheck, lint and 199 foundation tests. The bounded-result regression failed on the original 513-row transfer and passed with batches of 256, 256 and 1. Android Metro bundle SHA-256 `a2a5ac8819fa2b41aa27e99f907a928287c775aa75643ca9b796d740f2d8fb03` contains the paged query and both stages. The reopened app reached the local provider and entered onboarding recovery. Visible Atlas acceptance remains pending.
+
 <frozen-after-approval reason="human-owned intent — do not modify unless human renegotiates">
 
 ## Intent

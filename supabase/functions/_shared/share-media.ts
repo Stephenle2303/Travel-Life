@@ -59,6 +59,10 @@ export async function verifyDerivative(bytes: Uint8Array, manifest: ShareMedia):
   if (bytes.byteLength !== manifest.byteLength || bytes.byteLength > 52_428_800 || await sha256(bytes) !== manifest.sha256) return false;
   try { return manifest.kind === 'photo' ? jpeg(bytes, manifest) : mp4(bytes, manifest); } catch { return false; }
 }
+/** Private derivatives share the same metadata/container allowlist; public limits stay fixed. */
+export function verifyPrivateContainer(bytes:Uint8Array,manifest:{kind:'photo'|'video'|'audio';width:number|null;height:number|null;durationMillis:number|null}):boolean {
+  try{return manifest.kind==='photo'?jpeg(bytes,manifest as ShareMedia):mp4(bytes,manifest as ShareMedia,manifest.kind==='audio');}catch{return false;}
+}
 function jpeg(bytes: Uint8Array, manifest: ShareMedia) {
   if (bytes[0] !== 255 || bytes[1] !== 216 || bytes.at(-2) !== 255 || bytes.at(-1) !== 217) return false;
   let cursor = 2; let dimensions = false; let scan = false;
@@ -90,7 +94,7 @@ function jpeg(bytes: Uint8Array, manifest: ShareMedia) {
   }
   return cursor === bytes.length - 2 && dimensions && scan;
 }
-function mp4(bytes: Uint8Array, manifest: ShareMedia) {
+function mp4(bytes: Uint8Array, manifest: ShareMedia, audioOnly=false) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const read = (offset: number) => view.getUint32(offset);
   const word = (offset: number) => String.fromCharCode(...bytes.slice(offset, offset + 4));
@@ -118,6 +122,7 @@ function mp4(bytes: Uint8Array, manifest: ShareMedia) {
         const sample = body + 8; const sampleSize = read(sample); const codec = word(sample + 4);
         if (sampleSize !== limit - sample) return false;
         if (codec === 'avc1') {
+          if(audioOnly)return false;
           if (++video > 1 || sampleSize < 86 || view.getUint16(sample + 32) !== manifest.width || view.getUint16(sample + 34) !== manifest.height) return false;
           // Compressor name is a metadata channel; only blank or fixed native encoder label.
           const length = bytes[sample + 50]; const compressor = new TextDecoder().decode(bytes.slice(sample + 51, sample + 51 + length));
@@ -141,5 +146,5 @@ function mp4(bytes: Uint8Array, manifest: ShareMedia) {
     }
     return true;
   };
-  return boxes(0, bytes.length, 0) && ftyp === 1 && moov === 1 && mdat === 1 && video === 1;
+  return boxes(0, bytes.length, 0) && ftyp === 1 && moov === 1 && mdat === 1 && (audioOnly?video===0&&audio===1:video===1);
 }

@@ -29,6 +29,9 @@ export type SelectionResult = { canceled: true } | {
 export type OwnerPreview = { uri: string | null; availability: 'available' | 'unavailable'; kind: 'photo' | 'video' };
 
 export interface PhotoAccessAdapter {
+  /** Account-owned media has its own authorization, never native photo permission. */
+  accountAuthorized?(): Promise<boolean>;
+  resolveReplaySoundtrack?(track:import('@/replay/types').ReplaySoundtrack):Promise<import('@/replay/types').ReplaySoundtrack>;
   inspect(): Promise<PermissionSnapshot | null>;
   request(): Promise<PermissionSnapshot | null>;
   readPage(offset: number, limit: number): Promise<number>;
@@ -37,4 +40,5 @@ export interface PhotoAccessAdapter {
   manageLimited(): Promise<void>;
   select(): Promise<SelectionResult>;
   resolveOwnerPreviews?(assetIds: (string | null)[], limit: number, onResolved?: (preview: OwnerPreview, index: number) => void): Promise<OwnerPreview[]>;
+  inspectOwnerMedia?(assetId: string): Promise<{ uri: string; location: { latitude: number; longitude: number } | null } | null>;
 }

@@ -1,8 +1,11 @@
 import type { CorrectionOverlay, PrivateRecordLifecycle } from '@/history-record';
-import { serializeNativeTransactions } from '@/database/native-transaction';
+import { runOwnedTransaction, serializeNativeTransactions } from '@/database/native-transaction';
+import { nextFirstRevealReceipt, type FirstRevealReceipt } from '@/reconstruction/first-reveal-question';
+import { classifyAppDiagnosticError, createDiagnosticCorrelationId, recordAppDiagnostic } from '@/diagnostics/app-diagnostics';
+import { assertReplicaOpen, trackReplicaConnection } from '@/account/replica-connections';
 
 import {
-  ImportLifecycleBlockedError, type ImportCheckpoint, type ImportRepository, type ImportScope,
+  HomeSetupConflictError, ImportLifecycleBlockedError, type ConfiguredHomeArea, type ImportCheckpoint, type ImportRepository, type ImportScope,
   type MaintenanceCheckpoint, type MaintenanceRepository, type MaintenanceSnapshot, type ReconciliationSnapshot, type SourceCandidate,
 } from './types';
 
@@ -22,7 +25,7 @@ type CheckpointRow = {
   status: ImportCheckpoint['status'];
 };
 
-const CURRENT_SCHEMA_VERSION = 37;
+export const CURRENT_SCHEMA_VERSION = 45;
 const validCivilDay = (day: string | null) => Boolean(day && /^\d{4}-(0[1-9]|1[0-2])-([0-2]\d|3[01])$/.test(day)
   && new Date(`${day}T00:00:00.000Z`).toISOString().slice(0, 10) === day);
 
@@ -725,6 +728,155 @@ const migrationV36 = `
 `;
 
 
+const migrationV38 = `
+  CREATE TABLE IF NOT EXISTS atlas_preparation_intent (
+    record_id INTEGER PRIMARY KEY CHECK (record_id = 1), payload TEXT NOT NULL
+  );
+  UPDATE private_history_record SET schema_version = MAX(schema_version, 38) WHERE record_id = 1;
+`;
+
+const migrationV39 = `
+  ALTER TABLE configured_home_area RENAME TO configured_home_area_v38;
+  CREATE TABLE configured_home_area (
+    area_id TEXT PRIMARY KEY,
+    latitude REAL NOT NULL CHECK (latitude BETWEEN -90 AND 90),
+    longitude REAL NOT NULL CHECK (longitude BETWEEN -180 AND 180),
+    effective_start_day TEXT NULL,
+    effective_end_day TEXT NULL,
+    radius_meters REAL NOT NULL CHECK (radius_meters > 0 AND radius_meters <= 50000),
+    owner_label TEXT NULL,
+    origin TEXT NOT NULL DEFAULT 'legacy' CHECK (origin IN ('observed-area','legacy','manual-pin')),
+    CHECK (effective_start_day IS NULL OR effective_end_day IS NULL OR effective_start_day <= effective_end_day)
+  );
+  INSERT INTO configured_home_area
+    SELECT area_id,latitude,longitude,effective_start_day,effective_end_day,radius_meters,owner_label,origin FROM configured_home_area_v38;
+  DROP TABLE configured_home_area_v38;
+  CREATE TABLE IF NOT EXISTS home_setup_receipt (
+    record_id INTEGER PRIMARY KEY CHECK (record_id = 1),
+    command_key TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    disposition TEXT NOT NULL CHECK (disposition IN ('saved','skipped'))
+  );
+  CREATE TABLE IF NOT EXISTS home_projection_context (
+    record_id INTEGER PRIMARY KEY CHECK (record_id = 1),
+    revision INTEGER NOT NULL CHECK (revision >= 0)
+  );
+  INSERT OR IGNORE INTO home_projection_context VALUES (1, 0);
+  ALTER TABLE reconstruction_run ADD COLUMN home_revision INTEGER NOT NULL DEFAULT 0;
+  CREATE TRIGGER IF NOT EXISTS home_projection_insert AFTER INSERT ON configured_home_area
+  BEGIN UPDATE home_projection_context SET revision = revision + 1 WHERE record_id = 1; END;
+  CREATE TRIGGER IF NOT EXISTS home_projection_edit AFTER UPDATE OF latitude, longitude, radius_meters, effective_start_day, effective_end_day ON configured_home_area
+  WHEN OLD.latitude IS NOT NEW.latitude OR OLD.longitude IS NOT NEW.longitude OR OLD.radius_meters IS NOT NEW.radius_meters
+    OR OLD.effective_start_day IS NOT NEW.effective_start_day OR OLD.effective_end_day IS NOT NEW.effective_end_day
+  BEGIN UPDATE home_projection_context SET revision = revision + 1 WHERE record_id = 1; END;
+  CREATE TRIGGER IF NOT EXISTS home_projection_remove AFTER DELETE ON configured_home_area
+  BEGIN UPDATE home_projection_context SET revision = revision + 1 WHERE record_id = 1; END;
+  UPDATE private_history_record SET schema_version = MAX(schema_version, 39) WHERE record_id = 1;
+`;
+
+const migrationV40 = `
+  UPDATE private_history_record SET schema_version = MAX(schema_version, 40) WHERE record_id = 1;
+`;
+
+const migrationV41 = `
+  CREATE TABLE IF NOT EXISTS first_reveal_receipt (
+    record_id INTEGER PRIMARY KEY CHECK (record_id = 1),
+    offer_key TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    command TEXT NOT NULL,
+    decision TEXT NOT NULL CHECK (decision IN ('offer','yes','no','dismiss','retire','undo')),
+    revision INTEGER NOT NULL CHECK (revision > 0)
+  );
+  CREATE TABLE IF NOT EXISTS first_reveal_command (
+    command TEXT PRIMARY KEY NOT NULL,
+    decision TEXT NOT NULL CHECK (decision IN ('offer','yes','no','dismiss','retire','undo')),
+    revision INTEGER UNIQUE NOT NULL CHECK (revision > 0)
+  );
+  UPDATE private_history_record SET schema_version = MAX(schema_version, 41) WHERE record_id = 1;
+`;
+
+const migrationV43 = `
+  CREATE TABLE IF NOT EXISTS visual_place_review (
+    cluster_key TEXT PRIMARY KEY NOT NULL,
+    manual_id TEXT UNIQUE,
+    place_id TEXT,
+    decision TEXT NOT NULL CHECK (decision IN ('dismissed', 'confirmed')),
+    CHECK ((decision = 'confirmed' AND manual_id IS NOT NULL AND place_id IS NOT NULL)
+      OR (decision = 'dismissed' AND manual_id IS NULL AND place_id IS NULL))
+  );
+  CREATE TABLE IF NOT EXISTS visual_place_album (
+    manual_id TEXT NOT NULL,
+    slot INTEGER NOT NULL CHECK (slot >= 1 AND slot <= 4),
+    evidence_id TEXT NOT NULL UNIQUE,
+    source_ref TEXT NOT NULL,
+    PRIMARY KEY (manual_id, slot)
+  );
+  UPDATE private_history_record SET schema_version = MAX(schema_version, 43) WHERE record_id = 1;
+`;
+
+const migrationV44 = `
+  CREATE TABLE IF NOT EXISTS visual_discovery_state (
+    record_id INTEGER PRIMARY KEY CHECK (record_id = 1),
+    enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+    revision INTEGER NOT NULL DEFAULT 0,
+    scope TEXT,
+    checkpoint TEXT,
+    proposal TEXT
+  );
+  INSERT OR IGNORE INTO visual_discovery_state (record_id) VALUES (1);
+  CREATE INDEX IF NOT EXISTS visual_discovery_capture_cursor ON canonical_evidence (captured_at_millis DESC, evidence_id DESC)
+    WHERE media_type = 'image' AND latitude IS NULL AND longitude IS NULL AND captured_at_millis IS NOT NULL;
+  UPDATE private_history_record SET schema_version = MAX(schema_version, 44) WHERE record_id = 1;
+`;
+
+const migrationV45 = `
+  ALTER TABLE visual_place_album RENAME TO visual_place_album_v43;
+  CREATE TABLE visual_place_album (
+    manual_id TEXT NOT NULL,
+    slot INTEGER NOT NULL CHECK (slot BETWEEN 1 AND 512),
+    evidence_id TEXT NOT NULL UNIQUE,
+    source_ref TEXT NOT NULL,
+    PRIMARY KEY (manual_id, slot)
+  );
+  INSERT INTO visual_place_album (manual_id, slot, evidence_id, source_ref)
+    SELECT manual_id, slot, evidence_id, source_ref FROM visual_place_album_v43;
+  DROP TABLE visual_place_album_v43;
+  CREATE TABLE IF NOT EXISTS visual_place_trip (
+    manual_id TEXT PRIMARY KEY NOT NULL,
+    command TEXT NOT NULL UNIQUE,
+    stops TEXT NOT NULL,
+    membership TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS visual_place_disposition (
+    command TEXT PRIMARY KEY NOT NULL,
+    decision TEXT NOT NULL CHECK (decision IN ('confirmed', 'dismissed')),
+    manual_id TEXT NULL
+  );
+  UPDATE private_history_record SET schema_version = MAX(schema_version, 45) WHERE record_id = 1;
+`;
+
+const migrationV42 = `
+  CREATE TABLE IF NOT EXISTS recognizable_candidate_rejection (
+    command_key TEXT PRIMARY KEY NOT NULL,
+    policy_version TEXT NOT NULL,
+    support_signature TEXT NOT NULL,
+    UNIQUE (policy_version, support_signature)
+  );
+  UPDATE private_history_record SET schema_version = MAX(schema_version, 42) WHERE record_id = 1;
+`;
+
+async function migrateHomeProjection(db: SqliteDatabase) {
+  const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(reconstruction_run)');
+  if (!columns.some((column) => column.name === 'home_revision')) {
+    await db.execAsync(migrationV39);
+  } else {
+    const tables = await db.getAllAsync<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('home_setup_receipt', 'home_projection_context')");
+    if (tables.length !== 2) throw new Error('Home projection schema is incomplete.');
+  }
+  await db.getFirstAsync('SELECT record_id, command_key, payload, disposition FROM home_setup_receipt LIMIT 1');
+  await db.execAsync(migrationV40);
+}
+
 const migrationV37 = `
   CREATE TABLE IF NOT EXISTS replay_mutation_receipt (
     operation_id TEXT PRIMARY KEY,
@@ -915,6 +1067,13 @@ export async function ensureNativeImportSchema(db: SqliteDatabase) {
     if (version < 35) await db.execAsync(migrationV35);
     if (version < 36) await db.execAsync(migrationV36);
     if (version < 37) await db.execAsync(migrationV37);
+    if (version < 38) await db.execAsync(migrationV38);
+    if (version < 40) await migrateHomeProjection(db);
+    if (version < 41) await db.execAsync(migrationV41);
+    if (version < 42) await db.execAsync(migrationV42);
+    if (version < 43) await db.execAsync(migrationV43);
+    if (version < 44) await db.execAsync(migrationV44);
+    if (version < 45) await db.execAsync(migrationV45);
     if (version === 0) await db.runAsync('INSERT INTO import_schema_version (version) VALUES (?)', CURRENT_SCHEMA_VERSION);
     else if (version < CURRENT_SCHEMA_VERSION) await db.runAsync('UPDATE import_schema_version SET version = ?', CURRENT_SCHEMA_VERSION);
     await db.execAsync('COMMIT');
@@ -953,7 +1112,9 @@ function toCheckpoint(row: CheckpointRow | null): ImportCheckpoint | null {
 }
 
 /** Opens the on-device-only SQLite index lazily, so web never initializes it. */
-export function createNativeImportRepository(): ImportRepository & MaintenanceRepository {
+export function createNativeImportRepository(options?: { databaseName: string }): ImportRepository & MaintenanceRepository {
+  const databaseName = options?.databaseName ?? 'travel-life-import-v1.db';
+  if (databaseName !== 'travel-life-import-v1.db' && !/^travel-life-account-[a-f0-9-]{36}\.db$/.test(databaseName)) throw new Error('Private record namespace is invalid.');
   let database: Promise<SqliteDatabase> | null = null;
 
   async function open() {
@@ -966,7 +1127,8 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
         // reload while the process survives. Every repository instance owns a
         // fresh handle; the existing global transaction gate still serializes
         // writers across import, maintenance and reconstruction repositories.
-        const db = serializeNativeTransactions(await sqlite.openDatabaseAsync('travel-life-import-v1.db', { useNewConnection: true }));
+        assertReplicaOpen(databaseName);
+        const db = serializeNativeTransactions(trackReplicaConnection(databaseName,await sqlite.openDatabaseAsync(databaseName, { useNewConnection: true })));
         // A rebuild or maintenance transaction may be finishing on the other
         // connection when the app reloads. Wait for that writer to finish.
         await db.execAsync('PRAGMA busy_timeout = 30000');
@@ -1025,6 +1187,13 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
           if (version < 35) await db.execAsync(migrationV35);
           if (version < 36) await db.execAsync(migrationV36);
     if (version < 37) await db.execAsync(migrationV37);
+    if (version < 38) await db.execAsync(migrationV38);
+          if (version < 40) await migrateHomeProjection(db);
+          if (version < 41) await db.execAsync(migrationV41);
+          if (version < 42) await db.execAsync(migrationV42);
+          if (version < 43) await db.execAsync(migrationV43);
+          if (version < 44) await db.execAsync(migrationV44);
+          if (version < 45) await db.execAsync(migrationV45);
           if (version === 0) await db.runAsync('INSERT INTO import_schema_version (version) VALUES (?)', CURRENT_SCHEMA_VERSION);
           else if (version < CURRENT_SCHEMA_VERSION) await db.runAsync('UPDATE import_schema_version SET version = ?', CURRENT_SCHEMA_VERSION);
           await db.execAsync('COMMIT');
@@ -1064,6 +1233,19 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
     if ((await lifecycle(db)).state !== 'connected') throw new ImportLifecycleBlockedError();
   }
 
+  function homeAreaLabel(area: ConfiguredHomeArea) {
+    const label = area.label?.trim() || null;
+    if (!area.id || (area.label !== null && !label) || !Number.isFinite(area.latitude) || !Number.isFinite(area.longitude) || !Number.isFinite(area.radiusMeters)
+      || area.latitude < -90 || area.latitude > 90 || area.longitude < -180 || area.longitude > 180 || area.radiusMeters <= 0 || area.radiusMeters > 50_000
+      || (!validCivilDay(area.effectiveStartDay) && area.effectiveStartDay !== null) || (!validCivilDay(area.effectiveEndDay) && area.effectiveEndDay !== null)
+      || (area.effectiveStartDay !== null && area.effectiveEndDay !== null && area.effectiveStartDay > area.effectiveEndDay)) throw new Error('Configured home area is invalid.');
+    return label;
+  }
+
+  function writeHomeArea(db: SqliteDatabase, area: ConfiguredHomeArea, label: string | null) {
+    return db.runAsync('INSERT INTO configured_home_area (area_id, owner_label, origin, latitude, longitude, effective_start_day, effective_end_day, radius_meters) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(area_id) DO UPDATE SET owner_label=excluded.owner_label, origin=excluded.origin, latitude=excluded.latitude, longitude=excluded.longitude, effective_start_day=excluded.effective_start_day, effective_end_day=excluded.effective_end_day, radius_meters=excluded.radius_meters', area.id, label, area.origin, area.latitude, area.longitude, area.effectiveStartDay, area.effectiveEndDay, area.radiusMeters);
+  }
+
   async function assertMaintenanceWritable(db: SqliteDatabase, runToken: number) {
     await assertImportActive(db);
     const lease = await db.getFirstAsync<{ run_token: number }>('SELECT run_token FROM maintenance_lease WHERE record_id = 1');
@@ -1081,6 +1263,32 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
   }
 
   return {
+    async hasEstablishedHistory() {
+      const db = await open();
+      const row = await db.getFirstAsync<{ established: number }>('SELECT EXISTS(SELECT 1 FROM canonical_evidence UNION ALL SELECT 1 FROM manual_journey UNION ALL SELECT 1 FROM reconstruction_run) AS established');
+      return row?.established === 1;
+    },
+    async loadPreparationIntent() {
+      const db = await open();
+      const row = await db.getFirstAsync<{ payload: string }>('SELECT payload FROM atlas_preparation_intent WHERE record_id = 1');
+      if (!row) return null;
+      let value: unknown;
+      try { value = JSON.parse(row.payload); }
+      catch { throw new Error('Onboarding schema is invalid.'); }
+      const { validatePreparationIntent } = await import('@/onboarding/intent');
+      return validatePreparationIntent(value);
+    },
+    async savePreparationIntent(intent) {
+      const { validatePreparationIntent } = await import('@/onboarding/intent');
+      validatePreparationIntent(intent);
+      const db = await open();
+      await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
+      try {
+        await assertImportActive(db);
+        await db.runAsync('INSERT INTO atlas_preparation_intent (record_id, payload) VALUES (1, ?) ON CONFLICT(record_id) DO UPDATE SET payload = excluded.payload', JSON.stringify(intent));
+        await db.execAsync('COMMIT');
+      } catch (error) { await db.execAsync('ROLLBACK'); throw error; }
+    },
     getCheckpoint: read,
     loadCoverage: read,
     async getPrivateRecordLifecycle() {
@@ -1094,24 +1302,90 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
         return lifecycle(await open());
       }
     },
+    async loadFirstRevealReceipt() {
+      const db = await open();
+      await assertImportActive(db);
+      const row = await db.getFirstAsync<FirstRevealReceipt>('SELECT offer_key AS offerKey, scope, command, decision, revision FROM first_reveal_receipt WHERE record_id = 1');
+      return row ? { ...row } : null;
+    },
+    async saveFirstRevealReceipt(mutation, verifyCurrent, correlationId = createDiagnosticCorrelationId()) {
+      const stage = mutation.decision === 'offer' ? 'QUESTION_OFFER_SAVE' : 'QUESTION_DECISION_COMMIT';
+      const operation = 'ATLAS_CLARIFY';
+      recordAppDiagnostic({ operation, stage, reasonCode: 'START', retryable: false, durableOutcome: 'unchanged', correlationId });
+      try {
+        const outcome = await runOwnedTransaction(await open(), { kind: 'foreground' }, async (db) => {
+          await assertImportActive(db);
+          if (!await verifyCurrent()) return { status: 'stale' } as const;
+          const prior = await db.getFirstAsync<FirstRevealReceipt>('SELECT offer_key AS offerKey, scope, command, decision, revision FROM first_reveal_receipt WHERE record_id = 1');
+          const next = nextFirstRevealReceipt(prior, mutation);
+          if (!next) return { status: 'conflict' } as const;
+          if (next !== prior) {
+            if (await db.getFirstAsync('SELECT 1 FROM first_reveal_command WHERE command = ?', next.command)) {
+              return { status: 'conflict' } as const;
+            }
+            await db.runAsync('INSERT INTO first_reveal_command(command, decision, revision) VALUES (?, ?, ?)', next.command, next.decision, next.revision);
+            await db.runAsync(`INSERT INTO first_reveal_receipt(record_id, offer_key, scope, command, decision, revision) VALUES (1, ?, ?, ?, ?, ?)
+              ON CONFLICT(record_id) DO UPDATE SET command=excluded.command, decision=excluded.decision, revision=excluded.revision`,
+            next.offerKey, next.scope, next.command, next.decision, next.revision);
+          }
+          // A fence change while writing rolls back the entire receipt.
+          if (!await verifyCurrent()) throw new ImportLifecycleBlockedError();
+          return { status: 'saved', receipt: { ...next } } as const;
+        });
+        recordAppDiagnostic({ operation, stage, reasonCode: outcome.status === 'saved' ? 'COMPLETE' : outcome.status === 'stale' ? 'HISTORY_STALE' : 'HISTORY_CONFLICT',
+          retryable: false, durableOutcome: outcome.status === 'saved' ? 'complete' : 'skipped', correlationId });
+        return outcome;
+      } catch (error) {
+        const blocked = error instanceof ImportLifecycleBlockedError;
+        recordAppDiagnostic({ operation, stage, reasonCode: blocked ? 'HISTORY_FENCED' : classifyAppDiagnosticError(error),
+          retryable: !blocked, durableOutcome: blocked ? 'blocked' : 'unknown', correlationId });
+        throw error;
+      }
+    },
+    async loadHomeSetup() {
+      const db = await open();
+      const receipt = await db.getFirstAsync<{ disposition: 'saved' | 'skipped' }>('SELECT disposition FROM home_setup_receipt WHERE record_id = 1');
+      return receipt?.disposition ?? null;
+    },
+    async saveHomeSetup(command, areas) {
+      if (databaseName !== 'travel-life-import-v1.db') throw new ImportLifecycleBlockedError();
+      if (!command || new Set(areas.map((area) => area.id)).size !== areas.length || areas.some((area) => area.origin !== 'manual-pin' || !area.label?.trim())) throw new Error('Configured home area is invalid.');
+      const entries = areas.map((area) => ({ ...area, label: homeAreaLabel(area) }));
+      const payload = JSON.stringify(entries);
+      const db = await open();
+      const readReceipt = () => db.getFirstAsync<{ command_key: string; payload: string }>('SELECT command_key, payload FROM home_setup_receipt WHERE record_id = 1');
+      await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
+      try {
+        await assertImportActive(db);
+        const receipt = await readReceipt();
+        if (receipt && (receipt.command_key !== command || receipt.payload !== payload)) throw new HomeSetupConflictError();
+        if (!receipt) {
+          for (const area of entries) await writeHomeArea(db, area, area.label);
+          await db.runAsync('INSERT INTO home_setup_receipt (record_id, command_key, payload, disposition) VALUES (1, ?, ?, ?)', command, payload, areas.length ? 'saved' : 'skipped');
+        }
+        await db.execAsync('COMMIT');
+      } catch (error) {
+        try { await db.execAsync('ROLLBACK'); } catch { /* Preserve the initial failure. */ }
+        if (error instanceof HomeSetupConflictError || error instanceof ImportLifecycleBlockedError) throw error;
+        const receipt = await readReceipt();
+        await assertImportActive(db);
+        if (receipt?.command_key !== command || receipt.payload !== payload) throw error;
+      }
+    },
     async loadConfiguredHomeAreas() {
       const db = await open();
-      const rows = await db.getAllAsync<{ area_id: string; owner_label: string | null; origin: 'observed-area' | 'legacy'; latitude: number; longitude: number; effective_start_day: string | null; effective_end_day: string | null; radius_meters: number }>(
+      const rows = await db.getAllAsync<{ area_id: string; owner_label: string | null; origin: ConfiguredHomeArea['origin']; latitude: number; longitude: number; effective_start_day: string | null; effective_end_day: string | null; radius_meters: number }>(
         'SELECT area_id, owner_label, origin, latitude, longitude, effective_start_day, effective_end_day, radius_meters FROM configured_home_area ORDER BY effective_start_day, area_id',
       );
       return rows.map((row) => ({ id: row.area_id, label: row.owner_label, origin: row.origin, latitude: row.latitude, longitude: row.longitude, effectiveStartDay: row.effective_start_day, effectiveEndDay: row.effective_end_day, radiusMeters: row.radius_meters }));
     },
     async saveConfiguredHomeArea(area) {
-      const label = area.label?.trim() || null;
-      if (!area.id || (area.label !== null && !label) || !Number.isFinite(area.latitude) || !Number.isFinite(area.longitude) || !Number.isFinite(area.radiusMeters)
-        || area.latitude < -90 || area.latitude > 90 || area.longitude < -180 || area.longitude > 180 || area.radiusMeters <= 0 || area.radiusMeters > 50_000
-        || (!validCivilDay(area.effectiveStartDay) && area.effectiveStartDay !== null) || (!validCivilDay(area.effectiveEndDay) && area.effectiveEndDay !== null)
-        || (area.effectiveStartDay !== null && area.effectiveEndDay !== null && area.effectiveStartDay > area.effectiveEndDay)) throw new Error('Configured home area is invalid.');
+      const label = homeAreaLabel(area);
       const db = await open();
       await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
       try {
         await assertImportActive(db);
-        await db.runAsync('INSERT INTO configured_home_area (area_id, owner_label, origin, latitude, longitude, effective_start_day, effective_end_day, radius_meters) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(area_id) DO UPDATE SET owner_label=excluded.owner_label, origin=excluded.origin, latitude=excluded.latitude, longitude=excluded.longitude, effective_start_day=excluded.effective_start_day, effective_end_day=excluded.effective_end_day, radius_meters=excluded.radius_meters', area.id, label, area.origin, area.latitude, area.longitude, area.effectiveStartDay, area.effectiveEndDay, area.radiusMeters);
+        await writeHomeArea(db, area, label);
         await db.execAsync('COMMIT');
       } catch (error) { await db.execAsync('ROLLBACK'); throw error; }
     },
@@ -1178,6 +1452,7 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
           DELETE FROM canonical_evidence;
           DELETE FROM import_source_index;
           DELETE FROM import_checkpoint;
+          DELETE FROM atlas_preparation_intent;
           DELETE FROM maintenance_change_queue;
           DELETE FROM maintenance_source_presence;
           DELETE FROM maintenance_checkpoint;
@@ -1193,6 +1468,15 @@ export function createNativeImportRepository(): ImportRepository & MaintenanceRe
           DELETE FROM local_cache_registry;
           DELETE FROM reconstruction_trip_qualification;
           DELETE FROM configured_home_area;
+          DELETE FROM home_setup_receipt;
+          DELETE FROM first_reveal_receipt;
+          DELETE FROM first_reveal_command;
+          DELETE FROM recognizable_candidate_rejection;
+          DELETE FROM visual_place_album;
+          DELETE FROM visual_place_review;
+          DELETE FROM visual_place_trip;
+          DELETE FROM visual_place_disposition;
+          UPDATE visual_discovery_state SET enabled = 0, revision = revision + 1, scope = NULL, checkpoint = NULL, proposal = NULL WHERE record_id = 1;
           DELETE FROM manual_journey;
           DELETE FROM journey_privacy_revision;
           DELETE FROM reconstruction_disposition;

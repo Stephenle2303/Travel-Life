@@ -1,5 +1,5 @@
 import type { ReconstructionGraph } from './types';
-import { ReconciliationStageError } from './repository';
+import { LocalRecoveryStageError, ReconciliationStageError } from './repository';
 import { classifyAppDiagnosticError, createDiagnosticCorrelationId, recordAppDiagnostic, type AppDiagnosticOperation, type AppDiagnosticReasonCode } from '@/diagnostics/app-diagnostics';
 
 export type ReconstructionView = { status: 'idle' | 'running' | 'complete' | 'restricted' | 'error'; graph: ReconstructionGraph | null; message: string | null };
@@ -79,8 +79,7 @@ export class ReconstructionController {
     return { status: 'complete' as const };
   }
 
-  async rebuild(): Promise<{ status: 'complete' } | { status: 'failed'; error: unknown } | { status: 'skipped' }> {
-    const correlationId = createDiagnosticCorrelationId();
+  async rebuild(correlationId = createDiagnosticCorrelationId()): Promise<{ status: 'complete' } | { status: 'failed'; error: unknown } | { status: 'skipped' }> {
     if (this.suspended || this.runningGeneration !== null) {
       recordAppDiagnostic({ operation: 'ATLAS_REBUILD', reasonCode: this.runningGeneration === null ? 'SKIPPED' : 'ALREADY_RUNNING', stage: null, retryable: false, durableOutcome: 'skipped', correlationId });
       return { status: 'skipped' };
@@ -103,7 +102,7 @@ export class ReconstructionController {
         return { status: 'skipped' };
       }
       const restricted = error instanceof Error && error.message.includes('not connected');
-      recordAppDiagnostic({ operation: 'ATLAS_REBUILD', reasonCode: classifyAppDiagnosticError(error), stage: null, retryable: !restricted, durableOutcome: restricted ? 'restricted' : 'failed', correlationId });
+      recordAppDiagnostic({ operation: 'ATLAS_REBUILD', reasonCode: classifyAppDiagnosticError(error), stage: error instanceof LocalRecoveryStageError ? error.stage : null, retryable: !restricted, durableOutcome: restricted ? 'restricted' : 'failed', correlationId });
       this.current = { ...this.current, status: restricted ? 'restricted' : 'error', message: restricted ? 'Reconnect your private record before rebuilding.' : 'Local reconstruction could not finish. Your last completed result was kept.' };
       return { status: 'failed', error };
     } finally {

@@ -1,4 +1,5 @@
 import { applyJourneyCorrections } from '@/reconstruction/repository';
+import { uniqueJourneySuccessors } from '@/reconstruction/canonical-core';
 import type { ReconstructionGraph } from '@/reconstruction/types';
 
 const graph: ReconstructionGraph = {
@@ -21,6 +22,32 @@ const graph: ReconstructionGraph = {
 };
 
 describe('journey correction application', () => {
+  it('indexes exact reviewed visit support without rescanning every visit for every support unit',()=>{
+    let reads=0;
+    const visits=Array.from({length:600},(_,index)=>{
+      const ids=Array.from({length:5},(_,member)=>`support-${index}-${member}`);
+      const visit={id:`dense-visit-${index}`,placeId:'dense-place',order:'ordered' as const,evidenceIds:ids};
+      Object.defineProperty(visit,'evidenceIds',{get(){reads++;return ids;}});return visit;
+    });
+    const groups=visits.map(visit=>visit.evidenceIds.map(id=>`E:${id}`).sort());
+    const input={...graph,visits,journeys:[{id:'dense-journey',visitIds:visits.map(visit=>visit.id),state:'inferred' as const}],memberships:[]};
+    reads=0;
+    const result=applyJourneyCorrections(input,[{revision_id:'dense-review',action:'place',reviewed_support_json:JSON.stringify(groups.flat().sort()),reviewed_visits_json:JSON.stringify(groups),reviewed_family_snapshot_json:'{}'}],false);
+    expect(result.matches.get('dense-review')).toBe('dense-journey');
+    expect(reads).toBeLessThan(10_000);
+  });
+  it('maps legacy membership only through complete unique visit support', () => {
+    const prior={...graph,journeys:[{id:'legacy',visitIds:['visit:a','visit:c'],state:'inferred' as const}]};
+    const merged={...graph,journeys:[{id:'next',visitIds:['visit:a','visit:c'],state:'inferred' as const}]};
+    expect(uniqueJourneySuccessors(prior,merged).get('legacy')).toBe('next');
+    // Split, removed support and two complete successors remain unresolved.
+    expect(uniqueJourneySuccessors(prior,graph).has('legacy')).toBe(false);
+    expect(uniqueJourneySuccessors(prior,{...graph,journeys:[graph.journeys[0]]}).has('legacy')).toBe(false);
+    expect(uniqueJourneySuccessors(prior,{...merged,journeys:[...merged.journeys,{...merged.journeys[0],id:'overlap'}]}).has('legacy')).toBe(false);
+    // A protected owner's unchanged journey keeps its exact identity.
+    expect(uniqueJourneySuccessors(graph,graph).get('journey:a')).toBe('journey:a');
+  });
+
   it('keeps an exact confirmation attached to its successor and preserves later inferred evidence', () => {
     const result = applyJourneyCorrections(graph, [{ revision_id: 'confirm-a', action: 'confirm', reviewed_support_json: JSON.stringify(['E:a']) }]);
     expect(result.matches.get('confirm-a')).toBe('journey:a');

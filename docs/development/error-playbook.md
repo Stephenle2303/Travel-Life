@@ -1,5 +1,2239 @@
 # Error and improvement playbook
 
+## Regional landmark holdout setup
+
+Two Wikimedia image requests returned HTTP 429 on the upload origin. The
+official thumbnail origin returned bounded JPEGs for the same reviewed files.
+The frozen fixture pins those exact bytes and the file page revision. Commons
+category discovery and the Seoul archive citation did not provide some pages
+through the browser accessor. The existing pinned Seoul manifests and the
+successful individual Commons pages supply the provenance for this local eval.
+
+The first regional scorer stopped at `BENCHMARK_SCORE / INPUT_INTEGRITY`.
+Three fixture records in one four-hour bucket caused the production sampler to
+drop a required positive. The engine SQL also excludes screenshots earlier
+than the scorer initially did. Place camera controls across a bucket boundary
+inside the same session, apply the existing capture-like intake predicate, and
+assert every intended camera control and anchor reached inference scoring.
+The failed invocation published no report and made no quality measurement.
+
+The city-level SQLite fixture repeated this setup error. An unrelated camera
+control shared a four-hour bucket with two required anchors, and the scan
+returned no candidate before qualification ran. The fixture now gives the
+control its own bucket and asserts a candidate before reading its sample.
+That correction reached the storage validation assertion for the feature.
+
+The first full SQLite run after the city change caught two scope regressions.
+The policy marker followed the optional fence fields and changed the tested
+partial and regional suffix layout. Put common policy markers in the base
+scope ahead of optional fences. Run both existing scope and receipt tests
+alongside the new policy's SQLite case. All 140 SQLite tests passed after
+moving the marker, including both scope checks and the city album readback.
+
+The regional and city reviews repeated Windows error 123 by passing a
+wildcard as a path to `rg`. The same lookup succeeded after replacing the
+wildcard path with the concrete directory and a quoted `--glob` filter. Use
+that shape for Windows source lookups and check the exit code before relying
+on a search result.
+
+City review identified three runtime gaps in the first pass. An exact civic
+heading could match an administrative document. Storage checked the city
+groups' chronology but skipped the weak-origin capture predicate and could
+accept a different city from two named groups. Also, choosing a late named
+group before validating the transition could suppress an earlier valid civic
+pair. Preserve the failing synthetic inputs at OCR, repository and trip
+qualification boundaries. The control now withholds administrative documents,
+rejects a mismatched city and short unsupported captures, and uses the
+earlier compatible group. The full mobile and SQLite checks passed. The
+repeated frozen single-session holdout still emitted no album.
+
+The first bundled-model test did not reach the injected bad digest. Jest
+classified its dynamic Expo module import as `MEDIA_UNAVAILABLE`. Use static
+Expo imports inside the already lazily loaded native landmark module and
+exercise the actual integrity rejection and re-prepare path.
+
+Runtime review found a starter outage could switch and overwrite the single
+scan row, and a retryable deep outage could drop unresolved work. The dev
+provider preserves the existing checkpoint. A deep ambiguity stays excluded.
+Missing previews retain session timing without supplying observations.
+Transport rejection aborts native fetch and regional inference checks the
+actual asset model hash. The verification-gap agent hit its usage limit, so
+the parent checked the exercising tests and repeated the host evaluation.
+
+The frozen whole-image score and the follow-up holdout both returned
+`BENCHMARK_SCORE / GATE_NOT_MET`. Combined crop/detail recovery did not
+generalize to the second Hanoi episode even with a supplied region. Keep that
+set out of calibration and include fresh camera reproductions in the next
+candidate evaluation. The gate now uses attempted-photo outcomes, exact stop
+supports, combined pack bytes and measured host preparation plus inference.
+
+A final combined check hit Windows `ENOSPC` while exporting Android assets
+and saving the Expo lint cache. The shell launcher also failed when the disk
+filled. Removed only the two intermediate ignored Android export directories
+created by this build. Verify the bundle through localhost without another
+asset export and run lint without a disposable cache when space is tight.
+
+The first no-cache workaround pointed ESLint at the entire mobile directory
+and picked up historical ignored fixture sources and CommonJS support scripts.
+The supported Expo lint command passed after disk space was available. The
+existing Metro listener returned a manifest but its bundle request timed out.
+The CLI's direct Android `export:embed` passed without another asset copy and
+included all current route and regional markers. Use that scoped bundle check
+when testing code generation separately from USB transport.
+
+## Regional landmark implementation discovery commands
+
+A delivery-heading lookup assumed a level-two heading and passed a negative
+offset to `Select-Object`. A second read used shell brace expansion in
+PowerShell. Both failed before mutation. A level-independent `rg` heading
+lookup and literal package paths found the approved contract and matcher.
+Use `rg -n -A` for named sections and explicit Windows path operands.
+
+The city-level follow-up repeated the PowerShell brace expansion and wildcard
+path failures during source lookup. Explicit file operands and a `--glob`
+under the concrete test directory found the source and tests. A delivery-record
+patch also used an incorrect context line and changed nothing. Read the active
+heading and apply the targeted patch against its actual surrounding lines.
+
+The first preview configuration test replaced `process.env` wholesale in
+the Expo Jest sandbox and the feature read saw its flag off. Update and
+restore the specific environment variable entries on the existing object,
+as the other flag tests do. The pack fault and legacy recognition tests
+passed independently of this configuration assertion.
+
+## Partial Seoul preview Android transport preflight
+
+The sandboxed ADB inventory could not start its daemon. The same SDK binary
+started the daemon through the authorized host boundary and returned an empty
+device list. Host transport is available and the phone is currently unobserved.
+Repeat the narrow inventory after reconnecting, then verify the new Metro
+bundle and current process before attempting owner acceptance.
+
+After the owner connected the phone, ADB reported one authorized device
+and USB reverse succeeded. A global package listing produced an Android
+permission error for a secondary device user while still finding the
+configured app. Use the known application ID and, when inventory is needed,
+limit package queries to the active Android user.
+
+The new provider regression initially passed Jest while its mock rejected the
+nullable asset references accepted by `PhotoAccessAdapter`. TypeScript caught
+the mismatch. Type the mock as the adapter contract and handle a null reference
+explicitly. Require TypeScript alongside Jest for mocked native boundaries.
+
+Review reproduced the ways an outlier or a duplicate of a withheld clue could
+affect review, two distinct proposals could share the same readback action,
+and a changed album could bypass dismissal when toggling preview. Added
+supported-time and duplicate-family checks, bound immediate readback to the
+verified checkpoint, and scoped same-episode Seoul dismissals across the two
+preview modes. Run exact variant, concurrency and flag-off cases in SQLite
+and the unchanged-evidence dismissal through both generated album shapes.
+
+After reopening the newer Android bundle, `HINT_ELIGIBILITY / HISTORY_STALE`
+stopped discovery before media resolution. Atlas showed pending Local evidence.
+Its catch-up action returned `ALREADY_RUNNING`, which establishes a lease
+conflict without identifying which writer holds it. Let normal maintenance or
+lease expiry resolve it, then retry the existing control and verify a fresh
+eligibility event. Preserve the Local record and avoid altering lease tables.
+
+The single retry after the five-minute window returned
+`ATLAS_CATCH_UP / LEASE_OPEN / DATABASE_BUSY`. The next visual action reached
+`HINT_ELIGIBILITY / COMPLETE` and checkpointed pages. This neither identifies
+the prior writer nor establishes that catch-up completed. Use the visual scan's
+new correlation to distinguish this transport and publication result from an
+actual recognition result.
+
+Ten current-process landmark comparisons abstained and Timeline showed no
+proposal after checkpoint activity stopped. No trip or photo identifiers are
+present in these diagnostics. Preserve the actual Android recognition miss and
+avoid assigning it to the incident window without independently verified sample
+coverage; do not treat the public partial score as owner-library acceptance.
+
+An edge-review lookup repeated Windows `rg` wildcard error 123. Retry using
+`--glob` within the concrete directory. The edge review used the active delivery
+companion for the contract because the canonical specification has capability
+and acceptance sections outside its reviewer's template headings.
+
+The first detached Metro launch exited before opening a listener. Foreground
+startup exposed Expo's mutually exclusive `--offline` and `--localhost`
+arguments. Use `EXPO_OFFLINE=1` with `--localhost` and verify the IPv4 status
+endpoint before requesting the Android route bundle.
+
+A Metro server started inside the sandbox reported a loopback listener, but
+both the sandbox client and the host probe could not reach `/status`. The same
+localhost-only invocation through the authorized host boundary returned
+`packager-status:running` and an Android manifest rooted at `src/app`. Verify
+these two responses before treating a Metro startup event as usable transport.
+
+The city-policy device check found an existing listener on 8081 whose IPv4
+`/status` probe timed out. The first chained probe then tried to read an
+empty response. The 8081 cause is unknown. A separate localhost-only 8082
+Metro instance returned the expected status and Android manifest. The USB
+reverse and explicit development-client link brought up the current JS after
+unlock, and a routed version check found the city-policy marker. Preserve
+other Metro sessions and stop dependent probes on an HTTP failure. The first
+edit of this entry missed the current line wrapping. Anchoring the actual
+adjacent lines allowed the documentation update without changing other entries.
+The first pass of the local ADB log filter had a PowerShell continuation
+parse error. Trailing conjunctions across lines fixed it. The corrected
+filter returned closed scan stages and reasons without emitting raw log lines.
+Later USB loss initially appeared as a missing app because transport had been
+implicit in the filter. Both ADB listings showed zero authorized or pending
+devices. Check `adb get-state` first. Use Android pause and resume events to
+verify foreground withdrawals before attributing `SKIPPED` to engine logic.
+After reconnection, USB reverse was absent and the Android loader displayed
+connection/reload controls. Restore the existing localhost reverse and
+reopen the same development URI. The next process showed the real Timeline
+and settled after 13 checkpoints. Six groups reached the recognizer, with
+no place matches and no trip-qualification events. Keep the recognition and
+sampling incident open for the owner's target trip. A fixed reason without
+episode identity cannot show whether that trip entered sampling, so reproduce
+that boundary with an on-device, aggregate-only check before adjusting
+continuity or assuming a recognizer miss on an identified target photo.
+
+The repeat public benchmark reproduced the existing overall quality miss as
+`BENCHMARK_SCORE / GATE_NOT_MET` after staging its report. All five expected
+partial proposals matched. Use the exact partial assertions and keep the
+independent broader gate open for the missing genuine stop and photos.
+
+Expo Doctor's live dependency catalog passed 20 of 21 checks. Its SDK 57 patch
+recommendations are newer than 15 already-installed packages. No dependency
+manifest or lockfile changed for this slice. Track the dependency refresh as
+separate native maintenance and re-run Doctor with its live catalog after an
+intentional update.
+
+An optional local Expo source lookup used an outdated installed CLI directory
+and found no file. The executed CLI help, Android manifest and Metro endpoint
+were the evidence for this transport check. Resolve a package from its active
+workspace before using the package's internal paths for diagnosis.
+
+## Partial proposal campus scene fixture
+
+The comparison of additional local public Ewha views initially returned
+`IMAGE_DECODE`. The high-resolution original of the LWYang image
+exceeded the host decoder's allocation limit. Its bounded resized
+version was scored for this exploratory check. Preserve the decoder
+limit and use pinned previews for repeatable fixtures. None of the
+tested extra public views met the existing scene threshold against
+both Ewha anchors. Keep this coverage limitation separate from the
+passing synthetic scene-membership case.
+
+The partial projection now withholds pending observations that lack
+an explicit decision and skips clues for rows outside the sampled
+episode. Regression tests check that omissions cannot promote a
+place or leak an unrelated clue into the proposal.
+
+## Windows multi-view measurements publication
+
+The first attempt to strengthen immutable output publication with
+a hard link reached `ARTIFACT_WRITE / ARTIFACT_WRITE` after computing
+valid features and geometry. The Windows workspace sandbox did not
+permit that operation. Use a sibling directory reservation and
+the already verified same-directory rename path. Exercise
+`OUTPUT_EXISTS`, confirm no replacement and verify that the
+measurement bytes remain stable after retry.
+
+The geometry acceptance rule missed all three public same-subject
+positive pairs. More keypoints, higher image resolution and looser
+descriptor-ratio settings increased tentative matches without
+increasing the epipolar support beyond 12 inliers. The genuine
+cross-scene trip pair and unrelated controls stayed similarly sparse.
+Keep the original rendered copy with and without its source in the
+eval. Treat a failure to establish shared geometry as inconclusive
+and carry the genuine-trip recall miss into the delivery gate.
+
+## Host capture-evidence fixture identifier mismatch
+
+The first Nami capture-evidence comparison reached `BENCHMARK_SCORE /`
+`INPUT_SCHEMA` after descriptor generation. The benchmark adapter
+constructed synthetic evidence IDs with a colon, which the policy's
+fixture identifier schema disallows. Use the same hyphenated identifier
+shape as the policy tests. The host report was withheld on that failed
+invocation. Keep the replay through actual descriptor scoring in
+verification to catch mismatched adapter and policy contracts.
+
+The first scored three-photo scene case also sampled only the ends
+of both the four-hour and ten-minute buckets. It missed the middle
+unlocated clue, so its apparent exclusion did not exercise the
+capture rule. The verified scenario straddles a ten-minute boundary,
+requires the middle clue to be sampled, and still places it within
+two minutes of both captures. The dense-bucket failure stays in the
+previous sampling record.
+
+The root and edge-review source lookups both passed wildcards as
+literal rg filenames and hit Windows error 123. Use a concrete
+directory with an rg glob filter. The implementation agent reached
+its usage limit after reporting its tests. The parent read the
+changed files and verified the integrated model, sampler and album.
+
+Review found that the first comparison counted clue IDs but did not
+score their promotion eligibility. It now checks both, along with
+ordered stop support and album assignments. Located rows previously
+entered both sides of the simulated GPS-less sampler. They now join
+after that sampler so the common comparison uses the same evidence.
+The updated scene regression includes an unmatched GPS-less capture
+and confirms it cannot inherit membership from GPS-only anchors.
+The original review claims file lacks the template's specialized
+Intent and Tasks headings. The review traced the active acceptance
+and delivery companion directly.
+
+## Nami visual detail admits an unindexed full-bleed reproduction
+
+The exploratory threshold recovered a genuine ferry and zipline
+episode. It also admitted a cropped copy made from a different ferry
+photo. The separate geometry check detected both simulated copies of
+indexed photographs and missed the copy with an unknown original.
+Full-view DINO alone abstained on the known copies at the frozen
+threshold through insufficient detail. Keep the mixed real-landmark
+and unknown-source copy episode as a negative regression, checking
+ordered stops and exact album IDs separately. Rollout remains open.
+
+Initial fixture assembly accessed absent Commons metadata for generated
+copies and prior controls. Verified those rows against parent provenance
+or their existing pinned source, and reviewed the manifest by role.
+The geometric probe passed an empty homography inlier hull to OpenCV
+contour area. Return zero coverage below four inliers and rerun.
+Two Flickr view pages were unavailable and two others had reserved
+rights. The fixture uses licensed Commons originals or pinned previews.
+
+The first mixed-episode report scored the intentional copy pair as a
+positive album. The corrected test expects exactly the two anchor stops
+and their four photos. Inputs are now pinned inside the correlated host
+run and the outcome is emitted once. Reproduction matches are excluded
+before scene association. An initial documentation patch had a stale
+anchor after a concurrent change. Re-read the current delivery record
+and anchored on the complete verification paragraph.
+
+Review showed the matcher accepted mutable policy lists and validated
+buffers by reference. It now snapshots them, rejects sparse lists
+and returns fixed schema errors for invalid options. Tests exercise
+fractional margins and veto thresholds, later templates, and the
+assembly boundary. The first assembly test used a one-element
+vector, which could not make the 384-element scene scorer return
+a finite similarity. Use a valid normalized 384-element vector and
+assert the same photo does attach when the reproduction veto is absent.
+The review mutation probe also corrected its loader fallback from
+the unregistered Node 24 .cjs hook to the existing .js loader.
+The first foundation rerun also reproduced the existing Windows
+temp publication failure. The final check uses an ignored workspace
+temp directory. A Node strip-only loader probe could not read the
+existing TypeScript parameter property. The scoped host loader now
+uses Node's transform mode and deregisters its hooks after loading.
+
+During capture-policy source discovery, one `rg` call included a guessed
+`packages` directory that does not exist. The returned mobile file paths and a
+subsequent search of `apps/mobile/src` and `apps/mobile/scripts` identified the
+existing matcher and diagnostics. Inventory directories before combining paths.
+
+## Nami OCR treats printed names as travel evidence
+
+The independent host probe rejected the current candidate. It missed
+the four physical Nami landmark photographs and accepted two plain
+prints as two independent captures, producing a Nami stop and adding
+both prints to the album. One unrelated near-spelling print also
+passed the fuzzy alias rule. The ticket keyword veto held. Existing
+exact catalog aliases alone reproduced the two plain-print attachments.
+Requiring the existing visual verifier blocked the prints and also
+lost the calibrated ferry case. Keep the candidate out of rollout.
+Use positive visual corroboration and fresh physical, printed and
+rephotographed controls before changing this decision.
+
+The crowded holdout also showed that singleton-driven follow-up does
+not run when all clues for the omitted stop are missed. Include a
+first-pass zero-recognition case in sampler comparisons.
+
+During the visual corroboration follow-up, a read-only PowerShell
+source search again failed on a Bash-style brace expansion. Explicit
+file arguments located the required symbols. An attempted playbook
+update then failed to match a guessed anchor and made no change.
+Use concrete file names and read the exact insertion anchor before
+issuing a patch.
+
+An attempted public download in the sandbox could not resolve Commons.
+An authorized public metadata request succeeded. One preview and six
+original downloads were rate-limited. Use existing verified preview
+renditions where sufficient and record their digests. Several indexed
+source pages timed out or were unavailable in the browser search tool.
+Use the Commons records with verified author and permission metadata.
+A full 15-megapixel JPEG exceeded the benchmark decoder's allocation
+limit. Use a pinned preview without increasing the runtime limit.
+
+A manually copied probe checksum failed the freeze guard. Use generated
+digests. The initial holdout was rejected before scoring by its byte
+deduplication check. A later source audit also found a smaller
+rendition of an existing reference. Replace both and bind admission
+to original source identity across all prior manifests as well as
+exact bytes. Score only the corrected manifest and retain the cases
+that fail without substituting easier examples.
+
+## Seoul multi-stop public experiment and sampling loss
+
+The frozen scene verifier again labeled the winter Damyang photograph
+as Nami. The host candidate withheld the Nami label from generic scenes.
+Whole-image and exact tiled Windows OCR missed the ferry banner. After
+calibration, tiled OCR with a narrow spelling tolerance found both
+public ferry views. Moving the meter into the same four-hour bucket
+reproduced a separate loss of the middle ferry photo before recognition.
+A bounded follow-up of retained coverage near the singleton observation
+restored the intended album on the same fixture. Carry both failures
+into an untouched holdout and device checks. These outcomes do not close
+the owner incident.
+
+PowerShell parsed brace-expanded paths as invalid arguments and a
+guessed recognition filename did not exist. Concrete directories with
+`rg -g` and symbol lookup located the code. A full-resolution ferry
+preview exceeded the tool output limit. Use a bounded public contact
+sheet or detail crop for inspection. The first extra JPEG pin was
+mis-copied and the runner correctly returned
+`SOURCE_READ / INPUT_INTEGRITY`. Generate pins directly from
+`Get-FileHash`. A temporary probe edit also left a surplus bracket.
+Correct the bracket and run `node --check` before executing the probe.
+
+PowerShell 7 did not resolve the Windows Runtime OCR types, and Windows
+PowerShell rejected file-script execution and WinRT StorageFile access.
+The experiment used the existing Windows PowerShell interpreter and
+opened the public files as read-only .NET streams before passing them
+to the WinRT decoder. Future OCR probes should verify the host runtime
+and file-access path before starting batch recognition.
+
+## Landmark detail patch anchor slip
+
+An initial edit attempted to match a nonexistent anchor and left the
+matcher unchanged. The patch was reapplied to the actual import and scorer
+declaration. Check each hunk against the current source before applying it.
+
+## Landmark detail pilot source review
+
+The first diagnostic-map patch used a partial line as its anchor and
+applied no changes. Read the section around the full anchor and record
+the host boundary before implementation. BMAD's renderer succeeded
+with Windows temp and uv cache directed to the ignored workspace.
+
+Seoul Tourism Archive's related links contained session-specific URLs
+that failed in the research tool. The canonical item routes resolved.
+Several records titled N Seoul Tower actually showed padlocks, a park
+or an adjacent antenna. Inspect the public JPEG and mark only regions
+of the intended subject. Two published KOGL Type 1 previews contained
+the tower and were admitted before scoring.
+
+A PowerShell inspection passed a bare filename wildcard to rg. Use a
+concrete directory and rg's `-g` option for filename filters. The later
+diagnostic-map patch targeted text already updated by the implementation
+agent and applied no changes. Re-read shared documentation before edits.
+
+The independent review agents reached their usage limit before final
+reports. Re-engaging the implementation agent also hit the thread limit.
+The verification reviewer sent actionable findings before interruption.
+Direct follow-up tests now cover unit patch normalization and class-token
+exclusion, close negative margins, regression false accepts, host memory
+and missing-control outcomes, and invalid CLI invocation. Report the
+independent review as partial and record the actual test results.
+
+## Landmark verifier source acquisition and known regression
+
+BMAD's uv invocation again could not persist its interpreter cache in
+Windows sandbox temp. Direct implementation used the existing accepted
+spec and diagnostic record. The secondary KOGL host timed out during
+direct retrieval. Seoul Institute's item pages and public JPEGs resolved.
+The first archive path pattern only matched directories with an edition
+number. The 1995 archive uses `photos/`. Read the primary image URL and
+the item-level license together before admitting each public image.
+
+The competing-reference verifier rejected a new Damyang false match but
+still accepted the known winter Damyang photo and missed both held-out
+Namsan views. Keep the frozen v1 and v2 fixtures. Add genuinely different
+evidence before changing the acceptance rule, and keep the known winter
+case in regression checks.
+
+## Offline landmark benchmark gate review
+
+Review found that a positive photo could satisfy a negative-control count,
+and a wrong prediction could earn episode stop credit when its predicted
+place appeared elsewhere in the episode. The route gate also measured
+country selection without checking recovered stops or unknown episodes.
+Count controls and correctness per image. Require independent sessions and
+authors for routing, correct-stop improvement under routing, and a wholly
+unindexed episode.
+Keep mispredictions in the route simulation so false routes remain observable.
+
+SALAD originally extracted rows by approval flag alone. The extractor now
+uses the Node admission boundary and binds descriptors to the frozen
+manifest and model. Pack verification checks serialized vector shapes and
+preserves the same float values used for scoring. Regression cases exercise
+contaminated controls, wrong routes, independently scheduled clues, stale
+descriptors, malformed packs and successful paired publication.
+
+The first routing fixture after tightening independence grouped the first
+two actually sampled matches together. Use the sampler's observed ordering
+when constructing synthetic session evidence. A PowerShell search initially
+used Unix brace expansion. Use rg's file glob option. Independent review
+agents reached their usage limit before final reports. The delivered findings
+were checked against code and exercised with focused tests. Record partial
+review evidence separately from completed checks.
+
+## Offline landmark pilot source and extractor setup
+
+The first Python probe hit the Windows Store alias, and the project venv
+had no pip. The venv's base interpreter provided pip. Pinned CPU wheels
+installed into an ignored workspace directory and extracted all 24 public
+fixture descriptors offline. Resolve the working interpreter before
+installing dependencies and keep model weights and CPU wheels ignored.
+
+One Commons title was absent and the first batch loop indexed missing
+`imageinfo`. Use a presence check before reading the first metadata record.
+The approved fixture pins only retrieved bytes with reviewed metadata.
+The upstream DINOv2 import emitted expected xFormers warnings containing
+local paths on the first extraction. The adapter now filters those known
+messages, and the rerun produced the same descriptor digest with empty
+stderr. The first playbook update collided with a simultaneous insertion
+above its anchor and applied no changes. Read the current heading before
+inserting a follow-up.
+
+## Public landmark test publication failed under the Windows temp sandbox
+
+The first focused benchmark tests returned `ARTIFACT_WRITE` at the final
+rename. A synthetic rename probe reproduced `EPERM` in OS temp and
+succeeded in the ignored workspace. Keep atomic publication and place
+the generated test outputs under the repository's ignored `evals/runs`
+directory. The regression exercises real rename and injected interruption
+and verifies that an existing result cannot be replaced.
+
+The first scored public run also stopped at `IMAGE_DECODE` before model
+inference. An isolated decoder check found two original photographs below
+the 20 MP and 10 MiB encoded limits exceeded the 128 MiB JPEG workspace
+limit by 7 MiB and 2 MiB. The 144 MiB host decode ceiling keeps the pixel
+and input byte limits. Both scored runs on the frozen manifest reached
+artifact verification and reported the same incomplete quality gate.
+
+The initial root test design loaded mobile TypeScript and JPEG dependencies
+before foundation CI installs them. Node's supported TypeScript loading
+reuses the app's matcher and sampler without that dependency. Decoder fault
+injection exercises the classified wrapper without requiring the mobile
+JPEG package at foundation CI time.
+
+One test patch had an unverified trailing assertion anchor. The patch
+failed before modifying files. Reapply only the confirmed hunks and
+rerun the focused suite.
+
+## Offline landmark spec check encountered a stale generated history bundle
+
+The documentation update passed its structure and reference checks.
+The foundation check failed because the existing generated history domain
+did not match its source bundle. The generator's read-only check reproduced
+`HISTORY_DOMAIN_BUNDLE_STALE`. No domain source changed in this spec update.
+The offline landmark build regenerated the artifact with the existing
+generator. The bundle check and foundation tests passed. Verify generated
+artifacts with the repository's read-only check after source updates.
+
+## Multi-stop build verification and geographic source retrieval (2026-11-13)
+
+The initial sandbox public-photo downloads could not resolve the host.
+An approved public download reached the source, which throttled several
+originals. Its published resized variants were reachable. Two inputs
+showed only a city view or trees and could not serve as tower references.
+Independent tower views abstained under the bundled matcher, so keep this
+image-index extension out of the runtime until it passes positive and
+lookalike controls. Use public reference files and retain source attribution.
+
+The Windows uv interpreter and wheel caches again rejected renames.
+Pinned pip dependencies installed into an ignored workspace directory.
+The first shape inspection also hit a Unicode console encoding failure.
+Use ASCII-safe field diagnostics and parse GeoJSON as JSON rather than
+requiring the non-JSON extension. Use rg globs with -g on Windows.
+The changed geography left the generated history asset stale until the
+generator ran. Verify generated-domain integrity after geography changes.
+
+SQLite fixtures initially used a legacy ID without the actual visual
+prefix. The corrected fixture verifies that the old gallery token is
+rejected and the same trip opens the new album. Jest initially retained
+the old proposal shape and lacked the paged album adapter. Updated
+fixtures exercise the new contract, its closed failure stages and
+withdrawal. The scene fixture now uses normalized 384-dimensional
+vectors. It guards the reviewed requirement for matching context on
+both sides of an unlocated attachment.
+
+ADB showed an attached device once after escalation. Later checks showed
+no attached device. Native library acceptance remains open. Verify the
+current USB transport and app bundle before using logs to infer behavior.
+The sandbox Metro printed its waiting banner before a working IPv4 endpoint
+was available to ADB. A hidden host Metro on 8086 returned a valid status,
+and the Android launch requested and received the bundle. A PID probe
+initially called Trim on an absent result. Cast to a string and check for
+digits before collecting logs. Later the app process was present while
+Android remained dozing. Wait for foreground evidence before judging scan
+completion.
+
+Album review originally retried the previously visible page after a later
+page failed. Store the failed page number and retry it under the same
+proposal token. The UI regression verifies a page-1 failure retries page 1
+and keeps confirmation disabled until the requested page is readable.
+
+On the first physical v45 startup the consent check emitted UNKNOWN.
+The read-only probe confirmed the migration and a clean process read
+consent successfully. The initial cause remains unknown. The Atlas
+profile then reached destination computation without completing and
+the process exited with signal 11. Android identified Hermes native
+frames. The exact failing allocation or instruction is unknown.
+Hoist query geometry, use compact decoded rings, prune noncandidate
+areas, cache exact point/date/accuracy lookups and query only qualified
+journeys for Timeline labels. The optimized build completed destination
+computation and published Atlas on the same phone. A default scan then
+advanced to the incident window. That batch emitted VISUAL_NO_LANDMARK_MATCH
+and VISUAL_NO_PLACE_MATCH, and checkpointed beyond the window with no
+proposal. No trip qualification or album association ran for that batch.
+Improve validated recognition coverage and representative selection before
+retesting the actual album. A first documentation patch used incomplete
+context; re-read the section before applying dependent updates.
+
+## BMAD spec log updates on Windows
+
+A spec update hit an access-denied error while uv wrote its sandboxed
+interpreter cache. Running the existing project interpreter directly
+restored script access. A PowerShell array flattened record pairs into
+strings and the append script accepted their first two characters as a
+record. A typed correction in the append-only log supersedes those entries.
+Pass each type and text as explicit arguments, then verify the rendered log
+before deriving the spec.
+
+The interpreter-cache denial recurred while resolving Party Mode
+configuration. The project interpreter returned the same configuration
+without touching the sandbox cache. Use the existing interpreter for
+these workspace scripts when the cache is unwritable.
+
+## Visible visual-trip card masked a mixed and incomplete album (2026-11-12)
+
+The owner reported that a proposed multi-stop trip showed only one of the
+actual stops and contained unrelated photos. The prior handoff overstated a
+visible landmark-backed card as trip recovery before the album was reviewed.
+AC-13 is still unmet. The provider uses readable media to qualify a second
+session and to fill album slots, and the repository uses the four-photo review
+cap for saved membership. Discovery carries one resolved place for the episode.
+These are verified implementation gaps. The exact origin metadata, membership
+and resolved thumbnail for the offending items remain unverified. A host
+probe could not start the ADB server. Two source lookups used guessed paths;
+repository file inventory located the actual decision and import directory.
+
+The owner identified additional recognizable stops in the same trip. The
+native image matcher has a single-landmark reference index and can return
+only that landmark or abstain. Its match verifies the pilot path only. Use
+independent multi-landmark episodes and unknown-place controls to evaluate
+recognition coverage alongside album association.
+
+Keep recognition, inferred boundaries, and album membership as distinct
+acceptance checks. Reproduce mixed-origin and multi-stop cases. Verify the
+proposal member references, the saved membership and the actual rendered
+photos with the owner's review before calling a trip recovered. No runtime
+changes were made in this discussion.
+
+## Image matching for a GPS-less trip needs independent views (2026-11-12)
+
+The owner asked to continue after OCR abstained on the Android episode.
+The local image experiment matched a cropped and re-encoded reference.
+It abstained on both independently captured target views and on a public
+campus scene outside the target landmark. The crop is a regression control.
+Require independent camera views and a blind library proposal before claiming
+the incident is resolved. Keep the pilot in the existing development gate.
+
+The first focused check caught an extra recognition start event before a
+retry was denied by the in-flight guard. Emit the start from inside the
+admitted callback, and keep the timeout and late-result fence regression.
+The initial Windows ADB command resolved the sandbox's LOCALAPPDATA instead
+of the installed SDK. Use the verified absolute SDK executable. Windows and
+ADB subsequently showed no Android interface even after the owner reconnected
+and enabled data transfer. Native acceptance remains open.
+
+One wildcard probe used a PowerShell path unsupported by rg, and one Expo
+source read targeted a guessed path. Use rg to find files before reading
+package sources. The Windows Python alias could not launch and an isolated
+OpenCV benchmark failed during a dependency-cache rename. The pilot uses the
+verified Node runner. One public download returned HTTP 429 before the
+equivalent source request succeeded. The text label lookup returned no Ewha
+alias and supplied no fallback model evidence. Delivery-record and playbook
+patches used incomplete context lines. Re-read the current section before
+patching.
+
+Android reconnected, but the USB reverse mapping did not survive a later
+transport interruption. Re-establish the mapping before launch and confirm
+the Metro bundle responds. A follow-up command exposed the full keyguard
+status line, which can include the Android account display name. Emit only
+the extracted lock bit. The restarted Metro first bound IPv6 loopback even
+though Android used IPv4. Pass Node's IPv4-first resolution setting and
+verify the actual listener before asking the owner to unlock again.
+
+The relaunched Android app logged `HINT_ELIGIBILITY / HISTORY_STALE` before
+image recognition. A read-only aggregate showed the latest committed Atlas
+run had an older evidence revision than the library. The first read-only
+probe encountered a SQLite lock and produced no state result. The retry
+showed the mismatch without disclosing revision values. Use the built-in
+`Catch up locally` action and check that the stamp is current before drawing
+any conclusion about the recognizer from this run.
+
+The correlated Android batch then took 467 seconds and emitted
+`VISUAL_NO_LANDMARK_MATCH` before advancing with no proposal. This establishes
+a real latency and recognition miss for the geometric pilot. A debugger
+probe initially lacked Metro's required origin and returned 401. The matching
+loopback origin let the socket connect, but no debugger command completed
+before its deadline. The trace did not establish the slow function.
+Replace the geometric pilot with a native model validated on independent
+views, and measure the same Android acceptance path before closing.
+
+The embedding Android build compiled the ONNX Java binding, then stopped
+at NitroModules CMake configuration under Android Studio's JDK 25 with a
+restricted JNI method warning. Use the installed JDK 17 for Gradle and keep
+the large C++ build single-job. A concurrent Metro preflight lost its
+connection during startup. Run the native compile and Metro bundle phases
+separately and check the actual IPv4 status before requesting the manifest.
+JDK 17 configuration, a single-job Ninja compile, and offline Gradle
+packaging then succeeded. The new APK contains the ONNX arm64 libraries and
+the update install succeeded.
+
+The first embedding APK reached the target group and emitted
+`LANDMARK_MODEL / MEDIA_UNAVAILABLE`. Its generated React Native package
+list omitted ONNX registration, while the dynamic Android dependency resolved
+to a newer AAR whose telemetry initializer logged a missing JNI method. The
+direct Expo adapter pins ONNX Runtime Android 1.23.2 and moves image decoding
+and inference into the native module. The second APK built and installed.
+Its merged manifest contains no ONNX telemetry initializer. Keep explicit
+native dependency versions and verify registration and manifest content
+before attempting a live model load.
+
+The direct adapter loaded and completed on Android. The first run on the
+reported episode took 11 seconds for image comparison and yielded no match.
+The new representative policy tests for a visual clue beyond the first
+32 without extending the OCR pass. The focused mobile and SQLite controls
+verify the wider sample, stable episode identity and exact album review.
+The real-device recovery criterion remains open until a qualifying
+proposal is visible.
+
+The wider Android scan completed in 35 seconds and still abstained. Test
+reference coverage as well as sample breadth. The next reference version
+recognizes a different campus building on a separate public photo and
+continues to abstain on a similar building at a different university.
+It also checks for explicit municipal signage. These development controls
+do not establish recovery on the owner's device.
+
+The temporary dense check was withdrawn with `MEDIA_SCOPE / HISTORY_STALE`
+when Android maintenance changed the library revision. A read-only probe
+later confirmed a current run and no queued changes. No new eligibility
+action appeared until Atlas was refocused. Two Settings tap locators failed
+without changing settings. The app's registered Settings and history links
+refocused Atlas and resumed the check. Inspect the exact control or use the
+documented route, and keep the photo and publication fences during retries.
+The eventual maintenance publication did restart discovery automatically.
+That run withdrew when Atlas left the foreground. Treat a skipped deep scan
+as incomplete, even when earlier bounded scans reached a terminal abstention.
+The first metadata count used expensive correlated link queries and was stopped
+without a result. A direct aggregate finished and verified 471 available
+capture-like images with no GPS in the reported window. Use the basic
+aggregate before adding link joins to a live device probe.
+
+With Atlas back in the foreground, the expanded diagnostic finished visual
+matching and stored an image-backed proposal. An initial read-only SQLite
+probe again hit lock contention during the scan. The later readback and Atlas
+card verified recovery of the suggestion. Keep device checks bounded and
+recheck after the proposal stage completes. Default-sampler recovery and
+owner confirmation remain open. A final host poll reported Android disconnected
+after successful readback and UI verification. The disconnect cause is unknown.
+Collect confirmation evidence when the owner confirms and the device is reachable.
+
+The Windows shell wildcard in a source search again reached `rg` as a literal
+path. Search the parent directory with `rg -g` filters. A status patch also
+missed because its context split a line differently from the file. Re-read
+the adjacent lines before retrying. Both commands succeeded after correction.
+
+## Distinguish OCR abstention from a place-catalog miss (2026-11-12)
+
+The owner requested a further Android debug run after widening the photo
+sample produced no proposal. The earlier reason combined empty OCR and text
+that failed place matching. Keep the parsed OCR response in memory, emit
+one closed reason per batch, and never log words, counts or image references.
+The regression initially reproduced the ambiguous reason for whitespace and
+punctuation. It now verifies separate empty and unmatched classifications
+alongside conflict, weak support and sentinel redaction. An initial delivery
+map patch referenced a removed context line and applied nothing. The retry
+targeted the current diagnostic row.
+The Android v4 checkpoint started inside the interval. The correlated
+batch emitted VISUAL_NO_PLACE_MATCH and committed a checkpoint past the
+interval with no proposal. This rules out a wholly empty OCR batch.
+The sampled presence and legibility of a specific sign remain unverified.
+The 29 focused Jest tests, two SQLite discovery controls, TypeScript, lint
+and foundation checks passed. USB wake was restored.
+
+## Automatic Android discovery passed the missed trip without a proposal (2026-11-12)
+
+After owner enablement, Metro retained completed recognition actions with
+generic RESULT_VALIDATE / SKIPPED. Read-only Android aggregates confirmed
+that the saved cursor advanced beyond the incident window without a proposal.
+The eligible episode passed size, span, independent-session and confirmed
+overlap checks. Historical diagnostic events are content-free and cannot
+link an individual abstention to this episode or distinguish no match from
+conflict and insufficient support. Preserve that uncertainty and classify
+these outcomes separately before changing the recognition policy.
+
+The first follow-up ADB command called Trim on an absent process result, and
+a viewport probe reused an undefined helper after the tool session changed.
+Check for an empty PID and explicitly define temporary UI helpers each
+session. Restrict package inspection to the primary Android user. Metro
+started on IPv6 loopback while the USB URL expected IPv4. Verify the actual
+listener address and manifest response before relaunch. The first diagnostic
+map patch used stale wording. Re-read the current source row before patching.
+The first focused rerun also found a stale test expecting a per-image decode
+event in a successful batch. The final batch logger emits one start and one
+completion in that case. Assert that exact pair. Keep the separate regression
+for a batch where no image decodes.
+The corrected run passed 29 focused mobile tests, both automatic SQLite
+controls, TypeScript, lint and the foundation check. After the owner unlocked
+Android, v3 resumed automatically and recorded VISUAL_NO_PLACE_MATCH on
+several batches. The verified checkpoint advanced past the incident interval
+with no saved proposal. Keep open whether sampling, OCR or limited catalog
+coverage accounts for the reported miss. The diagnostic stream does not
+identify individual episodes. The first aggregate probe compared a JSON
+integer to text parameters and could incorrectly classify the cursor. Cast
+epoch parameters to INTEGER and check the saved policy version before
+interpreting the result. Read-only probes also hit SQLiteDatabaseLockedException
+while Atlas was active. A corrected retry succeeded. Do not infer any
+app write outcome from a probe lock. Temporary USB wake was restored.
+
+The follow-up widened sampling for dense episodes without changing grouping
+or receipt identities. A synthetic OCR clue beyond the original 12 samples
+now produces a proposal with the bounded sample. Keep that test paired
+with the SQLite reopen and malformed checkpoint controls. An initial
+MobileCLIP license link returned 404. The repository's linked LICENSE_MODELS
+provided the applicable terms. No weights were added.
+The Android v3 run entered recognition after the checkpoint was observed
+inside the incident window. The batch ended VISUAL_NO_PLACE_MATCH, then the
+checkpoint was observed past the window with no proposal. The wider sample
+improves synthetic clue coverage but did not recover this case. Preserve the
+no-date-input device gate when evaluating image-only recognition. Temporary
+USB wake was restored.
+
+## GPS-less Android trip was unreachable from Atlas review (2026-11-11)
+
+The automatic CAP-4 host verification first ran Jest, TypeScript and lint
+concurrently while a second verification was active. V8 reported a zone
+allocation failure during typecheck and the lint process reported insufficient
+memory resources. These commands supplied no check result. The integrated
+typecheck and lint passed separately, and all five focused suites passed.
+Run memory-heavy verification serially on this host while Metro or another
+test run is active. Use exact source-file patterns to exclude vendored bundles
+from schema/version searches.
+
+The owner could not find a recent trip. Current-run aggregate counts confirmed
+the date-window media was imported and assessed, with no recorded GPS. Android
+rows in the window have unknown availability, and the passive hint requires
+known availability and a nearby confirmed travel day. A date-scoped explicit
+review must resolve previews on demand and keep owner selection distinct from
+destination evidence. The original files' GPS remains unverified. The SQLite
+devtools probe timed out, and a standalone Android EXIF probe received
+SecurityException even for ordinary content reads. These are probe failures.
+An SDK lookup via the sandbox LOCALAPPDATA alias and wildcard/source-directory
+searches also failed. Use the verified absolute SDK path, host ADB and exact
+repository roots or ripgrep glob filters.
+
+The first native entry injected both date strings into one focused field.
+Verify both editable values before tapping Find photos. The UI now caps
+each date input at ten characters. The first Jest render omitted the await
+required by the installed testing library. Await render and UI events, as
+in the existing Atlas tests. The corrected interaction test passes.
+
+The first Android date search remained on Finding photos until the Metro
+update canceled it. The exact blocked boundary was unknown. Added separate
+date-query and media-scope stages, and changed the linked-evidence filter to
+evaluate the current run's exclusion set once per query. A read-only Android
+probe measured the updated date query at 220 ms before preview resolution.
+On the rerun the same action reached MEDIA_SCOPE / COMPLETE and the
+foreground Android hierarchy showed 12 selectable photo tiles. Keep the
+date-window regression and compare the search and preview stages separately
+if it stalls again. The real trip save awaits the owner's photo and place
+confirmation. The SQLite regression verified the same save and album path
+using synthetic evidence.
+
+The owner corrected the initial date-recovery flow because it exposed manual
+place search before AI analysis. The recovery screen must ask for selected
+photos and show a recognition proposal before enabling confirmation. Retain a
+test that an inconclusive result leaves the save action unavailable. The
+standalone manual journey route is outside this recovery flow.
+The focused UI and SQLite regressions now cover an inconclusive outcome,
+confirmation after a proposal, and rejection of direct place selection in
+date recovery. The repeated BMAD renderer invocation encountered sandbox
+temporary-file write warnings. Use the existing rendered workflow when
+continuing the same CAP-4 session.
+
+The owner reported the result still did not appear. The foreground Android
+screen was at the date form, and the current process had no date-search or
+recognition event. Submitting the owner-provided dates reached
+MEDIA_SCOPE / COMPLETE and displayed 12 selectable tiles. On this viewport
+the analysis button was below the fold after opening the page. A short
+scroll placed the tiles and button together on screen. On recurrence,
+verify the date-search and recognition stages independently and check the
+button's viewport bounds. Recognition still requires owner-selected photos.
+
+The owner subsequently rejected date entry and photo selection as recovery
+prerequisites. CAP-4 now requires automatic cluster discovery, representative
+selection and AI place proposals before asking for trip confirmation.
+Validate the reported missed-trip case without providing dates or selected
+images to the detector. A working manual recovery path does not satisfy this
+criterion. Provider and processing authorization remain open.
+The parallel Party startup encountered an access-denied cache write during
+customization resolution. Core config and roster still resolved. The installed
+customization supplied the documented fallback. Use the pinned interpreter
+for the local memlog write.
+The first CAP-4 spec memlog append used an unescaped apostrophe in a
+PowerShell string and failed before any append. Quote each argument with
+PowerShell escaping and check each exit code. The retry appended all six
+records.
+
+During the automatic CAP-4 build, the intermediate typecheck saw the
+retired date-picker test still using the old props and TypeScript rejected a
+review-stage comparison across an acknowledgement callback. Lint also flagged
+an unused hook dependency. Update the tests with the new component contract,
+use an explicit acknowledgement flag, and rerun after integration.
+A concurrent edit also moved the diagnostic map text between read and patch.
+Reread the current anchors before retrying. The first Android unlock prompt
+was rejected by the tool for a duplicate title key and was resubmitted with
+one title field.
+
+## Full comparison scale fixture and PowerShell searches (2026-11-11)
+
+- The first CAP-1 Jest run omitted the repository-local cache path and hit the
+  recurring sandbox Temp transform-cache rename EPERM before collecting tests
+  (EP-010). The same suite passed with `--cacheDirectory .jest-cache-codex`.
+  Include this argument on the initial command even when using `--no-cache`.
+- The first comparison presentation-stage patch used an earlier
+  `app-diagnostics.ts` union line. A parallel Home change had added a stage to
+  that line, so the patch applied nothing. A fresh exact-line search identified
+  the new context. The corrected patch preserved both stages, and SQLite fault
+  injection verified the closed presentation event and private redaction.
+  Recheck shared union lines immediately before editing in parallel.
+- The first comparison companion lookup used Bash brace expansion in PowerShell
+  and failed to parse. A later literal ripgrep filename wildcard returned OS123.
+  Use PowerShell file enumeration or a directory root with a ripgrep `-g` filter.
+- Adding synthetic Home geotags to the 20,002-row SQLite fixture put
+  corroborating Home observations between two same-day trip photos. The scale
+  check expected one continuous trip and observed two. Move routine Home rows
+  to a dated period before the trip and keep separate controls for corroborated
+  returns. Verify the fixture's timestamp placement as well as its row count.
+  With corrected timing the real SQLite fixture passed, including identical
+  results for two physical page sizes and stale/canceled result rejection.
+
+## Pin-first Home setup mismatch
+
+The owner found map pin placement impractical and requested place-name search.
+The current Home setup only uses the text field as a saved label and still
+requires a selected map point or typed coordinates. An existing local search
+used for trip edits searches mostly Admin-1 data and centers regional results
+using bounds midpoints. It cannot be reused as Home exclusion authority without
+point-quality and locality-coverage checks. Decision 0017 sets search-first
+behavior. Native acceptance should cover setting a Home from search without
+moving a pin and distinguishing namesakes and broad regional results.
+
+The first offline-search fixture exposed a translated ward name stored by
+GeoNames with a trailing English level marker. Normalize leading Vietnamese
+and trailing English level markers for matching, keep the full result label
+and administrative level visible, and retain the ward/commune search fixture.
+The public data acquisition also encountered sandbox DNS denial, a Git LFS
+pointer from the raw URL, and a Windows Store Python alias without a runtime.
+The approved host fetch used the publisher's LFS media URL and validated the
+payload digest. Use Node for the repeatable build and validate source shape
+instead of relying on HTTP success alone.
+The candidate current-ward feed also differed from its advertised aggregate
+envelope. The probe corrected the shape assumption, and the shipped index
+uses the pinned GeoNames extract. The first lint pass flagged an unused
+suppression at the lazy asset boundary. Removed it and reran the focused
+checks with the native package's actual lint configuration.
+
+## Android trip photos unavailable after rebuild
+
+The owner reported that trip photos would not open after reconstructing Atlas.
+The current process recorded successful rebuild and `ATLAS_PREVIEW /
+PREVIEW_READ / UNKNOWN` on selected journey opens. D2's separate read-only
+comparison also hit `ROW_LIMIT`; that event does not identify the gallery
+failure. Narrow journey preview diagnostics at repository scope, support read,
+native media resolution and verified readback. Root cause remains unknown
+until a fresh selected journey fails with those stages.
+
+Follow-up: the owner briefly saw `Journeys · 0` in the Local Timeline, which
+the foreground hierarchy confirmed. Read-only SQLite counts returned 19,424
+evidence rows and 49 qualified journeys in the latest complete run with the
+current Home revision. No privacy revisions were present. A subsequent current
+process preview read completed, and the foreground hierarchy showed the gallery
+grid with an associated photo thumbnail. The transient empty view and earlier
+preview failure have no confirmed cause. On recurrence, capture Local scope,
+committed counts and current preview stages before requesting a rebuild.
+
+## Android Timeline chronology and density
+
+The owner reported a confusing Atlas after photos were accessible again.
+Foreground inspection confirmed Timeline page 1–24 of 49, visible photo
+thumbnails, vertically wrapped pagination, and the fixed Replay action.
+Read-only SQLite aggregates found 16 adjacent date inversions in the actual
+year-then-ID order. `loadDurableReveal` computes first observed dates but sorts
+within a year by `journey_id` and treats repeated first years as uncertain
+ordering. Separately, 15 qualified trips share a country and start month with
+another trip in seven groups. This does not establish which trips should
+merge. Verify newest-first ordering using two same-year trips whose IDs sort
+opposite their dates, and keep trip grouping and native layout acceptance
+separate. No runtime or owner history changes were made in this inspection.
+
+Country-label follow-up: the owner asked why Vietnam locality labels became
+country labels and why the Timeline includes a Vietnam/Thailand trip. The
+Vietnam Admin-1 abstention is intentional after the verified boundary defect.
+The current complete Local run had 31 qualified journeys with Vietnam-only
+stored country support and one with both Vietnam and Thailand. No configured
+Local Home area was present at read time. The episode builder can link blocks
+across countries. The stored run does not identify which branch joined this
+specific outing or whether it is a false merge. Inspect the exact boundary
+before proposing a split or changing country continuity rules.
+
+Taiwan and South Korea follow-up: read-only current Local counts show two
+qualified journeys with both Taiwan and Vietnam visit support. The current
+graph has no visit support resolved to South Korea. The prior 30 days have
+545 canonical media rows, all marked location absent and none with stored
+GPS. Current Android photo and media-location permissions are granted. This
+does not establish whether any particular South Korea original has GPS or
+whether Expo returned no location for an original with GPS. Check one exact
+original's device gallery location before changing import or trip rules.
+
+## Recognizable Atlas Android reconnect smoke
+
+- The owner reached the read-only comparison and reported its generic error.
+  Current-process diagnostics show `ATLAS_REBUILD / CANDIDATE_INPUT_READ /
+  SKIPPED` for two attempts, with no candidate-classification event. The
+  specific cause is unknown. The current event conflates withdrawal with an
+  unavailable snapshot or size limit. Distinguish those outcomes at the
+  repository boundary before attributing the symptom or suggesting a rebuild.
+  Follow-up split `ROW_LIMIT` and `HISTORY_INCOMPLETE` from cancellation. A
+  synthetic SQLite comparison test distinguishes all three and verifies
+  that an injected source sentinel stays out of the closed events. A fresh
+  Android comparison returned `ROW_LIMIT`, confirming the 4,000-record cap.
+  The Settings screen explains the size limit without a futile retry. Use a
+  separate small fixture for device acceptance until larger comparison is
+  implemented and measured. Keep the owner's full Local history intact.
+
+- The sandbox could not start the ADB daemon. An authorized host read found
+  the USB device. Use the installed SDK binary and the scoped host bridge.
+- The first app launch reported a loader error before a routed bundle arrived.
+  A separate flagged Metro listener and USB reverse on both the explicit and
+  default debug ports delivered the current Android bundle. The foreground
+  hierarchy showed Your Atlas. The exact cause of the first loader error is
+  unconfirmed. Keep the prior Metro listener intact and verify the actual UI.
+- A PowerShell probe used a curly apostrophe in a single-quoted label and
+  failed to parse. Retry with fixed labels free of quote characters. Android
+  then rejected input injection. Inspect the ADB command exit before claiming
+  navigation and hand the tap to the owner instead of changing device settings.
+
+## Recognizable Atlas D2 host integration (2026-11-10)
+
+- The export/deletion fixture initially used a non-allowlisted database name.
+  Use an isolated synthetic name in the accepted account replica namespace.
+  The SQLite fixture now verifies the compatibility fence and deletion.
+- Integrated typing exposed an evidence state whose `loading` and `unavailable`
+  variants shared a discriminant. Define those variants separately so the ready
+  branch narrows to the verified preview payload.
+- Lint rejected a synchronous render-state reset in a separate eligibility
+  effect. Abort the request and clear only its result in that request's cleanup.
+  Keep render-time scope and baseline checks as the immediate visibility fence.
+- Expo lint rejected dynamic environment access in the rollout-gate test.
+  Use the same static environment property in test setup and restoration.
+- A PowerShell lint-config search passed a literal wildcard and returned OS123.
+  Use `rg --files` or a directory with `-g` before reading the exact config.
+- A full in-process Jest run concurrent with Metro export exhausted the host
+  process memory. Metro stopped before emitting an artifact even though the
+  shell's final exit code was zero. Run resource-heavy checks serially,
+  partition Jest into separate processes, and require the bundle artifact and
+  Metro's completion message. The sandbox also denied the CIM memory query;
+  use Node's read-only `os.freemem()` for a host capacity estimate.
+- Partitioned Jest found a manual-journey migration fixture hard-coding schema
+  v39. Assert against `CURRENT_SCHEMA_VERSION` so the fixture still checks
+  upgrades from v32 after additive migrations.
+- Review found that candidate Keep could rebuild on the connection used by
+  Atlas readers and that cancellation after COMMIT looked like a skipped write.
+  Run review on a separate connection and preserve the committed outcome in
+  readback cancellation diagnostics. Keep observation camera state scoped to
+  its verified points so ordinary Map/Timeline navigation can restore it.
+
+## D2 recognizable Atlas host implementation (2026-11-10)
+
+- The initial red SQLite run stopped at manual Home validation before it could
+  exercise D2. The fixture lacked the required owner label. Added the synthetic
+  label and used the existing valid Home fixture shape for the next run.
+- The D2 rejection fixture reached `POSSIBLE_TRIP_REBUILD` and rejected the
+  result because the continuity pass had put a rejected singleton back in a
+  journey. The constrained V1 graph retained the visit as an observation, and
+  V1.1 read all visits regardless of whether their journey survived. Narrowing
+  V1.1 admission exposed a second fence because final remapping requires the
+  rejected journey to still exist. The host slice preserves the canonical
+  baseline and uses a versioned exact Local candidate receipt. Real SQLite
+  checks that this decision survives rebuild and preserves unrelated candidates.
+- The integrated typecheck could not infer the stage updates inside a closure.
+  Track whether committed receipt verification started explicitly and distinguish
+  that boundary from write/acknowledgement state when mapping uncertain outcomes.
+- The focused Jest invocation first hit npm's Windows Node-install lookup and
+  then the known default sandbox transform-cache rename failure. Invoke the
+  installed Jest script directly with the ignored workspace cache. Mobile lint
+  also found a generic array type in the test double. Use the project's array
+  syntax and rerun the integrated checks.
+- The delivery evidence append first targeted the middle of a wrapped line
+  and failed without writing. The retry used the file's verified final lines.
+
+## Recognizable reconstruction preview integration (2026-11-10)
+
+The first integrated typecheck found widened mock literals, an untyped
+development global and a combined loading/error discriminant. The route
+tests also inherited the Jest native AppState. Pin the real fixture types,
+model each status independently, and set/restore foreground explicitly.
+The first shadow test inventory found no SQLite fixture yet, so a real
+committed-history test now checks comparison, no writes and stale authority.
+The preview's Retry revision triggered a hook dependency warning. Bind the
+revision to the rendered result so a prior retry's data cannot appear.
+A combined documentation patch missed its context and was reapplied to
+verified anchors. Two delegated sessions reached their usage limit and the
+main session completed integration and verification.
+
+## Recognizable reveal receipt verification (2026-11-10)
+
+The first file-backed receipt comparison reported identical fields with a
+different object prototype. Node SQLite returns a null-prototype row while
+the original receipt is a plain object. Normalize the repository DTO on both
+readback and exact retry. Keep real SQLite reopen, write rollback, reused
+command and deletion coverage alongside mock tests.
+
+## Recognizable travel candidate fixture (2026-11-10)
+
+A dated usual-place fixture expected two reliable outings while placing
+them at the inclusive ambiguous continuation limit. The engine correctly
+left both possible. Moved the test outings beyond that limit so it isolates
+the date scope. A separate test still verifies the ambiguous gap behavior.
+Focused shadow tests and lint passed.
+
+## Home-first spec source inventory (2026-11-09)
+
+A PowerShell source search used Bash brace expansion for three directories
+and failed before running rg. Retried with separate literal directory
+arguments and verified the source references. Use explicit paths when the
+shell is PowerShell.
+
+Recurrence during implementation preflight: a second inventory command used
+brace expansion for two files and failed at parsing. Retried against the
+literal parent directory and confirmed the affected call sites. Use directory
+arguments with rg filters, or separate literal file paths.
+
+D2 investigation recurrence (2026-11-10): source searches guessed absent
+onboarding/renderer filenames and used Bash brace or wildcard syntax in
+PowerShell. Directory inventory plus `rg -g` located the actual modules.
+Run `rg --files` before dispatching searches for inferred paths and pass
+file filters as `rg` arguments.
+
+## Home-first implementation integration (2026-11-09)
+
+- Initial integrated typing ran while delegated edits were incomplete. The
+  injected repository seam required a new native-only method and the Home
+  label projection lacked the new origin. Kept the test injection optional,
+  typed the origin, and reran integrated checks after joining the work.
+- Migration v39 initially replayed DDL against a database with a lagging
+  version marker. SQLite returned an existing-table error. Detect the actual
+  Home projection layout before running DDL. Real SQLite fixtures exercise
+  both legacy migration and preserved newer layouts. The old exact version
+  assertion now uses the schema version declared by the test harness.
+- React lint found a command ref read during rendering and an inline header
+  callback closing over an inspection ref. Render from state and access
+  event-only refs inside event handlers. Typecheck also found a mistyped
+  SQLite helper interface. Use the module's actual SqliteDatabase type.
+- The first-use fixture exposed a permission inspection from maintenance
+  refresh before the Home decision. Apply the same Home gate to startup
+  maintenance and source refresh. The fixture asserts no early inspection.
+- The narrowed default album query intentionally excludes suggestion-only
+  links. Updated its SQL-contract test to require explicit owner attachments.
+  The legacy fallback test now matches its specific qualification query.
+  The merge comparison fixture now verifies preservation of exact reviewed
+  support and the separate third visit after the continuity change.
+- A tool patch had an unescaped JavaScript template delimiter and did not
+  execute. Escaped the delimiter and confirmed the scoped SQL change.
+- The three delegated implementation sessions reached their usage limit.
+  Inspected their partial writes and continued integrated implementation in
+  the main session. Independent review remains unverified.
+- Mobile mocks asserted the previous schema marker and the test Expo UUID
+  was undefined. Updated the current and newer marker fixtures, and injected
+  a deterministic UUID for the Home setup integration test. The full suite
+  then passed. Moved the gallery header into a component so its event
+  callback does not flow through a render-time helper, resolving the
+  remaining ref lint error.
+- Android Expo export reached Hermes but its sandbox default Temp directory
+  rejected the bytecode file. Retry uses a writable workspace-private TEMP
+  and TMP. The retry compiled and exported the Android Hermes bundle.
+  Set workspace-private temporary paths before bundling on this host.
+
+## Journey continuity and home-media mismatch (2026-11-09)
+
+- Geographic follow-up reproduced the wrong regional label with two public
+  Sa Dec reference points. The production destination resolver and an
+  independent point-in-polygon check against the packed Vietnam Admin-1
+  rings both classify those points as Can Tho. This confirms a bundled
+  boundary-data defect independently of owner media. Current original and
+  saved GPS plus the preview reference already agreed for the inspected
+  item. Do not change media import to correct this defect. Use verified
+  regional boundaries and public positive and neighboring controls, or
+  abstain from affected regional labels until the replacement passes.
+- Fix: the shared resolver now excludes Vietnam Admin-1 from its regional
+  lookup and retains country fallback. Three public regression anchors
+  reproduced the wrong names before the fix and now assert the country-only
+  title through the same formatter as Atlas. Preserve this guard through
+  dataset updates until validated replacement controls are available.
+- Owner follow-up confirmed loss of usable domestic destination names after
+  the guard. The CAP-6 replacement covers only the reviewed Sa Đéc and Cần
+  Thơ footprints. A public Huế city point returns Thừa Thiên Huế in the prior
+  committed resolver and country-only in the current resolver. The country
+  fallback was intentional, and the remaining coverage gap is open. Require
+  positive locality or province controls outside the original repaired areas
+  as well as boundary abstention before accepting restored coverage.
+- Selected-item follow-up on the connected Android returned
+  `JOURNEY_MEDIA_INSPECT / MEDIA_SLOT_CHECK / COMPLETE`. For the inspected
+  item, current source GPS agreed with saved evidence and the platform
+  returned the same URI passed to the gallery. The check cannot attest to
+  rendered pixels, the actual capture location or the rest of the album.
+  Do not change import or preview resolution based on this result. A
+  geographic diagnosis must compare the exact trip's label inputs with the
+  original metadata and the owner's observation.
+- Owner follow-up: the entire affected album appears to be home media,
+  including the previously reported cover. Earlier stored metadata for the
+  candidate albums resolved to the displayed region. This discrepancy remains
+  open. A connected Android has no retained selected-item diagnostic yet.
+  Reproduce from the exact selected image and compare current original
+  metadata and preview reference before changing classification or labels.
+- Owner reported a continuous trip split on a second device and a different
+  trip showing photos taken at home. The current foreground Android process
+  emitted only local-history binding events, not per-trip decisions.
+- Synthetic reproduction proved two continuity defects: the day-only gap
+  uses the beginning of the accumulated episode, and observations weeks apart
+  can corroborate the same Home return. Check consecutive observation blocks,
+  including long daily sequences, and require corroboration local to each
+  boundary. Keep separate trips and protected owner corrections as controls.
+- Synthetic reproduction also proved automatic time-only membership with
+  missing or insufficient GPS, and found that a configured-home match can
+  survive in a mixed candidate's visit support. Test destination support,
+  photo-only membership, gallery resolution and owner choices independently.
+  This does not establish which path applies to the reported album.
+- Investigation tooling: an `rg` command guessed two absent account filenames;
+  use `rg --files` first. An inline Node invocation misquoted public polygon
+  serialization, and the compile initially succeeded with empty polygons.
+  Replaced interpolation with PowerShell JSON parsing and validate the exact
+  two nonempty inputs before compiling. The first on-device helper did not
+  finish within the observation window. Stopped only the matching helper;
+  use an explicit runtime bound, fixed phase markers and scoped cleanup.
+- The bounded follow-up isolated the slow step to a broad support join. Its
+  wrapper also failed to terminate promptly when started outside the app
+  UID, and a fixed-width output allowlist was one field short. The successful
+  run uses indexed per-journey lookups, checks membership only for matching
+  album candidates, and bounds the helper after entering the app UID. Match
+  the safe output shape against its exact summary before collecting.
+- Android readback matches the start-vs-end defect at multiple nearby
+  boundaries in local history. The matching album candidates have only
+  geotagged destination visit support, so time-only association is not
+  established for the owner's example. The owner confirmed both cover and
+  album show unexpected media. Next: compare one exact displayed asset's
+  original metadata and identity with the saved visit before changing the
+  engine or viewer for this case. No runtime change. Foundation 199 passed.
+- Two documentation patches missed the current context. Re-read the actual
+  paragraph, patch at a stable line, and confirm the result with a scoped
+  diff. Party memlog also repeated the known default uv cache access failure;
+  workspace-private UV_CACHE_DIR/TEMP/TMP restored the append. Apply those
+  settings before the first BMAD write.
+
+## Lean Atlas implementation verification (2026-11-09)
+
+- Continuation Android inventory failed to start the ADB daemon inside the
+  sandbox. The same installed binary outside the sandbox found the device.
+  The device's direct UI dump did not return an XML hierarchy. A temporary
+  device-local dump with automatic cleanup returned it. Output was limited
+  to fixed labels. Use the actual SDK binary and scoped device access, and
+  separate a hierarchy presence smoke from interaction/layout acceptance.
+
+- The Windows Store Python alias failed to launch before edits. Used native
+  PowerShell for source transforms; resolve a working interpreter first.
+- Jest's default sandbox Temp transform cache failed on an atomic rename (EPERM)
+  before running assertions. Workspace-private cacheDirectory restored execution.
+- Atlas tests initially expected inline About/statistics and rows under Map, and
+  an over-broad fixture rewrite accidentally switched the map overlap test to
+  Timeline. Corrected tests to navigate explicitly and assert absence of the
+  duplicate feed; keep map fixtures in Map mode. Focused and full checks passed.
+- A text replacement targeted an outdated diagnostic stage-union prefix, leaving
+  new stages absent. TypeScript caught it; added the stages at the actual owning
+  declaration and reran typing. Inspect current enum anchors and verify writes
+  rather than assuming a replacement matched.
+
+## Atlas information hierarchy review (2026-10-30)
+
+Spec follow-through: owner approved the revised direction and requested a detailed
+contract; decision0016 and spec-atlas-lean-exploration now define the work. Runtime
+UX mismatch remains open until implementation and native acceptance.
+Spec activation repeated the known uv interpreter-cache access-denied failure in
+the sandbox package cache. Setting UV_CACHE_DIR plus TEMP/TMP to ignored writable
+workspace directories resolved both config commands and memlog writes. Apply that
+launcher environment before BMAD Python scripts in this sandbox. A redundant read
+of the already-known absent new memlog returned exit1; initialize once after the
+existence check rather than attempting to resume a nonexistent workspace.
+
+Recurrence during BMad Help (2026-11-10): the default uv interpreter cache
+again reported access denied, and the bare `python` fallback resolved to the
+inaccessible Windows Store alias. The resolver succeeded with workspace-private
+`UV_CACHE_DIR`, `TEMP` and `TMP` and `uv --no-config run --no-project`.
+Apply the writable environment to read-only config resolution as well as
+memlog writes, and use the resolved interpreter instead of the Store alias.
+
+Owner correction: the current header also has Home. Fresh source inspection
+confirms an explicit /welcome return route and View my Atlas dismiss action;
+the earlier review snapshot lacked this new control. Review updated to preserve
+Home and its return context. Timing of the concurrent addition is not established;
+do not label it a runtime regression. Prevention: recheck current navigation
+controls after owner corrections before proposing removals or final layouts.
+
+Owner reported clutter below Settings and scattered journey information. Source
+confirms a multi-paragraph ready summary before the map, full list in both views,
+Replay after every row, and verbose preview. These are current UX mismatches;
+no native viewport was inspected and no runtime fix is claimed. The review and
+proposed checks are in atlas-ux-party-review-2026-10-30.md. Prevention: assess
+first viewport and primary-action reachability with long histories, not only
+component assertions. Status: open pending design choice and implementation.
+
+Review searches repeated the known Windows literal-glob rg failure (OS123) and
+guessed a nonexistent reveal/atlas-preview-context.ts path. Corrected the map
+search with a directory plus -g; the consumer import identifies atlas/preview-context.
+No runtime changes resulted. Strengthen the existing search safeguard: discover
+filenames or read imports before path-specific searches; use no wildcard path
+operands, including during read-only reviews.
+
+## Lean onboarding source inspection (2026-10-29)
+
+Independent review (2026-10-30) proved implementation defects: interruption did
+not fence queued/publication work; lifecycle stop could auto-resume before
+disconnect; equal-count checkpoints were treated as exact commit receipts;
+pause discarded publication phase; deletion/null intent left stale in-memory
+authority; selected-only updates could reuse an old broad checkpoint. Recovery
+also hid useful photo choices, and canceled reads/permission retries had wrong
+diagnostic or authority behavior. These are agent-caused source defects, not
+device incident claims. Regressions and scoped fixes are in progress; completion
+requires focused tests and the parent's integrated checks. Preserve exact source
+authority and treat count-only checkpoints as progress, never mutation proof.
+
+Parent UI/lifecycle review additionally found a competing pre-Atlas Updates
+primary, unknown progress drawn as apparent full completion, and a shared
+background/unmount boundary. Native picker Activities can background Android;
+background work must pause without invalidating the owner's pending choice,
+whereas provider disposal must invalidate it. Added separate disposal authority,
+nonblocking secondary invitation after Atlas, and an accessible indeterminate
+indicator with stable reduced-motion state. The indicator's first role assertion
+exposed a missing `accessible` prop; corrected and rerun. These are host source/
+regression findings; phone acceptance remains pending.
+
+Parent verification caught the new integration consumer assigning a test capture
+to module state during render (`react-hooks/globals`). It now renders/calls
+through its local hook value and publishes the capture only from an effect.
+Parent durability review also found Continue's resumed phase was memory-only;
+the acknowledged intent transition now precedes native work, with a deferred-read
+regression proving a subsequent interruption can resume automatically.
+
+Correction-pass completion: six focused suites/141 tests and mobile lint pass.
+Scoped diff whitespace passes. Parent integrated verification is separate from
+this focused result, and native acceptance remains open. A final project-state
+patch guessed the header and was rejected before edits; read the actual header
+and applied the same scoped note successfully. No product state changed from
+that rejected patch.
+
+Parent continuation (2026-10-30): implementation agent hit its usage limit before
+full verification/review; parent resumed saved code. Review-diff creation used
+system Temp, but command sandboxes exposed different ephemeral Temp directories;
+both the next read and exact-path recovery could not find that file. Regenerated
+the diff under ignored `.local/onboarding-build/` with its generator retained.
+Use workspace-private stable paths for cross-call/reviewer artifacts; never infer
+that a Temp file survives the execution cell. No app data was affected.
+
+An implementation read guessed `photo-access.test.tsx`; the existing suite is
+`photo-access.test.ts`. The read failed before any test or behavior change.
+Discovered the actual test paths with `rg --files`; use discovered paths for
+subsequent reads and test selectors. No product failure is inferred.
+
+The first focused Jest invocation used the newer `testPathPatterns` option;
+installed Jest29 ignored it and ran the whole suite. Use `--runTestsByPath`
+with discovered paths. During correlation wiring a CRLF-sensitive replacement
+left a duplicate declaration, caught by Babel/typecheck; removed it using an
+exact patch. The same check found a missing local launch guard and widened
+test permission literal; corrected both. Several multi-file patches rejected
+unmatched context before applying; normalize line endings and verify individual
+edits rather than assuming a text replacement matched. Verification is rerun.
+An account-config read also guessed a nonexistent module; use the owning
+account service source and discovered files instead.
+
+Follow-up verification exposed old explicit-import/Settings/schema-version
+assertions, a hoisted mock that captured an undefined native adapter, and a
+delayed lifecycle fixture that blocked every read after adding page fences.
+Updated tests to exercise the new owner flow, deferred the mocked export lookup,
+and released only the intended first lifecycle boundary. Diagnostic assertions
+now select the action operation and verify its correlation, rather than assume
+no other startup diagnostics occur. Two JSX apostrophes failed lint and were
+escaped. A stage helper initially hid assignments from TypeScript control-flow;
+returning the stage explicitly fixed narrowing. Two log reads used the mobile
+cwd instead of root; corrected paths without inferring a product failure.
+
+## First owner fragment transfer acknowledgement (2026-10-29)
+
+Fresh bundle passed Replay export and owner transfer reached64/65 acknowledged
+steps, then HISTORY_ACK/HISTORY_NETWORK/unknown. Final activation outcome is
+unknown; preserve same mutation/checkpoint and reconcile before any new transfer.
+Attempted visible Save tap was denied by Android INJECT_EVENTS permission; shell
+script incorrectly printed a success line after native failure. No tap occurred.
+Check LASTEXITCODE before claiming input success; ask owner to resume rather than
+alter Android security settings. Do not infer network timeout means rollback.
+
+## Replay compatibility bundle freshness (2026-10-29)
+
+Post-deploy owner retry still returned REPLAY_ARRAY_ITEM_SIZE before network.
+Source has the expanded bound; device bundle freshness was not established.
+Initial Metro entry inspection omitted routed-app transform parameters and did
+not include account modules, so missing markers were inconclusive. Restarted
+Metro with --clear (transform cache only), inspected full routed bundle for
+replay-fragment/account markers, then restarted app process without data deletion.
+Device save outcome remains pending; do not infer a new data defect from stale
+or unverified JavaScript. Verify current routed bundle before asking owner retry.
+
+## Large Replay compatibility verification continuation (2026-10-29)
+
+Expanded fragment fixture ended its anonymous SQL block with a single dollar
+delimiter, so PostgreSQL rejected syntax before behavioral assertions. Corrected
+to the matching double-dollar delimiter and rerun required. Both implementation
+agents exhausted usage during verification; parent continues saved work directly.
+The next run found fixture variable `source` ambiguous with the source table
+whole-row reference. Renamed it fixture_source and retained table names; this was
+a test-harness error, not evidence of production activation failure.
+New SQLite long-reference fixture expected three rendered memories from a
+single-place synthetic graph which does not qualify as a Replay trip. Wire and
+SQLite rows already matched; replaced the invalid eligibility claim with exact
+durable kept/ordered/excluded reference and re-export equality assertions. Keep
+codec preservation distinct from journey qualification policy; engine unchanged.
+
+## Owner-device initial account export incident (2026-10-29)
+
+- Long Replay SQLite regression guessed `loadReplayInput`, which is not the
+  repository API, and failed after export/restore/rebuild succeeded. Discover
+  the actual Replay loader before invoking it; this is a test harness error,
+  not evidence that the long semantic export or reconstruction failed.
+- Wire investigation repeated a literal PowerShell migration glob and returned
+  OS123; use migrations directory and `-g`, never filename wildcard operands.
+
+Third action runtime-mvtltn3h-3 narrowed failure to combined Replay ARRAY guard.
+Split unchanged admission into ARRAY_TYPE/COUNT/ITEM_TYPE/ITEM_SIZE/DUPLICATE
+closed stages. 36 focused tests, mobile typing and regenerated portable bundle pass.
+Current writer constructs refs directly from journey/evidence identity; source
+journey IDs concatenate visit IDs, whose IDs concatenate evidence IDs. Therefore
+a legitimate large-visit reference can exceed the portable 10k item limit, but
+that remains a hypothesis for this owner's row until the exact category arrives.
+Do not truncate refs, clear choices, deduplicate or broaden limits speculatively.
+
+Second device action runtime-mvtln5pu-3 isolated HISTORY_EXPORT_REPLAY_VALIDATE /
+HISTORY_SCHEMA after earlier layout checks passed. Source comparison shows the
+current writer's committed DTO is accepted by the existing portable grammar;
+unknown legacy fields/duplicate refs/audio or the shared 100k string limit remain
+possible, unproven categories. Added closed Replay JSON/FIELDS/ARRAYS/DIRECTION/
+AUDIO/SIZE/ROW stages with no payload, identifiers or measured counts. A synthetic
+current writer-shaped custom-audio composition exports unchanged selection/order/
+scope/revision while removing only known cache/local handles. 32 focused tests and
+mobile typing pass; portable bundle regenerated/freshness checked. No compatibility
+or SQL behavior changed. Parent collects the precise category before a scoped fix.
+
+- Implementation search repeated a PowerShell literal `account-history*` path
+  wildcard and failed OS123. Use the discovered test directory and `-g` patterns;
+  the independent reads succeeded, but that search did not. No private rows read.
+
+After owner OTP login/consent, initial Save failed at HISTORY_EXPORT with
+HISTORY_STORAGE; account/source registration succeeded but no saved authority
+was established. Current process closed diagnostics prove the export boundary,
+not the precise SQLite/schema/row cause. Add specific privacy-safe sub-boundaries
+and reproduce before changing data behavior. Preserve all local records.
+The instrumented retry proved HISTORY_EXPORT_REPLAY_VALIDATE/HISTORY_SCHEMA.
+All preceding layout boundaries passed. Exact Replay validation category remains
+unknown; current writer fixtures do not establish legacy fields or size as cause.
+Add fixed JSON/fields/arrays/direction/audio/size/row probes and test redaction
+before the next single retry; never omit Replay or clear the saved composition.
+Next retry proved HISTORY_EXPORT_REPLAY_ARRAYS/HISTORY_SCHEMA. Fields, audio and
+direction are not established causes; discriminate type/count/item-size/duplicates
+before changing accepted composition. A parent source search repeated literal
+PowerShell trip* path glob and failed OS123; use directory plus -g only.
+Final array probe proved HISTORY_EXPORT_REPLAY_ARRAY_ITEM_SIZE/HISTORY_SCHEMA.
+Engine-generated content-derived journey references can exceed the wire item's
+10,000-character cap. This is a real compatibility defect; preserve exact Replay
+semantics and test large structural references end-to-end before owner retry.
+SQL implementation's CLI help repeated the sandbox telemetry EPERM; retry using
+approved host access, never infer migration failure from a pre-command file denial.
+Instrumentation now distinguishes open/schema/transaction/lifecycle, each fixed
+layout read/DTO validation and close. In-memory classification preserves known
+schema/busy/handle/transaction/constraint/bridge categories; other storage causes
+remain unknown at the exact stage. Close failure cannot mask an earlier failure.
+26 focused tests and actual SQLite export roundtrip pass; mobile typing/targeted
+lint pass. Parent's current-build device reproduction remains required before any
+behavior fix; no private row read, data reset or speculative schema repair occurred.
+A parent follow-up search repeated a literal wildcard rg path (OS123); directory
+plus -g is required even for narrowed account test searches. No source changed.
+
+## Development app loading incident (2026-10-29)
+
+Owner reported app could not load during OTP setup. Host had no Metro listener
+and no ADB reverse mapping. Started the current Expo dev server on8081 and restored
+USB reverse for the connected Android, preserving app data. First launch used a
+guessed package-derived scheme and was rejected; app.json/installed intent filters
+prove exp+travel-life. Use the declared scheme, never derive it from package name.
+Metro readiness and Android bundle delivery (1786 modules) were verified. Device
+process is running, but UI verification shows notification/system shade rather
+than app content; owner must unlock/foreground phone to confirm render. No app
+data was cleared. Restore Metro and USB reverse before diagnosing runtime code.
+
+## M6/M7 test readiness continuation (2026-10-29)
+
+- Native media compatibility is corrected: shared media-receipt.ts accepts SQL
+  `complete` only for the saved artifact with positive safe expectedRevision+1;
+  existing artifact-matched `active` recovery remains admitted. Uploader and actual
+  transport enforce it. New lost-ACK replay was RED at MEDIA_ACTIVATE/MEDIA_SCHEMA;
+  both focused suites now pass 30 tests, mobile TypeScript and focused ESLint pass.
+  Immutable mutation/artifact retention, wrong/missing receipt fields and diagnostic
+  redaction are verified. No applied SQL/server deployment changed. Future client
+  receipt fixtures must derive from actual SQL fields; HTTP200 alone does not prove
+  native acknowledgement. Earlier pending-native notes below are superseded here.
+- The completion doc patch used text concurrently revised by parent and was
+  rejected atomically. Re-read current playbook, then append correction evidence
+  without overwriting the parent's hosted smoke updates.
+
+- Synthetic audio fixture search used literal PowerShell wildcards in rg paths;
+  OS123 rejected the search. Use the tests directory plus `-g` and fixed-string
+  searches. No files changed; fixture metadata must be verified before upload.
+
+- Media receipt fix first targeted a guessed diagnostic-map heading in the M7
+  delivery record. apply_patch rejected it atomically; search actual headings and
+  patch observed context before behavior edits. No source changed in that attempt.
+
+- Hosted JPEG rerun passed full decode after removing duplicate WASM/hash byte
+  allocations. Activation then exposed an existing contract mismatch: SQL stores
+  complete/artifactId/revision, while mobile required active. The HTTP200 commit
+  must not be treated as rollback. Add native exact-artifact/revision compatible
+  receipt admission and immutable retry regressions; final hosted fetch pending.
+
+- After reducing decoder allocations, a synthetic JPEG PUT completed trusted
+  verification on the deployed worker; activation returned HTTP 200 but the
+  harness incorrectly expected `active`; SQL returns `complete` with revision,
+  while native also expected `active`. Corrected synthetic harness passed stage,
+  full decode, complete revision 1, second-session byte-equal fetch and separate
+  owner/anonymous denial. Parent owns native compatibility fix and regression.
+  Exact decoder resource use and broad media envelope remain unmeasured. The
+  synthetic owners were fenced and queued for cleanup.
+- Subsequent hosted synthetic smoke verified 32×24 H.264/AAC video (600 ms) and
+  AAC audio (2,024 ms) through stage, full decode, activation and byte-identical
+  second-session download; other-owner and anonymous access were denied. Two
+  synthetic accounts were fenced for scheduled cleanup. Short synthetic samples
+  do not establish native playback, corrupt hosted rejection, concurrency, or
+  the admitted maximum resource envelope.
+
+- Decoder asset inventory found no local WASM binary (rg exit 1); no real decode
+  was run by that search. Focused endpoint mocks and exact-stream/hash tests are
+  not decoder execution. Verify actual pinned decoder in hosted synthetic smoke.
+
+- Synthetic authenticated media upload returned HTTP546 after stage succeeded.
+  Dashboard current function logs subsequently confirmed MEDIA_DECODE START,
+  followed by Memory limit exceeded/shutdown and PUT546 at the same time. Cause
+  is decode-stage memory exhaustion; CPU used 316 ms and exact allocation is not
+  established. Loader now streams into one bounded allocation and hashes the
+  original byte view, eliminating two avoidable explicit buffer copies. Focused
+  media tests pass 22; root check 128 and backend typing pass. Exact memory and
+  actual decoder success remain unproven until hosted synthetic rerun. Keep mobile
+  media disabled pending measured correction and hosted rerun.
+- Auto-review initially rejected global deletion gate activation and a combined
+  count/cleanup call as potentially affecting real accounts. Read-only proof
+  established exactly three pending owners, all recorded synthetic tests, zero
+  non-test pending owners and zero media artifacts. The justified retry was
+  approved; actual cleanup completed those three. Separate scope inspection
+  from mutation; do not treat counts alone as proof of owner identity.
+
+- Live synthetic private-media smoke reached two owner sessions, another owner,
+  history consent, source evidence, hosted merge and staging; JPEG PUT returned
+  HTTP 546 without an admitted fixed reason. Supabase documents 546 as a worker
+  resource limit; CPU versus memory remains unknown pending platform logs for the
+  matching correlation. Inspect those logs before changing code.
+  Both synthetic owners were deletion-fenced; their ignored checkpoint remains
+  pending cleanup. Synthetic image only, no real media used.
+
+- Media smoke preparation used an incorrectly escaped rg pattern; regex parsing
+  failed before searching. Use fixed-string `rg -F` for fixture literals and
+  inspect discovered files; no data or source mutation occurred.
+
+- Parent's next hosted create rejected function-level http.curlopt_connecttimeout_ms
+  because management postgres cannot SET that parameter. Removed function-level
+  http GUCs; the draft now checks boolean results from the extension's documented
+  reset/setter functions after logging guards and before reading Vault. All four
+  connect/total/TLS options must succeed. Both request outcomes and caught exceptions
+  reset curl defaults without raw error content. Synthetic tests verify false
+  setters/reset reject before HTTP and cleanup restores defaults; live acceptance
+  remains parent-owned.
+
+- Hosted two-session synthetic merge failed UNKNOWN at plan; actual SDK probe
+  returned SQLSTATE 42501. Live grant metadata proved service_role lacked EXECUTE
+  on the newly replaced private worker entrypoint. Wrapper renames retain grants
+  on predecessors, not replacements. Added a corrective grant migration and
+  regression asserting actual service-role access; PostgreSQL FullSuite12 passes.
+- Synchronous scheduler function creation hit restricted server and http GUC SET
+  permissions; these are hosted compatibility failures, not passing local mocks.
+  Keep pre-secret log guards and use supported HTTP option functions; validate
+  actual hosted timeout enforcement before acknowledging scheduler readiness.
+
+- Read-only role privilege query omitted CLI's required `--linked` alongside
+  `--project-ref`; the CLI rejected mutually exclusive targeting before execution.
+  Use `--linked --project-ref` together; no database changes occurred.
+
+- Parent's hosted function creation rejected function-level log_min_messages:
+  postgres lacks permission to set that server parameter. No schedule was created.
+  Removed the unsupported function SET; keep the pre-secret current_setting guard
+  to refuse DEBUG2 or more verbose server thresholds and function-local client
+  WARNING suppression. Actual server threshold was WARNING. Synthetic privileged
+  tests now change the server session threshold to verify fail-closed behavior;
+  parent must rerun hosted creation/smoke before claiming acceptance.
+
+- Alternate scheduler uses synchronous `extensions.http` from private no-argument
+  SECURITY DEFINER functions, never the unsafe pg_net queue. Parent confirmed
+  installed signatures. Function-local client/server WARNING thresholds plus a
+  pre-secret guard suppress upstream DEBUG2 request-header logging. Fixed endpoints,
+  runtime Vault lookup, revoked client execution, bounded curl connect/total timeouts
+  and fixed status-only results avoid persisted request/response capabilities.
+  Real PostgreSQL SchedulerSuite passes eight synthetic fixture files, including
+  logging drift, capability failure/rotation, HTTP error redaction, timeouts/envelope
+  and an intentionally PUBLIC pg_net queue remaining untouched. Hosted provision/
+  smoke remains parent-owned; synthetic mocks do not establish actual HTTP behavior.
+- Replacing the scheduler draft attempted Delete File and Add File for the same
+  path in one apply_patch; validation rejected it before mutation. Separate delete
+  and add operations succeeded, after preserving the prior source in ignored review
+  storage. Keep file replacement operations sequential and match tool patch format.
+
+- Hosted synthetic two-session smoke completed consent and two source uploads,
+  but Edge merge returned HTTP 503/UNKNOWN. A second synthetic correlated test
+  isolated `plan` to service-role RPC SQLSTATE 42501 at HISTORY_ACK; hosted
+  privilege inspection confirms new worker_action wrapper lacks service_role
+  EXECUTE while public wrapper has it. Corrective grant applied; hosted synthetic
+  two-session consent/upload/merge/pull retry passed and anonymous RPC was denied.
+  Three synthetic owners are fenced and queued for normal cleanup.
+  No personal data used. Preserve only fixed status/stage, never credentials.
+
+- Hosted scheduler preflight rejected client SELECT access on the pg_net request
+  queue. Default PUBLIC table privileges were revoked but a second preflight
+  still failed, indicating another grant or inherited access. No schedule was
+  created. Inspect effective table/column grants and role inheritance before
+  proceeding; never expose queue headers or Vault values.
+  Verification showed the ACL was unchanged: the queue owner is supabase_admin,
+  and the postgres management role is not its member. SQL REVOKE reported success
+  but did not remove the owner's PUBLIC grant. This remains open; secure queue
+  access with provider-supported ownership/grant controls or a different secure
+  scheduler before installing jobs. The local capability staging files were removed.
+
+- A gzip/base64 worker bundle reduced the generated module to 7,279,664 bytes,
+  but single-function API deployment still returned HTTP 413. The API size
+  threshold remains unknown. Local Docker bundling deployed version 11 with JWT
+  checks and a synthetic gated request returned HISTORY_UNAVAILABLE as expected.
+  Use the local bundling route and verify startup; API upload alone is insufficient.
+- Read-only `db query --project-ref` omitted required `--linked` and failed before
+  executing SQL. Include both flags after checking CLI help; no database change.
+
+- Local Deno/esbuild inventory returned exit 1 because neither command/package
+  was found in the checked locations. Deno documentation confirms standard gzip
+  DecompressionStream support; only an actual hosted invocation establishes the
+  deployed runtime. Avoid claiming local Deno execution from Node tests.
+
+- Multi-function API deployment returned HTTP 413 (request entity too large).
+  Inventory confirms three new media/cleanup functions deployed with JWT checks;
+  history-merge remained at version 10. Its uncompressed generated module was
+  11,355,792 bytes; precise service limit remains unknown. The generator now
+  losslessly gzip-compresses its static dataset into a 7,279,664-byte module;
+  49 worker tests and byte-for-byte dataset checks pass. Hosted deployment and
+  initialization remain pending. Never infer rollback from a batch failure or
+  assume the smaller upload is accepted before observing it.
+
+- Hosted `supabase db push --dry-run --skip-vault` refused because three older
+  local AI/share migrations are absent from remote history. This is existing
+  migration drift, not an M6/M7 SQL failure. Do not use `--include-all` for this
+  task: it would also apply unrelated migrations. Use an explicitly scoped,
+  verified migration route and preserve remote history; no changes were made.
+  A scoped ignored workdir with the eight remote versions and two intended
+  migrations passes dry-run and lists exactly those two, without Vault changes.
+- Scheduler review found separate capability names could contain the same value.
+  Preflight now rejects equal values and client column-level queue reads; the
+  synthetic negative and scheduling fixtures pass. Never print secret values.
+
+- Secret-name inventory mixed the CLI update notice from stderr into JSON;
+  parsing failed and the displayed false flags were invalid, not evidence of
+  absent secrets. Separate stderr, require successful parsing and print names'
+  presence only; never print secret digests or values.
+
+- Supabase CLI help failed because sandbox blocked its telemetry file outside the
+  workspace (EPERM). Retry with approved host access; no schema change occurred.
+- Read-only readiness reviewer repeated malformed PowerShell rg path wildcards
+  in artifact and shared-source searches; inventory plus `-g` is the safeguard.
+- The reviewer also guessed an absent cleanup-test filename (OS2); discover
+  tests with `rg --files` before reading. No source or data changed.
+- Parent repeated the literal wildcard error in a follow-up test search (OS123).
+  Use the discovered `tests` directory and `-g`, even after one successful
+  inventory; the read-only search made no data changes.
+- Parent repeated the same issue for `travel-life-*` function directories; use
+  `supabase/functions` as the rg path and filter with `-g`. No files changed.
+- A scheduler-source search returned no matches (exit 1); no scheduler was
+  established by that search. Inspect discovered paths and actual project
+  extensions, and distinguish a no-match inventory from a passing job check.
+- Readiness audit found Supabase pg_net sends an empty JSON object while both
+  cleanup handlers reject every non-empty body. Scheduled cleanup is unproven;
+  both focused compatibility regressions reproduced HTTP 400 for `{}` before the
+  correction. Shared `emptyCleanupRequest` now admits absent/zero-byte bodies or
+  an exact empty JSON object within 64 UTF-8 bytes, after capability/origin guards.
+  Malformed, non-object, nonempty, oversized, invalid UTF-8 and failed-stream bodies
+  remain fixed schema rejections before RPC. Affected runtime suites pass 27/27;
+  focused cleanup backend TypeScript passes. Regression cases also verify bounded
+  streamed reads/cancellation, unauthorized capabilities, browser origin and
+  secret/content redaction. No migration or deployment changed. Actual scheduler
+  execution remains unproven; require a matching synthetic scheduled-run receipt
+  before claiming deletion/retention readiness. Future scheduler tests must use
+  its real wire body, not only a hand-built bodyless request.
+
+- A read-only readiness search again used a literal wildcard in an rg path on
+  PowerShell and failed with OS123. Search the discovered directory with `-g`
+  instead; no data changed. This repeats the existing wildcard lesson.
+
+## M7 legacy migration implementation (2026-10-29)
+
+- Review exposed an accepted legacy checkpoint blocked by replacementGuard and
+  concurrent privacy append key collisions during proposed-branch resolution.
+  These were implementation defects, not device incidents. Automatic pull now
+  admits an accepted checkpoint while explicit restore and later edits retain it;
+  composed service tests exercise job retention through pointer activation.
+  Fresh-CAS proposed privacy resolution appends policy actions above the current
+  aggregate/journal maximum rather than overwriting by provisional numeric key.
+  SQL concurrency/action-order/rebuild regressions pass in PostgreSQL FullSuite.
+- The same review found locale-sensitive digest ordering, spread-based privacy
+  maximum overflow, overstrict aggregate replacement fencing, typed-error and
+  malformed-receipt diagnostic gaps, an omitted helper enforcement scan, repeated
+  fake batch IDs, dangling unchanged Replay after deletion, unbounded proposal
+  admission, and missing context/transport assertions. Replaced digest ordering
+  with code-unit comparison, maximum with reduce, kept source-plan authority across
+  equivalent aggregates, admitted only closed reasons/validated receipts, extended
+  scans and persistent test allocation, validated remaining Replay groups, and
+  capped owner proposal admission at 20 under the existing account lock. Focused
+  tests pass 42 mobile and 48 worker cases; all 12 SQL fixtures pass. Future tests
+  must compose retained checkpoint/pull lifecycles and
+  use multi-batch, concurrent-policy and maximum-size inputs at real boundaries.
+- One review-patch command targeted a SQL runtime declaration in the fixture
+  file; apply_patch rejected it atomically. Re-read the fixture declaration and
+  patched exact context. No file changed on the rejected attempt.
+- Parent attempted to update a playbook paragraph already revised by the agent;
+  the patch was rejected atomically. Re-read current context and updated the
+  pending verification statements. Read shared files immediately before edits.
+- Edge and verification reviewers each repeated malformed literal rg globs;
+  directory plus `-g`/discovered paths corrected the read-only searches. No data
+  changed. Apply the same path-discovery prevention to every reviewer handoff.
+
+- Review launch hit the four-active-agent limit while the implementation agent
+  was still standing by. Interrupted that idle turn, then launched all three
+  review lenses. Check live capacity before launching required review layers.
+- Blind reviewer repeated literal PowerShell wildcard `m7*sql` in an rg path
+  (OS123); directory plus `-g` corrected it without mutations. This recurrence
+  reinforces filename-pattern placement in `-g`, including review commands.
+
+- Parent's backend typecheck caught unknown-value narrowing/implicit mapper types
+  in the new legacy runtime helper despite passing Node runtime tests. Added typed
+  locals only after the existing object/array guards, plus explicit mapper argument
+  types. Re-run the actual shared backend graph; Node's type stripping is not a
+  TypeScript check. Mobile typecheck had already passed because backend is separate.
+  The first manual retry left PowerShell's comma-separated --lib argument unquoted,
+  causing TS6046 before compilation. Quoting 'es2023,dom' corrected invocation;
+  backend history-runtime graph now typechecks successfully.
+
+- A line-limited read of a single-line baseline JSON still emitted the whole
+  multi-megabyte snapshot and was truncated. Parsed key/metadata inspection
+  replaced raw reads. Limit output by parsed fields or bytes for JSON snapshots.
+
+- Parent guessed a `steps/` subdirectory for the installed build review step;
+  the read failed. File inventory located the step at the skill root. Discover
+  installed paths before reading; no source/data changed.
+
+- Portable bundle generation could read sources but Node writeFile failed opening
+  the existing generated output with UNKNOWN/-4094. File is Archive, not read-only;
+  root cause remains unknown. Approved host regeneration and freshness checks
+  passed; review-patch regeneration also passed with approved host access.
+  A follow-up metadata read mistakenly resolved the repository-relative path from
+  apps/mobile and failed; the absolute path read succeeded. Use explicit workdir
+  or absolute paths when batching commands across package scopes.
+- New Replay migration fixture used unsupported soundtrack kind `none`, so the
+  real DTO validator rejected it before exercising translation. Replaced with
+  admitted bundled soundtrack/revision; both focused suites pass 29 tests. Derive
+  fixtures from actual closed DTOs rather than inventing valid-looking values.
+
+- Parent guessed account/legacy-correction.ts while inspecting the new adapter;
+  the path did not exist. Subsequent reads use discovered paths only. This is a
+  recurrence of the existing guessed-path lesson; no source/data changed.
+- Parent repeated a guessed runtime-test filename; discovery found the actual
+  files. Strengthen this prevention: run file inventory immediately before each
+  first read of newly introduced files, including tests.
+- Portable bundle regeneration hit Node UNKNOWN/-4094 opening the existing large
+  generated file in sandbox; approved host generator succeeded. This establishes
+  a host/sandbox file-access boundary, not a product or decoder failure.
+
+- Read-only design agent repeated the literal PowerShell wildcard rg mistake with
+  implementation-artifacts/*correction*. Directory plus -g corrected the search;
+  no source mutation. This reinforces the existing requirement to use discovered
+  directories and pass filename patterns through -g.
+
+## M6/M7 interrupted-session recovery (2026-10-29)
+
+Recovery closeout: reviewed local defects above are corrected and final verification
+passes 790 mobile tests, 102 SQLite cases, root90, PG11, mobile/backend typing, lint
+and Doctor21. Exact evidence lives in spec-m7-unified-history.md. Device/service
+acceptance and dirty legacy compatibility remain open, not fixed by host passes.
+The initial stale worker bundle was regenerated and its freshness guard now passes.
+The coverage timeout passed with the declared 15-second budget. A final docs patch
+used a three-hash heading where the observed heading had two and was rejected
+atomically; exact table-row context succeeded. Match observed context in patches.
+
+- Final control audit distinguished a decoded server rejection from a malformed
+  acknowledgement: both previously used HISTORY_SCHEMA, so rejection cleanup
+  could drop an operation whose server commit was still unknown. Typed history
+  errors now carry an internal definitive-rejection marker only from an admitted
+  server error. Local decoding failures retain the same request; focused control/
+  transport tests pass 16 cases. Keep outcome provenance separate from UI category.
+
+- The implementation agent again exhausted its usage limit during review fixes;
+  parent resumed the saved files directly. Integrated correction test failed
+  because its old context mock lacked the new suspend method; adding that method
+  restored the existing invariant and the focused suite passed. One parent patch
+  initially used the older mock line and was rejected atomically; exact re-read
+  preceded repair. No production failure was inferred from this test harness error.
+- Installed Android SQLite source confirms deletion rejects a missing DB. A
+  durable staging reservation can precede file creation on a crash; cleanup now
+  checks generated-file existence after closing tracked handles, then reconciles
+  the registry. Actual SQLite fixtures cover absent files, bounded staging,
+  owner-only deletion and active/local preservation. Native acceptance remains open.
+
+- A new conflict-parser test initially omitted its outer object closing brace,
+  so Babel rejected it before tests ran. Corrected the test fixture syntax;
+  distinguish compilation failure from a meaningful failing regression.
+
+- Independent review confirmed source-resume generation fencing, stale selected
+  repositories after pull, unguarded explicit restore, definitely rejected control
+  receipts blocking retries, media recovery requiring evicted cache bytes, terminal
+  media jobs without abandonment, uncheckpointed derivative retention, unbounded
+  replica databases and incomplete action correlation. Existing narrow passing
+  tests missed their composed lifecycles. The delivery record has one row for
+  each reviewer claim and a before-fix map; regression/cleanup work is in progress.
+  Do not close these from the earlier passing host totals.
+- Blind reviewer repeated the Windows wildcard rg mistake with migrations/*.sql;
+  subsequent searches used the existing directory plus -g. This adds recurrence
+  evidence to the existing wildcard lesson, without any source mutation.
+
+- Reviewer agents could not read a parent diff under the command sandbox's
+  per-invocation system temp path. No content review occurred in those attempts.
+  Regenerated the same complete diff in ignored `.review-artifacts/` inside the
+  shared checkout; verify accessibility before treating reviewer output as review.
+- Coverage-instrumented full Jest run timed out at the existing 5-second Replay
+  durable-open test, after the uninstrumented full run passed. Keep this failed
+  run explicit; retry with a declared larger test budget after inspection, without
+  changing production behavior or claiming coverage/test success prematurely.
+
+- Integration inspection found an offline identity regression: controller validation
+  deliberately returns no server grant on network failure while retaining local
+  owner, but history/merge transports classified that null as ACCOUNT_SESSION.
+  The service then invalidated protected offline identity. Controller-only tests
+  were insufficient; add a composed transport/service network test. Preserve
+  offline owner on retryable validation failure, while real revocation still
+  blocks it. Correction and verification are being completed in this recovery.
+
+- Actual PostgreSQL correction fixture failed `TEST_PRIVACY_ACCEPTED`: its family
+  JSON was an object, while the deployed privacy contract requires an array; its
+  competing manual Exclude was also invalid by the existing policy. Corrected
+  the synthetic concurrency case to inferred privacy with array membership and
+  added explicit malformed-family/manual-Exclude rejection assertions. Preserve
+  production guards; compare fixture rows against the actual validator, not only
+  primitive DTO layout. Corrected fixture and all ten local PostgreSQL rollback
+  fixture files passed on 2026-10-29; no hosted SQL changed.
+
+- Initial root check passed 88/89 tests; generated worker bundle freshness failed
+  with `HISTORY_DOMAIN_BUNDLE_STALE` against the recovered source. This is a
+  pre-existing interrupted-work inconsistency, not a deployed runtime result.
+  Regenerate after domain edits settle, then rerun the freshness guard and root
+  check before claiming verification. Resolution evidence follows below.
+- Docker's sandbox named-pipe access was denied before database creation. The
+  same isolated, network-disabled fixture harness runs with approved host access;
+  do not classify the transport denial as SQL failure.
+- Recovery inspection searched a nonexistent `.codex` directory and later guessed
+  `src/account/native.ts`, a missing `sprint-status.yaml`, and an unlisted
+  `account-background-sync.test.ts`; reads failed without changing runtime state.
+  Use discovered paths (`history-native.ts`) and inspect search results before
+  dependent reads. This repeats the existing guessed-path lesson; batch only
+  verified paths and retain failed-command status even when other reads succeed.
+- The same recovery also repeated the PowerShell literal-wildcard `rg` mistake
+  with `account-*.ts(x)` paths. Replaced with the existing directory and `-g`
+  patterns. Prevention for this run: use only discovered literal directories as
+  rg operands; all filename filtering goes through `-g`, never wildcard operands.
+- Supabase changelog preflight repeated the known web content-type rejection for
+  `text/markdown`; current official native Auth docs were retrieved through
+  `search_docs`. No SDK/config/schema change relies on an unread changelog.
+- Ad hoc backend typecheck omitted `--allowJs`, so strict TypeScript rejected the
+  intentional generated JavaScript domain import with TS7016. Include the actual
+  JavaScript graph (`--allowJs`) when checking these runtime entry points; do not
+  add an untyped declaration to conceal the graph. Corrected command result is
+  recorded in the recovery verification evidence.
+- Expo Doctor recurrence: `npm run doctor` failed resolving
+  `registry.npmjs.org/expo-doctor` with `ENOTFOUND` on 2026-10-29. The local Jest,
+  SQLite, typecheck and lint results remain separate; combined mobile `check`
+  is not established. Re-run Doctor with registry connectivity; no dependency
+  change is justified by this transport failure. Approved host retry then passed
+  all 21/21 checks; the sandbox transport failure did not require dependency edits.
+- Sandbox ADB inventory could not start/reach its daemon before reading devices.
+  This is collection transport failure, not an app/device defect. Use approved
+  host inventory and report counts only; no app data/reset operation is needed.
+
+## Multi-source guard and verification incidents (2026-10-28)
+
+- Populated-journal deletion fixture failed actual Postgres with JSON token `f`:
+  its dynamic EXISTS boolean was assigned to a jsonb variable, which receives
+  PostgreSQL boolean text `f` rather than JSON `false`. Use a boolean destination
+  for EXISTS. The purge insertion column order was correct; this was a fixture
+  assertion type error, not evidence that account purge failed.
+
+- Root backend typecheck first failed TS6046 because PowerShell split an unquoted
+  `--lib es2023,dom` argument. Quote the comma-separated compiler argument as
+  `--lib 'es2023,dom'`; the corrected backend typecheck and bundle freshness check
+  pass. The rejected compiler CLI did not test runtime behavior.
+
+- Deletion recovery review found remove() read live status before reconciling its
+  saved capability receipt. An accepted deletion with lost acknowledgement can
+  already fence that status, trapping recovery; check() also left old local authority
+  visible after receipt pending. Reconcile the same-owner protected receipt first,
+  share accepted owner cleanup, and fence only the matching current account while
+  cleaning its jobs/replica. Native service tests force pending receipt with fenced
+  normal RPC and verify no duplicate deletion or raw sentinel diagnostics.
+
+- Root repeated an undiscovered-path read for tests/share-runtime.test.mjs while
+  inspecting deletion; it did not exist and no runtime state changed. Removed the
+  unrelated inspection. Search output must be inspected before naming any next
+  file; combining an unrelated guessed read with a successful search is forbidden.
+
+- The first deletion-panel test mock returned a fresh getSnapshot object on every
+  read, triggering React useSyncExternalStore's infinite-update protection. Runtime
+  service snapshots were already stable. Keep the mock snapshot object cached and
+  rerun the panel test; this is a test harness defect, not a device runtime finding.
+
+- M6 self-inspection found session-target refusal used ACCOUNT_SESSION even when
+  the caller's session remained valid. History service treats that code as observed
+  caller revocation, so an already removed or different-owner target could log the
+  caller out. Target refusal now returns the same HISTORY_STALE for absent and
+  different-owner sessions; genuine caller/session denial remains ACCOUNT_SESSION.
+  Local PG regression covers the distinction without exposing target existence.
+- A gating patch used an incomplete JSX line as context and was rejected atomically.
+  The corrected patch then briefly duplicated a Jest module mock while adding its
+  gate export; inspection removed the duplicate before verification. Use the full
+  observed line and amend the existing mock once rather than adding another.
+
+- Root's deletion fixture repeated the PL/pgSQL CASE-in-IF parsing pitfall recorded
+  below: unparenthesized CASE after IS DISTINCT FROM caused a syntax error before
+  the fixture executed. Parenthesized both CASE expressions. Keep SQL control-flow
+  CASE operands parenthesized and run actual PG fixtures before claiming evidence.
+  No hosted mutation occurred; the disposable test container was cleaned up.
+
+- The next local Postgres8 run reached the existing aggregate fixture but its
+  successful removal request lacked the newly required preview revisions, causing
+  TEST_REMOVAL_FENCES_OLD_AUTHORITY. Add current revisions conditionally when the
+  preview wrapper is installed; keep legacy fixture behavior without that draft.
+  This is test contract compatibility, not evidence that source purge regressed.
+  Lint separately rejected an unescaped apostrophe in new source-removal JSX copy;
+  rephrased that sentence and retained the same deletion/retention explanation.
+
+- First actual local Postgres source-impact run rejected the status query because
+  SQL alias `s` shadowed the function's PL/pgSQL row variable `s` (ambiguous owner_id).
+  Rename the SELECT alias source_row consistently. The disposable container was
+  cleaned; no hosted state changed. Actual Postgres execution, not host DTO mocks,
+  is required to catch PL/pgSQL name-resolution collisions before enablement.
+  The first combined repair patch guessed the current test mock's field order and
+  was rejected atomically. Re-read the exact mock and apply dependent patches separately.
+
+- Source-impact review found preview revision fields were stripped before the old
+  source-control receipt digest, allowing a retry with changed preview expectations
+  to replay the receipt. Bind the complete request to a private owner-scoped receipt
+  in the same transaction; tests distinguish identical retry from changed revision
+  conflict. Retain original source-control receipts for its existing mutation guard.
+
+- A source-impact inspection passed a literal `supabase/tests/*.sql` path to rg
+  under PowerShell; rg rejected that nonexistent literal path. Use the verified
+  directory with `-g '*.sql'` so filtering happens inside rg; partial output from
+  other reads does not make the failed search successful.
+
+- The newly available Supabase skill's changelog.md preflight could not be fetched:
+  web rejected its text/markdown response and sandbox Invoke-WebRequest reported
+  DNS unavailable. No service mutation occurred. Current official session docs were
+  retrieved through the connected search_docs tool; changelog coverage remains
+  unavailable, so installed SDK behavior and local SQL are the verified boundary.
+
+- Root used Jest30's --testPathPatterns against installed Jest29; the CLI rejected
+  the command before running tests. Use --testPathPattern account (singular) or
+  installed package positional filters. A rejected CLI invocation is no test run.
+
+- Root environment discovery initially used sandbox LOCALAPPDATA to look for
+  Docker/PostgreSQL. The host Docker executable is under the explicit user's
+  AppData/Local/Programs/DockerDesktop/resources/bin path; sandbox named-pipe reads
+  were denied while the same approved elevated read reached engine 29.9.2. This is
+  a host transport/permission boundary, not a database failure. Use the verified
+  absolute installation path and report the sandbox boundary accurately.
+  First official Postgres image pull failed before database creation because
+  docker-credential-desktop was absent from the task PATH. Root verified the helper
+  beside docker.exe and retried with that exact directory on the process PATH.
+  Docker29 warned that stop --time is deprecated; the reproducible harness now uses
+  --timeout and both exact owned containers stopped successfully.
+
+- The first private-media upload validator hard-coded an incorrect field count,
+  rejecting valid job fixtures at MEDIA_SCHEMA before network tests could run.
+  Use the existing exact-key validator with the explicit allowed field list rather
+  than a separately maintained count; valid and extra-field fixtures must both pass
+  their intended admission expectations before testing later fault boundaries.
+
+- First native-cache fault tests returned MEDIA_VERIFY before the intended cache
+  boundary because the Crypto mock treated the real adapter's ArrayBuffer as a
+  Uint8Array. Match the installed SDK's BufferSource shape and keep generated
+  cache UUID fixtures distinct from owner IDs; rerun fault tests before attributing
+  their failed assertions to native runtime behavior.
+
+- Adding the explicit M6 session-denial branch left a redundant ACCOUNT_SESSION
+  comparison in the remaining else branch. Jest passed but TypeScript rejected it
+  with TS2367 because control-flow narrowing excludes that value. Removed the dead
+  comparison; keep compiler validation alongside behavioral tests after branching
+  on closed diagnostic unions. The later full verification records the rerun.
+
+- M6 continuation regression tests reproduced that confirmed revoked/invalid provider
+  sessions and history API ACCOUNT_SESSION responses left the local account identity
+  readable. Provider denial was classified as ACCOUNT_PROVIDER and the history action
+  only displayed recovery copy. The controller now fences adapter work, clears the
+  local owner immediately and persists the secure block; history API denial invokes
+  that fence and returns to the independent local record. Retryable network failure
+  retains offline identity. The initial seven denial and secure-block fault tests
+  failed as expected before the fix; focused tests verify blocked state, shared
+  correlation and redaction. Actual provider/device revocation remains unobserved.
+  Prevention: cover installed SDK error names as well as codes, plus every service
+  response that establishes a live-session denial; never infer revocation from a
+  timeout or a generic transport failure.
+  Restore fault tests also reproduced that all native/pull failures shared
+  HISTORY_RESTORE and that signout during replica staging still began rebuilding.
+  Exact restore stages now preserve known native classification and fence each
+  awaited stage; six failure/lifecycle regressions passed after the correction.
+  These fixtures do not establish real SQLite failure recovery on a phone.
+
+- Mobile media transport tests passed Jest but failed TypeScript because a mock
+  callback inferred a zero-argument call tuple, while the assertion read request
+  arguments. Declare the fetch mock arguments explicitly; verify typecheck along
+  with Jest when inspecting request headers/body in typed mocks.
+
+- M7 continuation inspection guessed nonexistent workflow and Replay music paths;
+  suppressed PowerShell reads hid two misses and a later explicit read exposed one.
+  No runtime files changed. Discover filenames with `rg --files` before reading;
+  use the parent-provided rendered workflow path and renderer/audio-import sources.
+  Parent inspection repeated the same risk by reading an undiscovered native-media
+  test filename; command exited 1 without changes. Treat discovered file inventory
+  as a prerequisite for inspection, including test paths suggested in discussion.
+  A later delivery-record patch used an incomplete context line and was rejected
+  atomically. Read the exact record tail and match full existing lines before patching.
+  Root repeated the read-before-discovery mistake with derivative-native.ts and
+  replay/native-renderer.ts; actual derivative.ts/image-derivative.ts had been found.
+  Inventory and dependent reads must be separate tool calls; check each literal path
+  against already-returned inventory before appending any read to a command.
+  M7 coordinator inspection repeated this with expo-scheduler.ts before inventory
+  showed scheduler.ts. No runtime file changed; do not combine a guessed read and
+  discovery in one tool call. Read only names already present in returned inventory.
+
+- Importing the shared private-media manifest validator into mobile exposed a
+  TypeScript BufferSource incompatibility in its SHA-256 helper: Uint8Array could
+  reference SharedArrayBuffer. Copy into an owned ArrayBuffer before Web Crypto;
+  rerun mobile typecheck and backend tests to verify both consumers.
+
+- A Python one-liner source edit failed PowerShell parsing before execution;
+  a checked temporary Node script applied the intended edit. Prefer apply_patch or
+  file-based scripts over nested shell quoting for source transformations.
+
+- The first actual Postgres rollback of the private-media draft rejected an
+  unparenthesized CASE expression on the right side of `n > CASE ... END` in a
+  PL/pgSQL IF (SQL42601). The parent parenthesized that CASE in the draft before
+  rerunning. No schema persisted from the failed rollback. Test full migration SQL
+  against actual Postgres before treating host protocol fixtures as schema proof.
+
+- The first private-media host test could not load a TypeScript constructor
+  parameter property under Node's strip-only TS loader. Replace parameter-property
+  shorthand with explicit field declarations/assignments in shared Edge modules.
+  Use the real root Node test entry before claiming runtime behavior verified.
+- A media inspection passed PowerShell's `-ErrorAction` to `rg`, which interpreted
+  it as an unsupported ripgrep option. Use discovered filenames and native rg
+  arguments; PowerShell cmdlet switches do not apply to external executables.
+
+- The sandboxed Supabase CLI help command tried writing its telemetry cache under
+  the user profile and received EPERM. No migration or remote schema changed.
+  Parent uses its already-approved CLI environment to generate migration names;
+  draft SQL stays in the delivery-artifact directory until then. Do not mislabel
+  this filesystem permission failure as a database/service problem.
+- A bounded media research delegate initially omitted `_bmad-output` from the
+  probe-spec path and its read failed; it found the actual file with `rg` and read
+  that path. Pass discovered absolute artifact paths in delegated research tasks.
+
+- Parent inspection assumed apps/share-validator/package.json exists; the read
+  failed. Directory inventory showed standalone validator/server files and a
+  Dockerfile. Inventory the component before assuming package boundaries.
+
+- M7 review confirmation initially reset component state synchronously in a React
+  effect. Mobile lint rejected `react-hooks/set-state-in-effect`. Bind confirmation
+  to the exact source/revision/page key in event state instead; changed review
+  identity invalidates confirmation during render without an effect. Verify lint
+  and the review UI flow after changing confirmation state.
+
+- A delegated M7 change authored a migration filename directly before reading the
+  Supabase skill's CLI naming requirement. No remote mutation used that file.
+  Parent will create the migration through `supabase migration new`, then relocate
+  the reviewed SQL. Read applicable provider skills before naming migrations;
+  locally authored SQL is not deployed or verified schema evidence.
+
+- A delegated M7 inspection accidentally appended a read of a nonexistent skill
+  path to an otherwise successful context command. No files changed; the combined
+  command returned exit 1. Removed the irrelevant probe and read the actual skill
+  path from the installed catalog. Keep inspection commands limited to discovered
+  paths and inspect each exit status independently.
+  The same task invoked the root domain-bundle script while the command's working
+  directory was `apps/mobile`; Node reported MODULE_NOT_FOUND before Jest passed.
+  Rerun the builder from the verified repository root. A later successful command
+  in one PowerShell invocation does not prove earlier commands passed; use separate
+  calls for commands with different working directories and inspect each result.
+  A later file search also named a nonexistent `packages` root; `rg` reported that
+  path absent while returning matches from discovered roots. Restrict multi-root
+  searches to verified directories; partial matches do not make every path valid.
+
+- A 720p synthetic Edge probe deployment was rejected by automatic approval
+  review because the proposed function disabled the Supabase gateway JWT check;
+  a separate secret does not authorize that security change. No function was
+  deployed. The freshly created probe-only secret was unset immediately. Use an
+  authenticated JWT-gated test path or obtain explicit approval for the specific
+  action; do not retry through an indirect route.
+  A separate safer probe with JWT gateway verification enabled was deployed and
+  invoked; it returned fixed SYNTHETIC_ENCODE failure at 1,969 ms. The command's
+  1,500 ms timeout is a possible boundary, but the underlying cause is unknown.
+  Function and secret were removed. Use a pre-encoded synthetic fixture to isolate
+  decode cost instead of retrying the same encode workload. The separate JWT-gated
+  decode-only probe passed the fixed 720p H.264/AAC fixture and truncated control;
+  it and its secret were removed. Hosted longer/concurrent media remains unproven.
+
+- The owner explicitly requested uninterrupted M6–M7 work until input was needed,
+  but the previous response stopped after a passing intermediate test while media
+  and integration work remained. Continue independent implementation and checks;
+  send a final handoff only upon completion or a concrete unavoidable blocker.
+
+- A PowerShell `rg` invocation used shell brace expansion syntax, which PowerShell
+  rejected before searching. Reran against the directory with a file filter; use
+  native PowerShell arguments instead of assuming Unix brace expansion.
+
+- Inspection found device registration could continue after an awaited installation
+  ID read even if the owner had signed out, and the transfer helper checkpointed
+  before its first lifecycle check. Fence before and after registration and before
+  checkpointing; verify with delayed synthetic operations. An already-sent request
+  may still complete and requires server-side session checks and reconciliation.
+  Token retrieval also had a cross-owner race: action-scoped request fences now
+  compare the verified token owner and current generation immediately before fetch.
+  Synthetic tests cover owner mismatch, held token lookup, stale checkpoint and
+  held registration helper; full service and device verification remain open.
+
+- Status refresh assigned global account status before an awaited local scope read;
+  a sign-out during that read could leave the previous owner's status in shared
+  memory. Status is now held locally until the lifecycle fence passes at publication;
+  a held-promise unit test verifies that the publication helper fences sign-out.
+  Full refresh integration and actual device sign-out behavior remain unverified.
+- Supabase changelog Markdown could not be read by the web reader due to its content
+  type; the official HTML changelog and Supabase documentation search were used.
+
+- The initial mobile status validator imposed the worker's 100-source input cap
+  on the account's full status list, which can include retained inactive sources.
+  The SQL status contract does not enforce that bound. Removed the unsupported
+  client limit before release; validate each source without silently rejecting
+  otherwise legitimate account status.
+
+- A delivery-record patch used mismatched context and did not apply. Read the
+  exact tail before retrying and use the verified lines for the subsequent patch.
+
+- A PowerShell text replacement command failed because its `Set-Content`
+  invocation rejected the supplied parameter in this environment; it did not
+  update the file. Applied a context-checked patch instead. Prefer patch tooling
+  for source edits and verify the resulting diff.
+
+- Inspection found account restore saved its pointer and scope in separate
+  transactions, so scope-write failure could leave an unmatched pointer. A late
+  stale-action cleanup could also erase a newer pointer. Implement atomic pointer
+  and scope commit with an in-transaction action fence and matching-only cleanup;
+  Synthetic SQLite verifies transactional rollback for scope-write failure and
+  in-transaction sign-out, plus matching-only cleanup after a newer pointer is saved.
+  Full device lifecycle and restore diagnostic collection remain open.
+
+- A local Edge probe initially mounted the whole workspace read-only, producing
+  irrelevant broken-symlink warnings and exposing more files to the container than
+  the test required. Stopped it before sending a request. Mount only the synthetic
+  probe and shared worker source directories for subsequent tests. Interrupting
+  the CLI did not stop its container; the next launch failed because its port was
+  occupied. Identified and stopped the exact test container. Use an explicit unique
+  container name and stop that container explicitly after testing. A separate
+  `/shared` mount failed module resolution; locate the read-only shared mount inside
+  the probe's service root, then verify loading before sending a test request.
+
+- Local Docker deployment with gateway JWT verification disabled was rejected by
+  automatic approval review because it would weaken the project's security gate.
+  Keep gateway verification enabled and verify token compatibility before enabling
+  the worker. The rejected action did not deploy the function.
+
+- After Docker installation, the sandbox's isolated user profile and PATH did
+  not expose the host Docker CLI. An elevated host check found the CLI but its
+  engine pipe was absent and no Docker Desktop process was observed. This does
+  not establish why startup failed. Check the desktop UI and engine readiness;
+  do not infer a WSL failure merely from the absence of a user distribution.
+  Docker Desktop was opened, its optional sign-in skipped, and its UI and CLI
+  subsequently confirmed the engine running. A check incorrectly assumed the
+  all-users Docker path; the installation uses the per-user path. A UI click also
+  failed while the window was behind another app; raising it resolved the geometry.
+  Check the installation mode and foreground window before retrying.
+- Docker-based local bundling subsequently deployed the gated worker (5.6 MB);
+  unauthenticated HTTP 401 confirms the enabled gateway rejects that request.
+  Actual authenticated runtime and workload checks remain open.
+
+- The first deployment of the disabled merge worker failed with HTTP 413; its
+  generated bundle was 11,327,267 bytes, dominated by the required destination
+  dataset. No successful deployment is inferred. Investigate lossless packaging,
+  A gzip/base64 version reduced it to 7,251,146 bytes and passed 18 worker tests,
+  but deployment again returned 413. Reverted the experiment. The deployment limit
+  is not established; investigate a different packaging path before retrying.
+- A multi-file revert patch failed due to mismatched documentation context and
+  applied nothing. Read exact context and apply verified patches independently.
+
+- Two attempted project-state patches failed because their expected line omitted
+  its actual preceding word; the second repeated the same unmatched context. No
+  file changed. Read the exact lines before retrying and apply a verified context.
+
+- The initial merge checkpoint integration reused `clearReplica`, which also
+  removed pending jobs during ordinary replica invalidation. This could erase an
+  unconfirmed operation ID before receipt reconciliation. Separate replica pointer
+  invalidation from explicit account-job deletion and cover both paths with real
+  synthetic SQLite; account deletion still clears the owner's jobs.
+
+- Source removal in the first deployed M7 guard would delete aggregates and the
+  source snapshot without preserving independently entered owner facts. The worker
+  is not enabled. Follow-up migration blocks removal with HISTORY_REVIEW; a
+  synthetic rollback SQL test verifies that the aggregate remains. Implement and
+  verify preservation before removing the guard.
+- Tightening the portable Replay contract caused two merge tests to fail because
+  their transfer fixtures still contained local file handles. Corrected them to
+  portable inputs; separate contract tests retain negative coverage. Regenerate
+  the shared domain bundle after contract changes: the root check correctly failed
+  on the stale bundle, then passed after regeneration (67 tests).
+- A Supabase dry run omitted the project ref and a query omitted --linked; both
+  failed before changing data. The targeted dry run, migration and rollback test
+  succeeded with explicit project flags. CLI help without elevation also failed
+  at its telemetry-file permission boundary. Use the known scoped elevation and
+  explicit project flags rather than retrying unchanged commands.
+- A combined test/document patch had a mismatched documentation context and
+  applied nothing; the corrected patch applied cleanly. Check exact context and
+  rerun targeted verification after edits.
+
 ## Android bundle missing shared share-protocol module report (2026-10-27)
 
 - **Owner symptom:** The freshly built Android client reports missing shared
@@ -129,6 +2363,13 @@
 - **Prevention:** When a required `uv` workflow command fails solely on its
   sandbox cache path, retry that exact read-only resolver with approved elevated
   filesystem access; do not treat the workflow as initialized or skip review.
+- **2026-10-29 spec recurrence:** `uv run` could not inspect the project Python
+  interpreter because its sandbox cache denied temporary-file persistence.
+  The workflow/config resolvers then passed using the existing
+  `.venv/Scripts/python.exe` directly; no dependency resolution was needed.
+  For these standard-library scripts, prefer the verified existing interpreter
+  after this cache-only failure; avoid repeated unchanged uv attempts. Spec
+  memlog writes use the same shared script with that interpreter.
 
 ## Commit index-lock permission failure (2026-10-27)
 
@@ -4356,3 +6597,785 @@ Verification: new scheduler/session tests were RED before the integration and GR
 - **Evidence/cause:** A read-only architecture search passed a wildcard as a positional rg path on PowerShell and returned OS error 123. No product behavior changed.
 - **Correction/verification:** Repeated successfully with the planning-artifacts directory and `-g '*architecture*'`. The Google Photos API-updates URL was also unavailable through the web tool; the accessible official API overview and Picker media guide established the actual constraints instead.
 - **Prevention:** Reuse the existing Windows lookup lesson: directory arguments plus rg glob filters, never positional wildcard paths. Do not infer API capabilities from inaccessible pages.
+
+## M6-M7 implementation/review tooling incidents (2026-10-28)
+
+- Repeated guessed `packages`, `metadata`, `import` and `ai/config.ts` paths failed read-only lookups. Actual inventory identified import-record and existing auth modules; no absence claim relied on failed paths. Use rg --files before path-specific reads.
+- UV resolver metadata writes were denied even with --no-cache. Direct .venv/Scripts/python.exe runs the installed scripts successfully; use this interpreter for metadata-only scripts. Sprint generator dependency ruamel.yaml is absent and its M-prefixed epic headings are unsupported; preserve existing story IDs and use documented template/manual fallback with explicit validation.
+- Account/architecture subagents stopped at account usage limit before writing account code or completing all review lenses. Rubric review exists, remaining independent reviews are open; do not call them passed. Root continued implementation directly.
+- Supabase list_tables initially lacked required verbose argument; corrected to verbose=false. Markdown changelog fetch was unsupported by web tool; use official HTML/docs fallback. No DDL was applied by these reads.
+- One account diagnostic patch matched only part of a long union line and failed atomically; corrected with targeted full-prefix replacement. Account UI test initially omitted await on render/fireEvent required by testing-library v14; corrected to match existing tests.
+- Supabase CLI --help failed at its telemetry write outside sandbox before printing help. Use the connected MCP for hosted operations; local CLI migration naming remains unavailable pending a native telemetry-safe route.
+- Expected red tests for new account-storage module were missing-module failures before implementation, not runtime incidents. Storage and controller synthetic suites subsequently passed 12 tests; UI and final verification recorded in the delivery record.
+- Account documentation command used repository-relative path from apps/mobile, creating a nested README. Detected via git status; appended its content to the intended README and removed only the verified agent-created file and empty directories. Prevention: use absolute artifact paths when commands change workdir; inspect untracked paths before verification.
+- Hosted migration exposed a generator defect: JS String.replace replacement interpreted dollar-dollar SQL delimiters as one dollar. CLI applied schema/table statements before failing at helper function creation; read-only inspection confirmed partial fresh schema and no callable account API. Corrected with literal/function replacement, qualified JSON iterator fields and idempotent schema/table/function creation for safe continuation. Add a delimiter/schema-layout regression; never infer rollback from a migration error.
+- Pure extraction initially left unused imports/re-export ordering warnings; removed unused imports and moved reexports after imports. Account adapter initially returned an unavailable scope not allowed by PermissionSnapshot; changed inspect/request to null and used an explicit accountAuthorized boundary, preserving native library permission semantics.
+- Further pipeline extraction moved the memory-candidate database acknowledgement after final mapping, causing the real SQLite interruption diagnostic stage regression. Restored the exact acknowledgement boundary with an awaited injected checkpoint callback at REBUILD_MEMORY_OVERLAY. Existing graph-reuse differential tests instrumented the old repository source location; moved their instrumentation to the shared canonical projection while retaining the same reference-vs-optimized real SQLite comparison. Rerun all 93 tests before claiming extraction parity.
+- New account replica SQLite regression initially expected a comma in the existing manual-journey label instead of its actual middle-dot separator. Corrected the test to existing composition; no product copy changed. The test now checks separate DB restoration, source preservation, schema columns, server/native DTO parity and literal SQL delimiters.
+- Current Supabase SDK source includes exception console paths around persistence/automatic refresh. Account adapter now keeps SDK session memory-only and manages protected persistence/foreground refresh at the app boundary so storage/provider exceptions can be classified without being passed to SDK background logging. Add adapter redaction/refresh tests before claiming this boundary verified.
+
+## M6.1 account cancellation fence correction (2026-10-28)
+
+- **Evidence:** Review identified that canceling verification fenced protected writes but left a late SDK in-memory identity readable by a subsequent restore. Synthetic adapter regressions were RED (missing invalidate boundary).
+- **Correction:** Adapter generation now denies both memory reads and protected writes after cancellation, signout or disposal. Only a fresh explicit verification lifts that fence; late restore/verify results return no identity. Controller refresh also clears identity when the provider returns no valid session.
+- **Prevention:** Hold SDK verification/restore/refresh across cancellation and reopen in tests; assert credentials never become accessible or persisted. Physical provider/device evidence remains open.
+- **Tooling evidence:** An initial targeted read assumed the not-yet-created account-auth-adapter test path; it was absent. Create the owned regression file explicitly; do not treat absence as verification.
+- **Path/patch recurrence:** A multi-file patch included a nonmatching mock line and was rejected atomically; a later append used root-relative paths while working from apps/mobile and did not create tests. Reapply with absolute patch targets and inspect the actual test count; the prior 15 passing tests did not include those uncreated regressions. A review lookup also assumed the wrong parent directory; use rg inventory to locate the declared companion.
+- **Persistence review:** Post-manifest obsolete chunk deletion failure incorrectly rejected an already committed credential write. Cleanup is now best effort after acknowledgement, with a regression asserting the new generation restores. These unreachable chunks remain protected; no remote cleanup claim is made.
+- **Host-test correction:** Newly added adapter integration tests used dynamic import under Jest without VM modules and failed before behavior ran. Static imports now use the established Jest transform. Typecheck first reported only concurrent history-merge tests whose module was not yet created; this is unfinished parallel work, not a passing package check.
+- **Installed SDK console boundaries:** Source inspection found Auth 2.95.3 fetch catches log raw rejected transport errors. The account-only fetch wrapper now maps rejected transport to fixed 503 before SDK classification; installed-SDK synthetic regression proves no console error and retryable classification. The first SDK regression also exposed uncancelled processLock timeout warnings after successful calls; account config now sets lockAcquireTimeout=-1 with processLock, preserving serialized ownership without the SDK warning timer. A stalled action remains unresolved, never declared rolled back. No global console monkeypatch or dependency modification is used.
+- **SDK typing correction:** auth-js exposes lockAcquireTimeout but supabase-js 2.95.3 does not forward that option in its typed auth configuration. Typecheck caught the unsupported option. Pass the documented negative timeout inside the supplied processLock wrapper instead; retain the installed versions.
+- **Lookup recurrence:** Windows rg was passed a wildcard file path during final inspection and rejected it; use rg with a directory and -g pattern. git diff --check itself emitted only newline-normalization warnings, no whitespace defects.
+
+## M7 worker local tooling incidents (2026-10-28)
+
+- **Evidence:** Supabase CLI help was blocked by its profile telemetry write; approved CLI execution succeeded and generated an ordered local migration. The first empty M7 scaffold preceded its new M6 prerequisite; replaced only that verified-empty agent-created file with a later CLI-generated migration.
+- **Command corrections:** A read assumed tests/share-protocol.test.mjs instead of inventorying tests; another used Bash brace expansion in PowerShell and failed parsing. Replaced with rg --files inventory and explicit paths. Documentation markdown fetch was unsupported by the web transport; used the official Supabase documentation connector instead. No database or runtime behavior changed in those failures.
+- **Prevention:** Check native shell syntax and actual filenames, sequence migrations after prerequisites, and distinguish tooling failure from runtime evidence. Worker SQL still requires actual Postgres acceptance before deployment.
+- **Worker verification correction:** The first explicit backend TypeScript check found an implicit-any key callback at the generated-domain boundary. Added the typed key shape; the exact boundary TypeScript command now passes. Prevent by typechecking the backend adapter separately from the mobile package, since Edge helpers are outside mobile tsconfig.
+- **Worker review corrections:** Parent review found paused/disconnected snapshots would be dropped by an active-only source plan and projection metadata contained non-JSON maps/functions. Plans now retain every non-removed source using its acknowledged source revision independently of old snapshot generation, and serialize explicit plain graph/review/privacy arrays. Synthetic SQL retention assertion and Node metadata-shape regression were added. Actual SQL execution remains parent-owned before claiming deployed correctness.
+
+- M7 resume inspection repeated PowerShell literal-wildcard use with rg on the
+  account-history test path (OS123). No files changed. Use the discovered test
+  directory with rg -g filtering; all following searches use that form. Review
+  command arguments before execution rather than relying on shell glob expansion.
+
+- M7 resume fault tests confirmed raw local correction-journal read/save/accept
+  exceptions escaped as UNKNOWN rather than HISTORY_STORAGE at the known boundary.
+  The runner now preserves typed schema/fence/conflict errors and wraps local faults
+  with HISTORY_READ/HISTORY_STAGE; transport remains HISTORY_CORRECTION unknown.
+  Five injected storage faults plus existing lost-ack/conflict/fence tests pass.
+  Privacy DTO parity also lacked SQL's manual-exclude/target and reviewed-array
+  guards. Add the same admission guards before transport; contract negatives pass.
+  Prevention: run fault injection and paired TypeScript/Postgres schema negatives
+  whenever extending semantic row admission or an offline journal boundary.
+
+- M7 headless negative test exposed OS success after account work failed; the
+  background runner now returns its result and TaskManager propagates failure.
+  The first RED run also showed a test call-count leak after its failed assertion;
+  reset that mock in beforeEach. A subsequent attempted correlation UUID change
+  exposed Expo's undefined default Jest crypto mock. Keep the established mobile
+  runtime correlation generator and explicitly allow its bounded fixed format at
+  the worker instead of introducing another native boundary. Focused rerun pending.
+
+- The first resolved-correction SQLite regression used descriptive replica filenames
+  rather than the existing UUID-only account filename contract; saveReplica rejected
+  the fixture before any transaction. Replaced those synthetic names with UUID
+  fixtures. Keep native path validation in fixtures; do not weaken it for test names.
+
+- M7 background bridge test reached an untransformed dynamic import in installed
+  Jest and failed before mocked work. Use the task entry's established lazy require
+  pattern with a type-only import annotation; all eight focused suites then passed.
+  Typecheck also caught closure assignment narrowing boundary to HISTORY_STAGE
+  (TS2367); use a string comparison for the recorded mutable stage and rerun.
+- Parent composed audit found offline live-token verification returned null while
+  keeping the local owner, but history transports turned that into ACCOUNT_SESSION
+  and invalidated the offline replica. Bound current-owner null now reports
+  HISTORY_NETWORK without sending; observed owner loss remains HISTORY_FENCED and
+  explicit server denial retains ACCOUNT_SESSION. A service-plus-real-transport
+  regression preserves the prior account view/identity and verifies redaction.
+
+- Review-fix multi-file patch used a guessed runtime RPC variable name and was
+  rejected atomically; reread the exact payload/stage line and applied the scoped
+  patch. A new abandonment fixture copied two extra DO-header lines from its
+  reference; immediate source inspection caught the duplication before SQL run.
+  Removed the duplicate and added active-copy retention/reprepare cases. Do not
+  treat setup copy ranges as parsed statement boundaries; inspect the full seam.
+
+## Onboarding source lookup command recurrence (2026-10-29)
+
+- Read-only inspection assumed absent apps/mobile/app and separate trust/import screen files; rg reported a missing directory and Get-Content reported missing files. A follow-up used Bash brace expansion in PowerShell and failed parsing. No app behavior changed.
+- Correction: inventoried src/app and followed its actual exports to components/mobile-screens.tsx; verified Welcome, Trust, Import and Atlas callbacks in source. Prevention: inventory paths before reading, follow route exports, and use explicit PowerShell paths or rg directory filters. Broad project-state/search output was truncated; narrowed reads supplied the flow evidence.
+- Detailed-spec recurrence: guessed decision 0004's filename and received a
+  missing-file error. `rg --files docs/decisions` found the actual
+  `0004-background-maintenance-in-mvp.md`; read it before citing it. Extend the
+  inventory-first rule to decision filenames, even when the number is known;
+  validate every generated spec link before handoff.
+- Spec self-validation found an ambiguous active-account **Add photos** entry:
+  clarified that local automatic import cannot write into an account replica
+  under local-only copy; use explicit existing enrollment or local-record switch.
+  Added AC-36 for the boundary. A multi-file refinement patch then mismatched a
+  wrapped acceptance sentence and was rejected before writing; reread the exact
+  seam and applied the corrected patch. Final artifact validation must check the
+  scenario sequence and all referenced paths after such refinements.
+- Project-state prepend then found a concurrently added owner-transfer section
+  instead of the previously read next heading; the patch was rejected without
+  replacing those updates. Reread the live header and used the stable document
+  title as the insertion seam. Preserve concurrent incident evidence; do not
+  rewrite a whole project-state snapshot from an earlier read.
+
+## M7 final activation growing Replay assembly timeout (2026-10-29)
+
+- Actual owner Save acknowledged64/65 steps, then HISTORY_ACK/HISTORY_NETWORK with unknown outcome. Same-operation retries repeated the failure; no checkpoint or local data was cleared.
+- Hosted Dashboard proves SQLSTATE57014 at the matching request times. Raw server context identifies collapse_replay_fragments line13 at IF: repeated growing-string concatenation and byte checking. The previous small two-fragment regression did not cover the scale of the real transfer.
+- Correction in progress: validate fragments without rebuilding the prefix on each iteration, assemble once, and avoid rewriting unrelated pages. Add a large synthetic eight-second activation/retry regression and run the full PostgreSQL rollback suite before deployment. Owner-device success remains open.
+- Prevention: include large bounded compositions in SQL activation tests; do not request identical owner retries after a reproducible server timeout without a changed implementation or new diagnostic evidence.
+- Verification tooling: a parent read guessed an absent build-step filename; reviewer reads guessed two absent prior-migration suffixes and one literal rg wildcard failed. Corrected through exact inventory; no runtime edits from failed reads. The first scale-fixture generator repeatedly scanned its 24 MiB template for each fragment and stalled setup; canceled only its isolated synthetic database statement, then replaced generation with fixed-sized chunks plus first/last template slices. Keep fixture generation complexity separate from timed activation; no owner database was touched.
+- Large-scale RED baseline reproduced57014; the first linear-assembly candidate also exceeded8s at valid_record UTF-16 admission. Its global regex removed every BMP character individually. Replace with counting supplementary code points directly (UTF-16 length = character count + supplementary count), preserving the exact limit. This additional proven bottleneck must pass Unicode boundary fixtures and scale verification; the initial candidate was not deployed.
+- Follow-up verification: role read initially used unsupported CLI --sql; corrected to positional SQL. Hosted authenticated role confirms statement_timeout=8s. Full-suite scale extension incorrectly repeated aggregate commit with the obsolete source plan; the protocol reconciles completed operation via plan. Corrected the fixture to its actual reconciliation entry; first source activation measured1.291s locally. No product receipt semantics changed.
+- Verified correction: single ordered assembly plus direct supplementary-character counting. Old helper RED at8s; final PostgreSQL14 fixtures GREEN.24MiB source/aggregate measured1.259s/1.099s;60MiB additional rollback probe3.502s/2.699s locally. Three scoped static reviews found no correctness defects; aggregate scale/reconciliation added from gap review. Migration20261029143353 applied alone; live definition/access/Unicode-boundary verification passed. Owner-device retry remains open; host performance does not close the reported incident.
+- Documentation update initially matched CRLF in an LF source and silently made no insertion; immediate header readback caught it. Applied an explicit heading patch. Verify intended text after string replacements rather than treating exit0 as a content-change proof.
+- Final whitespace check caught a generated extra blank line at project-state EOF; removed only trailing whitespace and reran the scoped diff check.
+- Post-deploy recurrence: actual action runtime-mvtnoz70-4 reaches HISTORY_AUTHORITY then merge acknowledgement; hosted merge returns546 at21:46:52 while worker RPCs returned200. Saved initial source exists, but combined revision remains0. This is a distinct open merge-service failure, not proof the source activation correction failed. Read-only lookup guessed a nonexistent mobile history-runtime.ts; source inventory points to the backend shared module. Browser function-detail tail inspection inadvertently included unrelated private network/location fields in tool output; do not retain or repeat them. Use fixed-category extraction only before returning browser log data. Dynamic log filter label changed during check, causing a selector deadline after the checkbox did change; inspect fresh state rather than repeating input.
+- Merge CPU investigation: helper subagent hit usage limit; parent continues. Synthetic profiler identifies complete-link repeated-coordinate distance scans/minimax as dominant (3000 evidence ~1.45s user CPU). New exact-coordinate reduction preserves all members and thresholds. New dateline test guessed representative mixed-003; the frozen pre-change engine proves mixed-001, and60 seeded full-graph differential cases plus reversed enumeration match exactly. Corrected the test expectation to established baseline rather than changing tie policy. Function-log link selector matched two visible links; used observed Open logs label, with no mutation. Runtime log confirms CPU Time exceeded at second HISTORY_REBUILD; combined completion remains open.
+
+## Lean onboarding independent review defects (2026-10-30)
+
+Passing 98 Jest suites/884 tests,105 SQLite checks and typing/lint did not exercise
+all new lifecycle paths. Independent review found missing preparation interruption
+and stop fences, count-only checkpoint acknowledgement ambiguity, pause-stage loss,
+stale deleted intent, selected-scope manual update broadening, unavailable-access
+recovery gaps and incorrect cancellation/diagnostic stages. Entry-route rendering,
+real provider publication and invitation consent lacked integration coverage.
+These are implementation defects/gaps; remain open until focused regressions and
+corrections pass. Preserve the valid handoff/UI and concurrent dirty work. Next:
+fix lifecycle/source guards and exact acknowledgement semantics, then execute
+mounted routing/publication/consent tests before integrated verification.
+
+### Onboarding continuation environment check (2026-10-30)
+
+Expo Doctor initially failed with registry DNS ENOTFOUND in the sandbox before
+running its checks. The same package script with approved host network access
+passed21/21. This was an environment/network failure, not an app defect. Record
+missing checks as unavailable until the exact approved retry succeeds; no source
+or dependency manifest was changed by this check.
+
+Android inventory also initially failed to connect to the sandbox ADB daemon.
+Approved read-only host retry using the known absolute SDK executable succeeded
+and found the connected Android. PATH/LOCALAPPDATA sandbox lookup did not describe
+host availability. No app launch/reset, UI injection or private media capture was
+performed; device attachment alone is not native onboarding acceptance.
+- Verification gap review identified an oversized source-copy header at realistic source counts, beyond the CPU correction. New version3 derives this required provenance inside fenced commit rather than dropping it. Static SQL review found its quota exception would report HISTORY_SCHEMA; use dedicated program_limit_exceeded/HISTORY_QUOTA with transactional rollback. Broader unique-coordinate CPU/resource limits and privacy-header quota remain explicit limits; no owner success is claimed.
+- Verification recurrence: new SQL fixture named a PL/pgSQL variable metadata, colliding with the aggregate column in an assertion. Renamed fixture variable actual_metadata; production helper is unaffected. The existing removed-source diagnostic test expected broad HISTORY_REBUILD; new actual projection progress correctly preserves HISTORY_PROJECT as the last reached boundary. Updated that precise expectation while retaining blocked review/no activation/correlation/redaction checks. Do not weaken classifications to satisfy an obsolete generic-stage assertion.
+- Large-metadata fixture initially used one8s timeout for a block containing several commits,63MiB retained-version setup and media reads; this conflates cumulative fixture work with one RPC. The block now allows30s with an explicit8s bound on each commit separately; production limits are unchanged. A PowerShell replacement attempt used Bash-style escaped quotes and failed parsing before edits; applied the exact patch instead.
+
+Parent review of the interruption fix found a native-choice regression risk:
+React Native AppState documents Android background for another Activity launched
+by the app. Using one generation to cancel both background work and the pending
+system picker would discard a valid photo choice on return. Separate choice
+source/disposal authority from background task cancellation and add simulated
+native-picker lifecycle coverage. Do not equate every background event with a
+user cancellation; actual device picker acceptance remains unverified.
+- Current checks: all99 mobile suites/908 tests and105 real SQLite cases pass; scoped lint and mobile typecheck pass. Full mobile lint found a concurrent onboarding integration fixture render-side external assignment (react-hooks/globals), outside this correction; retain/report it instead of modifying unrelated work. Backend typecheck command initially passed an unquoted PowerShell comma argument for --lib and failed before checking; quote ES2022,DOM as one argument (existing prevention recurrence).
+
+## Sync takeover verification (2026-10-30)
+
+- The previous chat stopped during hosted scale verification after deploying the scoped metadata migration and worker. This chat now owns the continuation; the previous chat is idle. Preserve the owner's transfer and aggregate checkpoints.
+- Read-only Supabase CLI verification initially failed before connecting because sandbox denied its telemetry temp write under the user profile. The approved host retry confirmed the migration/helper exist; this was an environment failure, not a product defect.
+- An inspection guessed nonexistent history-transport.ts; the owning files are discovered by inventory before further reads. A head read of generated history-domain.js also emitted its huge packed synthetic fixture line. Read only the digest header or use the bundle --check command; do not dump packed generated sources.
+
+- Hosted scale continuation: synthetic 3000-evidence/large Replay source activation and exact retry pass, but hosted merge still returns546. Resource category is not established until current function log lookup. The old local speedup is insufficient to claim this incident fixed; do not ask for an identical owner retry. Synthetic owner deletion is fenced and scheduled cleanup remains pending.
+- Verification environment: focused Jest initially could not rename transform-cache files in sandbox Temp; no tests ran. Repointed cache to ignored workspace .local/sync-jest-cache; five suites/91 tests pass. Reviewers repeated literal Windows rg wildcard paths; use rg -g patterns. New connector call guessed query instead of required sql, rejected before execution; inspect discovered tool declaration before calling.
+
+### Onboarding final audit corrections (2026-10-30)
+
+Independent reviewers confirmed the five edge/lifecycle findings and all three
+integration gaps are corrected in source/tests. Parent found two remaining newly
+exposed fallible UI boundaries: OS Settings launch and invitation marker read.
+Added fixed ACCESS_SETTINGS/UPDATE_OFFER_READ stages and synthetic failure/schema
+redaction tests; mounted integration10/10 passed and full verification follows.
+The test capture render-side assignment is corrected with effect-based capture;
+final mobile lint passes. The earlier open review findings are resolved by the
+focused regressions and integrated checks in the delivery adapter; physical-device
+acceptance remains open and is not represented as fixed.
+
+One read-only reviewer repeated a PowerShell positional jest.config* glob and
+received OS123; used package.json's discovered Jest configuration instead. A broad
+final diff check included a concurrent reconstruction test's blank EOF line;
+that unrelated file was preserved. Scope onboarding diff checks to the saved
+before-file inventory and its known additions; do not attribute concurrent engine
+changes to this feature. Trimmed this task's trailing blank playbook EOF line.
+
+Android bundle verification initially compiled1626 modules but Hermes failed to
+write index.hbc under sandbox Temp (permission denied, compiler exit6). This is a
+build-output permission failure, not evidence of a syntax defect. Retry the same
+Expo Android export with approved host filesystem access; do not disable Hermes
+or change app code merely to bypass the environment. Final result recorded in
+the onboarding delivery adapter.
+- Current hosted resource log confirms CPU_LIMIT after HISTORY_REPLAY_MAP. Removed redundant Replay parse/stringify work and discarded allocation-pass serialized rows; worker57 tests pass. Review gap found residual oversized metadata rejection untested; added exact HISTORY_METADATA/HISTORY_QUOTA/blocked, correlation, no-activation and sentinel-redaction coverage. Two independent reviewers could not complete (usage limit and revoked application network permission), so do not claim a complete three-reviewer approval.
+
+Final onboarding verification: Android export host retry succeeded with one
+Hermes bundle; full mobile99 suites/913 tests, SQLite105, typing/lint, root136 and
+Doctor21/21 passed. The same-task defects listed above have corrected code and
+regression evidence in the delivery adapter; physical Android/iOS acceptance
+remains pending rather than fixed. Environment failures are resolved for these
+checks, not guarantees about future sandbox permissions.
+- Follow-up edit script attempted unavailable WindowsApps python alias; it did not execute or modify source. Switched to installed Node and reran bundle/differential checks against actual edits. Do not treat commands after a failed edit as proof the intended edit exists.
+- CRLF-sensitive edit missed the visitEvidence helper while changing callers to a Map; immediate differential check caught input.find type failure and merge review error. Applied exact helper patch, rebuilt generated domain, and reran differential/profile checks. This candidate was never deployed. Strengthen edits by checking the expected match before writing.
+- Indexed candidate hosted smoke stopped at source activation RPC_HTTP before merge, unlike earlier identical fixture uploads. Durable activation outcome and HTTP cause remain unknown until server evidence; this is not evidence of a merge regression. Synthetic owner cleanup remains fenced. Keep source activation unknown-outcome reconciliation explicit in harness.
+- Current server log identifies the synthetic activation RPC failure as STATEMENT_TIMEOUT at23:53:55 UTC. The test harness now categorizes fixed SQLSTATE and permits exactly one same-mutation reconciliation for57014, without creating a second source/transfer. A harness patch initially rejected unmatched context before writing; applied only the verified RPC seam. Additional reviewer guessed absent canonical-core.test.ts; use discovered suites. Follow-up scoped reviewer found no new semantic/security defects; prior blind/edge review completion remains unavailable.
+- Full mobile verification passes99 suites/914 tests and SQLite105; a post-test optional process probe found no node process because tests had already exited. No product failure is inferred. New bundle byte-copy optimization preserves compressed-dataset roundtrip (worker57 tests); hosted acceptance still pending.
+- Startup byte-copy correction cleared hosted CPU termination, exposing SQL57014 at finalize_aggregate_metadata line6; large unrelated Replay was expanded through the mapping join. Separate Replay/provenance fixtures had missed their combination. New mixed-page24MiB fixture reproduced old helper timeout (local context line13 copy aggregation). New migration materializes evidence scalars before one mapping scan. The initial fixture setup itself carried the large Replay through its setup projection; moved large-body insertion after setup to keep timed RPC evidence separate. No owner data touched. Performance advisors returned no findings; existing security advisor notices remain outside this scoped correction.
+- Post-materialization hosted retry clears provenance query but still returns503/UNKNOWN. Delayed server log isolates57014 at collapse_replay_fragments line37, the final page UPDATE (source activation previously also timed out here). This is a distinct large structured-JSON write boundary; repeated-x local fixtures do not establish hosted structured Replay write performance. Preserve operation and add representative structured composition before changing its persistence behavior.
+- Important verification correction: CLI db query returned rows=[] immediately for a multi-statement synthetic BEGIN...ROLLBACK script, even after adding an intentional final exception. This proves it did not execute the full probe; prior statement that a separate hosted rollback probe passed is unsupported and withdrawn. Repackage as one DO statement with a fixed synthetic timing exception, guaranteeing rollback and observable execution. Local Docker fixture results remain valid. Never infer multi-statement execution from exit0/empty rows.
+- Finalization correction uses narrow function-level60s PostgREST budgets, not global/role changes, because actual structured Replay completion exceeds8s. Source activation client65s and merge120s avoid the prior30s cancellation while preserving exact unknown-outcome checkpoints. New wrappers are SECURITY INVOKER, source activate-only/authenticated and worker commit-only/service-role. SQL16 and worker57 pass; scoped reviewer found no bypass. Generated bundle stale check failed once after transport change; regenerated before deployment and worker57 passed. Reviewer repeated Windows literal wildcard search; directory plus --glob corrected it. Experimental compression/reinsert helpers were rollback-only and not adopted.
+- Hosted full smoke now completes merge85.664s with bounded finalization but source/aggregate readback still uses8s RPC and returns57014 on a large page. The prior server merge acknowledgement is valid; full two-session convergence remains open. Extend the same restricted large-record RPC to readback only, with65s transport bound and all existing owner/session read guards. Preserve completed aggregate and never start a new owner transfer. Synthetic fixture cleanup was fenced after the failed readback; physical owner flow remains unrun.
+- Readback root cause confirmed from hosted SQL context: readable_prior_aggregate line13 re-expands and compares old/live complete rows on each page even for the exact same immutable snapshot. Added a fast path only after missing/removed-source checks and retained changed-snapshot/additional-owner-fact checks; current plan computed once. Thirty repeated reads with a24MiB source Replay and full changed-privacy continuity fixtures pass within budget. Scoped reviewer found no authority bypass. The earlier idea to widen pull budgets was not implemented; pull remains on existing RPC/timeouts.
+- Final hosted GREEN:3000-evidence/19MB Replay source activation and exact retry pass; merge86.129s; identical operation reconciles the same aggregate/revision; both independent Auth sessions read all76 pages identically,3000 unique evidence and committed Replay order retained. Immutable-snapshot readback fast path resolves repeated large-row comparison; full PostgreSQL16/mobile916/SQLite105/root136/worker57 checks pass. Owner physical acceptance and maximum-quota/load behavior remain open. Synthetic deletion is fenced with scheduled purge pending. Prevention: combine large structured Replay, large provenance, full same-operation retry and two-session readback in hosted acceptance; fixture/merge-only success is insufficient.
+
+## Owner app cannot load after sync handoff (2026-10-30)
+
+- Recurrence during correction retest: approved host shows Metro127.0.0.1:8081 running (/status confirmed) and Android connected, but USB reverse empty. Reapply only tcp8081 reverse and reopen existing dev-client link. Do not restart healthy Metro or clear app storage. Owner-visible load remains unconfirmed until fresh bundle/activity evidence. Sync implementation remains paused for transport recovery.
+
+- Owner reports app will not load. Current approved-host checks show the connected Android device is available, USB reverse is empty, Metro8081 is unreachable, and no Node server is running. This establishes a development delivery-path failure; no application-code cause is inferred. No storage/account/transfer checkpoint was cleared.
+- Sandbox LOCALAPPDATA did not expose the host Android SDK; the same approved-host SDK path runs ADB. Treat sandbox/host environment path differences as transport/tooling scope, not a missing installed SDK.
+- Recovery: start the existing Expo development server hidden on localhost8081, restore only that USB reverse, open the installed development client, and verify fresh bundle delivery/current app diagnostics. Native owner-visible app acceptance remains pending until confirmed; localhost readiness alone is insufficient.
+
+- Recovery command initially combined Expo --offline and --localhost; installed CLI treats these as mutually exclusive and exited before serving. Removed --offline and retained explicit localhost binding. Do not infer a running server from Start-Process success; require /status plus a fresh bundle record.
+- Metro started successfully but bound only::1; IPv4 /status and the USB delivery path remained unavailable. Recovery now uses Node IPv4-first resolution and verifies the exact owned process before stopping it. Restarting only this newly started Metro preserves all app data.
+- A broad Expo JSONL startup tail included public client environment settings. Do not repeat or retain those values in delivery records. Restrict subsequent log extraction to fixed event types/build outcomes and the closed diagnostic fields, rather than dumping startup logs.
+- Verified recovery: Metro binds127.0.0.1:8081 and /status returns packager-status:running; USB8081 reverse restored; installed client received a fresh Android bundle1788 modules. Current app activity is resumed, with no sampled native fatal or JavaScript syntax/type/reference fatal marker. Owner-visible UI acceptance remains unconfirmed. The initial activity probe looked only for mResumedActivity; this OS also reports topResumedActivity, which confirms resume. Decode byte-array /status Content as UTF-8 before comparing; otherwise PowerShell may print byte codes rather than the status string.
+
+## Landing page unreachable after returning entry (2026-10-30)
+
+Owner reports app reopens directly in Atlas with no path back to landing.
+Source confirms index.tsx resolves returning users to /history, appRoutes.welcome
+still points to that automatic root, and Atlas header exposes Settings/About
+without an explicit landing destination. This is a missed navigation requirement,
+not a diagnosed storage/runtime failure. Proposed correction: explicit /welcome
+route plus labeled Home on Atlas; preserve Atlas context and provide a direct
+return without importing again. No runtime behavior has changed yet.
+
+Required bmad-build activation failed before workflow rendering: uv --no-cache
+could not persist interpreter metadata to sandbox Temp (access denied, os5).
+The skill explicitly requires HALT on launcher failure, so no direct workflow
+source or code implementation was run. Next action: activate the launcher with
+working host/cache permissions, implement explicit landing navigation and execute
+Atlas-to-landing-to-Atlas route regressions. Prior host verification does not
+establish this reported mismatch fixed.
+
+## Owner private-history export lock (2026-10-30)
+
+- Correlated hosted log confirms latest retry HTTP546/CPU Time exceeded immediately after HISTORY_REPLAY_PROJECT START. Earlier action also reaches HISTORY_REPLAY_MAP/HISTORY_REVIEW before worker shutdown; do not conflate that review result with the latest CPU termination. Export fix reaches COMMIT/CLOSE on device. Synthetic3000-evidence success did not cover this owner workload's structure; runtime sync remains open. Investigate projection using synthetic varied shapes only, without reading private history rows. CLI help required approved host because telemetry writes outside workspace were denied; browser fallback reads the already-authenticated Supabase dashboard. Original dashboard tab belongs to old session; separate tab used without interfering.
+- Scoped CPU repair's API-source deployment returned413/request entity too large before acknowledgement; same source bundled through existing Docker deploys successfully (6.3MB script). Generated graph remains current. Do not repeatedly upload an unchanged oversized source envelope. Review initially hit the4-agent slot limit; launched the third reviewer as a slot became free. All3 scoped reviews completed without concrete findings; these reviews cover this CPU correction, not the entire dirty M7 implementation.
+
+- Owner retry now reaches every export read/validation, COMMIT and CLOSE on the corrected bundle. Latest attempts fail later at HISTORY_ACK/HISTORY_NETWORK/unknown. Export-lock correction is observed on device; whole sync remains unresolved. Do not assume timeout or lost network from this category: inspect correlated merge/server diagnostics before behavior changes. Preserve exact durable merge operation. Follow-up investigation repeated guessed history-transport path, Windows wildcard operand and .bin/supabase.exe guesses; no source changed. Use discovered history-transfer.ts and inventory actual CLI entry before executing.
+
+- Current fresh-runtime action reports HISTORY_TRANSFER/HISTORY_EXPORT_TRANSACTION/DATABASE_BUSY/failed. Export opened/schema-checked the local database, then failed before the lifecycle-read stage. This establishes native BEGIN IMMEDIATE contention before any network transfer, not a hosted sync failure. The lock holder remains unknown; do not infer rollback or orphaned ownership.
+- Source export is a consistent read but currently reserves a writer via runOwnedTransaction. Investigate deferred read mode under the same transaction gate, retaining full read snapshot/lifecycle/close and cancellation ownership. Add real SQLite concurrent-writer coverage before changing behavior. Preserve owner checkpoints/corrections and do not clear data.
+
+- Regression RED reproduced DATABASE_BUSY/HISTORY_EXPORT_TRANSACTION in actual file-backed SQLite while another connection held an uncommitted writer. GREEN deferred export reads the complete committed version and sees the update on its next export after commit. Export now distinguishes BEGIN/COMMIT/ROLLBACK; successful rollback preserves the original read/commit failure, failed rollback stays quarantined, and diagnostic observer exceptions cannot release ownership. Specific busy copy retains the saved checkpoint. Focused50 Jest pass; full verification in progress; owner retest remains open. Reviewer found no authority/lifecycle defect and repeated a guessed test filename; discovered account-history-native-export.test.ts was then read. Keep inventory-first test paths.
+- Final local verification: mobile99 suites/921 tests, SQLite106, TypeScript/lint, generated-domain freshness and root136/framework/eval smoke pass. Fault tests cover begin/commit/rollback classification and redaction. Scoped reviewer reports no concrete findings. Latest closed Android diagnostics still show the prior TRANSACTION failure; no post-fix owner action is observed, so device acceptance remains open and the lock holder stays unknown.
+- Environment limitation: host-side Android bundle freshness request was not executed because automatic approval review hit a usage limit. Do not bypass the review through another host access path. Owner can reload the development client and retry the existing sync checkpoint; collect only closed operation/stage/reason/outcome events. A resumed test-process poll later returned Unknown process id; completed log independently confirms99/921 pass. Persisted result logs, not process handles across context changes, establish completion.
+- Whole-tree diff whitespace check flags an extra EOF blank line in the already-dirty reconstruction-engine.test.ts outside this native-export correction. Left unrelated work intact; do not claim whole-tree diff hygiene passed. The following generated-domain check passed independently; a later successful command does not override an earlier failed check.
+
+Landing-return repair continuation: the exact launcher passed with ignored
+workspace TEMP/TMP and UV_CACHE_DIR. A regression first reproduced missing Home.
+Added explicit /welcome and a Home action that carries Atlas context; its primary
+View my Atlas returns directly without presentation writes or import. The new
+context fixture initially used null for optional camera/localViewport; TypeScript
+correctly rejected it. Omitted those optional fields and reran typing/lint.
+Prevention: use the actual AtlasExploration type rather than invent null defaults;
+keep mounted roundtrip and no-new-setup-write assertions as regressions.
+
+Landing repair verification:54 affected tests, mobile typing/lint, root136 and
+scoped diff checks pass; independent source review found no actionable findings.
+Review accidentally read src/reveal/preview-context.ts; the actual import is
+src/atlas/preview-context.ts. Follow owning imports before reads. The prior
+missing landing route is corrected in code, while actual device Back/stack and
+visual confirmation remain pending. Regression now covers explicit Home plus
+return without setup/presentation writes; preserve this alongside startup tests.
+
+## Development loader recovery recurrence (2026-10-30)
+
+Owner reported app could not load. Current checks proved no8081 listener and
+empty USB reverse; restored both with existing Expo dev-client/localhost command
+and hidden host process. The first connection preceded Metro readiness; reissued
+the verified exp+travel-life deep link only after IPv4 /status proved running.
+Metro delivered a fresh Android bundle1779 modules. Initial broad same-PID log
+sample contained stale loader markers; timestamp-bounded events after reconnection
+showed zero script/module/native-module/fatal/JS reference/syntax/type or connection
+markers. Do not infer current failures from old process logs.
+
+Phone keyguard was showing and Travel Life was not the resumed activity at the
+final check. Owner must unlock/foreground to establish actual UI acceptance.
+Expo emitted No task registered for key expo-task-manager; its role is unproven
+and it is not established as a loader cause. No source change, app-data reset,
+account/sync checkpoint clearing or owner-media read occurred. Resolve Metro/USB
+transport and verify current-build delivery before diagnosing app code. HTTP
+/status may return byte[] under Windows PowerShell; decode UTF8 before asserting
+readiness instead of printing numeric bytes.
+
+### Replay projection CPU recurrence synthetic correction (2026-10-30)
+
+- Further RED proves source normalization itself changed native semantics: nullable Android source_origin was rewritten to explicit unknown, splitting native final journey support and requiring correction remap. Earlier lesson calling that rewrite intentional is withdrawn: binding spec preserves provenance/version semantics, and canonical-core explicitly retains nullable Android fallback separately from explicit unknown. Normalize without changing null; tests preserve explicit unknown and verify identical native/account correction authority.
+-3000-row correction+Replay hosted still exceeds CPU. Local profile pinpoints reviewed-visit candidate and cross-visit ambiguity scans. Exact evidence-to-visit-row index preserves duplicate-row multiplicity and overlap guards; reviewed partition Sets preserve sorted/complete/disjoint validation.600-visit regression RED2,160,000 support reads, GREEN under10k;500 frozen correction outcomes including duplicate/overlap match. Three independent source reviews completed; verification reviewer found missing mixed resolved/unresolved revision test. Added same-projection and account-merge case, proving only unresolved revision remains reviewable; focused GREEN. Broader checks/host acceptance still in progress.
+- Final nullable-provenance/correction/Replay hosted GREEN:3000 evidence, effective place correction,80 selected references; merge55.157s; exact retry same aggregate/revision; both independent Auth sessions all57 pages equal, null provenance/effective correction/exact reverse selection retained. Cleanup fenced/purge scheduled.100 suites/931 mobile tests, SQLite106, worker84, typing/lint and root163 pass. Owner app recovered by restoring missing USB reverse; owner confirms visible app. Owner17:38:12 REVIEW_CORRECTION_REMAP event predates current active worker version28 deployment17:38:20.667; request a new current-version action rather than attributing that old outcome to new code. Current owner success unconfirmed.
+
+- Owner06:15:40UTC identifies CORRECTION_REMAP. Synthetic90-row mixed-precision reproduction has finalMatches1 and pendingFinalRemaps1 for the same correction: intermediate pending was unioned into final review even after exact final success. Regression RED confirms stale pending; correction removes only revisions present in finalMatches and retains genuine missing-support review. Test fixture initially omitted required reviewed_snapshot_json and failed HISTORY_SCHEMA after the first intended assertion passed; populated synthetic{} and reran GREEN. This was fixture construction, not a production schema regression. A guessed reconstruction-repository test path failed during inspection; subsequent searches used actual directory inventory.
+
+- Next owner retry06:10:48UTC returns REVIEW_CORRECTION with REPLAY_GROUP_TARGET: source Replay group is known but not a unique account target, and corrections require review. This rules out absent-group-only diagnosis. Refined backend category by presence of existing sourceId/revisionId into retained removed-source facts versus canonical remap, never logging values.84 worker tests pass; no product data changed. Need actual category before selecting owner recovery; do not infer source provenance or discard correction history.
+
+- Owner final-cache retry runtime-mvukj0jb-g: native export COMMIT/CLOSE pass (fresh ADB closed events), hosted REPLAY_MAP/HISTORY_REVIEW/blocked06:06:04UTC then CPU termination; client NETWORK/unknown. Metro start.log stopped updating05:54UTC, so later owner actions must use current ADB or correlated server events. Do not infer no action from stale Metro file. Added fixed review categories (source group absent/target, correction, duplicate) to distinguish retained Replay authority without exposing group IDs.82 worker/86 focused mobile, typing/lint, root161 and120 frozen parity pass. Owner sync remains unresolved; no selection/checkpoint reset.
+- Hosted negative review probe passes: synthetic manual source with absent Replay group returns explicit409/HISTORY_REVIEW on both exact-operation attempts, no aggregate activation. Cleanup fenced/purge scheduled. Copied harness progress label incorrectly still claimed3000 mixed-GPS rows; corrected its label, actual probe contains one manual and one Replay row. Do not cite the stale progress label as scale evidence; separate3000 mixed-GPS GREEN remains in replay-daycache-hosted.log.
+
+- Final diverse photo-Replay hosted GREEN after bounded pure date cache:3000 evidence,80 selected references, merge71.558s, exact same-operation retry retains aggregate/revision, both independent Auth sessions read all57 pages identically with3000 unique evidence and exact committed reverse Replay order. Synthetic deletion fenced/purge scheduled. This establishes this combined synthetic path, not owner acceptance or maximum-quota CPU headroom. Latest owner server event05:57:40UTC is HISTORY_REPLAY_MAP/HISTORY_REVIEW/blocked on the preceding deployed increment; no final-cache owner success observed. Keep review authority explicit rather than dropping owner choices.
+- Delivery record patch missed a whole-paragraph project-state line and was rejected before writing. Reapply against the actual paragraph; do not infer an earlier file hunk in the rejected patch persisted.
+
+- Post-mapping synthetic reaches ACTIVATE but still546 cumulative CPU. Experimental binary bracket index preserves120 differential cases but local total CPU does not materially improve (~1.02s vs0.97s), so candidate removed before deployment. Reprofiling with inlining disabled identifies repeated civilDayMillis parsing as dominant. Optimize only this pure validation computation with bounded in-memory date cache; no dates are persisted/logged/transmitted. Recheck strict invalid dates/leap days and full graph parity. Do not retain complexity based on an unmeasured suspected hotspot.
+- Exact-date bounded2048-entry pure-result cache reduces synthetic merge user CPU~1.016s to0.562s. Frozen120 full-graph differential cases pass; repeated-day parse work falls3518 to9. Existing invalid-day/leap-day tests and new repeated-comparison guard cover the computation; cache is in-memory only and clears at capacity. Runtime546 remains open until hosted completion. Root test inventory now157 due concurrent repository work; report actual current count rather than assuming prior136.
+
+- Mapping repair integrated checks pass100 mobile suites/928 tests, SQLite106, worker78, TypeScript/lint and root136. Latest mapping diff's three independent reviewers could not complete due usage limits; parent source inspection found no additional defect, but do not claim completed independent approval. Latest worker deployed via Docker. Supabase documentation fetch returned unsupported text/markdown; connected search_docs confirmed current runtime CPU2s and Docker deployment guidance. No further behavior change inferred from documentation access failure.
+
+- Detailed deployed owner phases confirm both account/source canonical graphs complete; CPU termination follows HISTORY_REPLAY_MAP. Prior REPLAY_PROJECT-only sampling was not sufficient to locate this remaining work. Replay mapper nests complete support against every journey/visit/evidence array. Use exact inverted support membership and retain all-support unique-target guards; do not change reconstruction rules or silently accept ambiguous Replay. New fixed-phase tests are78/78; typecheck passes. Owner sync still unresolved until mapping correction is deployed and acknowledged.
+
+- Postpatch hosted synthetic mixed-GPS reaches REPLAY_MAP/HISTORY_REVIEW (no CPU termination), but owner retry still546 immediately after REPLAY_PROJECT. Therefore CPU incident remains open; do not claim synthetic optimization fixes owner sync. Added fixed canonical substage forwarding under existing correlation to locate actual owner boundary.78 worker tests pass including20fault/redaction phase cases and real forwarding. Initial new stage forwarding left later removed-source review attributed to final-mapping; existing regression caught it. Restore PROJECT after a successful graph so non-projection reviews retain their correct stage.
+- Synthetic Replay fixture selected memberships whose legacy journey IDs are absent from the canonical graph. Read-only local repro confirms GPS-less membership continuity retains stale IDs; review guard correctly blocks. Preserve this as an open separate consistency defect rather than suppressing review or dropping committed choices. Synthetic owner cleanup is fenced/pending purge. Touched reconstruction test retained an extra EOF blank; trimmed only that file's trailing blank and scoped diff check passes. Corrected misplaced native-export heading in the delivery record.
+
+- The600-row varied-place/half-GPS-less synthetic profile identifies repeated
+  per-item/per-journey visit/evidence lookup as dominant. Frozen3000-row baseline
+  graph87.162s/~85.7s user CPU; corrected0.383s/~0.422s user CPU. Immutable support
+  order/day summaries now materialize once using first-match indices, only when
+  association candidates exist. Strict first/last support and ambiguity stay intact.
+-120 frozen full-graph cases (60 seeded datasets and reversals) preserve duplicate
+  IDs, missing GPS/date/offset, unavailable/excluded/conflicted rows, boundaries,
+  home context and grouping constraints. Committed600-row work guard measures
+  original27,009,172 ID reads versus9,172 current (<50k). No owner rows were read.
+- Tooling incident: documentation append used repo-relative paths with apps/mobile
+  working directory and failed without writes. Corrected to absolute paths; keep
+  documentation operations at verified root and package tests at package root.
+  Hosted synthetic/owner acceptance remains separate from local profile evidence.
+
+- Read-only follow-up discovers diverse synthetic Replay refs from graph.memberships
+  include a legacy journey absent from graph.journeys for GPS-less associated
+  memories. constructCanonicalV11Graph only remaps evidence with visits. Three
+  random-UUID runs correctly return replay-group-needs-review; no mapped support
+  is absent. Keep this integrity issue open, preserve review and owner composition.
+  The later owner CPU recurrence is independent and needs substage evidence before
+  additional optimization; no source behavior was changed in this investigation.
+
+- Scoped canonical correction now carries GPS-less membership through a unique
+  complete-visit successor; legacy Replay aliases use the same authority and
+  retain explicit review across splits/missing/overlap. Exact owner20phase evidence
+  further isolates current CPU termination at REPLAY_MAP after all canonical phases.
+  Inverted visit-evidence target intersection replaces nested target/visit/includes
+  scans without changing all-support/uniqueness rules. Five focused suites90 tests
+  pass;1000-journey/30k-support work guard and65 exhaustive-reference cases pass.
+- Correction test initially omitted capture-like source provenance; normalization
+  intentionally maps null origin to unknown, producing legitimate review. Set the
+  synthetic fixture's declared source_origin consistently with the demonstrated
+  workload; do not relax provenance behavior to pass tests. A concurrent import
+  refinement made one patch context stale; rejected without file change, then
+  reapplied against the actual import while preserving diagnostic forwarding.
+- Review-artifact tooling: Python launcher resolves to inaccessible WindowsApps alias; no artifact/product write occurred. Recreated only ignored before/after snapshots with installed Node and git diff --no-index. Use installed Node for this host artifact tooling instead of assuming Python is available.
+
+### Sync CPU continuation (2026-11-07)
+
+Status: hosted synthetic path verified; owner-device acceptance remains open.
+The previous owner retry and worker versions29–31 exhausted cumulative CPU at
+Replay mapping or activation. Successful Replay-body validation memoization,
+exact ASCII/Unicode byte counting and reduced allocations helped locally but
+did not establish hosted headroom. Do not equate local profiling with server
+acceptance or infer the hotspot solely from the last stage before CPU shutdown.
+
+Correction: service-only immutable checkpoints split preparation, canonical
+build and final CAS into separate authenticated requests. Freeze source plan,
+account/owner revisions, generation and domain digest. Retain exact corrections,
+provenance and Replay choices/order. Validate every required identity tuple and
+normalized fact; a missing manual/command tuple must fail just like evidence.
+Preserve unknown-ack operation IDs. An explicit stale rejection retires the
+invalid operation and permits only one automatic fresh-operation attempt.
+
+Review fixes: stale prepared content previously occupied replacement quota;
+tombstone invalid/expired operations and purge only uncommitted derived content.
+Completed receipts release private prepared pages. Legacy staging without a
+checkpoint is rejected as stale without rebasing or touching source facts.
+Two valid owners with identical operation/page keys remain isolated. Tests cover
+owner journal revision7, edited corrections, manual deletion and exact Replay.
+Concurrent completion between status and a checkpoint read now propagates the
+authoritative receipt through the outer operation/revision/page validation.
+
+Hosted preparation succeeded, but246 separate checkpoint reads still exhausted
+BUILD CPU. A bounded1–8 chunk SQL read batch retains the original authority
+checks and ordered immutable content, reducing this workload to31 reads.
+The resulting merge and exact retry succeeded; aggregate readback then hit
+PostgREST57014 after20/97pages. Commit collapses Replay fragments into a large
+semantic row. A separate aggregate-pull invoker has a60s function budget and65s
+client window; other reads/status remain30s. Existing session/privacy/source/
+owner-revision guards are delegated unchanged. HISTORY_READ_TIMEOUT is a fixed,
+retryable unknown diagnostic at HISTORY_PULL; raw SQL/provider text never leaves
+memory and a partial replica never activates. Do not infer rollback or a writer
+from a timeout.
+
+Verification: worker34 ACTIVE; hosted3000 synthetic evidence, effective place
+correction and200 ordered Replay references complete in197.575s. Exact retry
+keeps the aggregate/revision. Two independent Auth sessions read all97pages with
+identical complete rows,3000 unique evidence, null provenance, correction and
+exact Replay order. Synthetic deletion was fenced; scheduled purge is pending.
+101 mobile suites/958 tests, root199/framework/eval smoke, strict backend/mobile
+typing, mobile lint,25 checkpoint tests and17 disposable PostgreSQL fixtures
+pass. Local per-request CPU was376–421ms preparation and921–1078ms build; those
+measurements exclude hosting. Owner success and physical two-device acceptance
+remain unconfirmed. No owner storage/source checkpoint reset or Git delivery.
+
+Deployment lessons: Docker was stopped twice; check docker info before bundling.
+Without it CLI fell back to oversized API upload and failed413. Discover Docker's
+installed path from Get-Command instead of guessing Program Files. The first
+SQL container attempt failed while the engine pipe was absent; start Docker
+then retry. Supabase CLI writes telemetry outside the workspace, so use the
+approved host command rather than repeating a sandbox EPERM. Three unrelated
+older migrations are missing remotely; never use include-all to deploy them as
+part of Sync. Applied only versions20261107140000/142500/144000 with transactional
+CLI file queries and exact migration history entries.
+
+Collection lessons: dashboard expiry and a wrong account required owner login;
+automatic review initially rejected GitHub sign-in, then explicit authorization
+and owner-entered credentials restored the correct account. No auth workaround
+was used. Browser IDs changed after runtime refresh; inventory showed Chrome2
+and IAB3. A stale debugger tab recovered in a fresh tab in the same Chrome.
+The unlabeled combobox was column visibility; time range belongs in the filter
+bar. Use exact filter locators and current correlation, not an ambiguous textbox
+or stale Metro output. The owner foreground action advanced after known stale
+under runtime-mw6hkeeu-4; that alone is not owner completion.
+
+Loader recovery: Metro and USB reverse were absent. Started the existing hidden
+dev server with IPv4-first localhost resolution, restored only tcp8081 reverse,
+and opened the installed development client. Android delivered1789 modules.
+Retained process history contained Unable-to-load-script at20:49:28/21:14:15;
+sampling after21:17 found no loader/fatal marker. Do not mistake retained history
+for a current failure or claim owner-visible UI from host evidence alone.
+
+Implementation/tool incidents and prevention: guessed mobile worker/identity,
+service-test and SQL assembly filenames failed; discover files/imports first.
+Reviewers repeatedly used Windows literal wildcard operands; use directory
+operands with -g. A generated bundle head printed its huge packed dataset line;
+inspect the builder or anchored bounded matches instead. Patch contexts failed
+against single-line declarations/templates without writes; verify exact seams.
+A broad replacement briefly inserted a read classifier into merge transport;
+remove it and inspect both sites before testing. Generated JS lacked declarations;
+added type-only history-domain.d.ts and fixed strict DTO narrowing rather than
+disabling strictness. A test's inferred row union and commit fault selector were
+incorrect; use explicit DTO types and match activate/phase commit. Cleanup adds
+one receipt RPC, so update call-sequence assertions. Node strip-only mode rejects
+constructor parameter properties; use explicit fields. A progress-log read raced
+an unfinished job; wait or Test-Path before reading. Agent usage limits interrupted
+later review work; report only reviews actually delivered. All fixes above were
+verified; owner acceptance is still the remaining runtime boundary.
+
+Owner reported Saved revision0 after requestedretest. Sourcepanel alwaysrenders thelaststatus revision, so this labelaloneisnotcompletion. Freshdevicecorrelationruntime-mw6ijdz6-6 completedexport/COMMIT/CLOSE andenteredACK; hostedPREPARE returned200/CHECKPOINTED andnextrequestenteredCHECKPOINT_READ. Ownerbuild/finalization/readbackacceptance remainsinprogress; inspectterminalcorrelatedeventsbeforechangingbehavior orclaimingsuccess.
+
+
+Owner Sync closure: current action runtime-mw6ijdz6-6 shows servercommitCOMPLETE/HTTP200 at21:45:35Bangkok and fresh device HISTORY_TRANSFER/HISTORY_AUTHORITY/COMPLETE afterstatusrefresh under the samecorrelation. The previouslyreported Saved revision0 was seen whileworkwasongoing, not a terminalfailure. Reported Sync incident is verified resolved for this owner action; physical second-device restore/playback and fullM7 scope remainunverified. Prevention: explain a stale revision label fromcurrentcorrelatedterminalevents, never treat thealways-visible number as success/failure by itself.
+
+
+## View account history returns to login (2026-11-07, open)
+
+Owner reports login afterView. Freshcloseddiagnostics showACCOUNT_RESTORE runtime-mw6iw61j-r skipped atSECURE_READ, thenanotherrestore runtime-mw6iw641-t completed afterrecordselection. Source: openAccount changesPrivateRecordProvider key, remountingAccountScreen; itsunconditionalrestore sets signedInfalse, providercheckOwner clearsselection, screen cleanupcancelPending canblockcredentials duringrestoring. Reproduce withrealcontroller/provider beforefix. No claimthatpreviousSyncfailed orserverdatawaslost. Preserveaccount/source/checkpoints; donotclearstorage/reinstall.
+
+
+View regression RED reproducesauthenticatedownerloss andcredentialblock throughrestore subscriber/unmount cancellation. Controllerrestore nowchecks signed-in sessioninsideits serializedwork and emitsSKIPPED withouttransientrestoring; explicitdenial/signout/foregroundvalidationremain. OpenactionnowhasfixedAUTH/REPLICA/SCOPE/BIND diagnostics underonecorrelation, typedauth/missing/stale/fencedguards andfailure-redactiontests. A guessed stale renderedworkflowfilename wasabsent (rendercacheinventoryempty); reusedalready-readactiveworkflowinstructions ratherthanrerunning skill. No deployment/serverchangeorcredentialstorageunblock.
+
+
+RealintegrationGREEN: actualAccountScreen/controller/PrivateRecordProvider/PhotoAccessProvider remountafterView keepsowner/signedIn/accountrepositories; auth.getSessiononlybootstrap, noblock/invalidate/dispose. RealSignoutbuttonstillblocks/deletescredentialsanddisposesaccountcontext. Addedqueuedbootstraprestore regression andfixedopenboundaryredactiontests. Agentguessedabsentproviderandjest.config.jspathsdespiteavailableimports; correctedtogeneratedgivenpaths/package.json. Prevention: includeexactconsumer/provider/testpathsindelegatedtask, inventorybeforeeverynewpath. Wholechecks/reviewinprogress; ownerrepeatstillneeded, priorerroneouscancellationmayrequirefreshnormalemailverificationonce.
+
+
+Viewfixverification:102mobile suites/965tests, root199/framework/evalsmoke, typing/lintandbundlefreshnesspass. Threeindependentscopedreviewsfoundnoconcreteissues; optionalqueuedrestoregapaddressedwithdeferredSDKfirstrestore/secondqueuedrestoretest. RealScreen/controller/providerintegrationpassandexplicitSignoutstillfences. Progressreadagainracedmissinglintlogwhiletypingwasunfinished; completionpollnowconfirmsbothpass, useTest-Pathforpendinglogs. Nativeownerreteststillopen. Reopenedexistingdevclientforfreshbundle; noownerhistory/checkpointreset orcredentialunblocking.
+
+
+FinalscopewhitespacecheckflaggednewEOFblanklinesinownedappendareasofplaybook/project-state. Normalizedonlytrailingblanklinesandrecheckrequired. MetroreceivedincrementalAndroidbundlesafteredits; existingactivityaccepteddevclientintentwithoutrestart. OwnernormalemailreauthandViewretestremainsnextaction; donotclaimnativeViewfixeduntilconfirmed.
+
+### Stale device bundle after View fix (2026-11-07, open)
+
+Owner repeated login after the claimed bundle update. New source has open-stage
+instrumentation and authenticated-restore skip, but the current device action has
+no HISTORY_OPEN_* events and still enters ACCOUNT_SECURE_READ after View. Verified
+Metro PID9704 uses this task's exact Expo args; its startup explicitly says CI mode
+has reloads disabled. Parent set CI=1 when starting Metro, causing stale code to
+remain despite later edits. Previous inference from incremental bundle lines was
+incorrect. Restart only this verified Metro with watch enabled and transform cache
+reset, verify markers and compiled guard in the actual Android bundle, then collect
+matching device events before claiming delivery. Keep user storage, credentials,
+source checkpoints and server revision untouched. Rendered BMAD run refreshed
+successfully for this explicitly invoked continuation; rg initially omitted ignored
+rendered files, so read supplied absolute snapshot paths directly.
+
+### Check saved history does not show trips (2026-11-08, clarified; trip visibility unverified)
+
+Owner reports no trip list after Check saved history. Source confirms this button calls historyService.refresh only; current correlated Android actions end HISTORY_TRANSFER/HISTORY_AUTH/COMPLETE and ACCOUNT_REFRESH/ACCOUNT_SESSION/COMPLETE. This is status refresh, not a trip-list route, so the report does not establish empty saved history. View account history selects the account repository; the existing panel instructs returning to Atlas to explore it. Owner separately confirms View now keeps login. Explain the distinction and verify Atlas trip visibility before claiming that acceptance complete. Prevention: distinguish status refresh from browsing in labels and future flow acceptance; do not infer data loss from absent navigation.
+
+Inspection incident: a compound search used nonexistent apps/mobile/app and literal wildcard operands on Windows, and an oversized combined read truncated output. Corrected with rg --files and the actual apps/mobile/src/app directory. Use concrete inventoried paths and bounded reads; these collection failures are not product evidence.
+
+### Account Replay preparation failure (2026-11-08, open)
+
+Owner confirms account trips visible and signed-in View succeeds, then Replay could not be prepared. Current Android closed diagnostic REPLAY_RENDER/REPLAY_ACCESS/UNKNOWN, durable unchanged, correlation runtime-mw7c01wy-o. Existing screen creates separate start/end correlations and provider conflates repository manifest and preview-resolution errors into REPLAY_ACCESS; exact source boundary remains unknown. Do not infer missing media or renderer failure. Add narrow correlated stage diagnostics, reproduce using synthetic account repository/provider inputs, and collect current device evidence if synthetic evidence cannot establish cause. Preserve committed Replay choices and owner media/history.
+
+Inspection recurrence: guessed rendered steps subdirectory and history-repository.ts path were absent. Use supplied snapshot absolute references and rg --files before new file reads; bounded output for large source files.
+
+Replay investigation tooling evidence: Python alias could not execute in the delegated task; no files changed, switched to Node/apply_patch. Sandbox loopback fetch of the existing Metro returned EACCES; approved host read succeeded and actual routed Android bundle contained all four new Replay stages plus native media subtype branch (hash e73aa827e52a54419c8acacbfe95aa1da9218943890537f68be87e13ff705a1a). Treat this as collection boundary, not app failure. Subsequent guessed private-media-panel path was absent; inventoried account-media-panel is the actual component. Strengthen prevention by inventorying the exact directory before every new path rather than assuming component names.
+
+Owner now confirms retained sign-in and Atlas trips, closing the bounded View runtime mismatch after CI/watch correction. Original Replay failure remains open until precise current diagnostic evidence and relevant recovery are verified.
+
+Replay diagnostic verification: provider69 + screen75 =144 focused tests pass, including manifest/previews/soundtrack/eligibility failure redaction and single action correlation. Native media authorization10 pass; root199/framework/evalsmoke pass. Broad test-assertion replacement initially expanded unrelated preview-page argument assertions; corrected to method-specific assertions and all144 rerun green. Prevention: anchor test edits to the named API and inspect each changed assertion. No runtime behavior change inferred from this tooling failure.
+
+Owner retry collection recurrence: first diagnostic retry overlapped late helper/test source refinement and Fast Refresh. Correlations reached PREVIEWS then a new action reached renderer/output; no account-source proof exists for this refreshed action. Do not claim account Replay fixed from it. Freeze source before owner reproduction, verify current bundle after tests, and explicitly reselect View account history after context-module refresh. Existing media-resolver correlations use local_UUIDhex, so collection must allow that format as well as runtime correlations; otherwise missing events are collection gaps. Preserve null-stage completion events in the safe parser too.
+
+Current account-selected Replay retry (2026-11-08): HISTORY_OPEN_BIND/COMPLETE runtime-mw7capd3-9, then runtime-mw7cbghr-e reaches rendering and REPLAY_OUTPUT/UNKNOWN. Earlier MEDIA_AUTH denial does not establish this later failure's cause. Existing output catch discards the original persistence error, so add closed output substages before changing storage behavior. Soundtrack/account authority events are absent; verify source kind explicitly rather than infer adapter from a preceding View event.
+
+Review/inspection recurrence: parent guessed components/root-provider.tsx and reviewer guessed replay/planner.ts; concrete paths are account/root-provider.tsx and replay/selection.ts, found by rg --files/symbol lookup. No mutation occurred from failed reads. Enforce inventory before every new path. Three scoped reviews complete; concrete new diagnostic gaps routed for patch, pre-existing account media composition/cache/publication-fence risks recorded in deferred-work and remain release limitations.
+
+Owner correction (2026-11-08): explicit diagnostic policy was violated by dropping the native/source error inside output catch before classification. Privacy is not justification for erasing fixed actionable cause. Corrected provider captures category at the exact output substage before cleanup, typed repository guards preserve lifecycle/mapping/run/privacy/CAS separately, and tests force faults/redaction/one terminal through cleanup failure. Owner frozen-bundle runtime-mw7clonr-a now traces DIRECTORY -> COPY -> VERIFY -> IDENTITY -> SAVE/DATABASE_BUSY, proving the reported failure is prepared-artifact persistence contention. Actual native writer identity is still unknown; no timeout/rollback claim. Source marker is REPLAY_LOCAL despite preceding account View; source-switch investigation remains open.
+
+Prepared-artifact guard fixtures initially used invalid reconstruction_run status failed; actual schema permits complete/pending/restricted. Corrected to pending; full98actualSQLite tests pass. Prevention: read schema enum before fixture mutation. Known negative RED guard tests exposed absent diagnostic metadata and are expected regression evidence, not incidents. Full mobile102suites/990tests, root199/framework/evalsmoke and mobiletyping/lint pass for diagnostic repair; no Replay behavior fix claimed yet.
+
+Prepared-artifact writer repair: direct uncoordinated metadata mutation reproduced actual file-backed SQLITE_BUSY/errcode5 while independent writer held the owned turn; wrapping all live guards/read/CAS in existing foreground runOwnedTransaction gives RED->GREEN, preserving concurrent committed direction and rejecting lifecycle invalidation after queue wait. All100actualAtlasSQLite pass. Writer identity on original phone remains unknown. No retry/timeout/data reset introduced. Verified actual Android bundle includes compiled gate, then stopped/reopened only Travel Life to release preexisting native connections. Owner visible result pending, so incident remains open.
+
+Regression tooling recurrence: first actual contention RED waited~33s per fixture due native busy budget, eventually returned database locked; busy_timeout=0 makes fixture deterministic. An earlier conjecture about memory/file mismatch was unverified and is withdrawn. CIM process query was denied; no process killing attempted by test agent. Reviewer guessed absent import-record/schema.ts; corrected from imports to import-record/repository.ts. Preserve observed evidence and inventory paths, never record speculative tooling causes as facts.
+
+Final writer/context correction verification:102mobile suites/997tests,100AtlasSQLite, root199/framework/evalsmoke, typing/lint and scopedwhitespace pass. Follow-up reviewer finds no concrete blocker in owned writer transaction, deferred guard recheck, exact CAS or closed context events. Owner post-restart Replay observation remains required; keep incident open.
+
+Owner Replay writer acceptance (2026-11-08): owner confirms preparation and playback after the foreground-writer correction and ordinary app restart. Current Android runtime-mw7dnuq6-a reaches DIRECTORY/COPY/VERIFY/IDENTITY/SAVE/CLEANUP then REPLAY_RENDER/COMPLETE, durableOutcome complete. This closes the observed prepared-artifact DATABASE_BUSY incident; no storage or checkpoint reset. Software evidence:102mobile suites/997tests,100AtlasSQLite, root199/framework/evalsmoke, typing/lint and scopedreview pass. Source caveat: this action explicitly logs REPLAY_LOCAL. Earlier View runtime-mw7dn9kg-6 completed HISTORY_OPEN_BIND, but no HISTORY_CONTEXT_* switch event is present in current process collection. Therefore account-source continuity remains unknown/unresolved and physical account/two-device Replay acceptance is not established by this successful local playback. Keep wholeM7 in-progress and source-continuity follow-up open; do not conflate writer-incident closure with full account acceptance.
+
+### Account View publishes binding but Replay reports local source (2026-11-08, open)
+
+Owner explicitly requires Supabase account history for Atlas/Replay. Current device View BIND/COMPLETE runtime-mw7dn9kg-6 precedes successful Replay REPLAY_LOCAL runtime-mw7dnuq6-a, with no recorded context-clear/suspend event. This establishes a source discrepancy, not the clearing caller or root cause. Existing account view/root provider tests reused the same local/account mock adapter without accountAuthorized and checked home labels only; that coverage cannot establish real account media/Replay handoff. Strengthen fixture to separate actual capabilities and verify repository plus media consumption after source switch/navigation. Add fixed root-handoff/consumer-mount stage diagnostics sharing binding correlation before further behavior changes; do not blame owner taps or silently fall back from account to local. Earlier writer incident remains independently fixed.
+
+Inspection recurrence: implementation guessed router-tree.test.tsx and a combined bounded-budget read truncated. No mutation; inventory exact test name with rg --files and read instructions/source individually in bounded windows. This repeats the known path-inventory lesson rather than establishing an app defect.
+
+Verified source-continuity cause (2026-11-08): actual routed Android compiled PrivateRecordProvider shows React Compiler memoizes recordContext.getRepositories() once behind memo_cache_sentinel independently of subscribed revision, then caches repositories??{} once. JSX remount observes revision but spreads frozen initial local props. This establishes View binding success with no clearing event and subsequent REPLAY_LOCAL, without attributing actions to owner. Plain Jest provider tests did not run compiler and shared native/account adapter mocks, so they missed this production behavior. Correct the subscription to an atomic stable snapshot containing binding/repository data (not a separately read mutable singleton) and add a compiler-enabled regression. Verify actual Android transformed function before next owner test. Preserve explicit local choice/auth fences and writer correction.
+
+Parent config inspection repeated literal wildcard operands app.config.* and babel.config.* in rg; Windows rejected them. Corrected rg --files with -g filters, located app.json, then inspected only the compiled root function through approved local bundle read. No source/private-data mutation. Prevention: use rg filename glob options rather than literal wildcard operands.
+
+Source-binding regression work: subscription now uses an atomic stable binding snapshot, so React Compiler sees changing repositories as reactive input. Compiler-enabled root regression verifies distinct account metadata/media and real provider manifest reads. Pending expected RED restores the split getter temporarily and then restores source in finally; no owner acceptance requested during this mutation. Extend executable safeguard with deliberate local switch and signout fencing before bundle handoff.
+
+Implementation tooling recurrence: literal Windows wildcard operand, guessed absent Babel config and relative compiled-harness require failed; no Babel config exists because Expo app.json enables compiler. Corrected inventory/import-resolution boundaries; rejected doc patch made no mutation. Use installed Expo compiler through resolved package metadata and a module-scoped require for transformed source; retain factual failure records, not guessed causes.
+
+Compiler source correction verified on device: actual account Replay action runtime-mw7o6r8e-m logs REPLAY_ACCOUNT (not LOCAL), then SOUNDTRACK fails because native MEDIA_AUTH/MEDIA_CONSENT runtime-mw7o8xhh-o. Root source bug is corrected; metadata account source is now real. Private media consent was never granted by metadata sync. Owner now explicitly authorizes continuing private media and must choose exact copies on-device through existing UI; do not auto-select private content or bypass consent. Account video playback remains pending chosen uploads.
+
+Current verification:102mobile suites/1001tests,196focused,112SQLite, mobiletyping/scopedlint/root199/framework/evalsmoke and actualcompiledAndroid atomicbinding proof pass. One blind review completed; two independent reviewers hit service usage limit and did not complete. Parent source/compiled-code review found no new atomic-binding defect; broader pre-existing replacement/proxy/media cleanup findings remain deferred and overallM7 in-progress.
+
+### Account sync exposed implementation steps instead of one owner task (2026-11-08, open)
+
+Owner rejected the multi-step Check/Restore/media-gallery workflow as too complex. It violated the accepted Living Atlas one-primary-action/few-steps contract. Replaced the default signed-in surface with one explicit consent-bearing Sync to account action, honest progress, then account-bound Atlas. Advanced controls remain in Details. Media derives from the committed authoritative account Replay plan, not a second gallery selection or uncommitted draft. Uploads skip acknowledged copies, retain/reconcile the exact matching durable operation, preserve unrelated pending jobs and recheck consent/source at completion. Background catch-up yields while this foreground task is active; OS/owner fences and idempotency remain. Actual phone acceptance remains open until current compiled bundle is verified.
+
+Executable safeguards: one primary UI action/default Details hidden, real measured progress, no navigation before media acknowledgement, no redirect after leaving screen, consent required before side effects, shared correlation/child-cause propagation, owner loss, committed-only media mapping, unknown-upload exact retry, unrelated pending job preservation and final consent withdrawal. Account candidate check previously blocked Replay for excluded unsynchronized memories; meaningful regression RED reproduced that and GREEN checks only committed/requested composition with explicit MEDIA_UNAVAILABLE. This corrects the previously deferred excluded-candidate/media-category finding for this path.
+
+Implementation incidents: guessed account-media-service.test.ts did not exist (actual account-private-media-service.test.ts); two context-sensitive apply_patch edits were rejected with no mutation and corrected from current lines. Initial working-draft fixture omitted soundtrack/baseRevision and mock function omitted its boolean parameter; typecheck caught both and fixtures corrected. Jest hoisting rejected imported Text in mock factory; switched to scoped requireActual. Progress View lacked accessible=true so role query failed; corrected real accessibility and test passed. Earlier eligibility expectation still asserted generic ACCESS after intentional MEDIA_UNAVAILABLE classification, and View integration needed Details opened after advanced controls moved; expectations updated to the new explicit contract, not weakened. Duplicate history-store import lint warning merged. No private data logged or storage reset.
+
+Simple-flow final software checks:106mobile suites/1024tests,112SQLite, root199/framework/evalsmoke, typing/lint and scopedwhitespace pass; actual Android bundle markers verified. New propagation fault test exposed outdated diagnostics mock missing classifyAppDiagnosticError, corrected with requireActual; supplemental failure/redaction tests pass. First-open Replay soundtrack regression RED showed old bundled React state substituted for committed custom music; preparation now uses fresh committed manifest unless an explicit owner Update argument is supplied. Native UI one-action acceptance remains pending.
+
+Tooling recurrence: a direct wildcard path and guessed backend-diagnostics.ts failed during correlation inspection; corrected rg directory search with -g and actual private-media-runtime import (uses same accepted history correlation sanitizer). A new-file whitespace helper incorrectly treated git diff --no-index exit1 as whitespace despite empty --check output; corrected status interpretation and verified all new source files. These are tool-check defects, not product failures. Do not let a later passing command obscure the failed sub-check.
+
+### One-button Sync source-media mapping timed out (2026-11-08, open)
+
+Native runtime-mw7qurne-8 completes consent/history then mapping returns MEDIA_NETWORK/unknown. Current Supabase Logs verifies PostgreSQL57014 in pre_account_controls line21 count query over sourceCopies joined aggregate_page lateral evidence; API returns500. This closes unknown network classification to a server SQL read timeout. Add precise SQL/client-deadline categories before behavior change and optimize metadata/evidence enumeration under unchanged read budgets. Preserve every auth/source/privacy guard and selected upload checkpoint. No owner retry requested yet, no owner evidence inspected or exported. Existing software fixtures covered small source-media pages, not large metadata/Replay query scale; add actual PostgreSQL budget regression. Browser Detail locator briefly raced loading (label became Detail -); refreshed DOM, selected Raw JSON and extracted only allowlisted function/query-shape categories in memory. No raw JSON or credentials retained.
+
+Verification continuation: first root check detected HISTORY_DOMAIN_BUNDLE_STALE because the shared diagnostic source digest changed with the two closed timeout stages. Regenerate using the repository generator and rerun the full root check; no worker deployment is implied by this generated-artifact refresh. A read-only lookup guessed a nonexistent generated filename; corrected from scripts/build-history-domain.mjs to supabase/functions/_shared/history-domain.js. Prevention: read the generator destination before artifact-specific searches. Mobile typecheck/lint pass; full PostgreSQL rollback suite passes all19 fixtures, scale2.260s at unchanged5s fixture budget. Device acceptance remains open.
+
+Review/verification tooling recurrence: a quoted inline node -e edit failed before writing (PowerShell escape handling); corrected with a literal here-string piped to node. A migration lookup again used a Windows wildcard path operand and failed123; corrected to a directory with -g. No runtime changes from either failed command. Review agents also reported read-only guessed-file/wildcard failures; same filename-discovery safeguard applies.
+
+Fixture extension incident: JavaScript replacement-string processing collapsed SQL dollar delimiters while adding the privacy-field loop, causing unterminated dollar-quote failure before assertions. Corrected with a replacement callback that preserves literal delimiters; rerun full19 SQL fixtures. Docker/Metro first rechecks were sandbox-blocked; reran through approved host execution, not by changing product configuration.
+
+Review follow-through: late consent/abandon cleanup lacked a final owner fence and could clear a replacement owner selection. Added current-context guards and deferred cleanup race regressions. Initial test-edit command used a repository-relative path while cwd was apps/mobile and failed ENOENT; no edit occurred, existing13 tests passing did not cover new races. Corrected edit from repository root and rerun new tests. Prevention: use apply_patch absolute paths or assert cwd before generated edits.
+
+Follow-up verification reviewer found SQL NULL-tolerant assertions could miss omitted expectedRevision. Changed scale fixture comparisons to IS DISTINCT FROM, including7/0/11 and required response fields. This is a test-strength defect, not an observed runtime omission. Full sequential benchmark and final assertion recheck pending. Prevention: required JSON SQL fixture fields must use NULL-sensitive comparisons.
+
+Source-media correction deployed as sole migration20261108190000; live fixed metadata verifies optimized body, empty search_path, security definer, denied inner client grants and unchanged runtime budgets. Full19 SQL fixture files pass including125 sequential pages86.317s; final NULL-sensitive assertion subset6files passes2.551s scale. Both late-owner cleanup regressions pass. Root199/mobile1027/full plus32 affected final tests/type/lint evidence retained. Owner must retry one simple Sync on frozen code; native media upload/Atlas remains open until observed. Do not close the original user mismatch as accepted yet.
+
+### Sync continuation after development transport loss (2026-11-09, open)
+Owner requested continuation after the previous Sync remained busy. Current Android app process exists and USB is connected, but no tcp8081 reverse and no host Metro8081 listener; closed Sync diagnostics absent even across retained process logs. Previous operation completion cannot be established, and absence of logs is not proof of rollback or server failure. Restore hidden watch-mode Metro without CI=1 and explicit USB reverse, verify real bundle, then request one fresh owner action. Preserve durable history/media checkpoints and data; do not clear or reinstall. Cause/timing of development-server termination unknown.
+
+Development transport recovery verified: Metro serving exact frozen Android bundle0550bd7c7b62648aa7e078d9d869dca20a284427a2cbd0640233a6e3738bc0a8, USB8081 reverse present; existing app reopened and fresh closed history authority COMPLETE observed. No old simple Sync terminal result retained. Environment restored, previous operation outcome still unknown and native one-button acceptance remains open; no code/server/data changes in this continuation.
+
+### Mapping still fails after SQL optimization (2026-11-09, open)
+Owner fresh action runtime-mw8h2r6x-7 completes history, media mapping starts then44s later fails MEDIA_NETWORK/unknown; cause not established. Supabase visible latest history/Auth200 and no last60min error5xx records. Existing transport maps fetch/JSON/non-OK/session-unavailable to similar failures and private mapped() preserves boundary only for READ_TIMEOUT, so exact failure is masked. Add narrow closed mapping boundary stages and preserve all typed transport boundaries, fault/redaction tests before fresh owner reproduction. Current Dashboard error-filter locator raced loaded count suffix; re-read DOM and used /^error 5xx/ successfully, no data mutation. Previous SQL incident not closed as device accepted.
+Correlated follow-up establishes ACCOUNT_REFRESH/ACCOUNT_PROVIDER/ACCOUNT_NETWORK immediately before mapping failure; many preceding same-action session reads complete. getVerifiedSession returns null for this live-owner network category. Add at most one additional verified-session read for source-media with explicit still-current owner fence, never cached credentials or owner/auth bypass, and force retry/fence/redaction tests. Underlying network interruption remains unknown. A guessed provider filename and wildcard operand failed during read-only lookup; corrected to inventoried auth-adapter.ts. Rendered step04 was guessed under nonexistent steps/; inventory showed root step-04-review.md. Strengthen safeguard: resolve workflow links/inventory before reads and use directory -g searches only.
+
+BMAD continuation bookkeeping: implementation handoff was more verbose than rendered step03's minimal dispatch rule; correction is to keep the delivery record as authority and require implementer to read its full declared context. No scope/permission expansion resulted. Future dispatch uses the installed step's exact minimal template. Read-only step lookup incident already recorded above.
+Implementation verification incident: added signout test referenced session.mock.calls inside its own unannotated mock initializer, producing TS7022/TS7024 despite passing Jest. Implementer replaced with independent reads counter; typing rerun required. Prevention: avoid self-referential mock inference and verify TypeScript alongside Jest.
+
+Independent continuation review found stale-response/late-progress fencing gaps,403 signout misclassification, malformed HTTP retry/semantic page-stage gaps and missing custom-track regression. Diagnostic map refined before targeted patch; keep open until patch/tests/real retry. Pre-existing pending empty-plan/audio receipt recovery, pagination scaling, nested managed diagnostic suppression, manual page identity and resumed transfer-ack validation deferred explicitly; no claim that wholeM7 is complete. Verification reviewer initially read nonexistent account-replay-media-plan.test.ts; corrected to discovered account-replay-media.test.ts, no mutation. Current 106 suites1064tests/root199 pass before these final review patches; final affected rerun required.
+Review-patch tooling incident: one implementation apply_patch used incomplete full-line context and was rejected before mutation; corrected from exact current line. Continue to require current-source reads before dense-line patches. No runtime corruption from rejected patch.
+
+Final software verification:106 mobile suites/1084 tests PASS, focused2/83 PASS, root199/framework/eval smoke PASS, TypeScript/lint/scoped whitespace PASS. Independent final reviewer confirms all requested fixes with no remaining concrete scoped defect. Root recreates exact served Android bundle17a5ae89b8bbf053943862763986eb366ea518924b54fa7cb70f27a2994e2f3e, then normally reopens app preserving storage to avoid stale Fast Refresh callback context. No backend redeployment, new consent scope, token reuse, write/upload auto-retry, Git staging/commit/push or data clearing. Owner one-button native completion remains open; ask only for one fresh action after frozen build, not repeated troubleshooting steps.
+
+### Media stage returns server503 after copies saved (2026-11-09, open)
+Owner new Sync runtime-mw8hnajd-7 proceeds through mapping and actual native/remote per-copy completion; owner observes22/31. Later MEDIA_STAGE/MEDIA_NETWORK/unknown, with ACCOUNT_SESSION COMPLETE immediately before. Supabase confirms private-media POST503 at07:00:16, runtime boot07:00:10 without matching handler start visible. Underlying service failure remains unknown, not established CPU/SQL/session. Prior source-media/session repair cleared those observed boundaries but whole flow still fails. Generic media transport conceals explicit HTTP/platform categories and one-copy transient503 stops whole action despite durable immutable receipts. Map exact closed failure categories and bounded same-job reconciliation before patch. Preserve pending mutation/derivative and prior acknowledged copies; do not reset/reupload or claim rollback. Dashboard raw normalized fields were empty; switched to authoritative function invocation/runtime view, extracted only fixedstatus/stages. Open logs link did not navigate; verified URL and navigated exact observed href once. No private data exported.
+
+Receipt recovery verification: read-only live pg_proc confirms private_media_action wrapper delegates to private_media_action_before_abandon; inner has live-owner/session, media-consent and exact digest/receipt guards. Neither function grants direct authenticated execution. Initial metadata check looked only at the wrapper and returned false for inner-only predicates; traced actual source delegation and repeated metadata check on both. Prevention: verify the whole function chain before interpreting per-function marker absence. Four isolated PostgreSQL rollback fixtures PASS including same-mutation identical result, changed digest conflict, upload lease, CAS and fences. No private row read or backend change.
+Closed action log still includes initiating START and exactly30 completed copy acknowledgements; owner total31. Last-copy failure remains open with exact pending job preserved by pre-send durable save. Prevention/evidence: count only closed COMPLETE acknowledgement events under the same action, never infer copy count from request volume or expose record IDs.
+
+Focused implementation verification: fifteen new assertions fail against the old
+client, then five affected suites and 108 tests pass after the closed transport
+classification and one-button exact-job recovery. Independent source inspection
+found that backend MEDIA_NETWORK on retryable HTTP lost its retry stage, generic
+WORKER_ERROR was grouped with boot, and session deadline and parsed HTTP rejection
+lacked their own categories. Added the distinct boundaries and regression cases
+for each. Receipt loss, repeat failure, storage, owner/consent loss, checkpoint
+mismatch, malformed success, manual resume and sentinel redaction have executable
+guards. The actual service503 cause and owner completion remain open pending
+current-bundle retry evidence.
+
+Tooling incident: a read-only companion search used Bash brace expansion in
+PowerShell and failed to parse before any read or mutation. Reissued using a
+directory-scoped ripgrep search with a Markdown filter. Use native PowerShell
+arrays or ripgrep globs when enumerating sibling paths.
+
+Final scoped review found that unreadable success could lose a committed
+acknowledgement, coercion could admit array status fields, MEDIA_BUSY was treated
+as generic network, and a typed permission read or derivative failure could be
+masked. Added strict receipt checks, exact closed propagation and bounded
+reconciliation only for unknown success acknowledgement. Real transport fault
+injection verifies 546/WORKER_LIMIT, unreadable 200 and lease contention without
+private logging, replacement preparation or premature checkpoint deletion.
+Affected Jest suites passed 111 tests. The focused actual SQLite fixture passed
+receipt advance, artifact replacement rejection, rewind rejection and stored
+readback. Current-device completion and the original service cause remain open.
+Review follow-through found new transport may coerce malformed array reasons into closed diagnostic fields; strict string matching required. Existing status coercion could accept malformed upload/abandon acknowledgement; tighten and test exact receipt/state retention. Explicit MEDIA_BUSY is expected lease lifecycle and must not collapse to MEDIA_NETWORK; preserve job and skip automatic replay. Review also requests real SQLite receipt advancement/rewind and actual transport546 through recovery; patch before final device retry. Unsignalable await and consent off-on readiness are pre-existing and recorded deferred; no broad repair claimed. Reviewers hit Bash brace expansion and Windows literal wildcard rg errors; corrected to explicit paths/directory -g. No mutations by failed commands.
+The CUA completion headline used “startup failure” as shorthand for a503 before any matched handler-start record. This is not proof that initialization itself caused the503; authoritative conclusion stays “service503, internal cause unknown.” Prevention: label observed service response/boundary rather than inferred startup cause in tool summaries.
+Exact follow-up reviewer found typed cleanup failure still flattened to MEDIA_STORAGE and a synthetic MEDIA_BUSY case incorrectly injected on activate instead of upload PUT. Preserve exact reason at cleanup and retarget lease regression to actual PUT, assert no activation/replay and saved checkpoint retained. Reviewer's PowerShell brace-expanded read failed before mutation; corrected with explicit directory -g. Retain native open until real retry.
+Final cleanup regression RED reproduced2 typed faults flattened to MEDIA_STORAGE; GREEN focused5/123 retains exact MEDIA_CLEANUP reason/outcome and active checkpoint. PUT lease test now uses real synthetic transport PUT409, one PUT/no activation/no replay. Full106/1123 before final one-line cleanup correction, final affected5/123, SQLite112, root199, type/lint/scoped whitespace and4 SQL receipt fixtures pass. Exact follow-up reviewer reached usage limit after returning useful findings; parent verified final small corrections directly, no repeated quota call. Final Android proof732093b79e21a8aa270ace4dbd4035d0c1d90546edc088458156d6796674a046 verified, app reopened preserving checkpoint. Device success remains open; service503 cause beyond observed boundary unknown.
+
+Owner confirmed the Android retry opened Atlas automatically and Replay played. The user-visible Sync failure is resolved for this run. The underlying HTTP 503 cause and final media copy count remain unverified.
+
+Restore progress gap reported during the second-device check. The restore button disabled during work, but the history view only populated progress counters for outbound transfers. Show validated download-page counts and separate activity feedback through local rebuild and pointer publication. A PowerShell rg wildcard path failed during inspection. Use a directory and -g instead.
+
+Restore-progress verification initially hit Jest EPERM using the sandbox temp transform cache, a stale generated history-domain bundle, and TS2352 from a partial typed panel fixture. Use the repository-local Jest cache, regenerate the history-domain bundle after shared transfer edits, and type the complete panel fixture.
+
+The corrected restore progress checks passed 53 focused tests, TypeScript and the foundation check. Tests verify an invalid page cannot advance the download counter and local processing uses indeterminate feedback. Phone viewport confirmation remains open.
+
+Second-device account Replay completed using restored account data. Owner reported slow photos and expected the synced video to play immediately. Current implementation syncs composition and eligible private media copies, while the receiving phone prepares its own output. Closed Replay stages identify long preview intervals in that run. Atlas photo latency remains unmeasured. A PowerShell wildcard path lookup recurred during investigation. Use rg with the directory and a -g pattern.
+
+Account Replay preview delay follow-up. Device timings identified about 107 seconds across preview stages. The account adapter awaited each item in series. Use bounded parallel reads and test ordering and stale owner fences. An rg path with a literal wildcard failed during inspection. Use directory plus -g filters.
+
+The adapter now allows three reads per request. The regression completes a later request first and verifies that callbacks still follow input order. All 19 focused media tests, typecheck and the foundation check passed. Owner-device timing remains unverified.
+
+The PowerShell literal-path error recurred while checking the second-device photo import flow. The lookup was corrected to search the account directory with an explicit `-g '*sync*'` filter.
+
+Second Android device local Atlas crash, open. Android confirmed Java heap exhaustion at the 256 MiB process limit. The onboarding action recorded rebuild completion followed by `ATLAS_DURABLE_READ / DURABLE_DESTINATION_READ / UNKNOWN` immediately before process death. A fresh process reached the same failed read. Earlier sync attempts independently reported `HISTORY_EXPORT_LIFECYCLE / HISTORY_FENCED`. The destination label read materializes all support rows at once and is the first source boundary to profile. The allocation site that exhausted the heap remains unknown. Preserve the saved reconstruction and reproduce with large synthetic support data before changing this read. The sandbox redirected LOCALAPPDATA and the first ADB path failed. The explicit installed SDK path worked through the approved host boundary.
+
+The synthetic regression reproduced a single native result of 513 support rows. Bounded keyset reads now transfer 256 rows at a time and preserve whole-result duplicate-family validation. Expo SQLite's installed Android implementation constructs a native list for each query result. The first SQLite suite run failed because an existing fault fixture expected the retired destination stage. The fixture now expects QUERY, and a separate injected computation fault verifies COMPUTATION. Keep the diagnostic fixtures in sync when splitting a boundary. The rerun passed 112 SQLite and 63 focused mobile tests. Actual heap recovery remains pending.
+
+The owner reported the paged build still loaded indefinitely. Opt-in phase timing located the wait in the destination query. The first paging order made SQLite repeatedly sort the joined support. The revised query walks the existing link indexes and deduplicates equivalent support in memory. Android recorded the first query completing in about 10 seconds, followed by about 74 seconds of destination computation and a completed projection. Startup and onboarding each initiated a read. The first mock run after the new cursor repeated the first page because it inspected the wrong bind position. Fix the mock cursor and assert batch sizes. A temporary debug profiling override triggered the opt-out regression as expected for that override. Restore the opt-in gate before final verification. The shared geometry change required regenerating the history-domain bundle before the foundation check passed.
+
+The second phone later completed onboarding and showed Atlas and Timeline, but the owner reported unresponsive input. The preceding process was killed by Android with an unspecified reason. The live process was in the foreground with no matching ANR event. The exact trigger remains open. The confirmed long synchronous destination calculation now yields between short batches so pending input can run. A regression checks a queued task executes before a journey label resolves. ADB input injection was denied by Android permissions, so physical touch verification requires the owner.
+
+The owner reported a blank Atlas after closing the app following a cross-device merge. The fresh process logged HISTORY_PROVIDER_LOCAL. Account source choice lived only in module memory, although the replica pointer had durable storage. Persist the owner choice separately and restore through existing owner and replica scope checks. Test mismatched owner, explicit local selection, replica replacement, and owner-scoped deletion. On-device verification must include a cold restart after recording the choice.
+
+Blank Atlas recurred after a successful account bind. The first temporary SQLite read failed with an undifferentiated copy error. Retrying with per-file diagnostics and a larger buffer produced aggregate counts only and confirmed the saved replica was disconnected. The origin of the disconnected flag is unconfirmed. Atlas now presents explicit reconnect on this state. Owner-flow tests and typecheck passed. Physical recovery remains open.
+
+The owner confirmed that reconnecting from Settings restored the trips in Atlas on the second Android device. The disconnected flag's origin and the new inline recovery button remain unverified on-device.
+
+The second phone's local database exceeded the buffered ADB copy cap, producing an incomplete SQLite snapshot. The corrected read streamed the file to a scoped temporary path, reported aggregate counts only and removed the snapshot. Local qualified trips remain present. The last observed local export was fenced before reading evidence, and the second-device merge is still unverified.
+
+Local reconstruction failed after the source-switch build. Both source bindings reported SCHEMA at DURABLE_RUN_READ. An aggregate-only account replica check confirmed that a retained v39 marker lacked the Home projection column and one Home table. A v40 migration repairs that known layout and preserves saved history and receipts. The real SQLite regression starts from the partial marker and verifies retained rows. Temporary device copies were removed. Reopened Android reached the local source with no immediate repeat of the prior schema error.
+
+Atlas recovery inspection repeated PowerShell brace expansion and assumed the reconstruction provider path. Both failures were read-only. Explicit directory paths and the actual photo-access provider path corrected the lookups. Discover files first and pass concrete paths to PowerShell.
+
+The first Atlas generation-race fixture seeded a successor with the predecessor's evidence revision, so the retained-qualified-run policy continued selecting the predecessor. Use a changed evidence revision to exercise generation replacement and assert the classifier on the typed boundary error.
+
+The Atlas device probe found no ADB on PATH. The installed SDK executable could not start its daemon in the sandbox. The same read-only probe on the host succeeded and listed no attached devices. Use the installed SDK path and distinguish daemon failure from an empty host device list.
+
+The first Timeline merge sheet put a native live-region prop on the design-system Body component, which TypeScript rejected. Put the announcement on its native View and verify the typed component before rerunning the integration suite.
+
+The first exact-pair fixture used two nearby photos per trip, below the current trip detector's independent qualification gates. Seed enough independently timed foreign-place photos and report synthetic qualification reasons when a fixture fails before its intended merge assertion.
+
+The revised fixture put both foreign visits within the canonical V1.1 ten-day away continuation window, which legitimately created one baseline journey. Moving the visits apart produced two journeys but lacked independent corroboration for each in the old detector. The writer test seeds two published qualifications and the exact proposal link explicitly. Continuity policy tests own proposal eligibility.
+
+The persisted pair query initially compared native visit order with the UI's `chronological` value and suppressed an otherwise eligible pair. Match the engine's stored `ordered` enum at the SQLite boundary and exercise the query using an engine-written graph.
+
+The first merge receipt verifier assumed that the left published journey ID would survive structural rebuild. The real SQLite fixture showed the same support in an engine-assigned successor ID. Find the unique qualified successor by an exact evidence anchor and verify its entire two-visit support partition before publishing.
+
+The v43 visual-album migration created both tables but left the private record marker at 42. The full retained-layout suite caught this mismatch. Update both schema markers in the same migration and run the retained-layout fixtures for each schema bump. Keep nested native build output out of version control with a module-local ignore.
+
+An integration typecheck ran while the new visual repository methods were still required on test adapters. They are optional on adapter overrides with a runtime availability check. Re-run typecheck after wiring both the production repository and its optional adapter contract.
+
+The first visual eligibility SQL used a legacy null-origin fixture and compared known origins to `camera`, which the normalized contract calls `capture-like`. The SQLite test now verifies known captures, excludes known screenshots, and also exercises legacy null-origin evidence. Ordinary owner-entered details now bypass visual-album freshness checks when no visual attachment exists.
+
+The full mobile suite caught a default Local repository binding regression in the Account-to-Local fixture. Passing constructor options in the ungated provider made its injected factory select the Account repository. Preserve the zero-argument Local factory call outside the opt-in branch and rerun the source-switch test.
+
+The arm64 Android debug package build reached native tasks but the host drive exhausted disk space while Gradle extracted the React Android AAR. No fresh APK was produced or installed. Check the workspace and Gradle cache volume capacity before retrying a full build.
+
+Mobile lint interpreted the Local recovery callback name `useSource` as a React hook. Renamed it to `canReadRecoverySource` to match the permission contract and reran the full mobile lint check.
+
+Low disk space also interrupted a previously passing Account Replay SQLite fixture with SQLite error 13. Removed only the ignored, inactive repository-root Jest transform cache, leaving coverage and the active mobile cache intact. The exact fixture passed afterward. The React Android AAR alone expands to about 987 MiB, still beyond the drive capacity available after that cleanup.
+
+One final two-file documentation patch included an unrelated anchor out of order and applied nothing. Reissued the changes with only their local replacement context.
+
+On the reconnected Android check, sandbox loopback probes did not identify
+the host's existing Metro listeners. Starting localhost 8081 failed with
+EADDRINUSE. Host 8081 had IPv4 and IPv6 listeners but no status response.
+Started a separate development server on 8085 with IPv4-first DNS.
+The connected device's keyguard was showing, so UI acceptance waits for an
+owner unlock. Do not infer app rendering from keyguard or inspect raw Expo
+log tails, which may contain bundled environment configuration.
+
+After unlock, the installed client showed a blank native surface and emitted
+ReactHost lifecycle soft exceptions with no closed JavaScript diagnostic or
+bundle request. The exact cause remains unknown. A new Metro on IPv4 8085
+passed its host status check and USB reverse was restored. A process restart
+preserved app storage but did not establish successful bundle delivery.
+
+The first unused-ABI cache inventory piped a PowerShell foreach statement
+directly and failed parsing. Collect foreach output into an array before
+piping. A corrected inventory verified 12 Git-ignored, link-free generated
+cache directories under the workspace for x86, x86_64 and armeabi-v7a.
+Removing those regenerable outputs freed nearly 2 GiB for the connected
+arm64 build. Validate each resolved directory and architecture before removal.
+
+The arm64 retry passed extraction and Dex work but NitroModules' direct
+Ninja build launched enough clang processes to exhaust native memory.
+Its build stdout reports repeated `LLVM ERROR: out of memory`. The concurrent
+Metro worker also reported native allocation failure, and one new PowerShell
+could not initialize a runspace. Gradle's one-worker limit does not bound
+Ninja's C++ jobs. Stop the task-owned Metro while compiling and resume the
+existing NitroModules CMake directory with `ninja -j 1`.
+
+NitroModules then linked successfully with one C++ job. The resumed offline,
+single-worker arm64 Gradle build completed in 4m31s and produced a fresh
+153.9 MiB APK containing only arm64-v8a native libraries. Additional verified
+non-arm64 generated object directories and the obsolete debug APK were
+removed to permit packaging. The update install encountered an ADB server
+restart and no connected device. No installation result is claimed. Wait for
+the device to reappear before retrying the same update artifact.
+
+After native compilation stopped and Metro restarted offline with one worker,
+the Android manifest returned HTTP 200 and the fresh 1,799-module bundle
+completed in about 11 seconds. This verifies host recovery under bounded
+concurrency. Physical delivery remains pending the disconnected device.
+
+A later final-document patch repeated an unverified context anchor, omitted
+the leading article, and applied nothing. Read the exact target paragraph
+before multi-file patches, including for small documentation updates.
+
+An Expo CLI source lookup assumed hoisted `@expo/cli` locations twice.
+`require.resolve` from the installed Expo package located its nested CLI.
+Resolve the owning package path before reading installed dependency sources.
+
+After reconnection the streamed Android update succeeded. A UI Automator
+dump to `/dev/tty` did not return the hierarchy through the tool. Dumping to
+one named temporary device file and filtering the readback exposed app
+controls. The first tap failed with Android's `INJECT_EVENTS` restriction;
+after the owner enabled the device setting, normal input succeeded. Do not
+confuse read-only hierarchy access with permission to inject touch.
+
+The first Home-picker tap sequence stopped when the launcher became
+foreground. The app process remained alive and the reason for the activity
+change is unknown. Reopened Settings and reached the search. An immediate
+XML assertion did not report the expected Unicode result; the actual screen
+showed Sa Đéc and province context for the unaccented query. Wait for visible
+results and inspect a privacy-scoped screen before treating an early tree as
+an empty result. A separate bounds probe attempted to serialize the numeric
+PowerShell regex-capture keys as JSON; read selected capture values instead.
+
+During the resumed Android album check, touch reached Timeline before USB
+disconnected. ADB and Windows device enumeration no longer showed the phone.
+The missing UI dump establishes a transport failure. Album behavior remains
+unverified. Restore the original USB stay-awake setting and remove the named
+temporary UI dump after reconnection.
+
+The default workspace sandbox denied `git fetch origin main` while opening
+`.git/FETCH_HEAD` for writing. The same fetch succeeded with authorized Git
+execution, and the refreshed `origin/main` matched the local branch. This is
+a Git metadata write boundary, not repository corruption or a remote failure.
+When a Git operation that updates `.git` metadata is explicitly authorized,
+retry through the authorized Git execution context and verify the resulting
+branch/status rather than repeating the denied sandbox command.
+
+## 2026-11-18 staged whitespace preflight
+
+The first `git diff --cached --check` found extra blank lines at EOF and
+trailing spaces in newly staged text across 24 files. No application checks
+ran. The cause was whitespace in the staged additions, separate from the
+CRLF/LF conversion warnings. Removed only the reported non-semantic whitespace;
+the staged check then passed across all 407 paths. Keep this check as a
+pre-commit gate instead of bypassing it.

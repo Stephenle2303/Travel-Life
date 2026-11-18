@@ -1,5 +1,5 @@
 import { createNativeReconstructionRepository } from '@/reconstruction';
-import { journeyPrivacyTableDefinition } from '@/import-record/repository';
+import { CURRENT_SCHEMA_VERSION, journeyPrivacyTableDefinition } from '@/import-record/repository';
 import type { ManualJourneyInput } from '@/import-record';
 
 const mockExecAsync = jest.fn(); const mockRunAsync = jest.fn(); const mockGetFirstAsync = jest.fn(); const mockGetAllAsync = jest.fn(); const mockOpenDatabaseAsync = jest.fn();
@@ -41,7 +41,7 @@ describe('manual journey repository boundary', () => {
 
     expect(mockExecAsync.mock.calls.flat().join('\n')).toContain('CREATE TABLE IF NOT EXISTS manual_journey');
     expect(mockExecAsync.mock.calls.flat().join('\n')).toContain('date_start TEXT NOT NULL');
-    expect(mockRunAsync).toHaveBeenCalledWith('UPDATE import_schema_version SET version = ?', 37);
+    expect(mockRunAsync).toHaveBeenCalledWith('UPDATE import_schema_version SET version = ?', CURRENT_SCHEMA_VERSION);
   });
 
   it('opens a fresh native connection for the manually entered journey path after an Android runtime restart', async () => {

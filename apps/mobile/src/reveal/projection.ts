@@ -60,11 +60,18 @@ export function projectReveal(input: RevealInput): RevealModel {
   if (input.reconstructionStatus === 'error' || input.reconciliationStatus === 'error') {
     return { state: 'failed', coverage, journeys, statistics: null, pendingUpdates, reviewRequired, replay: { eligible: false, reason: 'Replay is unavailable while the local record needs recovery.' }, message: input.reconstructionMessage ?? 'The local reveal could not finish. Your last committed record remains available.' };
   }
+  if (input.privacyReady === false && (input.sourceScope === 'full' || input.sourceScope === 'limited')) {
+    return { state: 'processing', coverage, journeys, statistics: null,
+      replay: { eligible: false, reason: 'Replay will be available after saved journeys are checked.' },
+      message: 'Checking your saved journeys…' };
+  }
   if (!journeys.length) {
     return { state: 'sparse', coverage, journeys, statistics: null, pendingUpdates, reviewRequired, diagnostics: input.durableRecord?.diagnostics ?? null, replay: { eligible: false, reason: 'Replay needs at least one supported revealed journey.' }, message: input.durableRecord?.diagnostics ? 'There is not enough supported local evidence to reveal a journey yet.' : 'No completed local reconstruction diagnostics are available yet.' };
   }
   const inferredCount = journeys.filter((journey) => journey.status !== 'Owner-entered').length;
-  return { state: 'ready', coverage, journeys, statistics: input.durableRecord?.statistics ?? null, pendingUpdates, reviewRequired, replay: { eligible: inferredCount > 0, reason: inferredCount > 0 ? 'Replay can use only the observed destinations in this private reveal.' : 'Replay needs observed destinations; owner-entered journeys are not evidence.' }, message: 'Available reconstructed journeys are shown as inferred local records. Photo location does not verify your presence.' };
+  const visibleIds = new Set(journeys.map(({ id }) => id));
+  const mergePairs = input.durableRecord?.mergePairs?.filter(({ leftId, rightId }) => visibleIds.has(leftId) && visibleIds.has(rightId));
+  return { state: 'ready', coverage, journeys, ...(mergePairs?.length && !pendingUpdates && !reviewRequired ? { mergePairs } : {}), statistics: input.durableRecord?.statistics ?? null, pendingUpdates, reviewRequired, replay: { eligible: inferredCount > 0, reason: inferredCount > 0 ? 'Replay can use only the observed destinations in this private reveal.' : 'Replay needs observed destinations; owner-entered journeys are not evidence.' }, message: 'Available reconstructed journeys are shown as inferred local records. Photo location does not verify your presence.' };
 }
 
 /** Derives the one safe Atlas state shared by Map and Timeline. */

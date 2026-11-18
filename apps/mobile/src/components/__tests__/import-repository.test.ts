@@ -1,5 +1,5 @@
 import { createNativeImportRepository } from '@/import-record';
-import { journeyPrivacyTableDefinition } from '@/import-record/repository';
+import { CURRENT_SCHEMA_VERSION, journeyPrivacyTableDefinition } from '@/import-record/repository';
 import type { SourceCandidate } from '@/import-record/types';
 
 const mockExecAsync = jest.fn();
@@ -17,7 +17,7 @@ const candidate: SourceCandidate = {
 
 function readyDatabase() {
   mockOpenDatabaseAsync.mockResolvedValue({ execAsync: mockExecAsync, runAsync: mockRunAsync, getFirstAsync: (sql: string, ...args: unknown[]) => sql.includes("name = 'journey_privacy_revision'") ? Promise.resolve({ sql: journeyPrivacyTableDefinition }) : mockGetFirstAsync(sql, ...args), getAllAsync: mockGetAllAsync });
-  mockGetFirstAsync.mockImplementation(async (sql: string) => sql.includes('import_schema_version') ? { version: 37 } : sql.includes('private_record_lifecycle') ? { state: 'connected' } : { version: 1 });
+  mockGetFirstAsync.mockImplementation(async (sql: string) => sql.includes('import_schema_version') ? { version: CURRENT_SCHEMA_VERSION } : sql.includes('private_record_lifecycle') ? { state: 'connected' } : { version: 1 });
   mockExecAsync.mockResolvedValue(undefined);
   mockRunAsync.mockResolvedValue(undefined);
   mockGetAllAsync.mockImplementation(async (sql: string) => sql.includes('PRAGMA table_info(replay_draft)') ? [{ name: 'working_overrides_json' }, { name: 'working_base_revision' }, { name: 'working_revision' }, { name: 'working_session_id' }, { name: 'working_edit_version' }] : []);
@@ -30,14 +30,14 @@ describe('native import SQLite repository', () => {
   });
 
   it('opens an already-current schema without taking a startup write lock', async () => {
-    mockGetFirstAsync.mockResolvedValueOnce({ version: 37 });
+    mockGetFirstAsync.mockResolvedValueOnce({ version: CURRENT_SCHEMA_VERSION });
     await createNativeImportRepository().getCheckpoint('full');
     expect(mockExecAsync).toHaveBeenCalledWith('PRAGMA busy_timeout = 30000');
     expect(mockExecAsync).not.toHaveBeenCalledWith('BEGIN IMMEDIATE TRANSACTION');
   });
 
   it('reads separate aggregate queue and unresolved-remap counts', async () => {
-    mockGetFirstAsync.mockImplementation(async (sql: string) => sql.includes('import_schema_version') ? { version: 37 } : {
+    mockGetFirstAsync.mockImplementation(async (sql: string) => sql.includes('import_schema_version') ? { version: CURRENT_SCHEMA_VERSION } : {
       status: 'pending', queued_change_count: 0, unresolved_remap_count: 2,
       last_checked_at_millis: null, last_updated_at_millis: null,
       new_journey_count: 0, updated_journey_count: 0, message: null,
@@ -53,11 +53,11 @@ describe('native import SQLite repository', () => {
     mockGetFirstAsync.mockRejectedValueOnce(new Error('no such table: import_schema_version')).mockResolvedValueOnce(null);
     await createNativeImportRepository().getCheckpoint('full');
     expect(mockExecAsync).toHaveBeenCalledWith('BEGIN IMMEDIATE TRANSACTION');
-    expect(mockRunAsync).toHaveBeenCalledWith('INSERT INTO import_schema_version (version) VALUES (?)', 37);
+    expect(mockRunAsync).toHaveBeenCalledWith('INSERT INTO import_schema_version (version) VALUES (?)', CURRENT_SCHEMA_VERSION);
   });
 
   it('accepts an abandoned newer additive schema marker without opening a write transaction', async () => {
-    mockGetFirstAsync.mockResolvedValueOnce({ version: 38 });
+    mockGetFirstAsync.mockResolvedValueOnce({ version: CURRENT_SCHEMA_VERSION });
     await createNativeImportRepository().getCheckpoint('full');
     expect(mockExecAsync).not.toHaveBeenCalledWith('BEGIN IMMEDIATE TRANSACTION');
   });
@@ -71,7 +71,7 @@ describe('native import SQLite repository', () => {
     expect(mockOpenDatabaseAsync).toHaveBeenCalledWith('travel-life-import-v1.db', { useNewConnection: true });
     expect(mockExecAsync).toHaveBeenCalledWith('BEGIN IMMEDIATE TRANSACTION');
     expect(mockExecAsync).toHaveBeenCalledWith(expect.stringContaining('CREATE TABLE IF NOT EXISTS import_source_index'));
-    expect(mockRunAsync).toHaveBeenCalledWith('INSERT INTO import_schema_version (version) VALUES (?)', 37);
+    expect(mockRunAsync).toHaveBeenCalledWith('INSERT INTO import_schema_version (version) VALUES (?)', CURRENT_SCHEMA_VERSION);
     expect(mockExecAsync).toHaveBeenLastCalledWith('COMMIT');
     expect(mockExecAsync.mock.calls.flat().join('\n')).toContain('ADD COLUMN reviewed_snapshot_json');
     expect(mockExecAsync.mock.calls.flat().join('\n')).toContain('CREATE TABLE IF NOT EXISTS journey_correction_candidate');
@@ -123,7 +123,7 @@ describe('native import SQLite repository', () => {
     expect(mockExecAsync.mock.calls.flat().join('\n')).toContain('CREATE TABLE IF NOT EXISTS inferred_history');
     expect(mockExecAsync.mock.calls.flat().join('\n')).toContain('INSERT OR IGNORE INTO canonical_evidence');
     expect(mockExecAsync.mock.calls.flat().join('\n')).toContain('VALUES (1, 2)');
-    expect(mockRunAsync).toHaveBeenCalledWith('UPDATE import_schema_version SET version = ?', 37);
+    expect(mockRunAsync).toHaveBeenCalledWith('UPDATE import_schema_version SET version = ?', CURRENT_SCHEMA_VERSION);
   });
 
   it('adds both reconstructed-place country columns before recording schema v12', async () => {
@@ -133,7 +133,7 @@ describe('native import SQLite repository', () => {
     const migration = mockExecAsync.mock.calls.flat().join('\n');
     expect(migration).toContain('ADD COLUMN country_code');
     expect(migration).toContain('ADD COLUMN country_dataset_version');
-    expect(mockRunAsync).toHaveBeenCalledWith('UPDATE import_schema_version SET version = ?', 37);
+    expect(mockRunAsync).toHaveBeenCalledWith('UPDATE import_schema_version SET version = ?', CURRENT_SCHEMA_VERSION);
   });
 
   it('upgrades v26 through the private duplicate-family and correction-snapshot migrations', async () => {
@@ -146,7 +146,7 @@ describe('native import SQLite repository', () => {
     expect(migration).toContain('ADD COLUMN platform_duplicate_family_id');
     expect(migration).toContain('ADD COLUMN duplicate_tuple_fingerprint');
     expect(migration).toContain('ADD COLUMN reviewed_family_snapshot_json');
-    expect(mockRunAsync).toHaveBeenCalledWith('UPDATE import_schema_version SET version = ?', 37);
+    expect(mockRunAsync).toHaveBeenCalledWith('UPDATE import_schema_version SET version = ?', CURRENT_SCHEMA_VERSION);
   });
 
   it('upgrades a v30 Home base without inventing a location name', async () => {
@@ -156,7 +156,7 @@ describe('native import SQLite repository', () => {
     const migration = mockExecAsync.mock.calls.flat().join('\n');
     expect(migration).toContain('ADD COLUMN owner_label TEXT NULL');
     expect(migration).toContain("DEFAULT 'legacy'");
-    expect(mockRunAsync).toHaveBeenCalledWith('UPDATE import_schema_version SET version = ?', 37);
+    expect(mockRunAsync).toHaveBeenCalledWith('UPDATE import_schema_version SET version = ?', CURRENT_SCHEMA_VERSION);
   });
 
   it('stores multiple date-scoped owner home areas privately and clears them on deletion', async () => {
@@ -310,7 +310,7 @@ describe('native import SQLite repository', () => {
     const repository = createNativeImportRepository();
     let lifecycleReads = 0;
     mockGetFirstAsync.mockImplementation(async (sql: string) => {
-      if (sql.includes('import_schema_version')) return { version: 37 };
+      if (sql.includes('import_schema_version')) return { version: CURRENT_SCHEMA_VERSION };
       if (sql.includes('private_record_lifecycle')) {
         lifecycleReads += 1;
         if (lifecycleReads === 1) throw new Error('NativeDatabase.prepareAsync rejected: NullPointerException');

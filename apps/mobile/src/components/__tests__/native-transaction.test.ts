@@ -1,6 +1,25 @@
 import { runOwnedTransaction, serializeNativeTransactions } from '@/database/native-transaction';
 
 describe('native SQLite transaction serialization', () => {
+  it('uses deferred read ownership and retains it through a pending rollback',async()=>{
+    let settle!:()=>void;const held=new Promise<void>(resolve=>{settle=resolve;});
+    const rollback=jest.fn();const db={execAsync:jest.fn(async(sql:string)=>{if(sql==='ROLLBACK')await held;})};
+    const failure=new Error('synthetic read failure');
+    const reading=runOwnedTransaction(db,{kind:'foreground',mode:'read',onRollback:rollback},async()=>{throw failure;});
+    const rejected=expect(reading).rejects.toBe(failure);
+    await Promise.resolve();await Promise.resolve();await Promise.resolve();
+    const next={execAsync:jest.fn(async(_sql:string)=>{})};const queued=runOwnedTransaction(next,{kind:'foreground'},async()=>{});
+    await Promise.resolve();expect(next.execAsync).not.toHaveBeenCalled();
+    expect(db.execAsync.mock.calls[0]).toEqual(['BEGIN DEFERRED TRANSACTION']);
+    settle();await rejected;await queued;
+    expect(rollback.mock.calls).toEqual([['start'],['complete']]);
+    expect(next.execAsync.mock.calls[0]).toEqual(['BEGIN IMMEDIATE TRANSACTION']);
+  });
+  it('does not let a rollback diagnostic hook change settlement or the original failure',async()=>{
+    const failure=new Error('synthetic body failure');const db={execAsync:jest.fn(async(_sql:string)=>{})};
+    await expect(runOwnedTransaction(db,{kind:'foreground',mode:'read',onRollback:()=>{throw new Error('synthetic sink failure');}},async()=>{throw failure;})).rejects.toBe(failure);
+    await expect(runOwnedTransaction(db,{kind:'foreground'},async()=>1)).resolves.toBe(1);
+  });
   it('does not allow separate repository wrappers to begin transactions concurrently', async () => {
     const execAsync = jest.fn<Promise<void>, [string]>().mockResolvedValue(undefined);
     const first = serializeNativeTransactions({ execAsync });

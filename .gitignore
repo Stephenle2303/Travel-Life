@@ -22,6 +22,8 @@ data/private/
 evals/data/private/
 evals/runs/
 evals/reviews/private/
+.private/
+evals/landmarks/nami-capture-evidence-v1.json
 .codex-remote-attachments/
 *.log
 .DS_Store

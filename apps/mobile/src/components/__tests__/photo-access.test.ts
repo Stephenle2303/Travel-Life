@@ -100,6 +100,7 @@ describe('native photo access contract', () => {
     expect(h.controller.snapshot.message).toBe('Starting local metadata import…');
     expect(h.controller.isBusy).toBe(true);
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    delayNextLifecycleCheck = false;
     releaseLifecycle({ state: 'connected' });
     await importing;
   });

@@ -7,6 +7,11 @@ import { recordRevealEvent } from '@/reveal/telemetry';
 import { consumeAtlasPreviewContext, saveAtlasPreviewContext } from '@/atlas/preview-context';
 
 const mockCameraJumpTo = jest.fn();
+let mockAtlasWidth = 390;
+let mockAtlasFontScale = 1;
+jest.mock('react-native/Libraries/Utilities/useWindowDimensions', () => ({
+  default: () => ({ width: mockAtlasWidth, height: 844, scale: 1, fontScale: mockAtlasFontScale }),
+}));
 const configuredStyle = 'https://api.maptiler.com/maps/streets-v2/style.json?key=published';
 const originalStyle = process.env.EXPO_PUBLIC_ATLAS_MAP_STYLE_URL;
 
@@ -44,6 +49,100 @@ function modelFor(overrides: Partial<Parameters<typeof projectReveal>[0]>) {
 }
 
 describe('private Atlas reveal', () => {
+  it('connects adjacent suggested cards and preserves exact review when a filter hides one card', async () => {
+    const pair = { leftId: 'older', rightId: 'newer', generation: 8, privacyRevision: 0 };
+    const journeys = [
+      { displayId: pair.rightId, label: 'Taiwan', periodLabel: 'March 2025' },
+      { displayId: pair.leftId, label: 'Vietnam', periodLabel: 'February 2025' },
+    ].map((journey) => ({ ...journey, state: 'inferred' as const, years: [2025], ordering: 'chronological' as const, anchor: null }));
+    const load = jest.fn(async (id: string) => ({
+      detail: { id, title: id, observedSpan: 'Observed', visits: [], memories: [], uncertainty: [] },
+      previews: [], snapshotToken: pair.generation,
+    }));
+    const confirm = jest.fn().mockResolvedValueOnce('pending').mockResolvedValueOnce('applied');
+    const view = await render(<AtlasReveal {...actions} model={modelFor({ durableRecord: { journeys, mergePairs: [pair] } })}
+      initialExploration={{ view: 'timeline', year: null, selectedJourneyId: null }} loadJourneyPreview={load} confirmTimelineMerge={confirm} />);
+    expect(view.getByTestId('timeline-merge-connector')).toBeOnTheScreen();
+    const search = view.getByLabelText('Search visible Atlas journeys locally');
+    await fireEvent.changeText(search, 'Taiwan');
+    expect(view.queryByTestId('timeline-merge-connector')).toBeNull();
+    await fireEvent.press(view.getByRole('button', { name: 'Review possible merge: Vietnam, February 2025 and Taiwan, March 2025' }));
+    await waitFor(() => expect(view.getByRole('button', { name: 'Confirm merge' })).toBeEnabled());
+    expect(confirm).not.toHaveBeenCalled();
+    await fireEvent.press(view.getByRole('button', { name: 'Confirm merge' }));
+    await fireEvent.press(await view.findByRole('button', { name: 'Check merge again' }));
+    expect(confirm.mock.calls[0][0]).toEqual(pair);
+    expect(confirm.mock.calls[0][1].id).toBe(pair.leftId);
+    expect(confirm.mock.calls[1]).toEqual(confirm.mock.calls[0]);
+  });
+
+  it('withholds empty Timeline copy while its saved record is being checked', async () => {
+    const view = await render(<AtlasReveal {...actions} model={modelFor({ privacyReady: false })}
+      initialExploration={{ view: 'timeline', year: null, selectedJourneyId: null }} />);
+    expect(view.getByText('Checking your saved journeys…')).toBeOnTheScreen();
+    expect(view.queryByText('No supported journey is available to show.')).toBeNull();
+    expect(view.queryByText('Journeys · 0')).toBeNull();
+  });
+  it('waits for durable privacy readback before reporting an empty Atlas', () => {
+    expect(modelFor({ privacyReady: false })).toMatchObject({ state: 'processing', journeys: [] });
+    expect(modelFor({ privacyReady: false, sourceScope: 'revoked' }).state).toBe('restricted');
+    expect(modelFor({ privacyReady: false, reconstructionStatus: 'error' }).state).toBe('failed');
+    expect(modelFor({ privacyReady: true, durableRecord: { journeys: [] } }).state).toBe('sparse');
+  });
+  it('keeps Timeline rows bounded and restores the page after its anchor disappears', async () => {
+    const journeys = Array.from({ length: 50 }, (_, index) => ({
+      displayId: 'journey-' + index,
+      label: 'Journey ' + index,
+      state: 'inferred' as const,
+      anchor: null,
+      years: [2024],
+      periodLabel: '2024',
+      ordering: 'chronological' as const,
+    }));
+    const model = modelFor({ durableRecord: { journeys } });
+    const onHome = jest.fn();
+    const view = await render(<AtlasReveal {...actions} model={model} onHome={onHome} initialExploration={{ view: 'timeline', year: null, selectedJourneyId: null }} />);
+    expect(view.getByText('Journey 0')).toBeOnTheScreen();
+    expect(view.queryByText('Journey 24')).toBeNull();
+    await fireEvent.press(view.getByRole('button', { name: 'Next journeys' }));
+    expect(view.queryByText('Journey 0')).toBeNull();
+    expect(view.getByText('Journey 24')).toBeOnTheScreen();
+    expect(view.queryByText('Journey 48')).toBeNull();
+    await fireEvent.press(view.getByRole('button', { name: 'Home' }));
+    const saved = onHome.mock.calls[0][0];
+    expect(saved.timelineAnchor).toEqual({ id: 'journey-24', index: 24 });
+    await view.unmount();
+
+    const updated = modelFor({ durableRecord: { journeys: journeys.filter((journey) => journey.displayId !== saved.timelineAnchor.id) } });
+    const reopened = await render(<AtlasReveal {...actions} model={updated} initialExploration={saved} />);
+    expect(reopened.getByText('Journey 25')).toBeOnTheScreen();
+    expect(reopened.queryByText('Journey 0')).toBeNull();
+  });
+
+  it('shows the Timeline alongside Map only when both panes have usable width', async () => {
+    const model = modelFor({ durableRecord: { journeys: [{ displayId: 'wide-journey', state: 'inferred', anchor: { latitude: 13.7, longitude: 100.5 }, years: [2024], periodLabel: '2024', ordering: 'chronological' }] } });
+    try {
+      mockAtlasWidth = 900;
+      const view = await render(<AtlasReveal {...actions} model={model} />);
+      expect(view.getByTestId('maplibre-atlas-map')).toBeOnTheScreen();
+      expect(view.getByLabelText('Chronological local journey Timeline')).toBeOnTheScreen();
+      mockAtlasFontScale = 1.5;
+      await view.rerender(<AtlasReveal {...actions} model={model} />);
+      expect(view.getByTestId('maplibre-atlas-map')).toBeOnTheScreen();
+      expect(view.queryByLabelText('Chronological local journey Timeline')).toBeNull();
+    } finally {
+      mockAtlasWidth = 390;
+      mockAtlasFontScale = 1;
+    }
+  });
+
+  it('passes current exploration to Home without changing its view', async () => {
+    const onHome = jest.fn();
+    const context = { view: 'timeline' as const, year: null, selectedJourneyId: null };
+    const view = await render(<AtlasReveal {...actions} model={modelFor({})} initialExploration={context} onHome={onHome} />);
+    await fireEvent.press(view.getByRole('button', { name: 'Home' }));
+    expect(onHome).toHaveBeenCalledWith(expect.objectContaining({ view: 'timeline', year: null }));
+  });
   beforeEach(() => {
     process.env.EXPO_PUBLIC_ATLAS_MAP_STYLE_URL = configuredStyle;
   });
@@ -58,9 +157,9 @@ describe('private Atlas reveal', () => {
     expect(model).toMatchObject({ state: 'ready', replay: { eligible: true } });
     expect(model.journeys[0]).toEqual({ id: 'journey-1', label: 'Private journey', status: 'Inferred', years: [2024], periodLabel: '2024', ordering: 'Chronological', hasMapSupport: true, mapAnchor: { latitude: 13.7, longitude: 100.5 } });
     const view = await render(<AtlasReveal model={model} {...actions} />);
-    await fireEvent.press(view.getByRole('button', { name: 'About your Atlas' }));
-    expect(view.getByText(/Photo location does not verify/)).toBeOnTheScreen();
-    expect(view.getByRole('button', { name: 'Check Replay availability' })).toBeOnTheScreen();
+    await fireEvent.press(view.getByRole('button', { name: 'Atlas details' }));
+    expect(view.getByText(/Photo locations do not prove presence/)).toBeOnTheScreen();
+    expect(view.getByRole('button', { name: 'Replay' })).toBeOnTheScreen();
     await view.unmount();
     const unavailable = await render(<AtlasReveal model={model} {...actions} mapAvailable={false} />);
     expect(unavailable.getByTestId('atlas-map-recovery')).toBeOnTheScreen();
@@ -80,7 +179,7 @@ describe('private Atlas reveal', () => {
       { displayId: 'journey-one', state: 'inferred', anchor: null, years: [2024], periodLabel: 'January 2024', ordering: 'chronological' },
       { displayId: 'journey-two', state: 'inferred', anchor: null, years: [2024], periodLabel: 'February 2024', ordering: 'chronological' },
     ] } });
-    const view = await render(<AtlasReveal model={model} {...actions} loadJourneyPreview={load} loadJourneyMediaPage={loadPage} />);
+    const view = await render(<AtlasReveal model={model} {...actions} initialExploration={{ view: 'timeline', year: null, selectedJourneyId: null }} loadJourneyPreview={load} loadJourneyMediaPage={loadPage} />);
     await waitFor(() => expect(load).toHaveBeenCalledWith('journey-one'));
     await waitFor(() => expect(load).toHaveBeenCalledWith('journey-two'));
     await waitFor(() => expect(loadPage).toHaveBeenCalledWith('journey-one', 9, 0));
@@ -101,12 +200,13 @@ describe('private Atlas reveal', () => {
     });
     const loadPage = jest.fn(async () => ({ page: { items: [{ id: 'media-one', availability: 'available' as const, association: 'Associated locally.', kind: 'photo' as const }], hasMore: false }, previews: [{ uri: 'file:///journey-one.jpg', availability: 'available' as const, kind: 'photo' as const }] }));
     const model = modelFor({ durableRecord: { journeys: [{ displayId: 'journey-one', state: 'inferred', anchor: null, years: [2024], periodLabel: 'January 2024', ordering: 'chronological' }] } });
-    const view = await render(<AtlasReveal model={model} {...actions} loadJourneyPreview={load} loadJourneyMediaPage={loadPage} />);
+    const view = await render(<AtlasReveal model={model} {...actions} initialExploration={{ view: 'timeline', year: null, selectedJourneyId: null }} loadJourneyPreview={load} loadJourneyMediaPage={loadPage} />);
     await waitFor(() => expect(view.getByLabelText('photo thumbnail')).toBeOnTheScreen());
     await fireEvent.press(view.getByRole('button', { name: 'Private journey, January 2024' }));
     await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
     resolveSelected(result);
-    await waitFor(() => expect(view.getByText('Observed journey-one')).toBeOnTheScreen());
+    await fireEvent.press(await view.findByRole('button', { name: 'Evidence details' }));
+    expect(view.getByText(/Observed journey-one/)).toBeOnTheScreen();
     expect(view.getByLabelText('photo thumbnail')).toBeOnTheScreen();
   });
 
@@ -118,7 +218,7 @@ describe('private Atlas reveal', () => {
     ] } });
     expect(model.journeys.map((journey) => journey.status)).toEqual(['Needs review', 'Needs review']);
     const load = jest.fn(async (id: string) => ({ detail: { id, title: 'Private journey', observedSpan: 'Observed 2024', visits: [], memories: [], uncertainty: [], correctionState: 'pending remap' as const }, previews: [], snapshotToken: 1 }));
-    const view = await render(<AtlasReveal model={model} {...actions} loadJourneyPreview={load} onEditJourney={onEditJourney} />);
+    const view = await render(<AtlasReveal model={model} {...actions} initialExploration={{ view: 'timeline', year: null, selectedJourneyId: null }} loadJourneyPreview={load} onEditJourney={onEditJourney} />);
     expect(JSON.stringify(view.toJSON())).toContain('Needs review');
     await fireEvent.press(view.getAllByRole('button', { name: 'Private journey, 2024' })[0]);
     await waitFor(() => expect(view.getByText('Needs review')).toBeOnTheScreen());
@@ -135,19 +235,30 @@ describe('private Atlas reveal', () => {
     saveAtlasPreviewContext(context); expect(consumeAtlasPreviewContext()).toEqual(context); expect(consumeAtlasPreviewContext()).toBeNull();
   });
 
+  it('does not hand a private search across provider sessions', () => {
+    const original = {};
+    const replacement = {};
+    const context = { view: 'timeline' as const, year: 2024, selectedJourneyId: null, query: 'synthetic query', scrollY: 240 };
+    saveAtlasPreviewContext(context, original);
+    expect(consumeAtlasPreviewContext(replacement)).toBeNull();
+    saveAtlasPreviewContext(context, original);
+    expect(consumeAtlasPreviewContext(original)).toEqual(context);
+  });
+
   it('keeps the ready map, local list, coverage and Replay action available', async () => {
     const view = await render(<AtlasReveal model={modelFor({ durableRecord: { journeys: [{ displayId: 'journey-1', state: 'inferred', anchor: { latitude: 13.7, longitude: 100.5 }, years: [2024], periodLabel: '2024', ordering: 'chronological' }] } })} {...actions} />);
     expect(view.getByTestId('maplibre-atlas-map')).toBeOnTheScreen();
-    await fireEvent.press(view.getByRole('button', { name: 'About your Atlas' }));
+    await fireEvent.press(view.getByRole('button', { name: 'Atlas details' }));
     expect(view.getByText(/3 device-visible records/)).toBeOnTheScreen();
-    expect(view.getByText(/Private journey/)).toBeOnTheScreen();
-    await fireEvent.press(view.getByRole('button', { name: 'Check Replay availability' }));
+    expect(view.queryByLabelText('Chronological local journey Timeline')).toBeNull();
+    await fireEvent.press(view.getByRole('button', { name: 'Close Atlas details' }));
+    await fireEvent.press(view.getByRole('button', { name: 'Replay' }));
     expect(actions.onReplay).toHaveBeenCalled();
     await fireEvent.press(view.getByRole('button', { name: 'Rebuild local journey history' }));
     expect(actions.onRetry).toHaveBeenCalled();
     await fireEvent.press(view.getByRole('button', { name: 'Show chronological Timeline' }));
     expect(view.getByRole('button', { name: 'Show chronological Timeline' }).props.accessibilityState).toMatchObject({ selected: true });
-    await fireEvent.press(view.getByRole('button', { name: 'Open Home bases' }));
+    await fireEvent.press(view.getByRole('button', { name: 'Open Settings' }));
     expect(actions.onSettings).toHaveBeenCalled();
   });
 
@@ -166,7 +277,8 @@ describe('private Atlas reveal', () => {
     expect(view.getByText(/Checking local updates.*will refresh automatically when this finishes/)).toBeOnTheScreen();
     expect(view.getByTestId('maplibre-atlas-map')).toBeOnTheScreen();
     expect(view.getByRole('button', { name: 'Show chronological Timeline' })).toBeOnTheScreen();
-    expect(view.getByRole('button', { name: 'Show journeys from 2024' })).toBeOnTheScreen();
+    expect(view.getByRole('button', { name: 'Filter Atlas by year' })).toBeOnTheScreen();
+    await fireEvent.press(view.getByRole('button', { name: 'Atlas details' }));
     expect(view.getByText('Replay will be available after local updates finish.')).toBeOnTheScreen();
   });
 
@@ -189,7 +301,6 @@ describe('private Atlas reveal', () => {
   });
   it('offers import and manual entry for sparse evidence', async () => {
     const view = await render(<AtlasReveal model={modelFor({ sourceScope: 'limited', importedCount: 1 })} {...actions} />);
-    expect(view.getByText('No journey revealed yet.')).toBeOnTheScreen();
     expect(view.getByText(/No completed local reconstruction diagnostics/)).toBeOnTheScreen();
     expect(view.queryByTestId('maplibre-atlas-map')).toBeNull();
     await fireEvent.press(view.getByRole('button', { name: 'Import or reconnect photos' }));
@@ -202,8 +313,10 @@ describe('private Atlas reveal', () => {
     const diagnostics = { assessed: 2989, supported: 0, places: 0, visits: 0, missingDay: 1032, invalidDay: 0, unavailable: 0, duplicateConflict: 0, insufficientLocation: 1957, excluded: 0 };
     const model = modelFor({ graph: null, durableRecord: { journeys: [], diagnostics }, importedCount: 2989 });
     const view = await render(<AtlasReveal model={model} {...actions} />);
+    await fireEvent.press(view.getByRole('button', { name: 'Atlas details' }));
     expect(view.getByText(/2989 records assessed; 0 supported/)).toBeOnTheScreen();
     expect(view.getByText(/1957 insufficient location support/)).toBeOnTheScreen();
+    await fireEvent.press(view.getByRole('button', { name: 'Close Atlas details' }));
     await fireEvent.press(view.getByRole('button', { name: 'Recheck local journey history' }));
     expect(actions.onRetry).toHaveBeenCalled();
     expect(JSON.stringify(model)).not.toContain('evidenceId');
@@ -228,7 +341,6 @@ describe('private Atlas reveal', () => {
     const model = modelFor({ reconstructionStatus: 'complete', reconciliationStatus: 'pending', pendingCount: 1 });
     expect(model.state).toBe('sparse');
     const view = await render(<AtlasReveal model={model} {...actions} onCatchUp={onCatchUp} />);
-    expect(view.getByText('No journey revealed yet.')).toBeOnTheScreen();
     expect(view.getByText(/Catch up to check whether any journeys can be revealed/)).toBeOnTheScreen();
     expect(view.queryByText(/Your last completed Atlas remains available/)).toBeNull();
     expect(view.queryByLabelText('Local journey rebuild in progress')).toBeNull();
@@ -259,7 +371,7 @@ describe('private Atlas reveal', () => {
     expect(model.pendingUpdates).toBe(false);
     expect(model.reviewRequired).toBe(true);
     const view = await render(<AtlasReveal model={model} {...actions} />);
-    expect(view.getByText(/correction matches need your review/)).toBeOnTheScreen();
+    expect(view.getByText(/Some journeys need review/)).toBeOnTheScreen();
     expect(view.queryByRole('button', { name: 'Catch up waiting local journey changes' })).toBeNull();
   });
 
@@ -267,7 +379,7 @@ describe('private Atlas reveal', () => {
     const model = modelFor({ reconciliationStatus: 'pending', pendingCount: 3, queuedChangeCount: 1, unresolvedRemapCount: 2 });
     expect(model.pendingUpdates).toBe(false);
     const view = await render(<AtlasReveal model={model} {...actions} />);
-    expect(view.getByText(/choose Edit and Trip accuracy/)).toBeOnTheScreen();
+    expect(view.getByText(/Some journeys need review/)).toBeOnTheScreen();
     expect(view.queryByRole('button', { name: 'Catch up waiting local journey changes' })).toBeNull();
   });
 
@@ -293,6 +405,7 @@ describe('private Atlas reveal', () => {
     const failed = await render(<AtlasReveal model={modelFor({ reconstructionStatus: 'error', reconciliationStatus: 'error', durableRecord: { journeys: [{ displayId: 'recovery-gallery', state: 'inferred', anchor: null, years: [2025], periodLabel: 'September 2025', ordering: 'uncertain' }] } })} {...actions} loadJourneyPreview={async (id) => ({ detail: { id, title: 'Private journey', observedSpan: 'Observed September 2025', visits: [], memories: [{ id: 'memory-1', availability: 'available', association: 'Associated locally.' }], uncertainty: [] }, previews: [{ uri: 'file:///photo.jpg', availability: 'available', kind: 'photo' }], snapshotToken: 3 })} />);
     expect(failed.getByText(/could not finish/)).toBeOnTheScreen();
     expect(failed.getByText(/still browse the last committed journeys and their associated photos/)).toBeOnTheScreen();
+    await fireEvent.press(failed.getByRole('button', { name: 'Show chronological Timeline' }));
     await fireEvent.press(failed.getByRole('button', { name: /Private journey, September 2025/ }));
     await waitFor(() => expect(failed.getByRole('button', { name: 'See photos and videos' })).toBeOnTheScreen());
     await fireEvent.press(failed.getByRole('button', { name: 'See photos and videos' }));
@@ -318,6 +431,8 @@ describe('private Atlas reveal', () => {
   it('renders only aggregate inferred statistics and explains unavailable country support', async () => {
     const model = modelFor({ durableRecord: { journeys: [{ displayId: 'journey-1', state: 'inferred', anchor: null, years: [], periodLabel: 'Date unknown', ordering: 'uncertain' }], statistics: { journeyCount: 1, placeCount: 2, supportedCountryCount: 0, countryStatus: 'supported' } } });
     const view = await render(<AtlasReveal model={model} {...actions} />);
+    expect(view.queryByText('Inferred local record')).toBeNull();
+    await fireEvent.press(view.getByRole('button', { name: 'Atlas details' }));
     expect(view.getByText('Inferred local record')).toBeOnTheScreen();
     expect(view.getByText('1 inferred journey.')).toBeOnTheScreen();
     expect(view.getByText('2 inferred places.')).toBeOnTheScreen();
@@ -368,7 +483,17 @@ describe('private Atlas reveal', () => {
     expect(JSON.stringify(source.props.data)).not.toContain('Private journey');
     await fireEvent(source, 'press', { nativeEvent: { features: [{ properties: { journeyId: 'provider-safe' } }] } });
     await waitFor(() => expect(view.getByTestId('journey-preview-sheet')).toBeOnTheScreen());
-    await fireEvent(view.getByTestId('maplibre-atlas-map'), 'didFailLoadingMap');
+    const mapDiagnostic = jest.spyOn(console, 'info').mockImplementation(() => undefined);
+    try {
+      await fireEvent(view.getByTestId('maplibre-atlas-map'), 'didFailLoadingMap', { message: 'private-style-sentinel' });
+      expect(mapDiagnostic).toHaveBeenCalledWith('[Travel Life diagnostic]', {
+        operation: 'ATLAS_MAP', stage: 'MAP_STYLE', reasonCode: 'MAP_STYLE_UNAVAILABLE',
+        retryable: true, durableOutcome: 'unchanged', correlationId: expect.any(String),
+      });
+      expect(JSON.stringify(mapDiagnostic.mock.calls)).not.toContain('private-style-sentinel');
+    } finally {
+      mapDiagnostic.mockRestore();
+    }
     expect(view.getByTestId('atlas-map-recovery')).toBeOnTheScreen();
     await fireEvent.press(view.getByRole('button', { name: 'Retry configured Atlas map' }));
     expect(view.getByTestId('maplibre-atlas-map')).toBeOnTheScreen();
@@ -392,12 +517,14 @@ describe('private Atlas reveal', () => {
       { displayId: 'journey-two', state: 'possible-merge', anchor: { latitude: 35.7, longitude: 139.7 }, years: [2023], periodLabel: 'May 2023', ordering: 'uncertain', label: 'Harbor' },
     ] } });
     const view = await render(<AtlasReveal model={model} {...actions} />);
+    await fireEvent.press(view.getByRole('button', { name: 'Show chronological Timeline' }));
     await fireEvent.press(view.getAllByRole('button', { name: /North coast, April 2024/ }).slice(-1)[0]);
     expect(view.getByTestId('journey-preview-sheet')).toBeOnTheScreen();
     await fireEvent.changeText(view.getByLabelText('Search visible Atlas journeys locally'), 'harbor');
     expect(view.queryByTestId('journey-preview-sheet')).toBeNull();
     expect(view.getAllByRole('button', { name: 'Harbor, May 2023' }).length).toBeGreaterThan(0);
     expect(view.queryByRole('button', { name: 'North coast, April 2024' })).toBeNull();
+    await fireEvent.press(view.getByRole('button', { name: 'Show Atlas map' }));
     expect(view.getByTestId('maplibre-atlas-map')).toBeOnTheScreen();
   });
 
@@ -412,10 +539,13 @@ describe('private Atlas reveal', () => {
       { displayId: 'journey-2', state: 'inferred', anchor: { latitude: 35.7, longitude: 139.7 }, years: [2023], periodLabel: '2023', ordering: 'chronological' },
     ] }, reconstructionStatus: 'complete', reconciliationStatus: 'complete', pendingCount: 0, sourceScope: 'full', importedCount: 3 });
     const view = await render(<AtlasReveal model={model} {...actions} />);
+    await fireEvent.press(view.getByRole('button', { name: 'Show chronological Timeline' }));
     await fireEvent.press(view.getAllByRole('button', { name: /Private journey, 2024/ }).slice(-1)[0]);
     expect(view.getAllByLabelText('Private journey, 2024, selected').length).toBeGreaterThan(0);
     expect(view.getAllByLabelText('Private journey, 2024, selected').every((item) => item.props.accessibilityState?.selected)).toBe(true);
+    await fireEvent.press(view.getByRole('button', { name: 'Filter Atlas by year' }));
     await fireEvent.press(view.getByRole('button', { name: 'Show journeys from 2023' }));
+    await fireEvent.press(view.getByRole('button', { name: 'Filter Atlas by year' }));
     await fireEvent.press(view.getByRole('button', { name: 'Show all years' }));
     await waitFor(() => expect(view.queryByLabelText('Private journey, 2024, selected')).toBeNull());
   });
@@ -453,7 +583,7 @@ describe('private Atlas reveal', () => {
     const preview = jest.fn(async (id: string) => ({ detail: { id, title: 'Private journey', observedSpan: 'Observed 2024', visits: [], memories: [{ id: 'memory-1', availability: 'available' as const, association: 'Associated locally.' }], uncertainty: [] }, previews: [{ uri: 'file:///photo.jpg', availability: 'available' as const, kind: 'photo' as const }], snapshotToken: 8 }));
     const page = jest.fn().mockResolvedValueOnce({ page: { items: [{ id: 'media-1', availability: 'available' as const, association: 'Associated locally.', kind: 'photo' as const }], hasMore: true }, previews: [{ uri: 'file:///photo.jpg', availability: 'available' as const, kind: 'photo' as const }] }).mockRejectedValueOnce(new Error('temporary')).mockResolvedValueOnce({ page: { items: [{ id: 'media-2', availability: 'available' as const, association: 'Associated locally.', kind: 'video' as const }], hasMore: false }, previews: [{ uri: 'file:///video.mp4', availability: 'available' as const, kind: 'video' as const }] });
     const model = modelFor({ durableRecord: { journeys: [{ displayId: 'gallery-safe', state: 'inferred', anchor: null, years: [2024], periodLabel: '2024', ordering: 'chronological' }] } });
-    const view = await render(<AtlasReveal model={model} {...actions} loadJourneyPreview={preview} loadJourneyMediaPage={page} />);
+    const view = await render(<AtlasReveal model={model} {...actions} initialExploration={{ view: 'timeline', year: null, selectedJourneyId: null }} loadJourneyPreview={preview} loadJourneyMediaPage={page} />);
     await fireEvent.press(view.getByRole('button', { name: /Private journey, 2024/ }));
     await waitFor(() => expect(view.getByRole('button', { name: 'See photos and videos' })).toBeOnTheScreen());
     await fireEvent.press(view.getByRole('button', { name: 'See photos and videos' }));
@@ -476,17 +606,36 @@ describe('private Atlas reveal', () => {
     expect(view.getByTestId('journey-media-tile-media-1')).toBeOnTheScreen();
   });
 
+  it('reports a classified preview read failure without leaking native error content', async () => {
+    const log = jest.spyOn(console, 'info').mockImplementation(() => undefined);
+    try {
+      const model = modelFor({ durableRecord: { journeys: [{ displayId: 'synthetic-journey', state: 'inferred', anchor: null, years: [2024], periodLabel: '2024', ordering: 'chronological' }] } });
+      const load = jest.fn(async () => { throw new Error('database is locked: secret-sentinel'); });
+      const view = await render(<AtlasReveal {...actions} model={model} loadJourneyPreview={load} initialExploration={{ view: 'map', year: null, selectedJourneyId: 'synthetic-journey' }} />);
+      expect(await view.findByText('Could not open this journey. Close and try again.')).toBeOnTheScreen();
+      expect(log).toHaveBeenCalledWith('[Travel Life diagnostic]', { operation: 'ATLAS_PREVIEW', stage: 'PREVIEW_READ', reasonCode: 'DATABASE_BUSY', retryable: true, durableOutcome: 'unchanged', correlationId: expect.any(String) });
+      const start = log.mock.calls.find(([, event]) => event?.reasonCode === 'START')?.[1];
+      const failure = log.mock.calls.find(([, event]) => event?.reasonCode === 'DATABASE_BUSY')?.[1];
+      expect(start?.correlationId).toEqual(failure?.correlationId);
+      expect(JSON.stringify(log.mock.calls)).not.toContain('secret-sentinel');
+      expect(view.queryByText(/secret-sentinel/)).toBeNull();
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it('keeps an in-place preview bound to the selected opaque journey and can close it', async () => {
     const load = jest.fn(async (id: string) => ({ detail: { id, title: 'Private journey', observedSpan: 'Observed 2024-01-01', visits: [], memories: [], uncertainty: [], correctionState: 'inferred' as const }, previews: [{ uri: 'file:///private-photo.jpg', availability: 'available' as const, kind: 'photo' as const }] }));
     const edit = jest.fn();
     const model = modelFor({ durableRecord: { journeys: [{ displayId: 'atlas-safe-display', state: 'inferred', anchor: null, years: [2024], periodLabel: '2024', ordering: 'chronological' }] } });
-    const view = await render(<AtlasReveal model={model} {...actions} loadJourneyPreview={load} onEditJourney={edit} />);
+    const view = await render(<AtlasReveal model={model} {...actions} initialExploration={{ view: 'timeline', year: null, selectedJourneyId: null }} loadJourneyPreview={load} onEditJourney={edit} />);
     await fireEvent.press(view.getByRole('button', { name: /Private journey, 2024/ }));
     expect(view.getByTestId('journey-preview-sheet')).toBeOnTheScreen();
     expect(view.getByRole('button', { name: 'Edit trip' })).toBeOnTheScreen();
     await fireEvent.press(view.getByRole('button', { name: 'Edit trip' }));
-    expect(edit).toHaveBeenCalledWith('atlas-safe-display', expect.objectContaining({ selectedJourneyId: 'atlas-safe-display', view: 'map' }));
-    await waitFor(() => expect(view.getByText('Observed 2024-01-01')).toBeOnTheScreen());
+    expect(edit).toHaveBeenCalledWith('atlas-safe-display', expect.objectContaining({ selectedJourneyId: 'atlas-safe-display', view: 'timeline' }));
+    await fireEvent.press(await view.findByRole('button', { name: 'Evidence details' }));
+    expect(view.getByText(/Observed 2024-01-01/)).toBeOnTheScreen();
     expect(view.getByLabelText('Associated photo preview')).toBeOnTheScreen();
     expect(load).toHaveBeenCalledWith('atlas-safe-display');
     await fireEvent.press(view.getByRole('button', { name: 'Close journey preview' }));

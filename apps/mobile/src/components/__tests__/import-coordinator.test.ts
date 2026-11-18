@@ -51,6 +51,42 @@ function harness(initial: PermissionSnapshot | null = { scope: 'full', canAskAga
 }
 
 describe('resumable local metadata import', () => {
+  it('rechecks permission after a transient retry delay before another metadata read', async () => {
+    jest.useFakeTimers();
+    const h = harness();
+    h.adapter.readMetadataPage.mockRejectedValueOnce(new Error('released native handle'));
+    try {
+      const work = h.coordinator.start('full', null);
+      await jest.advanceTimersByTimeAsync(1);
+      h.setPermission({ scope: 'denied', canAskAgain: false });
+      await jest.runAllTimersAsync(); await work;
+      expect(h.adapter.readMetadataPage).toHaveBeenCalledTimes(1);
+      expect(h.coordinator.coverage.status).toBe('blocked');
+    } finally { jest.useRealTimers(); }
+  });
+
+  it('records a rejected late native read as cancellation lifecycle without unexpected failure', async () => {
+    const h = harness(); let reject!: (error: Error) => void;
+    h.adapter.readMetadataPage.mockImplementationOnce(() => new Promise((_resolve, fail) => { reject = fail; }));
+    const log = jest.spyOn(console, 'info').mockImplementation(() => {});
+    try {
+      const work = h.coordinator.start('full', null, 'runtime-synthetic-cancel');
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await h.coordinator.cancel(); reject(new Error('synthetic-sensitive-native-content')); await work;
+      expect(log.mock.calls.map(([, e]) => e)).toEqual([expect.objectContaining({ operation: 'METADATA_IMPORT', stage: 'IMPORT_READ', reasonCode: 'SKIPPED', durableOutcome: 'skipped', correlationId: 'runtime-synthetic-cancel' })]);
+      expect(JSON.stringify(log.mock.calls)).not.toContain('synthetic-sensitive-native-content');
+    } finally { log.mockRestore(); }
+  });
+  it('never treats an equal-count previous selection as proof of a failed new commit', async () => {
+    const h = harness();
+    h.adapter.readSelectedMetadata.mockResolvedValueOnce([image('first-set')]);
+    await h.coordinator.importSelected(['first-set'], 0);
+    h.repository.commitPage = async () => { throw new Error('synthetic lost commit acknowledgement'); };
+    h.adapter.readSelectedMetadata.mockResolvedValueOnce([image('different-set')]);
+    await h.coordinator.importSelected(['different-set'], 0);
+    expect(h.coordinator.coverage.status).not.toBe('complete');
+    expect(h.repository.sources.has('different-set')).toBe(false);
+  });
   it('finishes an empty permitted scope with explicit zero coverage', async () => {
     const h = harness();
     await h.coordinator.start('full', 0);
@@ -216,7 +252,7 @@ describe('resumable local metadata import', () => {
     await expect(h.coordinator.start('full', 1)).resolves.toBeUndefined();
 
     expect(commitPage).toHaveBeenCalledTimes(1);
-    expect(h.coordinator.coverage).toMatchObject({ status: 'paused', scanned: 0, message: 'Local storage is busy. No metadata page was committed. Retry when ready.' });
+    expect(h.coordinator.coverage).toMatchObject({ status: 'paused', scanned: 0, message: 'Checking saved metadata progress. Retry when ready.' });
     expect(h.repository.sources.has('uncommitted')).toBe(false);
   });
 

@@ -1,0 +1,223 @@
+{
+  "id": "atlas-nami-visual-v1",
+  "version": 1,
+  "gates": {
+    "minimumSimilarity": 0.7,
+    "minimumMargin": 0.04,
+    "minimumReproductionSimilarity": 0.84
+  },
+  "regions": {
+    "v2-nami-ferry": {
+      "x": 5,
+      "y": 3,
+      "width": 8,
+      "height": 12
+    },
+    "v6-source-46295529": {
+      "x": 1,
+      "y": 5,
+      "width": 10,
+      "height": 5
+    },
+    "v6-source-56816512": {
+      "x": 6,
+      "y": 6,
+      "width": 8,
+      "height": 6
+    },
+    "v5-other-ferry": {
+      "x": 1,
+      "y": 4,
+      "width": 14,
+      "height": 9
+    },
+    "v6-source-148851306": {
+      "x": 0,
+      "y": 6,
+      "width": 15,
+      "height": 8
+    }
+  },
+  "photos": [
+    {
+      "id": "v2-nami-ferry",
+      "file": "v2-nami-ferry.jpg",
+      "sha256": "f7fd84d03d6031a35154734e0d41e1e6ee4a5ad92f397890b5eabbd958956dfb",
+      "role": "reference",
+      "subject": "ferry",
+      "sourcePage": "https://commons.wikimedia.org/w/index.php?curid=36473334",
+      "sourceRevision": 1225509604,
+      "downloadUrl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/39/Gapyeong-Nami_Island_Ferry.jpg/960px-Gapyeong-Nami_Island_Ferry.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "author": "Minseong Kim",
+      "license": "CC BY-SA 4.0"
+    },
+    {
+      "id": "v6-source-46295529",
+      "file": "v6-source-46295529.jpg",
+      "sha256": "6370eeb1adb4bcfece1c10b6a77707fc1996bdad42a82da5efca373a6b81eb9f",
+      "role": "reference",
+      "subject": "memorial",
+      "sourcePage": "https://commons.wikimedia.org/w/index.php?curid=46295529",
+      "sourceRevision": 1190102456,
+      "downloadUrl": "https://upload.wikimedia.org/wikipedia/commons/f/fa/Tomb_of_General_Nam_Yi_of_Chosun_Dynasty_-_panoramio.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled",
+      "author": "Cho's",
+      "license": "CC BY-SA 3.0"
+    },
+    {
+      "id": "v6-source-56816512",
+      "file": "v6-source-56816512.jpg",
+      "sha256": "c5c257652f3ee9a0a85313fcb84db98ba7aeb582aae28d56fcf7bb57a784eb53",
+      "role": "reference",
+      "subject": "zipline",
+      "sourcePage": "https://commons.wikimedia.org/w/index.php?curid=56816512",
+      "sourceRevision": 837146453,
+      "downloadUrl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/5a/Bukhangang_%28%EB%B6%81%ED%95%9C%EA%B0%95%29_-_panoramio.jpg/960px-Bukhangang_%28%EB%B6%81%ED%95%9C%EA%B0%95%29_-_panoramio.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "author": "골뱅이",
+      "license": "CC BY-SA 3.0"
+    },
+    {
+      "id": "v5-other-ferry",
+      "file": "v5-other-ferry.jpg",
+      "sha256": "28a9ef8173c1ffa2d0341c2eb8002ea5fe482b8492f21a6da234d1bac8002772",
+      "role": "competitor",
+      "subject": "ferry",
+      "sourcePage": "https://commons.wikimedia.org/w/index.php?curid=146711042",
+      "sourceRevision": 1049417634,
+      "downloadUrl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/f/f3/Niemon_Island_Ferry.jpg/500px-Niemon_Island_Ferry.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "author": "ブルーノ・プラス",
+      "license": "CC BY 4.0"
+    },
+    {
+      "id": "v6-source-148851306",
+      "file": "v6-source-148851306.jpg",
+      "sha256": "6ce07c2ab51cd5cdede9312f0742f35ab1214418ae51de8a6c94ff8bdff00cc8",
+      "role": "competitor",
+      "subject": "memorial",
+      "sourcePage": "https://commons.wikimedia.org/w/index.php?curid=148851306",
+      "sourceRevision": 1178387274,
+      "downloadUrl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/b1/%EB%82%A8%EC%9D%B4%EC%9E%A5%EA%B5%B0%EB%AC%98.jpg/960px-%EB%82%A8%EC%9D%B4%EC%9E%A5%EA%B5%B0%EB%AC%98.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "author": "한국학중앙연구원·유남해",
+      "license": "KOGL Type 1"
+    },
+    {
+      "id": "v6-source-172419971",
+      "file": "v6-source-172419971.jpg",
+      "sha256": "d372a7e53827756d4aac97b66ef91b1a314b3334c50fa85b426c336651730177",
+      "role": "query-negative",
+      "subject": "ferry",
+      "sourcePage": "https://commons.wikimedia.org/w/index.php?curid=172419971",
+      "sourceRevision": 1187212983,
+      "downloadUrl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e6/Trajekt_na_ostrov_Muuido%2C_Yongyu-dong%2C_Jung_District%2C_In%C4%8Dchon%2C_Ji%C5%BEn%C3%AD_Korea_01.jpg/960px-Trajekt_na_ostrov_Muuido%2C_Yongyu-dong%2C_Jung_District%2C_In%C4%8Dchon%2C_Ji%C5%BEn%C3%AD_Korea_01.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "author": "File by Fry72 (Karel Frydrýšek)  uploaded to Wikimedia Commons; see [1].",
+      "license": "CC BY-SA 4.0"
+    },
+    {
+      "id": "v6-source-13283679",
+      "file": "v6-source-13283679.jpg",
+      "sha256": "b06bcdde9943aa6398117184c15da5473ff1efa465d28d8c4b0c7907e115a1f0",
+      "role": "query-negative",
+      "subject": "memorial",
+      "sourcePage": "https://commons.wikimedia.org/w/index.php?curid=13283679",
+      "sourceRevision": 1159000232,
+      "downloadUrl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/92/King_Kongmin%27s_Tomb.jpg/960px-King_Kongmin%27s_Tomb.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "author": "John Pavelka from Austin, TX, USA",
+      "license": "CC BY 2.0"
+    },
+    {
+      "id": "v6-source-24271319",
+      "file": "v6-source-24271319.jpg",
+      "sha256": "efe131253b4685e95c335617b9f7bae82d9ffc7f384e4f2091fdf35a8a3efc21",
+      "role": "query-negative",
+      "subject": "memorial",
+      "sourcePage": "https://commons.wikimedia.org/w/index.php?curid=24271319",
+      "sourceRevision": 1155385103,
+      "downloadUrl": "https://upload.wikimedia.org/wikipedia/commons/4/44/Cheonmachong_%EC%B2%9C%EB%A7%88%EC%B4%9D_%E5%A4%A9%E9%A6%AC%E5%A1%9A_%285329004409%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled",
+      "author": "InSapphoWeTrust from Los Angeles, California, USA",
+      "license": "CC BY-SA 2.0"
+    },
+    {
+      "id": "v6-source-85630835",
+      "file": "v6-source-85630835.jpg",
+      "sha256": "1ccc60dbb9fcc3f5cebada744c7e64ee154bded3b0a10cb9b61ef7305fa485be",
+      "role": "query-negative",
+      "subject": "ferry",
+      "sourcePage": "https://commons.wikimedia.org/w/index.php?curid=85630835",
+      "sourceRevision": 1201235117,
+      "downloadUrl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e7/Deokjeok_Ferry_Terminal.jpg/960px-Deokjeok_Ferry_Terminal.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "author": "LT sfm",
+      "license": "CC BY-SA 4.0"
+    },
+    {
+      "id": "v6-source-41897363",
+      "file": "v6-source-41897363.jpg",
+      "sha256": "46bcfcea2a76b8c68e86a492cecba67146d885db4f1763b30ee048d2a56f673c",
+      "role": "query-fresh",
+      "subject": "zipline",
+      "sourcePage": "https://commons.wikimedia.org/w/index.php?curid=41897363",
+      "sourceRevision": 1184288398,
+      "downloadUrl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/05/%EB%82%A8%EC%9D%B4%EC%84%AC_%284%29.JPG/960px-%EB%82%A8%EC%9D%B4%EC%84%AC_%284%29.JPG?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "author": "Jocelyndurrey",
+      "license": "CC BY-SA 4.0"
+    },
+    {
+      "id": "v4-nami-jocelyn-2",
+      "file": "v4-nami-jocelyn-2.jpg",
+      "sha256": "6429aca19ec8f112e57e31a901855cdcf5b4da5773df6aac040080ab440f8d7b",
+      "role": "query-regression",
+      "subject": "ferry",
+      "sourcePage": "https://commons.wikimedia.org/w/index.php?curid=41897362",
+      "sourceRevision": 1135753421,
+      "downloadUrl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/8/8d/%EB%82%A8%EC%9D%B4%EC%84%AC_%282%29.JPG/1280px-%EB%82%A8%EC%9D%B4%EC%84%AC_%282%29.JPG?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "author": "Jocelyndurrey",
+      "license": "CC BY-SA 4.0"
+    },
+    {
+      "id": "v5-nami-tomb",
+      "file": "v5-nami-tomb.jpg",
+      "sha256": "ab4737070ba2d252123cf07493cd4a08ab21f5982476416a8950cbecd7faef33",
+      "role": "query-regression",
+      "subject": "memorial",
+      "sourcePage": "https://commons.wikimedia.org/w/index.php?curid=41947971",
+      "sourceRevision": 1148151488,
+      "downloadUrl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/2/2e/%EB%82%A8%EC%9D%B4%EC%84%AC_%2836%29.JPG/500px-%EB%82%A8%EC%9D%B4%EC%84%AC_%2836%29.JPG?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "author": "Jocelyndurrey",
+      "license": "CC BY-SA 4.0"
+    },
+    {
+      "id": "v4-nami-ferry",
+      "file": "v4-nami-ferry.jpg",
+      "sha256": "6c5bdfe1b60281f5bc45c2b0bf841dfa954cd5a802e4458c869f41a1391bf3fb",
+      "role": "query-regression",
+      "subject": "ferry",
+      "sourcePage": "https://commons.wikimedia.org/w/index.php?curid=58026170",
+      "sourceRevision": 1251503813,
+      "downloadUrl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/19/Ferry_to_Nami_Island_-_panoramio.jpg/1280px-Ferry_to_Nami_Island_-_panoramio.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "author": "::::=UT=::::",
+      "license": "CC BY-SA 3.0"
+    },
+    {
+      "id": "v6-paper-ferry",
+      "file": "v6-paper-ferry.jpg",
+      "sha256": "dfe8c16eabe15a5418f03ca52466ff201f44d1bdf062b710080c1f36a218de4a",
+      "role": "query-reproduction",
+      "subject": "ferry",
+      "sourcePhoto": "v2-nami-ferry"
+    },
+    {
+      "id": "v6-screen-tomb",
+      "file": "v6-screen-tomb.jpg",
+      "sha256": "0e72d8ec3e359a18070d3923ddf6285ac878c67606b4114be0b68f618877ec90",
+      "role": "query-reproduction",
+      "subject": "memorial",
+      "sourcePhoto": "v6-source-46295529"
+    },
+    {
+      "id": "v6-full-bleed-unindexed-ferry",
+      "file": "v6-full-bleed-unindexed-ferry.jpg",
+      "sha256": "a484fa503afa9b2ae8503d1fbcbf7a3a0212bdc8ad05c1d57d4e26a5291e35da",
+      "role": "query-reproduction",
+      "subject": "ferry",
+      "sourcePhoto": "v4-nami-jocelyn-2"
+    }
+  ]
+}

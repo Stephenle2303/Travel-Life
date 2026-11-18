@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "baseSha256": "23aa650d7700b88932b30e6a7fad20850117435f757603e5881f1985d1c80db4",
+  "queryPhotos": [
+    {
+      "id": "regional-hanoi-turtle-neweco", "file": "regional-hanoi-turtle-neweco.jpg", "placeId": "turtle-tower",
+      "author": "Minh Phượng (Neweco)", "captureGroup": "neweco-hoan-kiem-2007-08-22", "license": "CC-BY-SA-3.0", "revision": "1198628782",
+      "url": "https://commons.wikimedia.org/wiki/File:Turtle_Tower,_Ho%C3%A0n_Ki%E1%BA%BFm_lake,_H%C3%A0_N%E1%BB%99i_capital,_Vietnam.jpg",
+      "downloadUrl": "https://upload.wikimedia.org/wikipedia/commons/5/56/Turtle_Tower%2C_Ho%C3%A0n_Ki%E1%BA%BFm_lake%2C_H%C3%A0_N%E1%BB%99i_capital%2C_Vietnam.jpg",
+      "sha256": "6e1473813bcb13b985d64db2cd581bc5286557868d6b38a37f88ed473210bee7"
+    },
+    {
+      "id": "regional-hanoi-turtle-johnson-kantner", "file": "regional-hanoi-turtle-johnson-kantner.jpg", "placeId": "turtle-tower",
+      "author": "Brian Johnson & Dane Kantner", "captureGroup": "johnson-kantner-hanoi-2009-12-02", "license": "CC-BY-SA-2.0", "revision": "1204011744",
+      "url": "https://commons.wikimedia.org/wiki/File:Hoan_Kiem_Lake,_Hanoi,_Vietnam.jpg",
+      "downloadUrl": "https://upload.wikimedia.org/wikipedia/commons/7/7c/Hoan_Kiem_Lake%2C_Hanoi%2C_Vietnam.jpg",
+      "sha256": "23e5065681def6529fe68f442151dd60b0f13d3b62e511a9400348478a2e5100"
+    },
+    {
+      "id": "regional-hanoi-khue-savage", "file": "regional-hanoi-khue-savage.jpg", "placeId": "khue-van-cac",
+      "author": "McKay Savage", "captureGroup": "mckay-savage-hanoi-2008-12-22", "license": "CC-BY-2.0", "revision": "1207171504",
+      "url": "https://commons.wikimedia.org/wiki/File:Vietnam_-_Temple_of_Literature.jpg",
+      "downloadUrl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/40/Vietnam_-_Temple_of_Literature.jpg/960px-Vietnam_-_Temple_of_Literature.jpg",
+      "sha256": "f21d78cace9678625fc0cf867bd88aafdfb78b7b15e748af1decfefda7cc9e43"
+    },
+    {
+      "id": "regional-hanoi-khue-daderot", "file": "regional-hanoi-khue-daderot.jpg", "placeId": "khue-van-cac",
+      "author": "Daderot", "captureGroup": "daderot-hanoi-2014-08-05", "license": "CC0-1.0", "revision": "1132264372",
+      "url": "https://commons.wikimedia.org/wiki/File:Constellation_of_Literature_pavilion_-_Temple_of_Literature,_Hanoi_-_DSC04688.JPG",
+      "downloadUrl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/10/Constellation_of_Literature_pavilion_-_Temple_of_Literature%2C_Hanoi_-_DSC04688.JPG/960px-Constellation_of_Literature_pavilion_-_Temple_of_Literature%2C_Hanoi_-_DSC04688.JPG",
+      "sha256": "30176296c35c35c3878602597af25445f2393c83af26820930122ce0b106f8a5"
+    }
+  ],
+  "episode": {
+    "id": "hanoi-holdout", "country": "VN", "destination": "locality-hanoi",
+    "stops": ["turtle-tower", "khue-van-cac"],
+    "sessions": [["regional-hanoi-turtle-neweco", "regional-hanoi-turtle-johnson-kantner", "synthetic-meter-screen"], ["regional-hanoi-khue-savage", "regional-hanoi-khue-daderot", "control-hanoi-well"]],
+    "covers": ["regional-hanoi-turtle-neweco", "regional-hanoi-khue-savage"],
+    "album": ["regional-hanoi-turtle-neweco", "regional-hanoi-turtle-johnson-kantner", "regional-hanoi-khue-savage", "regional-hanoi-khue-daderot"]
+  }
+}

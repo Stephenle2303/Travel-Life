@@ -1,4 +1,4 @@
-import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 
 import { JourneyMediaViewer } from '@/components/journey-media-viewer';
 
@@ -11,6 +11,21 @@ const detail = { id: 'journey-1', title: 'Private journey', observedSpan: 'Obser
 const photo = { uri: 'file:///photo.jpg', availability: 'available' as const, kind: 'photo' as const };
 
 describe('JourneyMediaViewer', () => {
+  it('discards a late inspection result after leaving the selected photo', async () => {
+    let resolve!: (value: string) => void;
+    const inspect = jest.fn(() => new Promise<string>((done) => { resolve = done; }));
+    const loadPage = async () => ({ page: { items: [{ id: 'media-1', availability: 'available' as const,
+      association: 'Visit support', kind: 'photo' as const }], hasMore: false }, previews: [photo] });
+    const view = await render(<JourneyMediaViewer detail={detail} previews={[]} loadPage={loadPage} inspect={inspect} onClose={jest.fn()} />);
+    await fireEvent.press(await view.findByTestId('journey-media-tile-media-1'));
+    await fireEvent.press(view.getByRole('button', { name: 'Inspect this media' }));
+    expect(inspect).toHaveBeenCalledWith('media-1', photo.uri);
+    await fireEvent.press(view.getByRole('button', { name: 'Back to gallery' }));
+    await act(async () => { resolve('Late inspection result'); });
+    await fireEvent.press(view.getByTestId('journey-media-tile-media-1'));
+    expect(view.queryByText('Late inspection result')).toBeNull();
+  });
+
   it('appends batches into one grid and keeps the grid after Back', async () => {
     const loadPage = jest.fn()
       .mockResolvedValueOnce({ page: { items: [{ id: 'first', availability: 'available' as const, association: 'First associated item', kind: 'photo' as const }], hasMore: true }, previews: [photo] })

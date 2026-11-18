@@ -1,13 +1,27 @@
-import type { MaintenanceCheckpoint } from '@/import-record/types';
+import type { ImportRepository, MaintenanceCheckpoint } from '@/import-record/types';
 import type { ReconcileDependencies } from './types';
+import { classifyAppDiagnosticError, createDiagnosticCorrelationId, recordAppDiagnostic } from '@/diagnostics/app-diagnostics';
 
 const PAGE_SIZE = 100;
+
+export class MaintenanceSourceError extends Error {
+  constructor(readonly originalError: unknown) { super('Update source authority could not be read.'); }
+}
+
+/** The last explicit native choice, not an old library checkpoint, owns scope. */
+export async function hasLibraryProcessingAuthority(repository: ImportRepository) {
+  try {
+    const intent = await repository.loadPreparationIntent?.();
+    return intent?.scope !== 'selected';
+  } catch (error) { throw new MaintenanceSourceError(error); }
+}
 
 /** Runs without React and only handles normalized metadata supplied by the adapter. */
 export async function reconcilePermittedLibrary(deps: ReconcileDependencies): Promise<'complete' | 'paused' | 'restricted'> {
   let checkpoint: MaintenanceCheckpoint | null = null;
   let leaseToken: number | null = null;
   try {
+    if (!await hasLibraryProcessingAuthority(deps.repository)) return 'restricted';
     const lifecycle = await deps.repository.getPrivateRecordLifecycle();
     const permission = await deps.photoAccess.inspect();
     if (lifecycle.state !== 'connected' || (permission?.scope !== 'full' && permission?.scope !== 'limited')) return 'restricted';
@@ -21,6 +35,7 @@ export async function reconcilePermittedLibrary(deps: ReconcileDependencies): Pr
       : { scope: permission.scope, nextOffset: 0, runToken: leaseToken, status: 'running' };
     await deps.repository.reconcileMaintenancePage(checkpoint, []);
     while (true) {
+      if (!await hasLibraryProcessingAuthority(deps.repository)) return 'restricted';
       if (!(await deps.repository.renewMaintenanceLease(leaseToken, deps.now()))) return 'paused';
       if (deps.isExpired?.()) {
         await deps.repository.pauseMaintenance(checkpoint, 'Maintenance paused before the system task expired. It can resume later.');
@@ -36,6 +51,7 @@ export async function reconcilePermittedLibrary(deps: ReconcileDependencies): Pr
         return 'restricted';
       }
       const page = await deps.photoAccess.readMetadataPage(checkpoint.nextOffset, PAGE_SIZE);
+      if (!await hasLibraryProcessingAuthority(deps.repository)) return 'restricted';
       const after = await deps.photoAccess.inspect();
       if (after?.scope !== checkpoint.scope) {
         await deps.repository.pauseMaintenance(checkpoint, 'Photo access changed. A late metadata page was discarded.');
@@ -53,7 +69,8 @@ export async function reconcilePermittedLibrary(deps: ReconcileDependencies): Pr
         return 'complete';
       }
     }
-  } catch {
+  } catch (error) {
+    if (error instanceof MaintenanceSourceError) recordAppDiagnostic({ operation: 'ONBOARDING_UPDATES', stage: 'UPDATE_SOURCE', reasonCode: classifyAppDiagnosticError(error), retryable: true, durableOutcome: 'unknown', correlationId: createDiagnosticCorrelationId() });
     if (checkpoint && leaseToken !== null) await deps.repository.pauseMaintenance(checkpoint, 'Maintenance paused because the current device-visible library could not be read.');
     return 'paused';
   } finally {

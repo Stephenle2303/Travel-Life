@@ -46,12 +46,13 @@ export function useReducedMotion(): boolean {
   return reduced;
 }
 
-export function Screen({ children, scrollEnabled = true }: PropsWithChildren<{ scrollEnabled?: boolean }>) {
+export function Screen({ children, scrollEnabled = true, footer, initialScrollY = 0, onScrollY, maxContentWidth }: PropsWithChildren<{ scrollEnabled?: boolean; footer?: React.ReactNode; initialScrollY?: number; onScrollY?(offset: number): void; maxContentWidth?: number }>) {
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      <ScrollView contentContainerStyle={styles.screen} scrollEnabled={scrollEnabled} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={[styles.screen, maxContentWidth === undefined ? null : { maxWidth: maxContentWidth }]} scrollEnabled={scrollEnabled} showsVerticalScrollIndicator={false} contentOffset={initialScrollY ? { x: 0, y: initialScrollY } : undefined} onScroll={onScrollY ? (event) => onScrollY(event.nativeEvent.contentOffset.y) : undefined} scrollEventThrottle={onScrollY ? 16 : undefined}>
         {children}
       </ScrollView>
+      {footer}
     </SafeAreaView>
   );
 }

@@ -1,14 +1,14 @@
 import type { AtlasExploration } from '@/reveal/types';
 
-/** Ephemeral navigation state only: it contains opaque display IDs, never media/source data. */
-let pendingAtlasContext: AtlasExploration | null = null;
+/** In-memory navigation handoff; the provider controller owns the record session. */
+let pendingAtlasContext: { context: AtlasExploration; owner?: object } | null = null;
 
-export function saveAtlasPreviewContext(context: AtlasExploration) {
-  pendingAtlasContext = { ...context };
+export function saveAtlasPreviewContext(context: AtlasExploration, owner?: object) {
+  pendingAtlasContext = { context: { ...context }, owner };
 }
 
-export function consumeAtlasPreviewContext() {
-  const context = pendingAtlasContext;
+export function consumeAtlasPreviewContext(owner?: object) {
+  const pending = pendingAtlasContext;
   pendingAtlasContext = null;
-  return context;
+  return pending?.owner === owner ? pending?.context ?? null : null;
 }

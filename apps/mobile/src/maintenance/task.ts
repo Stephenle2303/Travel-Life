@@ -36,7 +36,12 @@ try {
       }
     }
     if (result !== 'complete') recordAppDiagnostic({ operation: 'MAINTENANCE_RECONCILIATION', reasonCode: result === 'paused' ? 'PAUSED' : 'RESTRICTED', stage: null, retryable: result === 'paused', durableOutcome: result === 'paused' ? 'paused' : 'restricted', correlationId });
-    return result === 'complete' ? backgroundTask.BackgroundTaskResult.Success : backgroundTask.BackgroundTaskResult.Failed;
+    // This separately gated runner restores only account credentials, then reads
+    // explicit prior enrollment; login alone cannot attach or upload a local DB.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { runBackgroundAccountSync } = require('@/account/history-sync-native') as typeof import('@/account/history-sync-native');
+    const accountComplete=await runBackgroundAccountSync();
+    return result === 'complete'&&accountComplete ? backgroundTask.BackgroundTaskResult.Success : backgroundTask.BackgroundTaskResult.Failed;
     } catch (error) {
       // An OS worker must never leak a native bridge/SQLite error through
       // TaskManager. The fixed local diagnostic is sufficient for recovery.

@@ -1,0 +1,20 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.travellifesignage'
+version = '1.0.0'
+
+android {
+  namespace 'expo.modules.travellifesignage'
+  defaultConfig {
+    versionName '1.0.0'
+    versionCode 1
+  }
+}
+
+dependencies {
+  implementation 'com.google.mlkit:text-recognition-korean:16.0.1'
+  implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.23.2'
+}

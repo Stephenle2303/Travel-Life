@@ -1,0 +1,139 @@
+{
+  "id": "atlas-nami-untouched-v1",
+  "version": 1,
+  "minimumDistinctiveNamiCorrect": 2,
+  "maximumOtherPlaceFalseAccepts": 0,
+  "maximumPrintedFalseAccepts": 0,
+  "requirePositiveExactAlbum": true,
+  "requireZeroNegativeAlbumContamination": true,
+  "photos": [
+    {
+      "id": "v5-nami-gate",
+      "file": "v5-nami-gate.jpg",
+      "sha256": "cad1062c543d4c944d21c0b3c691588066ddbe88efb2f4bbc7a41ab49cf0d356",
+      "group": "distinctive-nami",
+      "author": "::::=UT=::::",
+      "license": "CC BY-SA 3.0",
+      "page": "https://commons.wikimedia.org/w/index.php?curid=57899362",
+      "revision": 772936768,
+      "downloadUrl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/9f/%40Nami_Island_-_panoramio.jpg/500px-%40Nami_Island_-_panoramio.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "rendition": "500px"
+    },
+    {
+      "id": "v5-nami-stone-sign",
+      "file": "v5-nami-stone-sign.jpg",
+      "sha256": "fe94db452d3f3e69a1f3a6eaa12a114b8cf3ca0154364910bf13ed16385b0aae",
+      "group": "distinctive-nami",
+      "author": "Jocelyndurrey",
+      "license": "CC BY-SA 4.0",
+      "page": "https://commons.wikimedia.org/w/index.php?curid=41897368",
+      "revision": 958450509,
+      "downloadUrl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/47/%EB%82%A8%EC%9D%B4%EC%84%AC_%2811%29.JPG/500px-%EB%82%A8%EC%9D%B4%EC%84%AC_%2811%29.JPG?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "rendition": "500px"
+    },
+    {
+      "id": "v5-nami-pavilion",
+      "file": "v5-nami-pavilion.jpg",
+      "sha256": "eaf247e6ec5f61cfae924a35db2fbe9e2cae1131b8aba086ac3af4018bb6fb2f",
+      "group": "distinctive-nami",
+      "author": "Jocelyndurrey",
+      "license": "CC BY-SA 4.0",
+      "page": "https://commons.wikimedia.org/w/index.php?curid=41947884",
+      "revision": 1070820062,
+      "downloadUrl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/4b/%EB%82%A8%EC%9D%B4%EC%84%AC_%2821%29.JPG/500px-%EB%82%A8%EC%9D%B4%EC%84%AC_%2821%29.JPG?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "rendition": "500px"
+    },
+    {
+      "id": "v5-nami-tomb",
+      "file": "v5-nami-tomb.jpg",
+      "sha256": "ab4737070ba2d252123cf07493cd4a08ab21f5982476416a8950cbecd7faef33",
+      "group": "distinctive-nami",
+      "author": "Jocelyndurrey",
+      "license": "CC BY-SA 4.0",
+      "page": "https://commons.wikimedia.org/w/index.php?curid=41947971",
+      "revision": 1148151488,
+      "downloadUrl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/2/2e/%EB%82%A8%EC%9D%B4%EC%84%AC_%2836%29.JPG/500px-%EB%82%A8%EC%9D%B4%EC%84%AC_%2836%29.JPG?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "rendition": "500px"
+    },
+    {
+      "id": "v5-nami-trees-a",
+      "file": "v5-nami-trees-a.jpg",
+      "sha256": "aaf9712acfed9633d4e068e538511642fad4c79e6150d774bfba61575f8cb0f5",
+      "group": "generic-nami",
+      "author": "Korea.net / Korean Culture and Information Service",
+      "license": "CC BY-SA 2.0",
+      "page": "https://commons.wikimedia.org/w/index.php?curid=31717582",
+      "revision": 1181285959,
+      "downloadUrl": "https://upload.wikimedia.org/wikipedia/commons/7/78/KOCIS_Pres._Lee_visiting_Nami_Island_%284883528891%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled",
+      "rendition": "original"
+    },
+    {
+      "id": "v5-nami-trees-b",
+      "file": "v5-nami-trees-b.jpg",
+      "sha256": "cb789d8193f502f0914975f66b35e9eba300e7bbfadaac4f8e531a51de02635b",
+      "group": "generic-nami",
+      "author": "Jocelyndurrey",
+      "license": "CC BY-SA 4.0",
+      "page": "https://commons.wikimedia.org/w/index.php?curid=41897367",
+      "revision": 1039155414,
+      "downloadUrl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/d8/%EB%82%A8%EC%9D%B4%EC%84%AC_%287%29.JPG/500px-%EB%82%A8%EC%9D%B4%EC%84%AC_%287%29.JPG?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "rendition": "500px"
+    },
+    {
+      "id": "v5-damyang-lane",
+      "file": "v5-damyang-lane.jpg",
+      "sha256": "9c38238f1678ba61d3f29d930a00c469372ccdce5c2a57b9f0474d91cd17edc3",
+      "group": "other-place",
+      "author": "hyolee2",
+      "license": "CC BY-SA 3.0",
+      "page": "https://commons.wikimedia.org/w/index.php?curid=44760510",
+      "revision": 1164463510,
+      "downloadUrl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/13/Damyang_Metasequoia_Road_1.JPG/500px-Damyang_Metasequoia_Road_1.JPG?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "rendition": "500px"
+    },
+    {
+      "id": "v5-other-ferry",
+      "file": "v5-other-ferry.jpg",
+      "sha256": "28a9ef8173c1ffa2d0341c2eb8002ea5fe482b8492f21a6da234d1bac8002772",
+      "group": "other-place",
+      "author": "ブルーノ・プラス",
+      "license": "CC BY 4.0",
+      "page": "https://commons.wikimedia.org/w/index.php?curid=146711042",
+      "revision": 1049417634,
+      "downloadUrl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/f/f3/Niemon_Island_Ferry.jpg/500px-Niemon_Island_Ferry.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "rendition": "500px"
+    },
+    {
+      "id": "v5-plain-print-a",
+      "file": "v5-plain-print-a.jpg",
+      "sha256": "dec20331ec984fe4d4e49f0b2e3487101f654ca26103db0c70ce594e1480ac46",
+      "group": "synthetic-printed",
+      "author": "Travel Life evaluation",
+      "license": "synthetic"
+    },
+    {
+      "id": "v5-plain-print-b",
+      "file": "v5-plain-print-b.jpg",
+      "sha256": "d4652a8797d47fdeff2aede0db348105866bf37ede9725bcd808d0bab5939852",
+      "group": "synthetic-printed",
+      "author": "Travel Life evaluation",
+      "license": "synthetic"
+    },
+    {
+      "id": "v5-ticket",
+      "file": "v5-ticket.jpg",
+      "sha256": "a008ad88821d36b976587ab390b43ae3a63c0a8a858482d4985f180d6adf6ecb",
+      "group": "synthetic-printed",
+      "author": "Travel Life evaluation",
+      "license": "synthetic"
+    },
+    {
+      "id": "v5-near-spelling",
+      "file": "v5-near-spelling.jpg",
+      "sha256": "4c4a59c30645496c9faaae7c8ff5297fdf2f7dc8272939be8f36fc9a4d1f567a",
+      "group": "synthetic-printed",
+      "author": "Travel Life evaluation",
+      "license": "synthetic"
+    }
+  ]
+}

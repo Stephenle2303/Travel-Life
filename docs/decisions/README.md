@@ -1,5 +1,11 @@
 # Decision log
 
+- [0018 — City-level Possible trips](0018-city-level-possible-trips.md) records immediate review once the city and trip continuity qualify, even with one named stop.
+
+- [0017 — Trip merge review and Home search](0017-trip-merge-review-and-home-search.md) records separate qualified trips for unsupported joins and search-first Home base selection.
+
+- [0016 — Lean Atlas exploration and explicit Home](0016-lean-atlas-exploration.md): accepted compact information hierarchy, Home/Settings/Details, reachable Replay and focused journey previews; detailed specification, implementation pending.
+
 - [0015 - Private multi-source travel history](0015-private-multi-source-travel-history.md): accepted next scope for account/restore, unified device history and Replay, selected Drive files and selected Photos memories; implementation planned.
 
 Use a numbered record for consequential choices. Record status, context, options,

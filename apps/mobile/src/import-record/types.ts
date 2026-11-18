@@ -57,13 +57,15 @@ export type ConfiguredHomeArea = {
   id: string;
   /** Owner-entered local display text. It is never input to reconstruction. */
   label: string | null;
-  origin: 'observed-area' | 'legacy';
+  origin: 'observed-area' | 'legacy' | 'manual-pin';
   latitude: number;
   longitude: number;
   effectiveStartDay: string | null;
   effectiveEndDay: string | null;
   radiusMeters: number;
 };
+
+export class HomeSetupConflictError extends Error {}
 
 export type ManualJourneyDate = { kind: 'exact'; day: string } | { kind: 'approximate'; startDay: string; endDay: string };
 /** An owner assertion stored outside all reconstruction and evidence tables. */
@@ -78,6 +80,16 @@ export type ManualJourneyInput = {
 };
 
 export interface ImportRepository extends HistoryRecordRepository {
+  loadFirstRevealReceipt?(): Promise<import('@/reconstruction/first-reveal-question').FirstRevealReceipt | null>;
+  /** The fence must use the caller's in-memory authority, not open another SQLite writer. */
+  saveFirstRevealReceipt?(mutation: import('@/reconstruction/first-reveal-question').FirstRevealMutation, verifyCurrent: () => boolean | Promise<boolean>, correlationId?: string): Promise<
+    { status: 'saved'; receipt: import('@/reconstruction/first-reveal-question').FirstRevealReceipt } | { status: 'stale' | 'conflict' }
+  >;
+  loadHomeSetup?(): Promise<'saved' | 'skipped' | null>;
+  saveHomeSetup?(command: string, areas: readonly ConfiguredHomeArea[]): Promise<void>;
+  hasEstablishedHistory?(): Promise<boolean>;
+  loadPreparationIntent?(): Promise<PreparationIntent | null>;
+  savePreparationIntent?(intent: PreparationIntent): Promise<void>;
   getCheckpoint(scope: ImportScope): Promise<ImportCheckpoint | null>;
   commitPage(checkpoint: ImportCheckpoint, candidates: SourceCandidate[]): Promise<void>;
   loadCoverage(scope: ImportScope): Promise<ImportCheckpoint | null>;
@@ -138,6 +150,18 @@ export interface MaintenanceRepository extends ImportRepository {
   releaseMaintenanceLease(runToken: number): Promise<void>;
   loadReconciliation?(): Promise<ReconciliationSnapshot>;
 }
+
+/** Returned when a lifecycle transition has made an import write unsafe. */
+export type PreparationIntent = {
+  version: 1;
+  id: string;
+  scope: ImportScope;
+  selectedIds: string[];
+  missingIds: number;
+  phase: 'queued' | 'imported' | 'publishing' | 'complete' | 'paused' | 'interrupted' | 'blocked';
+  /** Explicit pause does not erase the last verified preparation boundary. */
+  resumePhase?: 'queued' | 'imported' | 'publishing';
+};
 
 /** Returned when a lifecycle transition has made an import write unsafe. */
 export class ImportLifecycleBlockedError extends Error {

@@ -1,3 +1,4 @@
+import { ReplayDiagnosticError } from '@/replay/preparation-diagnostics';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, BackHandler, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video';
@@ -366,13 +367,14 @@ export function ReplayScreen() {
       recordAppDiagnostic({ operation: 'REPLAY_AUDIO_SELECTION', reasonCode: classifyAppDiagnosticError(error), stage: 'REPLAY_ACCESS', retryable: true, durableOutcome: 'unchanged', correlationId });
     } finally { if (generation === sheetGeneration.current) setSelectingMusic(false); }
   };
-  const prepare = async (soundtrack = music, committedOverride?: readonly string[]) => {
+  const prepare = async (soundtrack?: ReplaySoundtrack, committedOverride?: readonly string[]) => {
+    const correlationId = createDiagnosticCorrelationId();
     const generation = ++preparationGeneration.current;
     const isCurrent = () => isMounted.current && preparationGeneration.current === generation;
-    recordAppDiagnostic({ operation: 'REPLAY_RENDER', reasonCode: 'START', stage: null, retryable: false, durableOutcome: 'unchanged', correlationId: createDiagnosticCorrelationId() });
+    recordAppDiagnostic({ operation: 'REPLAY_RENDER', reasonCode: 'START', stage: null, retryable: false, durableOutcome: 'unchanged', correlationId });
     setFailure(null); setEditorManifestReady(false); setPreparationPhase('resolving'); setPreparationDetail('Checking the visible trips and locally available memories you can use right now.'); setPreparationProgress(null); setState('checking');
     try {
-      const next = await loadReplayManifestInput();
+      const next = await loadReplayManifestInput(correlationId);
       if (!isCurrent()) return;
       const direction = next.direction ?? 'oldest-first';
       const plan = planPrivateReplay(next.groups, next.memories, undefined, direction, next.autoGroupKeys);
@@ -389,17 +391,17 @@ export function ReplayScreen() {
       const prepared = await preparePrivateReplay(committedOverride, (progress) => {
         if (!isCurrent()) return;
         setPreparationDetail(progress.message); setPreparationProgress({ completed: progress.completed, total: progress.total });
-      }, soundtrack, (firstChapter) => {
+      }, soundtrack ?? next.soundtrack ?? { kind: 'bundled', revision: 'happy-moments-1.4' }, (firstChapter) => {
         if (!isCurrent()) return;
         setPreview(firstChapter); setPreparationProgress({ completed: firstChapter.completedTrips ?? 1, total: firstChapter.totalTrips ?? plan.groups.length }); setPreparationDetail(`First trip ready · finishing ${firstChapter.completedTrips ?? 1} of ${firstChapter.totalTrips ?? plan.groups.length}`); setState('first-trip-ready');
-      });
+      }, undefined, correlationId);
       if (!isCurrent()) {
         if (prepared.uri !== preview?.uri) await discardPrivateReplay(prepared.uri);
         return;
       }
       if (preview && preview.uri !== prepared.uri) await discardPrivateReplay(preview.uri);
       adoptVerifiedPreview(prepared); setState('final-ready');
-      recordAppDiagnostic({ operation: 'REPLAY_RENDER', reasonCode: 'COMPLETE', stage: null, retryable: false, durableOutcome: 'complete', correlationId: createDiagnosticCorrelationId() });
+      recordAppDiagnostic({ operation: 'REPLAY_RENDER', reasonCode: 'COMPLETE', stage: null, retryable: false, durableOutcome: 'complete', correlationId });
     } catch (error) {
       if (!isCurrent()) return;
       const stage = replayFailureStage(error);
@@ -418,7 +420,7 @@ export function ReplayScreen() {
         setPreview(null);
         setState('failed');
       }
-      recordAppDiagnostic({ operation: 'REPLAY_RENDER', reasonCode: 'UNKNOWN', stage, retryable: stage !== 'REPLAY_SCOPE', durableOutcome: 'unchanged', correlationId: createDiagnosticCorrelationId() });
+      if (!(error instanceof ReplayDiagnosticError)) recordAppDiagnostic({ operation: 'REPLAY_RENDER', reasonCode: classifyAppDiagnosticError(error), stage, retryable: stage !== 'REPLAY_SCOPE', durableOutcome: 'unchanged', correlationId });
     }
   };
   const cancel = () => {
@@ -473,7 +475,7 @@ export function ReplayScreen() {
       const committedSoundtrack = input.soundtrack ?? { kind: 'bundled' as const, revision: 'happy-moments-1.4' as const };
       // The provider re-reads the committed plan for these trip keys. Do not
       // let bounded editor preview availability erase a later trip's media.
-      const prepared = await preparePrivateReplay([], undefined, committedSoundtrack, undefined, selectedTripKeys);
+      const prepared = await preparePrivateReplay([], undefined, committedSoundtrack, undefined, selectedTripKeys, correlationId);
       if (!isMounted.current || selectionGeneration !== shareSelectionGeneration.current) { await discardPrivateReplay(prepared.uri); return; }
       setSelectedSharePreview(prepared); setState('share-preview');
       recordAppDiagnostic({ operation: 'REPLAY_EXPORT', reasonCode: 'COMPLETE', stage: 'REPLAY_OUTPUT', retryable: false, durableOutcome: 'complete', correlationId });
