@@ -239,7 +239,9 @@ function detailWorkspace(t, data = detailFixture()) {
 }
 
 test('paired detail benchmark measures only independent queries, checks target gain and publishes a report alone', async (t) => {
-  const options = detailWorkspace(t);
+  const input = detailFixture();
+  input.gates.maximumPeakMemoryBytes = Number.MAX_SAFE_INTEGER;
+  const options = detailWorkspace(t, input);
   const events = [];
   const report = await detailRunner.runDetailBenchmark(options, (event) => events.push(event), undefined, detailAdapters());
   const candidate = report.comparison.scores[details.matcherVersion];
@@ -249,6 +251,8 @@ test('paired detail benchmark measures only independent queries, checks target g
   assert.equal(candidate.abstained, 4);
   assert.equal(candidate.regression['known-regression'], null);
   assert.equal(report.comparison.scores.baseline.regression['known-regression'], 'nami');
+  assert.equal(report.comparison.qualityPassed, true);
+  assert.equal(report.result.hostResourceGate, true, JSON.stringify(report.host));
   assert.equal(report.result.targetPilotGate, 'passed');
   assert.equal(new Set(events.map((event) => event.correlationId)).size, 1);
   assert.deepEqual(fs.readdirSync(options.destination), ['report.json']);

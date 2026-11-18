@@ -372,6 +372,11 @@ test('Auth verified identity rejects anonymous, unconfirmed, mismatched and abse
  assert.equal(await authenticateHistoryToken(token(valid),async()=>({data:{user},error:{message:'PRIVATE_SENTINEL'}})),null);
 });
 test('worker native-free generated graph is current and direct consoles stay forbidden',async()=>{
+ const bundle=await readFile('supabase/functions/_shared/history-domain.js','utf8');
+ const moduleIds=[...bundle.matchAll(/^"([^"]+\.(?:ts|json))": function/gm)].map(([,id])=>id).sort((a,b)=>a.localeCompare(b));
+ const sources=await Promise.all(moduleIds.map(async id=>[id,(await readFile(`apps/mobile/src/${id}`,'utf8')).replace(/\r\n?/g,'\n')]));
+ const canonicalDigest=createHash('sha256').update(JSON.stringify(sources)).digest('hex');
+ assert.equal(bundle.match(/\/\/ Source digest: ([a-f0-9]{64})/)?.[1],canonicalDigest);
  execFileSync(process.execPath,['scripts/build-history-domain.mjs','--check']);
  for(const directory of ['supabase/functions/travel-life-history-merge','supabase/functions/_shared'])for(const file of await readdir(directory)){
   if(!file.startsWith('history-')&&file!=='legacy-history-runtime.ts'&&directory.endsWith('_shared'))continue;
