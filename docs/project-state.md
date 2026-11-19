@@ -26,8 +26,9 @@ The cause is gzip output that depends on the host: the Windows header OS byte
 is 10 and Linux writes 3. The check now compares decompressed packed JSON and
 all other bundle bytes exactly, and it normalizes CRLF in the committed file. A
 regression test covers a bundle re-gzipped as if on another host, plus stale
-data and stale code. The local root and mobile checks were run before the push.
-The hosted result must still be confirmed.
+data and stale code. Hosted Foundation run 26 (commit `511326c`) passed every
+step: root check, mobile check and, for the first time, the Deno contract test.
+The earlier Windows `ARTIFACT_WRITE` cause remains unknown.
 
 ## Foundation CI follow-up remains open (2026-11-18)
 

@@ -6650,7 +6650,8 @@ Verification: new scheduler/session tests were RED before the integration and GR
   check fail locally during this fix). Regression: the runtime test feeds
   `--check <file>` a bundle re-gzipped with the other OS byte and level 1
   (must pass), and stale data or stale code variants (must fail). Root tests
-  passed locally; hosted verification is pending the push. Prevention: never
+  passed locally, and hosted Foundation run 26 passed all steps including
+  Deno. Prevention: never
   byte-compare compressed or otherwise host-encoded generator output across
   platforms; compare the canonical decoded content.
 
