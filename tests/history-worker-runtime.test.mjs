@@ -1,13 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile, readdir, mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { handleHistoryMerge } from '../supabase/functions/_shared/history-runtime.ts';
 import { createHistoryDiagnostic } from '../supabase/functions/_shared/history-diagnostics.ts';
 import { safeHistoryCorrelation } from '../supabase/functions/_shared/history-diagnostics.ts';
 import { authenticateHistoryToken } from '../supabase/functions/_shared/history-auth.ts';
 import { createHash } from 'node:crypto';
-import { gunzipSync } from 'node:zlib';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import { historyRowsJson,mergeAccountHistory,encodeHistoryRows,decodeHistoryRows } from '../supabase/functions/_shared/history-domain.js';
 import { historyIdentityRequests,historyIdentityKey } from '../supabase/functions/_shared/history-identities.ts';
 const owner='10000000-0000-4000-8000-000000000001',session='20000000-0000-4000-8000-000000000001';
@@ -378,6 +380,19 @@ test('worker native-free generated graph is current and direct consoles stay for
  const canonicalDigest=createHash('sha256').update(JSON.stringify(sources)).digest('hex');
  assert.equal(bundle.match(/\/\/ Source digest: ([a-f0-9]{64})/)?.[1],canonicalDigest);
  execFileSync(process.execPath,['scripts/build-history-domain.mjs','--check']);
+ // The committed bundle may come from another OS: gzip bytes differ, content must not.
+ const scratch=await mkdtemp(join(tmpdir(),'history-bundle-'));
+ try{
+  const packedLine=/^const packedJson = (.*);$/m.exec(bundle);
+  assert.ok(packedLine);
+  const rezip=(mutate)=>bundle.replace(packedLine[0],()=>`const packedJson = ${JSON.stringify(Object.fromEntries(Object.entries(JSON.parse(packedLine[1])).map(([id,data])=>{const bytes=gzipSync(Buffer.from(mutate(gunzipSync(Buffer.from(data,'base64')).toString('utf8')),'utf8'),{level:1});bytes[9]=bytes[9]===3?10:3;return[id,bytes.toString('base64')];})))};`);
+  const otherHost=join(scratch,'other-host.js');await writeFile(otherHost,rezip(text=>text));
+  execFileSync(process.execPath,['scripts/build-history-domain.mjs','--check',otherHost],{stdio:'pipe'});
+  const staleData=join(scratch,'stale-data.js');await writeFile(staleData,rezip(text=>text.replace(/\d/,digit=>String((Number(digit)+1)%10))));
+  assert.throws(()=>execFileSync(process.execPath,['scripts/build-history-domain.mjs','--check',staleData],{stdio:'pipe'}));
+  const staleCode=join(scratch,'stale-code.js');await writeFile(staleCode,bundle.replace('const cache = new Map();','const cache = new Map(); '));
+  assert.throws(()=>execFileSync(process.execPath,['scripts/build-history-domain.mjs','--check',staleCode],{stdio:'pipe'}));
+ }finally{await rm(scratch,{recursive:true,force:true});}
  for(const directory of ['supabase/functions/travel-life-history-merge','supabase/functions/_shared'])for(const file of await readdir(directory)){
   if(!file.startsWith('history-')&&file!=='legacy-history-runtime.ts'&&directory.endsWith('_shared'))continue;
   const text=await readFile(`${directory}/${file}`,'utf8');assert.doesNotMatch(text,/\bconsole\s*(?:\.|\[)/);assert.doesNotMatch(text,/expo-sqlite|react-native|service_role.*mobile/);

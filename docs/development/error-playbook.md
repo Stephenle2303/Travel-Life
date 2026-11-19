@@ -1,5 +1,22 @@
 # Error and improvement playbook
 
+## Python unavailable on the Windows host (2026-11-19)
+
+An agent-written `python` heredoc edit of a Kotlin file failed: the Windows
+host only has the Microsoft Store alias, so no change was applied. Verified by
+the command output. The same edits succeeded with the Edit tool. Prevention:
+do not assume Python on this machine; use the Edit tool or Node for scripted
+edits, and check the exit code before continuing.
+
+In the same session, a background check wrote its logs under a `$TEMP/..`
+path that did not exist, so a completed run left no evidence and was not
+counted. A `sed` replacement with doubly escaped `\r\n` inserted real line
+breaks into a regex in `scripts/build-history-domain.mjs`; the next test run
+failed and the Edit tool corrected it. Prevention: write logs only to the
+session scratchpad (or another verified existing directory) and confirm the file
+exists. Use the Edit tool, not sed, for replacements that contain escape
+sequences.
+
 ## Regional landmark holdout setup
 
 Two Wikimedia image requests returned HTTP 429 on the upload origin. The
@@ -6619,6 +6636,23 @@ Verification: new scheduler/session tests were RED before the integration and GR
   failures; their causes are not yet established. Compare platform-specific
   generator inputs/output and the synthetic benchmark report before changing
   either subsystem.
+- **2026-11-19 recurrence, cause found:** The Foundation run after the CRLF
+  normalization still failed in `npm run check` at
+  `tests/history-worker-runtime.test.mjs` (`build-history-domain.mjs --check`
+  threw). The CRLF fix was necessary but incomplete. The bundle embeds
+  `gzipSync` output, and gzip bytes are host-dependent: Node on Windows writes
+  header OS byte 10, Linux writes 3, and deflate bytes may differ between zlib
+  builds. A Windows-generated bundle therefore never matched an Ubuntu rebuild
+  byte-for-byte. Verified locally: the committed blob equals the Windows build
+  and the Windows gzip OS byte is 10. Correction: `--check` now compares
+  decompressed packed JSON plus every other bundle byte, and normalizes the
+  committed file's CRLF (a Windows `core.autocrlf` checkout made the plain
+  check fail locally during this fix). Regression: the runtime test feeds
+  `--check <file>` a bundle re-gzipped with the other OS byte and level 1
+  (must pass), and stale data or stale code variants (must fail). Root tests
+  passed locally; hosted verification is pending the push. Prevention: never
+  byte-compare compressed or otherwise host-encoded generator output across
+  platforms; compare the canonical decoded content.
 
 ## Multi-source planning tooling incidents (2026-10-28)
 
