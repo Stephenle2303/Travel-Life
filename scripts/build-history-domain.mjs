@@ -14,7 +14,7 @@ async function visit(file) {
   const id = path.relative(sourceRoot, file).replaceAll('\\', '/');
   if (modules.has(id)) return id;
   if (!file.startsWith(sourceRoot + path.sep)) throw new Error('HISTORY_DOMAIN_EXTERNAL_IMPORT');
-  const source = await readFile(file, 'utf8');
+  const source = (await readFile(file, 'utf8')).replace(/\r\n?/g, '\n');
   modules.set(id, { source, code: '' });
   if (file.endsWith('.json')) {
     // Keep the complete exact dataset while reducing the Edge upload envelope.

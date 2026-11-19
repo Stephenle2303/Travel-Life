@@ -6602,6 +6602,23 @@ Verification: new scheduler/session tests were RED before the integration and GR
   missing-module error. For large saved tool responses, inspect a bounded
   substring or search for a known log marker instead of assuming the wrapper
   is directly parseable.
+- **2026-11-18 live-run log availability:** Fetching logs for the newly pushed,
+  still-running job returned HTTP 404. Job metadata showed the mobile install
+  was in progress. Wait for job completion before retrieving its logs; use run
+  and step status while it is active.
+- **2026-11-18 PowerShell syntax recurrence:** An inline `node -e` diagnostic
+  containing embedded JavaScript regex quotes was parsed as PowerShell and
+  failed before Node ran. Use the already successful column-zero
+  `@' ... '@ | node -` form for multiline JavaScript and confirm the command
+  output before relying on its result.
+- **2026-11-18 CI follow-up:** After mobile installation moved before the root
+  check, run 24 passed that install but `npm run check` still failed (279/281).
+  The generated bundle check reports `HISTORY_DOMAIN_BUNDLE_STALE` on Ubuntu
+  while the same local guard passes on Windows, and the paired detail benchmark
+  reports `failed` instead of `passed`. These are newly observed, distinct
+  failures; their causes are not yet established. Compare platform-specific
+  generator inputs/output and the synthetic benchmark report before changing
+  either subsystem.
 
 ## Multi-source planning tooling incidents (2026-10-28)
 
@@ -7421,3 +7438,58 @@ The final whitespace preflight found one extra blank line at EOF in the newly
 appended deferred-work entry. Removed only that non-semantic line and reran
 the generator and whitespace checks. Keep `git diff --check` after every
 append-only delivery-record update.
+
+## 2026-11-18 Expo Doctor SDK patch alignment
+
+`npm --prefix apps/mobile run check` passed 1,314 Jest tests, 141 SQLite
+tests, typecheck and lint, then failed Expo Doctor's SDK-version check (20/21).
+Doctor reports 15 Expo packages pinned below the SDK's expected patch versions;
+the exact expected and installed versions are in the captured local check output,
+and no runtime test failed. The package manifest and lockfile are behind the
+installed SDK compatibility map. Expo's installer aligned the manifest and
+lockfile; the complete mobile check now passes, including Expo Doctor 21/21.
+The install reported 73 npm audit advisories (7 moderate, 66 high); they were
+not assessed or changed as part of this CI correction. Keep Expo Doctor in the
+required CI path so SDK patch drift is caught before merge.
+
+The first `npm --prefix apps/mobile exec -- expo install --fix` attempt stopped
+before mutation because Expo CLI resolved the project from the repository root,
+where `expo` is not installed. Invoke the CLI with `apps/mobile` as its working
+directory; verify the manifest diff before accepting package-manager changes.
+The successful run also added an `expo-sqlite` config plugin to `apps/mobile/app.json`;
+that unrelated configuration change was removed. Inspect Expo CLI config side
+effects and keep only changes required by SDK version alignment.
+
+The required Deno contract test could not run locally: PowerShell reported
+`deno` was not recognized. This is an environment limitation, not a passing
+check; Foundation CI installs Deno and must provide the verification evidence.
+
+A broad delivery-spec patch and three append attempts used stale context and
+made no changes. Re-read the active section and apply smaller hunks anchored to
+its current text; verify each update before continuing.
+
+## 2026-11-18 Foundation run-24 regression verification
+
+The Windows/Ubuntu bundle mismatch came from hashing CRLF source bytes on
+Windows and LF bytes on Ubuntu. The builder now canonicalizes line endings
+before hashing and transpiling; the new digest assertion failed on the old
+implementation and passes after the fix. The generated-bundle check and two
+full root `npm run check` runs pass (281/281 tests plus eval smoke).
+
+The Ubuntu paired-detail success case failed its host gate because its
+100,000,000-byte RSS ceiling depended on the test process's baseline usage;
+the exact CI RSS was not emitted. The synthetic success case now uses an
+unrestrictive ceiling and asserts quality and host gates separately. Its focused
+test and the full root checks pass; the separate resource-overflow test remains.
+An earlier Windows `ARTIFACT_WRITE` publication failure did not recur in the
+two later root checks, but its cause remains unknown.
+
+The full mobile check passes after SDK package alignment: 1,314 Jest tests,
+141 SQLite tests, typecheck, lint and Expo Doctor 21/21. The Deno contract test
+remains unverified locally because Deno is not installed; hosted Foundation
+Actions must supply that result before declaring the workflow green.
+
+The first task-only cached patch for `docs/project-state.md` failed at line 1
+and reported trailing whitespace on its last added line; no content was staged
+from that patch. Recheck the staged hunk against `HEAD` and prefer Git's
+interactive partial staging over a hand-counted hunk.
