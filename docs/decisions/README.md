@@ -33,3 +33,4 @@ The current product direction and provisional defaults are recorded below.
 - [0012 — Dimensional Atlas and minimal list](0012-dimensional-atlas-and-minimal-list.md): adopts subtle 3D visual polish without terrain and a simple, uncluttered journey list; development plan only.
 - [0013 — Reference-faithful Atlas cartography](0013-reference-faithful-atlas-cartography.md): prioritizes the supplied map's actual appearance, permits flat geographic relief texture, defers specified chrome and requires visual acceptance before integration.
 - [0014 — Lean self-serve UX and visual Replay editing](0014-lean-self-serve-replay-editor.md): requires user-centered, reference-led UI, concise copy, few steps, truthful progress and trip-based visual media selection.
+- [0019 — GPS-less trip discovery](0019-gps-less-trip-discovery.md): find a travel window from metadata first, name places only on agreeing free on-device clues, abroad first.

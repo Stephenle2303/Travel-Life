@@ -1,5 +1,36 @@
 # Project state
 
+## GPS-less trip discovery spec drafted (2026-11-18)
+
+A BMAD party discussion with the owner produced
+[decision 0019](decisions/0019-gps-less-trip-discovery.md) and a draft
+[spec](../_bmad-output/specs/spec-gps-less-trip-discovery/SPEC.md). GPS-less
+trips are found from metadata first, membership comes from capture provenance,
+and a place is named only when two free on-device clues agree. A wrong country
+must never appear; the owner can type the place instead. Abroad trips ship
+first. Story 1 is an evidence experiment on the owner's Xiaomi 15 (time-offset
+tag, capture-time mismatch, on-device Gemini Nano honesty). It is blocked until
+the development machine has enough free disk space. The pure decision core
+(`apps/mobile/src/travel-window/`, 23 tests) is delivered but not wired into the
+app; the native offset/provenance reader and Story 1 remain open. See
+[delivery.md](../_bmad-output/specs/spec-gps-less-trip-discovery/delivery.md).
+
+## Foundation CI follow-up remains open (2026-11-18)
+
+Run 24's two remaining root-check failures are addressed locally. The history
+builder now normalizes CRLF/LF before hashing and transpiling; its regenerated
+bundle passes the digest regression and the full root `npm run check` (281/281
+tests plus eval smoke). The synthetic benchmark success fixture no longer uses
+a host-dependent RSS ceiling, while its dedicated resource-gate coverage
+remains; its focused test passes. The full mobile check passes 1,314 Jest tests,
+141 SQLite tests, typecheck, lint and Expo Doctor (21/21) after aligning the
+mobile package lock and manifest with the SDK's patch map. The required Deno
+contract test could not run locally because Deno is unavailable; hosted
+Foundation Actions must still verify root, mobile and Deno together. The earlier
+Windows `ARTIFACT_WRITE` failure did not recur in the two later full root runs,
+but its original cause remains unknown. Do not claim the workflow is green
+before the hosted run passes.
+
 ## Foundation CI dependency order (2026-11-18)
 
 GitHub Actions runs 22 and 23 both stopped in the root generated history-domain
