@@ -1,0 +1,133 @@
+import type { AppDiagnosticEvent } from '@/diagnostics/app-diagnostics';
+import {
+  classifyProvenance, parseExifOffsetMinutes, scanCaptureMetadata, toCaptureRecord, CaptureMetadataError,
+  type CaptureAsset,
+} from '@/travel-window';
+
+const asset = (n: number): CaptureAsset => ({ id: `asset-${n}`, uri: `file:///storage/emulated/0/DCIM/Camera/IMG_${n}.jpg`, capturedAtMillis: 1_780_000_000_000 + n, located: false });
+const nativeError = (code: string) => Object.assign(new Error(`native detail /storage/emulated/0/DCIM/Camera/IMG_1.jpg ${code}`), { code });
+
+describe('EXIF offset parsing', () => {
+  it.each([
+    ['+09:00', 540], ['+07:00', 420], ['-05:30', -330], ['+05:45', 345], [' +09:00 ', 540], ['+14:00', 840], ['-00:00', -0],
+  ])('reads %s', (value, minutes) => expect(parseExifOffsetMinutes(value)).toBe(minutes));
+
+  it.each([null, undefined, 9, '', 'Z', '+9:00', '+0900', '+15:00', '+14:30', '+09:60', 'GMT+9'])('treats %p as unknown', (value) => {
+    expect(parseExifOffsetMinutes(value)).toBeNull();
+  });
+});
+
+describe('provenance from folder', () => {
+  it.each([
+    ['DCIM/Camera/', 'camera'],
+    ['dcim/camera/', 'camera'],
+    ['DCIM/Camera/Burst/', 'camera'],
+    ['DCIM/Screenshots/', 'screenshot'],
+    ['Pictures/Screenshots/', 'screenshot'],
+    ['DCIM/ScreenRecorder/', 'screenshot'],
+    ['Pictures/WhatsApp/', 'messaging'],
+    ['Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Images/', 'messaging'],
+    ['Pictures/Zalo/', 'messaging'],
+    ['Pictures/Telegram/', 'messaging'],
+    ['Pictures/KakaoTalk/', 'messaging'],
+    ['Pictures/LINE/', 'messaging'],
+    ['Download/', 'download'],
+    ['Downloads/Trip/', 'download'],
+    ['Pictures/', 'unknown'],
+    ['DCIM/', 'unknown'],
+    ['DCIM/Facebook/', 'unknown'],
+    ['Pictures/Timeline/', 'unknown'],
+    ['', 'unknown'],
+  ])('%s is %s', (folder, expected) => expect(classifyProvenance(folder)).toBe(expected));
+
+  it('never assumes camera without a folder', () => {
+    expect(classifyProvenance(null)).toBe('unknown');
+    expect(classifyProvenance(undefined)).toBe('unknown');
+    expect(classifyProvenance(42)).toBe('unknown');
+  });
+});
+
+describe('native result mapping', () => {
+  it('prefers the original offset and falls back to digitized', () => {
+    expect(toCaptureRecord(asset(1), { offsetTimeOriginal: '+09:00', offsetTimeDigitized: '+07:00', relativeDirectory: 'DCIM/Camera/' }))
+      .toEqual({ id: 'asset-1', capturedAtMillis: asset(1).capturedAtMillis, utcOffsetMinutes: 540, provenance: 'camera', located: false });
+    expect(toCaptureRecord(asset(1), { offsetTimeOriginal: null, offsetTimeDigitized: '+07:00', relativeDirectory: null }).utcOffsetMinutes).toBe(420);
+    expect(toCaptureRecord(asset(1), {}).utcOffsetMinutes).toBeNull();
+  });
+
+  it('keeps the caller located flag and never stores the folder', () => {
+    const record = toCaptureRecord({ ...asset(2), located: true }, { relativeDirectory: 'DCIM/Camera/' });
+    expect(record.located).toBe(true);
+    expect(JSON.stringify(record)).not.toContain('DCIM');
+  });
+
+  it.each([null, undefined, 'x', 3, ['DCIM/Camera/']])('rejects malformed result %p as schema', (value) => {
+    expect(() => toCaptureRecord(asset(1), value)).toThrow(CaptureMetadataError);
+    try { toCaptureRecord(asset(1), value); } catch (error) { expect((error as CaptureMetadataError).reasonCode).toBe('MEDIA_SCHEMA'); }
+  });
+});
+
+describe('capture metadata scan', () => {
+  function collect() {
+    const events: AppDiagnosticEvent[] = [];
+    return { events, record: (event: AppDiagnosticEvent) => events.push(event) };
+  }
+
+  it('reports an unavailable native reader as skipped, not an error', async () => {
+    const { events, record } = collect();
+    await expect(scanCaptureMetadata(null, [asset(1)], { correlationId: 'c1', record })).resolves.toEqual({ status: 'skipped', reasonCode: 'MEDIA_UNAVAILABLE' });
+    expect(events).toEqual([{ operation: 'TRAVEL_WINDOW_SCAN', reasonCode: 'MEDIA_UNAVAILABLE', stage: 'CAPTURE_METADATA_READ', retryable: false, durableOutcome: 'skipped', correlationId: 'c1' }]);
+  });
+
+  it('turns one unreadable capture into a review-only record and keeps scanning', async () => {
+    const { events, record } = collect();
+    const read = jest.fn(async (uri: string) => {
+      if (uri.endsWith('IMG_2.jpg')) throw nativeError('ERR_CAPTURE_DECODE');
+      if (uri.endsWith('IMG_3.jpg')) throw new Error('surprise');
+      if (uri.endsWith('IMG_4.jpg')) return 'not an object';
+      return { offsetTimeOriginal: '+09:00', relativeDirectory: 'DCIM/Camera/' };
+    });
+    const result = await scanCaptureMetadata(read, [1, 2, 3, 4, 5].map(asset), { correlationId: 'c2', record });
+    expect(result.status).toBe('complete');
+    if (result.status !== 'complete') return;
+    expect(result.records.map((r) => [r.id, r.provenance, r.utcOffsetMinutes])).toEqual([
+      ['asset-1', 'camera', 540], ['asset-2', 'unknown', null], ['asset-3', 'unknown', null], ['asset-4', 'unknown', null], ['asset-5', 'camera', 540],
+    ]);
+    expect(result.unreadable).toEqual({ MEDIA_DECODE: 1, UNKNOWN: 1, MEDIA_SCHEMA: 1 });
+    expect(events.map((e) => [e.reasonCode, e.durableOutcome])).toEqual([
+      ['MEDIA_DECODE', 'complete'], ['UNKNOWN', 'unknown'], ['MEDIA_SCHEMA', 'complete'], ['COMPLETE', 'complete'],
+    ]);
+    expect(events.every((e) => e.correlationId === 'c2' && e.stage === 'CAPTURE_METADATA_READ')).toBe(true);
+  });
+
+  it('stops on access loss rather than returning a partial library', async () => {
+    const { events, record } = collect();
+    const read = jest.fn(async (uri: string) => {
+      if (uri.endsWith('IMG_2.jpg')) throw nativeError('ERR_CAPTURE_ACCESS');
+      return { relativeDirectory: 'DCIM/Camera/' };
+    });
+    await expect(scanCaptureMetadata(read, [1, 2, 3].map(asset), { correlationId: 'c3', record })).resolves.toEqual({ status: 'blocked', reasonCode: 'MEDIA_ACCESS' });
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(events).toEqual([{ operation: 'TRAVEL_WINDOW_SCAN', reasonCode: 'MEDIA_ACCESS', stage: 'CAPTURE_METADATA_READ', retryable: true, durableOutcome: 'blocked', correlationId: 'c3' }]);
+  });
+
+  it('treats cancellation as a fixed lifecycle outcome', async () => {
+    const { events, record } = collect();
+    const controller = new AbortController();
+    const read = jest.fn(async () => { controller.abort(); return { relativeDirectory: 'DCIM/Camera/' }; });
+    await expect(scanCaptureMetadata(read, [1, 2].map(asset), { correlationId: 'c4', record, signal: controller.signal })).resolves.toEqual({ status: 'cancelled', reasonCode: 'SKIPPED' });
+    expect(events.map((e) => [e.reasonCode, e.durableOutcome])).toEqual([['SKIPPED', 'skipped']]);
+  });
+
+  it('never puts native messages, paths, ids or offsets into diagnostics', async () => {
+    const { events, record } = collect();
+    const read = jest.fn(async (uri: string) => {
+      if (uri.endsWith('IMG_1.jpg')) throw nativeError('ERR_CAPTURE_DECODE');
+      return { offsetTimeOriginal: '+09:00', relativeDirectory: 'Pictures/Zalo/' };
+    });
+    await scanCaptureMetadata(read, [1, 2].map(asset), { correlationId: 'c5', record });
+    const serialized = JSON.stringify(events);
+    for (const secret of ['storage', 'DCIM', 'IMG_', 'asset-', 'Zalo', '+09:00', '540', 'native detail']) expect(serialized).not.toContain(secret);
+    for (const event of events) expect(Object.keys(event).sort()).toEqual(['correlationId', 'durableOutcome', 'operation', 'reasonCode', 'retryable', 'stage']);
+  });
+});

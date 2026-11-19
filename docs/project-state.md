@@ -12,8 +12,22 @@ first. Story 1 is an evidence experiment on the owner's Xiaomi 15 (time-offset
 tag, capture-time mismatch, on-device Gemini Nano honesty). It is blocked until
 the development machine has enough free disk space. The pure decision core
 (`apps/mobile/src/travel-window/`, 23 tests) is delivered but not wired into the
-app; the native offset/provenance reader and Story 1 remain open. See
+app. On 2026-11-19 a native Android capture-metadata reader (offset tags and
+storage folder only) and its pure mapper/scan with the `TRAVEL_WINDOW_SCAN`
+diagnostic map were added with 50 tests; the Kotlin is not yet compiled because
+a fresh Android build needs more disk than is free. Story 1 and app wiring
+remain open. See
 [delivery.md](../_bmad-output/specs/spec-gps-less-trip-discovery/delivery.md).
+
+## Foundation CI history-bundle check made host-independent (2026-11-19)
+
+The next hosted Foundation run still failed at the history bundle `--check`.
+The cause is gzip output that depends on the host: the Windows header OS byte
+is 10 and Linux writes 3. The check now compares decompressed packed JSON and
+all other bundle bytes exactly, and it normalizes CRLF in the committed file. A
+regression test covers a bundle re-gzipped as if on another host, plus stale
+data and stale code. The local root and mobile checks were run before the push.
+The hosted result must still be confirmed.
 
 ## Foundation CI follow-up remains open (2026-11-18)
 

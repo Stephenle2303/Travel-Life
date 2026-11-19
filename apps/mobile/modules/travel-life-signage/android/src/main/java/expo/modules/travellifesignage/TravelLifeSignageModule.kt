@@ -5,6 +5,8 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.ExifInterface
 import android.net.Uri
+import android.os.Build
+import android.provider.MediaStore
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
@@ -63,6 +65,42 @@ class TravelLifeSignageModule : Module() {
       }
     }
 
+    // GPS-less trip discovery: capture-time offset tags and the containing
+    // folder only. Never returns file names, media ids, GPS or timestamps.
+    AsyncFunction("readCaptureMetadata") { value: String, promise: Promise ->
+      val resolver = appContext.reactContext?.contentResolver
+      val uri = Uri.parse(value)
+      if (resolver == null || uri.scheme !in listOf("file", "content")) {
+        promise.reject("ERR_CAPTURE_INPUT", "Local capture unavailable.", null)
+        return@AsyncFunction
+      }
+      val directory = try {
+        readRelativeDirectory(resolver, uri)
+      } catch (_: SecurityException) {
+        promise.reject("ERR_CAPTURE_ACCESS", "Local capture not permitted.", null)
+        return@AsyncFunction
+      } catch (_: Exception) {
+        null
+      }
+      val exif = try {
+        resolver.openInputStream(uri)?.use { ExifInterface(it) }
+      } catch (_: SecurityException) {
+        promise.reject("ERR_CAPTURE_ACCESS", "Local capture not permitted.", null)
+        return@AsyncFunction
+      } catch (_: Exception) {
+        null
+      }
+      if (exif == null) {
+        promise.reject("ERR_CAPTURE_DECODE", "Local capture unreadable.", null)
+        return@AsyncFunction
+      }
+      promise.resolve(mapOf(
+        "offsetTimeOriginal" to exif.getAttribute("OffsetTimeOriginal")?.take(16),
+        "offsetTimeDigitized" to exif.getAttribute("OffsetTimeDigitized")?.take(16),
+        "relativeDirectory" to directory?.take(256),
+      ))
+    }
+
     AsyncFunction("readText") { value: String, promise: Promise ->
       val resolver = appContext.reactContext?.contentResolver
       val uri = Uri.parse(value)
@@ -101,6 +139,18 @@ class TravelLifeSignageModule : Module() {
         bitmap.recycle()
         promise.reject("ERR_SIGNAGE_RECOGNITION", "Local recognition did not finish.", null)
       }
+    }
+  }
+
+  /** Folder relative to the storage volume, e.g. `DCIM/Camera/`. The file name is dropped. */
+  private fun readRelativeDirectory(resolver: ContentResolver, uri: Uri): String? {
+    if (uri.scheme == "file") {
+      val path = uri.path ?: return null
+      return Regex("^/storage/(?:emulated/\\d+|[A-Za-z0-9-]+)/(.*/)[^/]+$").find(path)?.groupValues?.get(1)
+    }
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+    return resolver.query(uri, arrayOf(MediaStore.MediaColumns.RELATIVE_PATH), null, null, null)?.use { cursor ->
+      if (cursor.moveToFirst()) cursor.getString(0) else null
     }
   }
 
