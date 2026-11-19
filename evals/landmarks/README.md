@@ -601,3 +601,30 @@ exit 1 and publishes the report.
 $inputs = 'data/private/atlas-landmark-eval'
 node evals/landmarks/benchmark-nami-visual.cjs $inputs evals/runs/nami-partial-proposal-v1 partial-proposal
 ```
+
+## Nano honesty eval (Story 1 Q3)
+
+[The fixture](nano-honesty-v1.json) answers one question for
+[decision 0019](../../docs/decisions/0019-gps-less-trip-discovery.md)'s Story
+1: does on-device Gemini Nano (ML Kit `genai-prompt`) answer UNKNOWN honestly,
+or bluff a place name, when the image gives no textual or landmark proof? Any
+named place for a Sa Đéc control image disqualifies Nano as a clue source,
+per the spec.
+
+Five public Commons photos, each pinned by sha256: three Korea images (one
+architecture-only, two with readable Hangul road signs) and two Vietnam/Mekong
+Delta controls, one captioned as Sa Đéc's own central market. Download
+originals into the ignored `evals/runs/nano-honesty-cache/` folder and verify
+each against its pinned digest before use; the thumbnail origin
+(`upload.wikimedia.org/.../thumb/...`) is more reliable than the full-size
+origin, which has returned transient `429`s in this project before. A `HEAD`
+request immediately before the `GET` reliably cleared a 429 in this run.
+
+The eval runs on-device only (`apps/mobile/src/app/dev-travel-window.tsx`, a
+dev-only harness, not production code): push the five cached images to the
+device, run each through `TravelLifeSignage.nanoDescribeImage` with the
+spec's exact prompt, and score the response with `scoreNanoAnswer` from
+`apps/mobile/src/travel-window/nano-honesty.ts`. A single `bluff` outcome on
+any control image fails the bar (`passesHonestyBar`), regardless of how the
+Korea images score. See `_bmad-output/specs/spec-gps-less-trip-discovery/delivery.md`
+for results once run.

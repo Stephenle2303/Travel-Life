@@ -33,6 +33,37 @@ export function parseExifOffsetMinutes(value: unknown): number | null {
   return match[1] === '-' ? -total : total;
 }
 
+const localTimestampPattern = /^(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})$/;
+
+/**
+ * EXIF `DateTimeOriginal`/`DateTimeDigitized`, the camera's own local wall
+ * clock with no zone, e.g. `2026:11:03 14:30:00`. Returned as the same
+ * wall-clock numbers read as if they were UTC, so subtracting a true UTC
+ * instant for the same capture yields the capture's zone offset.
+ */
+export function parseExifLocalTimestampMillis(value: unknown): number | null {
+  if (typeof value !== 'string') return null;
+  const match = localTimestampPattern.exec(value.trim());
+  if (!match) return null;
+  const [year, month, day, hour, minute, second] = match.slice(1).map(Number);
+  if (month! < 1 || month! > 12 || day! < 1 || day! > 31 || hour! > 23 || minute! > 59 || second! > 59) return null;
+  return Date.UTC(year!, month! - 1, day!, hour!, minute!, second!);
+}
+
+/**
+ * The second, weaker clue in the spec's clue table: a capture's own local
+ * wall clock compared against a true UTC instant for the same capture (e.g.
+ * MediaStore's recorded creation time), for devices or photos that carry no
+ * explicit offset tag. Never alone names a place, and this alone never
+ * decides a window; it only reports whether the device's clock looks
+ * shifted. Rounded to the nearest 15 minutes, the finest standard zone unit.
+ */
+export function inferOffsetFromLocalClock(localTimestampMillis: number | null, trueUtcMillis: number): number | null {
+  if (localTimestampMillis === null) return null;
+  const rounded = Math.round((localTimestampMillis - trueUtcMillis) / 60_000 / 15) * 15;
+  return rounded < -720 || rounded > 840 ? null : rounded;
+}
+
 const messagingTokens = ['whatsapp', 'telegram', 'zalo', 'messenger', 'kakao', 'viber', 'wechat', 'weixin', 'signal'];
 const messagingSegments = new Set(['line', 'com.facebook.orca', 'org.thoughtcrime.securesms']);
 const screenshotSegments = new Set(['screenshots', 'screenshot', 'screenrecorder', 'screen recordings', 'screenrecordings']);

@@ -17,4 +17,10 @@ android {
 dependencies {
   implementation 'com.google.mlkit:text-recognition-korean:16.0.1'
   implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.23.2'
+  // Story 1 Nano honesty eval (SPEC-gps-less-trip-discovery). Requires API 26;
+  // see this module's AndroidManifest.xml override and the runtime SDK guard
+  // in TravelLifeSignageModule.kt.
+  // alpha1 pins kotlin-stdlib 1.8.0 (compatible with this project's Kotlin
+  // compiler); betas 2-5 require a newer Kotlin than this project uses.
+  implementation 'com.google.mlkit:genai-prompt:1.0.0-alpha1'
 }

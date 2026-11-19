@@ -1,6 +1,7 @@
 import type { AppDiagnosticEvent } from '@/diagnostics/app-diagnostics';
 import {
-  classifyProvenance, parseExifOffsetMinutes, scanCaptureMetadata, toCaptureRecord, CaptureMetadataError,
+  classifyProvenance, inferOffsetFromLocalClock, parseExifLocalTimestampMillis, parseExifOffsetMinutes,
+  scanCaptureMetadata, toCaptureRecord, CaptureMetadataError,
   type CaptureAsset,
 } from '@/travel-window';
 
@@ -14,6 +15,41 @@ describe('EXIF offset parsing', () => {
 
   it.each([null, undefined, 9, '', 'Z', '+9:00', '+0900', '+15:00', '+14:30', '+09:60', 'GMT+9'])('treats %p as unknown', (value) => {
     expect(parseExifOffsetMinutes(value)).toBeNull();
+  });
+});
+
+describe('EXIF local wall-clock parsing', () => {
+  it.each([
+    ['2026:11:03 14:30:00', Date.UTC(2026, 10, 3, 14, 30, 0)],
+    ['2026:01:01 00:00:00', Date.UTC(2026, 0, 1, 0, 0, 0)],
+    ['2026:12:31 23:59:59', Date.UTC(2026, 11, 31, 23, 59, 59)],
+  ])('reads %s', (value, millis) => expect(parseExifLocalTimestampMillis(value)).toBe(millis));
+
+  it.each([null, undefined, 9, '', '2026-11-03 14:30:00', '2026:11:03T14:30:00', '2026:13:01 00:00:00', '2026:11:32 00:00:00', '2026:11:03 24:00:00', '2026:11:03 00:60:00', '2026:11:03 00:00:60'])(
+    'treats %p as unknown', (value) => expect(parseExifLocalTimestampMillis(value)).toBeNull(),
+  );
+});
+
+describe('inferring offset from local-clock mismatch', () => {
+  const trueUtc = Date.UTC(2026, 10, 3, 5, 0, 0); // 05:00 UTC
+
+  it('reveals a Korea-sized shift from the camera local clock', () => {
+    const local = Date.UTC(2026, 10, 3, 14, 0, 0); // camera says 14:00, true UTC is 05:00 => +09:00
+    expect(inferOffsetFromLocalClock(local, trueUtc)).toBe(540);
+  });
+
+  it('rounds small clock drift to the nearest 15 minutes', () => {
+    const local = Date.UTC(2026, 10, 3, 14, 1, 40); // ~9h01m40s, nearest 15-minute offset is still +09:00
+    expect(inferOffsetFromLocalClock(local, trueUtc)).toBe(540);
+  });
+
+  it('rejects an implausible shift as clock skew, not a timezone', () => {
+    const local = Date.UTC(2026, 10, 5, 5, 0, 0); // 2 days off: far past +14:00/-12:00
+    expect(inferOffsetFromLocalClock(local, trueUtc)).toBeNull();
+  });
+
+  it('returns null without a parsed local timestamp', () => {
+    expect(inferOffsetFromLocalClock(null, trueUtc)).toBeNull();
   });
 });
 

@@ -1,5 +1,55 @@
 # Project state
 
+## GPS-less trip discovery: Story 1 complete, Nano honesty eval passed (2026-11-19)
+
+Story 1's third and last question is answered. The owner correctly pushed
+back on an earlier plan to use their own Korea/Sa Đéc photos for this
+check — Story 1 is meant to need no owner chores, and a per-owner fixture
+could never be re-run by anyone else. Rebuilt as a public fixture instead:
+five openly-licensed Wikimedia Commons photos (three Korea, two Vietnam/Sa
+Đéc controls), pinned by sha256 in
+[nano-honesty-v1.json](../evals/landmarks/nano-honesty-v1.json), pushed only
+to the device's own app-private storage. A new native Nano wrapper
+(ML Kit `genai-prompt`) ran the spec's exact prompt against each image on the
+owner's Xiaomi 15. Result: **zero bluffs on either control** (both answered
+UNKNOWN, including the spec's own named Sa Đéc control), and both Korea
+images with readable text were named correctly (`SEOUL`); the text-free
+palace photo was correctly left unnamed. Story 1's honesty bar passes, but
+n=5 is a feasibility check, not an accuracy measurement, and this does not by
+itself justify turning the Nano clue on in production. See
+[delivery.md](../_bmad-output/specs/spec-gps-less-trip-discovery/delivery.md)
+for the full table and caveats.
+
+Getting a working build took real iteration: the library's current release
+needs a newer Kotlin compiler than this project uses project-wide (not
+changed, to avoid a broader risky bump); its very first `alpha1` release
+turned out to pin an old enough Kotlin stdlib to compile, confirmed by
+disassembling the actual AAR classes rather than trusting the current docs
+(which describe the newer, incompatible release). See the error playbook for
+the on-device tooling lessons from pushing files into app-private storage on
+this ROM.
+
+## GPS-less trip discovery: Story 1 evidence (2026-11-19)
+
+Disk space and the owner's Xiaomi 15 became available. The native Kotlin
+capture reader compiled and ran on-device (full camera-roll scan, 18,962
+photos, offset tags/folder/local clock only, no GPS or place data). Story 1 Q1
+and Q2 are answered **yes** with real evidence: 33.7% of captures carry an EXIF
+offset tag, including a +09:00 (Korea) cluster of 458; the unmodified
+window-detector found a travel-looking window on 2026-11-02..11-06 (458
+captures, +120min shift — exactly Korea vs. home) via its `offset-shift` clue,
+plus three further travel-looking windows from other trips. A new,
+session-added local-clock-vs-UTC comparison (Story 1's second clue) also shows
+signal on the untagged 66% of the library (partial yes; not yet cross-checked
+against window dates). Story 1 Q3 (Gemini Nano honesty test) is not run — it
+needs the owner to identify specific Korea/Sa Đéc photos, a real decision only
+they can make. A new open question: only 12.9% of captures classify as
+`camera` provenance under the current exact-folder-match rule; the cause
+(folder naming vs. real library mix) is unresolved and was deliberately not
+investigated by inspecting real folder strings. See
+[delivery.md](../_bmad-output/specs/spec-gps-less-trip-discovery/delivery.md)
+for full figures.
+
 ## GPS-less trip discovery spec drafted (2026-11-18)
 
 A BMAD party discussion with the owner produced

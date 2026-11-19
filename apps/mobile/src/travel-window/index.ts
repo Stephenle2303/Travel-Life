@@ -4,3 +4,4 @@ export * from './naming';
 export * from './membership';
 export * from './story-card';
 export * from './capture-metadata';
+export * from './nano-honesty';

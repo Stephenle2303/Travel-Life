@@ -7528,3 +7528,132 @@ The first task-only cached patch for `docs/project-state.md` failed at line 1
 and reported trailing whitespace on its last added line; no content was staged
 from that patch. Recheck the staged hunk against `HEAD` and prefer Git's
 interactive partial staging over a hand-counted hunk.
+
+## Story 1 device-testing tooling incidents (2026-11-19)
+
+Driving the Expo dev-client and `adb` on the owner's Xiaomi 15 from this host
+surfaced several timing/tooling traps, none of which touched product code or
+exposed private evidence:
+- An Expo dev-client deep link to the app's own route scheme
+  (`travel-life://dev-travel-window`) only works once the dev client has
+  already connected to Metro and loaded JS; sent first, it is swallowed by
+  `DevLauncherActivity`. The dev-client bundler handshake needs its own
+  `exp+travel-life://expo-development-client/?url=...` link first, then the
+  route link, with a short wait for bundling between them.
+- After Fast Refresh, a `.within(AssetField, [value])` expo-media-library
+  query silently returned zero rows; the documented `.eq(AssetField, value)`
+  form worked. `within` on this native build should be treated as unverified
+  until tested, not assumed equivalent to `eq` with a one-element array.
+  Also: `Query.orderBy(AssetField)` is ascending only — descending needs
+  `{ key, ascending: false }` — and on this device roughly half of
+  `exeForMetadata()` rows had `creationTime: null`; fall back to
+  `modificationTime` rather than dropping the asset.
+- A JS source edit was not always picked up by Fast Refresh on the next
+  deep-link navigation (observed twice). A force-stop + fresh
+  `exp+travel-life://expo-development-client/...` relaunch reliably loads the
+  latest bundle; do not trust a stale report as "ran with current code"
+  without checking its on-device timestamp against the edit time first.
+- `adb shell <path-starting-with-/>` under Git Bash had its leading `/`
+  MSYS-path-converted into a Windows path, so `uiautomator dump /sdcard/ui.xml`
+  silently wrote nowhere useful. `export MSYS_NO_PATHCONV=1` before the `adb`
+  call fixed it. Prevention: set that env var for any `adb shell` command
+  whose arguments contain a device-absolute path.
+- Re-sending the same navigation deep link while debugging likely stacked a
+  second concurrent scan on the same screen (Stack navigator pushes a new
+  instance per `am start`), which is the probable cause of one scan taking
+  much longer than an equivalent earlier run. Prefer force-stop + relaunch
+  over repeated same-route deep links when a rerun is needed.
+- When an app's foreground screen might show real personal content (photos,
+  map, location data), use a text-only `uiautomator dump` to check UI state
+  instead of `screencap` — a screenshot of this device's atlas/map screen
+  could put private evidence (thumbnails, place labels) directly in front of
+  the model, which no debugging need justifies.
+- A deep-link navigation to an already-running dev-client app (as opposed to
+  the first, dev-client-connecting link) silently failed to navigate at least
+  three separate times in this session, with no error and no diagnostic —
+  the app just stayed on its current screen. A `uiautomator dump` text check
+  before trusting any "it's running" assumption caught every case. Prevention:
+  after a same-route deep link, verify the actual screen state before
+  waiting on diagnostics that depend on it; don't assume the link worked.
+
+## Nano on-device eval: library version and device file-push incidents (2026-11-19)
+
+- `com.google.mlkit:genai-prompt`'s current release (`1.0.0-beta4`, and every
+  beta down to `beta2` via a transitively-pinned `genai-common:1.0.0-beta4`)
+  is compiled with a newer Kotlin compiler than this project's Kotlin Gradle
+  plugin version accepts (`Module was compiled with an incompatible version
+  of Kotlin. The binary version of its metadata is 2.3.0, expected version is
+  2.1.0`). Downgrading the beta line did not help, because `genai-common`'s
+  own version is NOT 1:1 with `genai-prompt`'s and kept resolving to the
+  newest release regardless. The fix was the library's very first
+  `1.0.0-alpha1` release, confirmed from its own POM to pin
+  `kotlin-stdlib:1.8.0`. When a dependency's current release fails this way,
+  check whether an OLDER major-line release (not just an older patch/beta of
+  the current line) was compiled against an older Kotlin before assuming the
+  library is simply unusable or bumping the project's own Kotlin version.
+  Prevention: read the exact dependency's own POM for its transitive Kotlin
+  stdlib pin before picking a version to try, rather than guessing by semver
+  proximity to the failing version.
+- A library needing a higher `minSdk` than the app (24 vs. 26 here) is not
+  automatically fixed by `tools:overrideLibrary` naming the top-level
+  artifact alone — each separate library package that itself declares the
+  higher `minSdk` (here, `com.google.mlkit.genai.common` as well as
+  `com.google.mlkit.genai.prompt`) needs its own comma-separated entry in the
+  override, or the manifest merge still fails on whichever package was left
+  out.
+- An API reference page under `developers.google.com/.../reference/...` can
+  describe a DIFFERENT (newer) release than the one actually in use; Kotlin
+  code written strictly from such docs (e.g. `Generation.INSTANCE.getClient()`,
+  copying the Java-interop accessor) failed to compile against the older
+  release actually resolved (`Unresolved reference 'INSTANCE'`) even though
+  the class and method existed, because `INSTANCE` is a synthetic field for
+  JAVA callers of a Kotlin `object`; Kotlin callers reference the object's
+  members directly (`Generation.getClient()`). Verified by disassembling the
+  actual resolved AAR classes with `javap` after extracting them from the
+  Gradle transform cache, which also confirmed every other class/method used
+  (`GenerativeModelFutures`, `ImagePart`, `TextPart`,
+  `GenerateContentRequest.Builder`, `GenAiException.ErrorCode` constants)
+  matched between the docs and the actually-resolved older release.
+  Prevention: when docs and a pinned/older dependency version might diverge,
+  disassemble the resolved jar (`javap -p -classpath <extracted-jar>
+  <fully.qualified.ClassName>`) to confirm the real API surface before
+  writing code against it, rather than trusting version-unaware reference
+  docs; this caught the real, narrow cause in one pass instead of further
+  trial-and-error rebuilds.
+- Getting five small fixture images from this host onto the device's
+  app-private storage took three failed approaches before one worked, all on
+  this specific Xiaomi/HyperOS build: (1) `adb shell mkdir -p
+  /sdcard/Download/...` and similar device-absolute-path arguments were
+  MSYS-path-converted by Git Bash into Windows paths (`export
+  MSYS_NO_PATHCONV=1` fixes this, already logged above, but was missed again
+  here — recorded a second time because it recurred); (2) `run-as <pkg> sh -c
+  "cat > files/x"` run through Git Bash's `<` stdin redirection into the
+  native `adb.exe` delivered corrupted/truncated binary data (file sizes in
+  the tens-to-hundreds of bytes instead of the real ~100-200 KB), apparently
+  an MSYS/native-exe binary-stdin interaction, not an adb or device problem;
+  (3) once bytes were correctly staged via `adb push` to `/sdcard/Download`
+  (binary-safe, no stdin involved) and read back with `run-as <pkg> sh -c
+  "cat > files/x" < localfile`, `run-as` consistently lost the app's UID
+  identity across the nested `sh -c` on this ROM (`pwd` reported the app's
+  data dir but a plain `ls -la` in the same `sh -c` showed the filesystem
+  root instead, and writes failed with `Permission denied` even using the
+  absolute path `pwd` itself reported) — nesting a shell under `run-as`
+  cannot be trusted to keep the switched UID on this device, even though
+  `run-as` alone (no nested shell) correctly resolves the app's UID and CWD
+  for simple commands (`run-as <pkg> pwd`, `run-as <pkg> cat <relative-path>`,
+  `run-as <pkg> ls <relative-path>` all worked correctly on their own).
+  What worked: stage the exact bytes on-device first with `adb push` to
+  `/data/local/tmp/` (not `/sdcard/`, so it isn't subject to Android's scoped
+  storage restrictions on raw POSIX reads by another app's UID), then `adb
+  shell run-as <pkg> cp /data/local/tmp/<file> <relative-dest>` — a single
+  direct `run-as` child process with no intermediate shell and no
+  cross-scoped-storage read. `run-as <pkg> tee <relative-dest> <
+  localfile` (also a direct child, no `sh -c`) worked too when bytes could be
+  streamed directly without first touching `/sdcard`. Prevention: for pushing
+  a file into an Android app's private storage from a host shell, always use
+  `adb push` (never shell-redirected stdin through a native adb.exe from Git
+  Bash) to get bytes onto the device first, stage at `/data/local/tmp/` (not
+  `/sdcard/`) to avoid scoped-storage cross-UID read restrictions, and
+  perform the final move into the app's directory with a single direct
+  `run-as <pkg> <cmd> <args>` call — never a `run-as <pkg> sh -c "..."` with
+  a nested shell, which was unreliable for UID/CWD on this device.

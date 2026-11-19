@@ -7,6 +7,16 @@ import android.media.ExifInterface
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import com.google.common.util.concurrent.ListenableFuture
+import com.google.mlkit.genai.common.DownloadCallback
+import com.google.mlkit.genai.common.FeatureStatus
+import com.google.mlkit.genai.common.GenAiException
+import com.google.mlkit.genai.prompt.GenerateContentRequest
+import com.google.mlkit.genai.prompt.GenerateContentResponse
+import com.google.mlkit.genai.prompt.Generation
+import com.google.mlkit.genai.prompt.ImagePart
+import com.google.mlkit.genai.prompt.TextPart
+import com.google.mlkit.genai.prompt.java.GenerativeModelFutures
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
@@ -14,6 +24,8 @@ import expo.modules.kotlin.Promise
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import java.io.File
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executor
 
 class TravelLifeSignageModule : Module() {
   private val landmark = LocalLandmarkRecognizer()
@@ -97,8 +109,91 @@ class TravelLifeSignageModule : Module() {
       promise.resolve(mapOf(
         "offsetTimeOriginal" to exif.getAttribute("OffsetTimeOriginal")?.take(16),
         "offsetTimeDigitized" to exif.getAttribute("OffsetTimeDigitized")?.take(16),
+        // Local wall clock, no zone. Used only to cross-check against a true
+        // UTC instant when no explicit offset tag is present (Story 1, Q2).
+        "dateTimeOriginal" to exif.getAttribute("DateTimeOriginal")?.take(19),
         "relativeDirectory" to directory?.take(256),
       ))
+    }
+
+    // Story 1 Nano honesty eval (SPEC-gps-less-trip-discovery). Requires API
+    // 26; this module's manifest overrides the library's higher minSdk, so
+    // every function here guards Build.VERSION.SDK_INT itself and never runs
+    // the library below 26. Only ever run against public eval images.
+    AsyncFunction("checkNanoStatus") { promise: Promise ->
+      if (Build.VERSION.SDK_INT < 26) {
+        promise.resolve("unavailable")
+        return@AsyncFunction
+      }
+      GenerativeModelFutures.from(Generation.getClient()).checkStatus().onComplete(
+        onSuccess = { status ->
+          promise.resolve(when (status) {
+            FeatureStatus.AVAILABLE -> "available"
+            FeatureStatus.DOWNLOADABLE -> "downloadable"
+            FeatureStatus.DOWNLOADING -> "downloading"
+            else -> "unavailable"
+          })
+        },
+        onFailure = { promise.resolve("unavailable") },
+      )
+    }
+
+    AsyncFunction("downloadNanoModel") { promise: Promise ->
+      if (Build.VERSION.SDK_INT < 26) {
+        promise.reject("ERR_NANO_UNAVAILABLE", "Local model unavailable.", null)
+        return@AsyncFunction
+      }
+      var settled = false
+      fun finishOnce(resolve: Boolean) {
+        if (settled) return
+        settled = true
+        if (resolve) promise.resolve(null) else promise.reject("ERR_NANO_DOWNLOAD", "Local model download did not finish.", null)
+      }
+      val future = GenerativeModelFutures.from(Generation.getClient()).download(object : DownloadCallback {
+        override fun onDownloadStarted(bytesToDownload: Long) {}
+        override fun onDownloadProgress(totalBytesDownloaded: Long) {}
+        override fun onDownloadCompleted() = finishOnce(true)
+        override fun onDownloadFailed(e: GenAiException) = finishOnce(false)
+      })
+      future.onComplete(onSuccess = { finishOnce(true) }, onFailure = { finishOnce(false) })
+    }
+
+    AsyncFunction("nanoDescribeImage") { value: String, prompt: String, promise: Promise ->
+      if (Build.VERSION.SDK_INT < 26) {
+        promise.reject("ERR_NANO_UNAVAILABLE", "Local model unavailable.", null)
+        return@AsyncFunction
+      }
+      val resolver = appContext.reactContext?.contentResolver
+      val uri = Uri.parse(value)
+      if (resolver == null || uri.scheme !in listOf("file", "content")) {
+        promise.reject("ERR_NANO_INPUT", "Local image unavailable.", null)
+        return@AsyncFunction
+      }
+      val bitmap = try {
+        decodePreview(resolver, uri)
+      } catch (_: Exception) {
+        promise.reject("ERR_NANO_INPUT", "Local image unavailable.", null)
+        return@AsyncFunction
+      }
+      val request = try {
+        GenerateContentRequest.Builder(ImagePart(bitmap), TextPart(prompt.take(512))).build()
+      } catch (_: Exception) {
+        bitmap.recycle()
+        promise.reject("ERR_NANO_INPUT", "Local image unavailable.", null)
+        return@AsyncFunction
+      }
+      GenerativeModelFutures.from(Generation.getClient()).generateContent(request).onComplete(
+        onSuccess = { response: GenerateContentResponse ->
+          bitmap.recycle()
+          val text = response.candidates.firstOrNull()?.text
+          if (text == null) promise.reject("ERR_NANO_INFERENCE", "Local recognition did not finish.", null)
+          else promise.resolve(text.trim().take(512))
+        },
+        onFailure = { error ->
+          bitmap.recycle()
+          promise.reject(nanoErrorCode((error as? GenAiException)?.errorCode), "Local recognition did not finish.", null)
+        },
+      )
     }
 
     AsyncFunction("readText") { value: String, promise: Promise ->
@@ -140,6 +235,32 @@ class TravelLifeSignageModule : Module() {
         promise.reject("ERR_SIGNAGE_RECOGNITION", "Local recognition did not finish.", null)
       }
     }
+  }
+
+  /**
+   * Bridges a ListenableFuture without depending on full Guava's `Futures`
+   * helpers (only the stub `ListenableFuture` interface is guaranteed on the
+   * classpath). Runs the callback inline on whatever thread completes it.
+   */
+  private fun <T> ListenableFuture<T>.onComplete(onSuccess: (T) -> Unit, onFailure: (Throwable) -> Unit) {
+    addListener({
+      try {
+        onSuccess(get())
+      } catch (error: ExecutionException) {
+        onFailure(error.cause ?: error)
+      } catch (error: Exception) {
+        onFailure(error)
+      }
+    }, Executor { it.run() })
+  }
+
+  /** GenAiException.ErrorCode -> a fixed, narrow rejection code. Never logs the code or message. */
+  private fun nanoErrorCode(errorCode: Int?): String = when (errorCode) {
+    9, 27 -> "ERR_NANO_BUSY" // BUSY, PER_APP_BATTERY_USE_QUOTA_EXCEEDED
+    30 -> "ERR_NANO_BACKGROUND" // BACKGROUND_USE_BLOCKED
+    8, 16, -101, 604 -> "ERR_NANO_UNAVAILABLE" // NOT_AVAILABLE, NOT_SUPPORTED, AICORE_INCOMPATIBLE, NEEDS_SYSTEM_UPDATE
+    -102, 12, -100 -> "ERR_NANO_INPUT" // INVALID_INPUT_IMAGE, REQUEST_TOO_LARGE, REQUEST_TOO_SMALL
+    else -> "ERR_NANO_INFERENCE"
   }
 
   /** Folder relative to the storage volume, e.g. `DCIM/Camera/`. The file name is dropped. */
