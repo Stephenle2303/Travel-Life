@@ -14,6 +14,7 @@ import { ActionButton, Body, Eyebrow, InsetPanel, Screen, Title, useReducedMotio
 import { AtlasActionButton, AtlasReveal } from '@/components/atlas-reveal';
 import { RecognizableAtlasExperience } from '@/components/recognizable-atlas-experience';
 import { VisualDiscoverySetting, VisualPlaceRecovery } from '@/components/visual-place-recovery';
+import { TravelWindowRecovery } from '@/components/travel-window-recovery';
 import { usePhotoAccess } from '@/photo-access/provider';
 import { projectReveal } from '@/reveal/projection';
 import { consumeAtlasPreviewContext, saveAtlasPreviewContext } from '@/atlas/preview-context';
@@ -240,7 +241,7 @@ export function ImportScreen() {
 
 export function EmptyAtlasScreen() {
   const router = useRouter();
-  const { snapshot, controller, importCoverage, maintenance, maintenanceController, reconciliation, catchUpHistory, reconstruction, retryJourneyCorrectionProjection, visualDiscovery, durableReveal, loadJourneyDetail, loadJourneyMediaPage, inspectJourneyMedia, confirmTimelineMerge, privateRecord, privateRecordController } = usePhotoAccess();
+  const { snapshot, controller, importCoverage, maintenance, maintenanceController, reconciliation, catchUpHistory, reconstruction, retryJourneyCorrectionProjection, visualDiscovery, travelWindowDiscovery, durableReveal, loadJourneyDetail, loadJourneyMediaPage, inspectJourneyMedia, confirmTimelineMerge, privateRecord, privateRecordController } = usePhotoAccess();
   const AtlasContent = isRecognizableRevealEnabled() ? RecognizableAtlasExperience : AtlasReveal;
   const [initialAtlasContext] = useState(() => consumeAtlasPreviewContext(controller));
   const exploration = useRef<AtlasExploration | null>(initialAtlasContext);
@@ -317,9 +318,13 @@ export function EmptyAtlasScreen() {
     </View> : null}>
       <AtlasContent
         sourceControls={sourceControls}
-        visualRecovery={visualDiscovery?.enabled && durableReveal && privateRecord.state === 'connected' && snapshot.scope === 'full'
-          && reconstruction.status !== 'running' && ['idle', 'complete'].includes(controller.preparation)
-          ? <VisualPlaceRecovery discovery={visualDiscovery} version={durableReveal} /> : undefined}
+        visualRecovery={<>
+          {visualDiscovery?.enabled && durableReveal && privateRecord.state === 'connected' && snapshot.scope === 'full'
+            && reconstruction.status !== 'running' && ['idle', 'complete'].includes(controller.preparation)
+            ? <VisualPlaceRecovery discovery={visualDiscovery} version={durableReveal} /> : null}
+          {travelWindowDiscovery?.enabled && privateRecord.state === 'connected' && snapshot.scope === 'full'
+            ? <TravelWindowRecovery discovery={travelWindowDiscovery} /> : null}
+        </>}
         preparing={!['idle', 'complete'].includes(controller.preparation)}
         preparationStatus={<PreparationStatus />}
         model={reveal}

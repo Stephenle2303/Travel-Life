@@ -42,11 +42,16 @@ function median(values: number[]) {
   return sorted.length % 2 ? sorted[middle] : Math.round((sorted[middle - 1] + sorted[middle]) / 2);
 }
 
+/** `camera` and `imported` (decision 0020) are equally trusted for detection; everything else is not. */
+function trustedForDetection(provenance: CaptureRecord['provenance']) {
+  return provenance === 'camera' || provenance === 'imported';
+}
+
 /** The offset the owner's library most often records. Home dominates a normal library. */
 export function inferHomeOffsetMinutes(records: readonly CaptureRecord[]): number | null {
   const counts = new Map<number, number>();
   for (const record of records) {
-    if (record.provenance !== 'camera' || record.utcOffsetMinutes === null) continue;
+    if (!trustedForDetection(record.provenance) || record.utcOffsetMinutes === null) continue;
     counts.set(record.utcOffsetMinutes, (counts.get(record.utcOffsetMinutes) ?? 0) + 1);
   }
   let best: number | null = null;
@@ -59,10 +64,10 @@ export function inferHomeOffsetMinutes(records: readonly CaptureRecord[]): numbe
 type Segment = CaptureRecord[];
 
 function segments(records: readonly CaptureRecord[], config: WindowConfig): Segment[] {
-  // Only the owner's own GPS-less camera captures can form a window. Unknown
-  // provenance never counts toward a burst.
+  // Only the owner's own GPS-less camera or imported-library captures can
+  // form a window (decision 0020). Unknown provenance never counts toward a burst.
   const eligible = records
-    .filter((record) => record.provenance === 'camera' && !record.located)
+    .filter((record) => trustedForDetection(record.provenance) && !record.located)
     .sort((a, b) => a.capturedAtMillis - b.capturedAtMillis || a.id.localeCompare(b.id));
   const result: Segment[] = [];
   let current: Segment = [];

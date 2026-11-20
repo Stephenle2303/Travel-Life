@@ -1,5 +1,438 @@
 # Project state
 
+## Journey ordering fixed app-wide; delete a manual journey, both verified live (2026-11-20)
+
+Both follow-ups from the previous entry, built and confirmed live on-device:
+
+- **Ordering.** `loadDurableReveal` (`reconstruction/repository.ts`) now
+  interleaves manual journeys with reconstructed ones by actual date
+  (newest first) instead of always listing every manual journey after
+  every reconstructed one. An undated reconstructed journey still sorts
+  last, unchanged. App-wide fix: affects plain "Add journey" entries and
+  visual-place confirms exactly the same way, not just travel-window ones.
+  New test: `interleaves a manual journey with reconstructed ones by
+  actual date...` (`reconciliation-repository.test.ts`).
+- **Delete a manual journey.** No deletion path existed anywhere for any
+  manual journey before this. Added `removeManualJourney(displayId)`:
+  refuses anything that is not `manual:`-prefixed; for a plain entry it
+  only deletes `manual_journey`; for a `travel-`-prefixed one it also
+  clears `travel_window_album`/`trip`/`disposition`; for a `visual-`
+  one it clears `visual_place_album`/`trip`/`review`/`disposition` (and
+  its in-memory `visualAlbumTokens` entry) — so the underlying window or
+  cluster is free to be offered again rather than staying permanently
+  "confirmed" against data that no longer exists. Wired through
+  `provider.tsx` (with a `refreshDurableReveal()` after, same as
+  `createManualJourney`) and a new "Delete this journey" two-tap confirm
+  in `journey-edit.tsx`'s owner-entered section. The owner used it live to
+  remove the earlier-flagged wrong "Ewha Womans University" entry.
+- Also fixed in passing: travel-window's own `confirm()` never refreshed
+  the Atlas after a successful save (unlike `createManualJourney` and
+  visual-place's `review()`, both of which already did) — this is why
+  Seoul needed a full app relaunch to appear earlier. Now wrapped the same
+  way in `provider.tsx`'s `travelWindowDiscovery` construction.
+
+Full `npm run check`: 1,588 Jest tests green (141 SQLite), clean typecheck
+except the other active workstream's own unrelated file, lint clean
+(same pre-existing unrelated warning). Both fixes confirmed live by the
+owner on-device.
+
+**Follow-up (same day):** the owner reported the delete actually completed
+(24 journeys afterward, Ewha confirmed gone) but felt slow — stuck showing
+"Deleting…" longer than expected. Cause: `removeManualJourney`'s provider
+wrapper called a full `refreshDurableReveal()` afterward, re-running the
+entire Atlas read (every reconstructed journey's destination-label joins,
+etc.) just to reflect one removed entry. Fixed to drop the removed journey
+from the existing `durableReveal` state locally instead, the same
+optimistic-removal pattern `runPrivacyCommand` already uses for hiding a
+journey. `npm run check` green again (1,588 tests); on-device reload clean.
+A live timed re-test of delete itself is still open (no second disposable
+manual journey to test against without touching real confirmed trips).
+
+## GPS-less confirmed trip verified live end-to-end; two follow-ups found (2026-11-20)
+
+The full Atlas integration (previous entry) is confirmed working on-device,
+not just unit-tested: the owner re-confirmed the Seoul-Korea window through
+the new search-backed flow and it appeared in the Atlas with its real 458
+photos. Found and fixed one real bug in the process: a Save button that
+stayed disabled after tapping a search suggestion. Root cause was a classic
+controlled-`TextInput` issue — `choosePlace` sets the input's value
+programmatically while it still has focus, which can echo back through
+`onChangeText` on Android with that same value, and the naive handler
+treated that echo as a real edit and cleared the just-made selection.
+Fixed by only clearing a selection when the incoming value actually differs
+from the one just set (`travel-window-recovery.tsx`).
+
+Two further things the owner noticed, confirmed real but **out of this
+pass's scope**, needing their direction before building:
+- **Ordering:** a newly confirmed trip (however recent) always sorts below
+  every reconstructed journey, never interleaved by date. Confirmed
+  pre-existing and not specific to this feature — `reconstruction/
+  repository.ts`'s `loadDurableReveal` returns
+  `[...journeys.values(), ...manualJourneys]`, a plain concatenation with
+  no merged chronological sort. Affects every manual journey app-wide
+  (plain "Add journey", visual-place confirms, and now travel-window
+  confirms alike), not something introduced here.
+- **No delete action for a manual journey.** The owner confirmed "Ewha
+  Womans University" (flagged earlier as unrelated to this module) is an
+  owner-entered manual journey they want removed, and there is no delete
+  path anywhere in the exposed API (`removeConfiguredHomeArea` exists for
+  Home areas; nothing equivalent exists for `manual_journey`). A real,
+  separate gap, not scoped to decision 0019/0020.
+
+All temporary debug logging from this investigation has been removed. Full
+`npm run check`: 1,581 Jest tests green, clean typecheck except the other
+active workstream's own unrelated file.
+
+## M11.1 done except persistence: rules now consume clues (2026-11-19)
+
+Added `apps/mobile/src/clues/consumption.ts` (CAP-2) on top of the CAP-1
+foundation below: `applyPhotoSourceClues` (a clue can only lower a unit's
+support, never raise it — overrides `sourceOrigin` so the engine's existing
+own-capture exclusion applies unchanged), `namedPlaceForSubject` (attaches a
+`place` clue's name to a Possible trip for display, never changes its
+classification) and `qualifyTripOutcomeWithClues`, the one entry point.
+`reconstruction/outcome-v1-2.ts` itself was not touched — the integration
+lives entirely in `clues/`, so M10's benchmark result (54/54) is unaffected,
+confirmed by rerunning it. 13 new tests prove: zero clues reproduces M10
+exactly; a clue can take a trip off Atlas; a clue can never put one on
+(promotion classes stay off by default); an owner correction always beats a
+clue on the same subject; a retracted clue is never applied. 179/179 tests
+total, `tsc --noEmit` clean, root `npm run check` 281/281.
+
+No clue producer exists yet to feed this in production (CAP-4/5/6 are not
+built), and persistence (M11.1's clue table) stays blocked on
+`import-record/repository.ts`, same concurrent-session constraint as M10.
+
+## M11 foundation: clue record contract implemented (2026-11-19)
+
+After M10's review and fixes below, started M11 (decision 0022) with its
+safe foundation: `apps/mobile/src/clues/types.ts` and `store.ts` implement
+CAP-1's clue record (closed, discriminated by kind: `place`, `photo-source`,
+`same-trip`, `capture-offset`, `landmark`, `sign-place`, `sign-script`) and
+its validity rules (retraction on unavailable evidence, supersession on
+producer-version change, owner corrections always override a clue on the
+same subject, independence by producer/session key). Pure, no persistence
+yet. 13 unit tests, `tsc --noEmit` clean. Stopped there: CAP-2 (wiring
+clues into the outcome rule), the clue producers (CAP-4/5/6) and the
+background pass, personal learning and eval engine (CAP-3/7/8) each need
+either the schema file blocked by the concurrent travel-window session, a
+new on-device model, or new scheduling/eval infrastructure not yet built —
+none were started this session.
+
+## GPS-less confirmed trips now become real, visible Atlas journeys (2026-11-20)
+
+Closed a real gap the owner caught: confirming a GPS-less trip
+(decision 0019/0020's "Possible trips" card) wrote `travel_window_trip`/
+`travel_window_disposition` but had nothing that displayed it anywhere —
+the spec's own acceptance line ("the whole trip... available immediately,
+including Replay eligibility through the existing gates") was never
+implemented. Owner chose full Atlas integration over a lighter
+module-local list, explicitly accepting the risk of editing
+`reconstruction/repository.ts` while a separate, concurrent session was
+mid-implementing `trip-detector-v1.2` there (confirmed low collision risk
+in practice: full Jest suite — 1,555 tests — and typecheck stayed green
+throughout, in different regions of the same file).
+
+Found the precedent already solved this for the sibling GPS-less feature
+(visual-place): a `manual_journey` row (needs real coordinates) plus a
+dedicated album-attachment table resolving to `canonical_evidence` by
+`source_ref`/asset id, read through three existing `manual:visual-`
+branches in `loadJourneyDetail`/`verifyJourneyMediaSnapshot`/
+`loadJourneyMediaPage`. Mirrored it exactly for a new `manual:travel-`
+prefix: `migrationV48` adds `travel_window_album` (no slot cap, unlike
+visual's 512 — decision 0019's membership rule is "deliberately no size
+cap"); `storage.ts`'s `confirmWindow` now also creates the `manual_journey`
+row and resolves/attaches only trusted member photos (never `reviewIds`)
+in one atomic transaction; `travel-window-recovery.tsx`'s "Where were
+you?" field now uses the same offline place search
+(`reconstruction/owner-place-search.ts`, already used by the unrelated
+manual-journey-add feature) instead of free text, with the same broad-
+continent fallback, because a real anchor is now required — confirming
+without picking a place is disabled. Added `travelAlbumRows` (mirrors
+`visualAlbumRows`, minus visual's candidate-shadow staleness check, which
+has no equivalent here since this data is never re-edited). Replay stays
+withheld for these journeys, same as visual's own owner-entered gate —
+not a new gap, matching existing behavior exactly.
+
+New test coverage: `travel-window-storage.test.ts` (album resolution,
+chunked for the "no size cap" rule, `date_kind` derivation) and a new
+describe block in `reconciliation-repository.test.ts` covering the three
+new repository branches (attached-with-photos, Replay withheld,
+fails-closed when unattached, paging, stale-token rejection). Full `npm
+run check` green except one typecheck error in the *other* session's own
+new file (`reconstruction-outcome-v1-2.test.ts`), unrelated and untouched.
+
+**Known gap, not yet resolved:** the four trips the owner already
+confirmed before this fix (Huế - Đà Nẵng, Seoul - Korea, Taiwan, Bali -
+Indonesia) have no stored coordinates (the old flow was free text) and
+were not retroactively migrated — real geocoding of a compound label like
+"Huế - Đà Nẵng" against the offline gazetteer is unreliable enough that
+guessing felt worse than leaving them as they are. They still won't appear
+in the Atlas until re-confirmed through the new search-backed flow.
+On-device verification of the new flow itself is pending — the owner's
+phone disconnected from USB mid-session.
+
+## trip-detector-v1.2 code review: 9 bugs fixed, 1 documented (2026-11-19)
+
+A `/code-review high` pass on the v1.2 implementation below (8 finder
+angles, 1-vote verify) found 10 confirmed issues before the story was
+declared done. Fixed in the same task: frequent-place (F-1) could count a
+journey as its own prior visit (self-exclusion now by journey identity, not
+timestamp, since a journey's context marker and its own computed start can
+legitimately differ); `homeCoversAllDays` was vacuously true with no
+checkable day; frequent-place only indexed a journey's first-visit place
+(a consistent second stop could never trip it); the duplicate-family
+tie-break disagreed with v1.1's; `candidate-projection.ts` and
+`local-recovery-projection.ts` still called the retired v1.1 qualifier,
+letting the Possible-trips/recovery surface disagree with Atlas on the same
+journey; an empty-Home case stored a self-contradicting `near-home` reason;
+and per-journey qualification scaled as O(journeys × library size) instead
+of O(library size) — a real risk at the owner's ~19,000-photo scale.
+Documented, not fixed (too large for this pass): H-3's Home-photo exclusion
+only applies inside the classifier, not to the graph's own `visit-support`
+rows that drive a trip's title/cover/album — see
+[detector-v1-2.md](../_bmad-output/specs/spec-trip-recognition-repair/detector-v1-2.md)'s
+"Not yet done" list. Full findings: error playbook, 2026-11-19.
+
+After every fix: `tsc --noEmit` clean, 148/148 relevant Jest tests
+(25 new + 123 pre-existing, none broken), the lifetime benchmark still
+54/54 with 0 silent drops and 0 false Atlas trips (none of the 9 bugs
+happened to be exercised by the current benchmark scenarios — a gap worth
+closing next), root `npm run check` 281/281.
+
+## trip-detector-v1.2 implemented for the Atlas surface (M10.1/M10.3/M10.4, 2026-11-19)
+
+Decision 0021's engine rules are implemented and benchmarked.
+`apps/mobile/src/reconstruction/outcome-v1-2.ts` is the new pure outcome
+rule (`qualifyTripOutcomeV12`/`qualifyGraphJourneyV12`), wired as the sole
+production call in `reconstruction/repository.ts` in place of
+`qualifyGraphJourneyV11`. Benchmark result: **54/54** scenario+Home-mode
+matches, **0 silent drops**, **0 false Atlas trips** — up from the frozen
+baseline's 22/54, 6 silent drops. Full table:
+[v1-2-comparison.md](../_bmad-output/specs/spec-trip-recognition-repair/v1-2-comparison.md).
+Fixed while wiring: `reconstruction-v1`'s 5 km place clustering already
+merges points 3 km apart, so the "two places ≥1 km apart" corroboration
+check compared raw coordinates instead of place ids (see error playbook).
+
+v1.1's own files are byte-unchanged (`git diff` empty on `engine.ts`,
+`engine-v1-1.ts`, `canonical-core.ts`, `canonical-projection.ts`,
+`candidate-projection.ts`); `qualifyGraphJourneyV11` stays exported, so
+selecting it again reproduces the prior result exactly (CAP-8's rollback
+requirement). A pure dry-run diff (`summarizeOutcomeDelta`) is implemented
+and tested. 21 new unit tests plus the benchmark; `tsc --noEmit` clean on
+the whole project; the 69 pre-existing reconstruction/candidate-projection
+tests are unaffected; root `npm run check` 281/281.
+
+**Blocked this session, not skipped:** a second session was actively
+editing `mobile-screens.tsx`, `app-diagnostics.ts`,
+`import-record/repository.ts`, `photo-access/provider.tsx` and all of
+`travel-window/` throughout (confirmed by `git status` repeatedly) —
+building the same native EXIF/offset capture-metadata reader M10.6 needs.
+Two sessions writing the same files risks losing one's work, so this
+session left them alone. That blocks: M10.2 (needs the owner's phone),
+M10.6 end to end, M10.5's UI half (Home required in onboarding, the period
+picker), M10.7's remaining half (Possible-trips still reads the separate
+`candidate-projection.ts` shadow policy, not v1.2's `SUGGESTED`), M10.8's
+owner-facing dry-run/activation UI, and new closed reason codes in
+`app-diagnostics.ts` (one new dev-only phase stage was added instead, in
+the separate `atlas-phase-profile.ts`). Full accounting:
+[delivery-and-diagnostics.md](../_bmad-output/specs/spec-trip-recognition-repair/delivery-and-diagnostics.md).
+Next: a BMAD code review of this diff, then M10.2/M10.5-UI/M10.6/M10.7/M10.8
+once the owner's phone is available and/or the concurrent session's files
+are free.
+
+## GPS-less trip discovery: "9 journeys" and "no possible trips" both resolved as non-bugs (2026-11-19)
+
+Two further owner reports after the fixes below, investigated with the
+owner's explicit go-ahead to look past this module's own boundary:
+
+- **"Now just have 9 journeys"** caused real alarm (looked like data loss).
+  The main Atlas/journey list (read-only inspection, no code changed) shows
+  **21 journeys** on a fresh "Showing this device history" view — the
+  owner confirmed this matches the count from before any of today's fixes.
+  The "9" was a one-off transient reading (left unexplained; not
+  reproduced), not a regression. No code change was needed or made to the
+  reconstruction engine.
+- **"No possible trips detected... like the previous version"** is not a
+  bug either. Temporary read-only logging (added and removed; counts/typed
+  names only, matching this module's own existing exposure level) showed
+  the owner has already confirmed all four travel-looking windows found so
+  far via the live card itself: Huế - Đà Nẵng, Seoul - Korea, Taiwan, and
+  Bali - Indonesia (`travel_window_trip`/`travel_window_disposition`,
+  decision 0019/0020). `firstPendingProposal` correctly shows nothing
+  because there is currently no undecided window — the detector is working
+  as designed. Backfill is still progressing after the `migrationV47` reset
+  (10,018+ captures cached and climbing at last check); further undecided
+  windows should surface as it reaches more of the library.
+- **"Ewha Womans University" still appears in the main Atlas** — directly
+  ruled out as a travel-window-module issue by inspecting the confirmed-trip
+  rows above: none of them is named "Ewha." Confirms the earlier conclusion
+  that this is the reconstruction engine's own output (or a manual journey
+  entry), not this module's.
+- **Observed in passing, not touched:** `apps/mobile/src/reconstruction/`
+  and a new `outcome-v1-2.ts`/`reconstruction-outcome-v1-2.test.ts` are
+  being actively, concurrently edited in this same checkout (decision
+  0021's detector v1.2, presumably) while this investigation ran.
+  `npm run check`'s `tsc --noEmit` currently fails only on that new test
+  file (`Map<string, string>` not assignable to
+  `ReadonlyMap<string, TripOutcomeClassificationLike>`) — unrelated to
+  anything in this entry; flagging for whoever is mid-edit there, not fixed
+  here. All of this module's own tests pass in isolation (1,543 Jest + 141
+  SQLite).
+
+## GPS-less trip discovery wired live; owner-reported correctness bugs fixed (2026-11-19)
+
+Decision 0019/0020's GPS-less detector was wired into the real app
+(`travel-window/production-discovery.ts`, `storage.ts`,
+`components/travel-window-recovery.tsx`; schema `migrationV46`). On-device
+verification found and fixed two bugs before it worked correctly: a stale
+`import_schema_version` marker skipped the new migration's table creation
+(added `ensureTravelWindowLayout`, mirroring this file's existing
+abandoned-marker-tolerant pattern), and a missing `PRAGMA busy_timeout` on
+the new connection failed its first write as `DATABASE_BUSY` (fixed to match
+every other independent connection to this file). The owner then confirmed
+the live card worked (Korea, a 2-hour shift matching its UTC+9 offset) and
+asked to review the window's own photos before naming one; added
+`loadPhotos`/`windowPhotoIds` reusing the existing `resolveOwnerPreviews`
+owner-preview mechanism, never required to confirm or dismiss.
+
+The owner then reported two further, more serious bugs: already-recognized
+GPS trips (Bali, Taiwan 2025) were also being offered for naming, and the
+headline omitted the year. Root cause of the first: `CaptureRecord.located`
+— the field that is supposed to exclude GPS-evidenced captures from this
+GPS-less detector — was hardcoded `false` by every real caller; it was never
+actually wired to a GPS check, so a trip entirely of GPS-tagged photos
+(already owned by the reconstruction engine) looked GPS-less here and was
+re-offered. Fixed by extending the existing native EXIF reader
+(`TravelLifeSignageModule.kt`) to also report `hasLocation` (presence only,
+reusing the same already-open file read; `ACCESS_MEDIA_LOCATION` was already
+declared for the main engine). Added `migrationV47` to clear the
+already-cached wrong data (only `travel_window_capture` and the scan cursor;
+the owner's actual confirm/dismiss decisions are untouched) so the device
+rescans cleanly. Added the year to the story-card headline
+(`travel-window/story-card.ts`). Full root cause, native-rebuild notes and
+the Metro-staleness incident encountered while verifying are in
+`docs/development/error-playbook.md`'s 2026-11-19 entries. `npm run check`
+green throughout (1,522 Jest tests at the final pass).
+
+**Flagged for decision 0021 (trip recognition repair), not actioned here:**
+while re-verifying on-device, the owner reported a trip labeled "Ehwa" (Ewha
+Womans University, Seoul, South Korea) appearing in the main Atlas/journey
+list that they say should not be there. Confirmed by code inspection that
+`travel-window/`'s module has no path that writes to or displays in that
+list — it only ever renders the separate "Possible trips" review card — so
+this is the GPS reconstruction engine's own output, not a travel-window
+regression. Left untouched per this file's module boundary (decision 0021
+owns that engine); worth checking against Finding F11 and the other
+production-adapter findings in
+[baseline-fbfe8b8.md](../_bmad-output/specs/spec-trip-recognition-repair/baseline-fbfe8b8.md)
+when that work resumes.
+
+## M10 accepted; M10.1 lifetime benchmark running (2026-11-19)
+
+Decision 0021 is accepted. `apps/mobile/scripts/benchmark-lifetime.cjs`
+(`npm run benchmark:lifetime`) runs the **unmodified** production engine
+(`projectCanonicalCandidateHistory`) against synthetic, labeled scenarios and
+freezes a baseline: 21/50 scenario+Home-mode combinations matched their
+label; 5 hit Finding F1 exactly (a corroborated, all-gates-passing trip
+scoring under 70 silently becomes `NOT_TRIP` with an empty reasons list); 0
+false Atlas trips. Every abroad scenario regresses from `atlas` to `possible`
+when Home is "learned" instead of owner-set, confirming Findings F4/F5. The
+run also found a new gap, Finding F11: `qualifyGraphJourneyV11` hardcodes
+`captureLike: true` and ignores `sourceOrigin`, so screenshot/download
+photos with GPS can still qualify an Atlas trip through that path. Full
+table: [baseline-fbfe8b8.md](../_bmad-output/specs/spec-trip-recognition-repair/baseline-fbfe8b8.md).
+Coverage so far: scenarios S1-S6, S9-S10, S12-S14, S16, S18-S19 and probe
+cases A-H; S8, S11, S15, S17 and S20 (merge, moving-house, correction-survival
+and reason-accuracy cases) are the next increment. M10.2 (read-only phone
+count) still needs the owner's device connected. M10.3 onward are unstarted.
+
+## AI clue layer and learning planned (M11, 2026-11-19)
+
+The owner proposed a background AI engine after the rule engine that
+strengthens results and learns from corrections, and accepted three
+refinements ([decision 0022](decisions/0022-ai-clue-layer-and-learning.md)):
+AI only adds versioned clues and the same rules re-decide; work is quiet but
+changes show as a short "updated" note and never remove an Atlas trip or touch
+reviewed trips; learning is automatic personal rules (listed and removable in
+Settings) plus gated product versions that need an eval pass and owner
+approval. Roadmap epic M11 (eight P1 stories) and
+[SPEC-ai-clue-layer](../_bmad-output/specs/spec-ai-clue-layer/SPEC.md) start
+after M10.7 and reuse the M10.1 benchmark. Existing sign reading, landmark
+matching, capture offset and optional Gemini Nano become clue producers; the
+cloud metadata path stays off. Nothing implemented.
+
+## GPS-less trip discovery: Takeout imports trusted for detection (2026-11-19)
+
+Story 1's folder-category breakdown found that 99% of "unknown"-provenance
+photos (15,710 of 15,824) came from just one or two distinct top-level
+folders, dominated by a bulk Google Photos Takeout import spanning 2012-2023
+with explicitly travel-named albums — several times more photos than the
+device's actual camera roll. Asked directly, the owner decided this should
+count as trusted evidence for *detecting* a trip, not only for review. See
+[decision 0020](decisions/0020-trusted-takeout-provenance.md).
+
+Implemented as a new `imported` provenance class (kept distinct from
+`camera`, never silently merged) trusted the same way in window formation,
+home-offset inference and membership. Verified on-device: camera-trusted
+coverage rose from 13% to 89%, candidate windows from 12 to 32, including
+**seven new consecutive travel-looking windows from 2022-03-26 to
+2022-05-31** (a roughly two-month trip, offset-shift evidence only, no
+country named) that the original camera-only rule could not see at all. 173
+tests pass; full checks pending before commit.
+
+## Reconstruction engine review: silent trip loss found (2026-11-19)
+
+The owner asked for a review of the lifetime reconstruction engine. All 69
+engine and candidate-projection tests pass, but they check rules, not trip
+quality. A synthetic probe through `projectCanonicalHistory` and
+`qualifyGraphJourneyV11` (scratch only, not committed) found that only
+AUTO/USER_CONFIRMED trips reach Atlas, and that:
+
+- a corroborated trip that passes every gate but scores 45-69 falls to
+  `NOT_TRIP` with an empty reasons list (2-day domestic trips at 65 km and
+  230 km with a configured Home), while an uncorroborated one becomes
+  `SUGGESTED`;
+- the DAY and STAY paths never fire because `episodeSpanMillis` and
+  `supportPlaceSeparationMeters` are never populated, and `sessionId` is the
+  civil day, so a one-day trip can never be corroborated;
+- with a learned Home, home photos within two days join the trip episode
+  (only a configured Home is a boundary), the Home place is then excluded as a
+  base, and the trip stays `UNCONFIRMED` (including a 4-day abroad trip);
+- the foreign-country bonus exists only with a configured Home, and
+  "rare destination" is a photo-count proxy, so an isolated 14-day abroad trip
+  with a learned Home is `NOT_TRIP`;
+- Home has three definitions across passes, `foreignToEveryBase` has two
+  meanings, the routine veto and several V1.1 helpers are unused, and the
+  native importer always sends `hasPreciseOffset: false` and no source origin.
+
+These are synthetic results. Whether they explain the owner's real library is
+unmeasured. Several are divergences from the V1.1 contract itself (it requires
+SUGGESTED for gated 45-69 scores, real sessions and date-scoped bases); V1.1's
+staged generation tables were also never built.
+
+The repair is now planned as roadmap epic M10 (eight backlog stories) under
+[SPEC-trip-recognition-repair](../_bmad-output/specs/spec-trip-recognition-repair/SPEC.md)
+and accepted [decision 0021](decisions/0021-trip-recognition-repair.md):
+measure (synthetic lifetime benchmark, read-only device count), conform as
+`trip-detector-v1.2`, consolidate to one detector, adopt via an owner-approved
+dry run.
+
+Owner direction (same day) replaced the open questions: Home is mandatory
+in onboarding and is only what the owner sets there or in Settings (no
+learned Home, so "Skip for now" goes, Settings keeps at least one Home, and
+no rebuild runs without one; a Home's period is optional, Forever by
+default, with optional From/Until month-and-year pickers instead of typed
+dates; a hometown is travel unless set as Home); a trip at least 50 km from Home with at least 5
+reliably located, corroborated photos shows on Atlas with no score gate;
+anything unsure goes to Possible trips showing one concise reason sentence
+(eight fixed reasons, including `home-not-set` with a Set Home action).
+Regular commutes go to Possible as `frequent-place`, an applied
+interpretation the benchmark will measure.
+
+Decision 0021 accepted 2026-11-19. M10.1 (lifetime benchmark) starting.
+M10.2 (read-only phone count) needs the owner's device connected.
+
 ## GPS-less trip discovery: Story 1 complete, Nano honesty eval passed (2026-11-19)
 
 Story 1's third and last question is answered. The owner correctly pushed

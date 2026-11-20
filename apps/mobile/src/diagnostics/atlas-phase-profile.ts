@@ -7,6 +7,9 @@ export type AtlasProfileStage =
   | 'REBUILD_BASELINE_GRAPH' | 'REBUILD_BASELINE_MAPPING' | 'REBUILD_CONSTRAINED_GRAPH'
   | 'REBUILD_CONFIRMED_MAPPING' | 'REBUILD_MEMORY_OVERLAY' | 'REBUILD_OWNER_MERGE'
   | 'REBUILD_CONTINUITY' | 'REBUILD_MEMBERSHIP' | 'REBUILD_FINAL_MAPPING'
+  /** trip-detector-v1.2 (decision 0021): the per-journey outcome-rule pass
+   * that writes reconstruction_trip_qualification. */
+  | 'REBUILD_QUALIFY'
   | 'DURABLE_DESTINATION_QUERY' | 'DURABLE_DESTINATION_COMPUTATION';
 
 export type AtlasPhaseProfile = {

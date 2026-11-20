@@ -1,5 +1,134 @@
 # Error and improvement playbook
 
+## Engine review probe tooling and control design (2026-11-19)
+
+During the reconstruction engine review, `npx --no-install tsx` and
+`sucrase-node` failed because no standalone TypeScript runner is installed.
+A temporary Jest file under `src/components/__tests__/` (the only `testMatch`
+root) ran the synthetic probe instead and was removed afterwards. The first
+"isolated" 14-day control still overlapped synthetic home days every 9 days,
+so it measured home absorption rather than the holiday case; the control was
+rebuilt to exclude home days within 3 days of the trip. Prevention: run
+TypeScript probes through Jest here, and check that a control actually removes
+the confound before reading its result.
+
+Recurrence while recording the repair plan: a `python3 --version` probe failed
+again (Store alias only), despite the entry below. A `node -e` script inside a
+double-quoted Bash string contained Markdown backticks; Bash ran
+`` `trip-detector-v1.2\` `` as command substitution and wrote an empty
+`()` into the roadmap table, fixed with the Edit tool. Prevention: never probe
+for Python here; put scripts containing backticks in a file or single-quoted
+heredoc, never in a double-quoted shell argument, and read the edited lines back.
+
+Decision number collision: the repair decision was written as 0020 while a
+concurrent session in the same checkout created accepted decision
+`0020-trusted-takeout-provenance.md`. Found by `git status` before handoff;
+the proposed record was renumbered to 0021 in every referencing file and the
+local link check rerun. Prevention: with another session active, list
+`docs/decisions/` immediately before creating a numbered record and check
+`git status` for untracked records before handoff.
+
+Owner-reported unclear question: "Which pain matters most (missing, wrong,
+broken, untrusted)?" was not understood and did not affect any decision; it
+was dropped. Prevention: ask an owner question only when the answer changes
+what gets built, phrase it with a concrete example from their own trips, and
+leave out questions the benchmark already covers.
+
+## M10.3/M10.4 implementation: 9 real bugs caught by code review before any were user-visible (2026-11-19)
+
+A `/code-review high` pass (8 finder angles, 1-vote verify) on the new
+`outcome-v1-2.ts`/`repository.ts` wiring, run as the delivery-review step
+before declaring M10.3/M10.4 complete, found 10 confirmed issues; 9 were
+fixed in the same task, 1 (H-3 enforced only at classification time, not in
+the graph's own `visit-support` rows that drive title/cover/album) was
+real but too large to fix safely this session and is documented instead
+(`detector-v1-2.md`, `consolidation.md`). Verified causes and fixes:
+- `isFrequentPlace` excluded a candidate from its own prior-visit count by
+  comparing timestamps, but the context marker's start (built from a
+  journey's full unfiltered evidence) and the candidate's own computed
+  start (eligible, non-Home evidence only) can legitimately differ for the
+  same journey — fixed by excluding by journey identity instead of time.
+- `homeCoversAllDays` used `Array.prototype.every` on a possibly-empty set
+  of valid days, vacuously returning true with zero days actually checked.
+- `graphJourneyEpisodeMarkers` indexed only a journey's first-visit place,
+  so a place that is always a trip's second-or-later stop could never
+  trigger the frequent-place veto.
+- `photoUnitsOf`'s duplicate-family tie-break picked the opposite member
+  (lowest id) from v1.1's equivalent (highest id), an unrelated difference
+  that could look like a detector-rule change in the benchmark comparison.
+- `candidate-projection.ts`/`local-recovery-projection.ts` still called the
+  retired `qualifyGraphJourneyV11`, so the Possible-trips/recovery surface
+  could disagree with the new Atlas classification on the same journey.
+- The per-journey qualification rebuilt the whole rebuild's evidence/visit
+  maps on every call (O(journeys x total evidence)) and re-derived each
+  evidence item's place with a nested scan — real cost at the ~19,000-photo
+  library scale the project's own perf guard names.
+Prevention: for a new rules engine wired into production, run the review
+pass right after the first green benchmark/test run and before calling the
+story done — not only once at the end of the whole epic — so defects are
+caught while the design is still fresh rather than after several more
+stories have been built on top of the same function.
+
+## M10.3/M10.4 implementation: stale generated history-domain bundle (2026-11-19)
+
+Adding `apps/mobile/src/reconstruction/outcome-v1-2.ts` and editing
+`repository.ts`/`index.ts`/`types.ts` changed the mobile TypeScript source
+graph the root check's `scripts/build-history-domain.mjs` digests, so the
+root check's generated-graph test failed (280/281) until
+`node scripts/build-history-domain.mjs` was rerun to regenerate
+`supabase/functions/_shared/history-domain.js`. A small, expected diff (new
+source digest, same packed content shape); this has recurred before (see
+"Generated history-domain bundle freshness" above) and the project-state
+entries already name the fix. Prevention: after any change under
+`apps/mobile/src/reconstruction/`, rerun the root `npm run check` (not just
+the mobile one) before calling a change complete, and regenerate the bundle
+if it fails on this specific test.
+
+## M10.3/M10.4 v1.2 outcome rule: place-granularity mismatch and benchmark gaps (2026-11-19)
+
+Wiring `qualifyGraphJourneyV12` into the benchmark first showed 49/54 (not
+54/54) scenario matches. Three causes, all confirmed by direct inspection
+before changing anything:
+1. `hasTwoSeparatedPlaces` compared `supportPlaceId` values, but
+   `reconstruction-v1`'s place clustering already merges points within 5 km
+   into one place (decision 0007); V1.1's own "two places >=1 km apart"
+   corroboration check can never see two places 3 km apart as distinct once
+   they share a `supportPlaceId`. Fixed by comparing raw unit coordinates
+   directly, not place ids. `reconstruction-v1` clustering itself is
+   unchanged per decision 0021.
+2. S18a/S18b ("one far photo/screenshots with nothing else") lacked
+   `isolate: true`, so the benchmark's shared 40-day Home-pattern rows leaked
+   into their touched journey and changed what "nothing else" actually meant.
+   Fixed by isolating them like the other single-evidence scenarios.
+3. S12's hometown fixture used one coordinate repeated six times, so a
+   single-day visit had no two places >=1 km apart and no second session —
+   genuinely uncorroborated by V1.1 §1's own rule, not an engine bug. Fixed
+   the fixture to use two nearby points, matching every other multi-photo
+   scenario's shape.
+Prevention: when a new rule disagrees with a benchmark label, check whether
+the label's own fixture actually supplies the evidence the rule asks for
+before assuming the rule is wrong.
+
+## M10.1 lifetime benchmark: evidence-ID collision silently dropped trip rows (2026-11-19)
+
+The first run of `apps/mobile/scripts/benchmark-lifetime.cjs` showed 7/50
+scenario matches, including a 14-day abroad trip with a configured Home
+(case D) read as fully hidden, though a standalone script with the same
+inputs produced `AUTO_CONFIRMED`. Cause: a per-scenario `resetSeq()` call
+reset the evidence-ID counter back to 1 before generating each scenario's
+trip rows, so trip evidence collided with the shared Home-life rows' IDs
+(both sets started at `e000001`). `reconstructV1`'s duplicate-family
+de-duplication (keyed by ID when no family ID is set) silently kept only the
+first-seen row per colliding ID, discarding almost all synthetic trip
+photos. Found by reproducing one case (D) in isolation with sequential IDs
+and comparing. Fix: removed the inner `resetSeq()`; the ID counter now
+increments once per Home-mode run, across Home rows and every scenario's
+trip rows, so no two rows in the same engine input ever share an ID.
+Prevention: when a benchmark or fixture generator mixes multiple row sources
+into one engine input, use one id sequence for the whole input, and sanity-check
+at least one case against a hand-built, non-generated input before trusting
+the harness's numbers.
+
 ## Python unavailable on the Windows host (2026-11-19)
 
 An agent-written `python` heredoc edit of a Kotlin file failed: the Windows
@@ -7657,3 +7786,237 @@ exposed private evidence:
   perform the final move into the app's directory with a single direct
   `run-as <pkg> <cmd> <args>` call — never a `run-as <pkg> sh -c "..."` with
   a nested shell, which was unreliable for UID/CWD on this device.
+
+## Travel-window production wiring: stale schema marker and missing busy_timeout (2026-11-19)
+
+Wiring the GPS-less trip detector's own storage (`src/travel-window/storage.ts`,
+new) into the real app, on the owner's device, surfaced two distinct on-device
+failures that no Jest test caught, because both depend on this device's
+specific accumulated SQLite state and on real inter-connection contention —
+neither is reproducible with a fresh in-memory test database.
+
+- Symptom: `storage.readScanState()`/`readDispositions()` on the real device
+  failed every relaunch with a generic native
+  `Call to function 'NativeDatabase.prepareAsync' has been rejected.` A plain
+  `console.error(error.message)` in the `catch` (temporary, removed once
+  diagnosed) showed the real cause only appeared in the message's own
+  `Caused by:` suffix, not in a separate Android logcat line for this error
+  class — `adb logcat` grepped for `SQLite|NativeDatabase|prepareAsync` found
+  nothing; the only way to see it was to log the JS-side `Error.message`
+  itself and read past the generic wrapper text.
+  - Cause (verified): `Caused by: ... no such table: travel_window_capture`.
+    `import-record/repository.ts`'s shared `ensureNativeImportSchema(db)` has
+    a fast-path (`if (currentSchema.version >= CURRENT_SCHEMA_VERSION) return`)
+    that deliberately never re-runs the full migration chain once a device's
+    `import_schema_version` already meets the current number — see its own
+    "abandoned newer marker" comment. This device's marker had already reached
+    46 from an earlier iteration of this same migration number during
+    development, before `migrationV46`'s real `CREATE TABLE` statements were
+    finalized, so the fast-path silently skipped ever creating
+    `travel_window_capture/state/trip/disposition` on this device.
+  - Correction: added `ensureTravelWindowLayout(db)` — an idempotent,
+    missing-table check (mirrors the existing `ensureManualJourneyLayout` /
+    `ensureJourneyPrivacyLayout` / `ensureReplayDraftWorkingLayout` pattern
+    already in that file for exactly this class of problem) — and call it
+    from all four places those three sibling functions are already called
+    (both the fast-path and the post-migration path, in both near-duplicate
+    `ensureNativeImportSchema`/internal-open code paths). It re-runs
+    `migrationV46` (safe: `CREATE TABLE IF NOT EXISTS` / `INSERT OR IGNORE`
+    throughout) only when a required table is actually missing.
+  - Verification: cleared logcat, force-stopped and relaunched the app fresh
+    on-device; `TRAVEL_WINDOW_CACHE_READ` diagnostics now report `COMPLETE`
+    instead of a native rejection, confirmed via `adb logcat -d --pid=<pid>`.
+  - Prevention: when iterating on a not-yet-shipped migration number during
+    on-device testing, expect the device's version marker to reach that
+    number before the migration's SQL is finalized; give every brand-new
+    migration's tables their own idempotent `ensure*Layout` fast-path repair
+    function from the start, not only after a stale-marker failure appears.
+- Symptom: immediately after the fix above, the first `writeScanBatch` call
+  on-device failed with a classified (not raw-logged) `DATABASE_BUSY`, and
+  `stepTravelWindowDiscovery`'s loop silently stopped rather than retrying,
+  so no further batches ran until the screen was revisited.
+  - Cause (verified): `storage.ts`'s `open()` opened its own new native
+    connection (`useNewConnection: true`, the established pattern for an
+    independent repository in this codebase) but never set
+    `PRAGMA busy_timeout`, unlike every other independent-connection opener
+    (`reconstruction/repository.ts`, `import-record/repository.ts`'s internal
+    open). Without it, this connection's write lost a lock race against
+    another connection's writer at cold start and failed immediately instead
+    of waiting.
+  - Correction: added `await db.execAsync('PRAGMA busy_timeout = 30000')`
+    right after opening the connection, matching the existing convention.
+  - Verification: fresh on-device relaunch; `TRAVEL_WINDOW_CACHE_WRITE` and
+    `TRAVEL_WINDOW_CACHE_READ` diagnostics both report `COMPLETE` repeatedly
+    across multiple backfill batches, and the "Possible trips" card
+    (`TravelWindowRecovery`) rendered live with a real detected window ("You
+    were away for 3 days in August... Your clock moved 2 hours back"),
+    confirmed via a text-only `uiautomator dump` (never `screencap`, since
+    this screen can show real personal evidence).
+  - Prevention: any new independently-opened connection to
+    `travel-life-import-v1.db` must set `PRAGMA busy_timeout` immediately
+    after opening, before any read or write — add this to the checklist for
+    reviewing a new repository module in this codebase.
+
+## GPS-less trip discovery re-offered already-recognized GPS trips (2026-11-19)
+
+Symptom (owner-reported, after the production wiring above went live): trips
+the main GPS reconstruction engine had already recognized (Bali, Taiwan 2025)
+were also appearing in "Possible trips" asking to be named, alongside the
+genuinely new Korea/August windows.
+
+- Cause (verified): `CaptureRecord.located` — "True when the capture carries
+  GPS; located captures belong to the located engine"
+  (`travel-window/types.ts:23`) — is the field `window-detector.ts` and
+  `membership.ts` already use to exclude GPS-evidenced captures from GPS-less
+  detection. But every production caller
+  (`production-discovery.ts`'s `queryBatch` mapping, and the dev harness
+  `dev-travel-window-screen.tsx`) constructed `CaptureAsset` with
+  `located: false` unconditionally — the field was never actually wired to a
+  real GPS check, only ever a placeholder. So a trip entirely of GPS-tagged
+  photos (already owned by the reconstruction engine) was treated as
+  GPS-less by this module and re-offered. Jest coverage never caught this
+  because every test fixture passes `located` explicitly by hand; nothing
+  exercised the real production call path's hardcoded value.
+- Correction: extended the existing native EXIF reader
+  (`TravelLifeSignageModule.kt`'s `readCaptureMetadata`, which already opens
+  the file and reads EXIF for the offset tags) to also report
+  `hasLocation` — a boolean from `ExifInterface.getLatLong()`, presence only,
+  never the actual coordinates (diagnostic-logging policy). No new native
+  round-trip or permission needed: `ACCESS_MEDIA_LOCATION` was already
+  declared (`app.json`) for the main engine's own GPS EXIF reads, and the
+  same already-open `ExifInterface` instance is reused.
+  `capture-metadata.ts`'s `toCaptureRecord` now sets
+  `located: asset.located || native.hasLocation === true`, so either signal
+  is enough to route a capture to the separate reconstruction engine instead.
+- Verification: `npm run check` green (added cases to
+  `travel-window-capture-metadata.test.ts` covering `hasLocation: true`,
+  absent, `false`, and a non-boolean value); native rebuild
+  (`npm run android:device`) installed successfully. On-device re-check of
+  Bali/Taiwan no longer appearing is pending the next time the owner is in
+  the app (native code requires a full rebuild, not just a Metro reload, so
+  this could not be verified by relaunch alone).
+- Prevention: when a field exists specifically to bridge two independent
+  subsystems (here, "this capture belongs to the other engine"), grep every
+  production constructor of the type that carries it before trusting a
+  passing test suite — a hand-written test fixture can mask a production
+  caller that never actually sets the real value. Consider a type-level
+  signal (e.g. a branded/required-non-default type) over a plain `boolean`
+  field with an easy-to-forget default next time this pattern recurs.
+- Follow-up (same incident): the fix alone does not correct data the owner's
+  device already cached wrong under schema 46 (`travel_window_capture` rows
+  written `located = 0` for GPS-tagged photos during the original backfill).
+  Added `migrationV47` (`import-record/repository.ts`): clears
+  `travel_window_capture` and resets the scan cursor only, leaving
+  `travel_window_trip`/`travel_window_disposition` (the owner's actual
+  confirm/dismiss decisions) untouched, so the next launch re-backfills
+  cleanly under the fixed `located` logic. A real device reinstall needs a
+  full native rebuild (`cd android && ./gradlew assembleDebug`, then
+  `adb install -r <apk>`) for a Kotlin change — `npx expo run:android
+  --device <name>` prompted interactively and silently no-opped
+  (exit 0, no build) when given a serial instead of a device *name*; the
+  Gradle route avoids that picker entirely.
+
+## Possible-trip headline omitted the year (2026-11-19)
+
+Symptom (owner-reported): the "Possible trips" card's headline named only
+the month ("You were away for 3 days in August"), ambiguous once more than
+one GPS-less trip exists across different years.
+- Cause: `story-card.ts`'s `when` string interpolated `months[start.month]`
+  without `start.year` in both the same-month and cross-month branches.
+- Correction: added `${start.year}` to both branches
+  ("in August 2026" / "starting 28 June 2026").
+- Verification: updated the two `travel-window.test.ts` headline assertions
+  that hardcoded the old no-year text; full suite green.
+- Prevention: none needed beyond the fix — this was a straightforward
+  omission, not a recurring pattern.
+
+## Save stayed disabled after picking a search suggestion (2026-11-20)
+
+Symptom (owner-reported, live on-device): in the new real-place-search
+confirm flow (`travel-window-recovery.tsx`), tapping a search suggestion
+visibly selected it, but Save stayed disabled — tapping it again did
+nothing recognizable.
+- Cause (verified): `choosePlace` calls `setPlaceQuery(place.name)` to
+  reflect the match while the `TextInput` still has focus (the owner just
+  typed into it). Setting a controlled `TextInput`'s value programmatically
+  while focused can echo back through `onChangeText` on Android with that
+  same new value. The naive `changeQuery` handler treated any call as a
+  genuine edit and unconditionally cleared `resolvedPlace`, so the
+  selection `choosePlace` had just made was wiped out by its own side
+  effect on the very next render.
+- Correction: `changeQuery` now only clears a prior selection when the
+  incoming value differs from the one already resolved
+  (`current && current.name === value ? current : null`), so the echo
+  (same value) is a no-op and a genuine edit (different value) still
+  clears it correctly.
+- Verification: owner re-tested live; Save enabled after tapping a
+  suggestion, and the confirm itself then succeeded (see the next entry
+  for the second bug that surfaced after this fix).
+- Prevention: when a component sets a controlled `TextInput`'s value from
+  code while that input may still have focus, never let the plain
+  `onChangeText` handler treat every call as a real edit — compare against
+  the value just set, or blur the input first. This is the first time this
+  exact pattern has appeared in this codebase (the older `manual-journey.tsx`
+  does the same `setLabel(place.name)`-while-focused thing in `choosePlace`
+  but was never reported as buggy — worth a quick manual check there too
+  since it is likely the same latent issue, just unnoticed).
+
+## Re-confirming a window hit a stale manual_journey.command_key (2026-11-20)
+
+Symptom (owner-reported, live on-device, right after the previous fix):
+tapping Save now did something, but failed silently from the owner's
+perspective — the diagnostic showed `TRAVEL_WINDOW_REVIEW` / `CONSTRAINT`.
+- Cause (verified via a temporary `console.error` of the raw SQL message,
+  removed after diagnosis): `UNIQUE constraint failed:
+  manual_journey.command_key`. This was self-inflicted test-process debris,
+  not a production bug: an earlier on-device test attempt against this
+  same command had already committed a real `manual_journey` row (and its
+  `travel_window_album` rows); a later temporary reset script (clearing
+  only `travel_window_disposition`/`travel_window_trip` so the card would
+  resurface for another test) never cleared those two tables, so the
+  re-confirm collided with its own orphaned prior row.
+- Correction: extended the temporary reset to also delete the orphaned
+  `manual_journey` row and its `travel_window_album` rows for that same
+  `command_key`, matching what a real confirm creates. Not a production
+  code change.
+- Verification: re-confirmed cleanly afterward; read back
+  `manual_journey`/`travel_window_album` directly and confirmed the real
+  row (owner_label "Seoul", correct dates) and 458 attached album rows;
+  owner then confirmed it live in the Atlas with real photos.
+- Prevention: when a debug/reset script clears rows to re-trigger a flow
+  for manual testing, clear every table that flow's own write path
+  touches, not just the ones being iterated on at that moment — an
+  incomplete reset manifests as a confusing constraint failure that looks
+  like a production bug.
+
+## New "Delete this journey" action felt stuck, live on-device (2026-11-20)
+
+Symptom (owner-reported): tapping delete on an owner-entered journey did
+eventually succeed (verified: journey count dropped by one, the deleted
+entry gone from the list), but the "Deleting…" state stayed up far longer
+than expected, reading as stuck.
+- Cause: the `removeManualJourney` provider wrapper
+  (`photo-access/provider.tsx`) called `refreshDurableReveal()` after the
+  delete — the same full Atlas read used after import/catch-up, which
+  re-runs every reconstructed journey's destination-label resolution
+  across the whole local history. Correct for those, since they can
+  change many journeys at once; wasteful here, where exactly one entry
+  was removed and nothing else changed.
+- Correction: removed the full refresh; the wrapper now drops the deleted
+  `displayId` from the existing `durableReveal` state directly
+  (`setDurableReveal((current) => ... .filter(...))`), mirroring the
+  optimistic local removal `runPrivacyCommand` already uses when hiding a
+  journey via a privacy policy, for the identical reason.
+- Verification: full `npm run check` green (1,588 Jest tests); on-device
+  reload loads cleanly. A timed re-test of delete's actual latency is
+  still open — doing one requires another disposable owner-entered
+  journey, and none exists right now without touching a real confirmed
+  trip.
+- Prevention: when adding a single-entity mutation (one create/update/
+  delete) to a provider wrapper, default to a local, targeted state update
+  first and reach for a full `refreshDurableReveal()` only when the
+  mutation can legitimately change more than the one entity touched (as
+  `createManualJourney` genuinely needs, since overlap/privacy checks can
+  affect other journeys) — not by copying the nearest existing wrapper's
+  pattern without checking whether its own full-refresh is actually
+  necessary for the new case.

@@ -1,13 +1,74 @@
 ---
 title: Travel Life MLP roadmap
 status: working-plan
-revision: 6
-updated: 2026-10-28
+revision: 7
+updated: 2026-11-19
 strategy: build-then-learn
 platforms: [ios, android]
 ---
 
 # Minimum Lovable Product roadmap
+
+## Active quality repair: trip recognition (M10, accepted 2026-11-19)
+
+The 2026-11-19 engine review found that real trips are silently withheld from
+the Atlas. The production adapter diverges from the V1.1 contract: a fully gated
+45-69 score becomes NOT_TRIP instead of SUGGESTED, the DAY/STAY paths and
+independent sessions are never populated, a learned Home is not a boundary,
+and capture time arrives without original offsets. Findings are synthetic;
+owner-library impact is unmeasured.
+
+Owner direction (2026-11-19): Home is mandatory in onboarding and is only
+what the owner sets there or in Settings; a trip away from Home with clear location evidence shows on
+Atlas; anything unsure goes to Possible trips with one short reason.
+
+[SPEC-trip-recognition-repair](../specs/spec-trip-recognition-repair/SPEC.md)
+governs the repair. [Decision 0021](../../docs/decisions/0021-trip-recognition-repair.md)
+is accepted. M10 runs ahead of M8/M9 because it decides what every source's
+trips look like.
+
+| Order | Stage | Stories | Exit value |
+| --- | --- | --- | --- |
+| 1 | Measure | M10.1, M10.2 | Public synthetic lifetime benchmark red on the current engine; read-only owner-device count of trips hidden without a reason |
+| 2 | Clear outcome rules (`trip-detector-v1.2`) | M10.3-M10.6 | No silent loss; away trips with clear evidence on Atlas, unsure ones in Possible trips with a reason; Home mandatory, only from onboarding/Settings; original capture time input |
+| 3 | Consolidate | M10.7 | One normalization, Home model and grouping authority feeding Atlas and Possible trips; dead paths removed |
+| 4 | Adopt | M10.8 | Revision-bound dry run, owner-approved activation, correction preservation and rollback on the owner's phone |
+
+Decision 0021 is accepted. Status (2026-11-19): M10.1/M10.3/M10.4 in
+progress (engine rules implemented, benchmark 54/54 — see
+[v1-2-comparison.md](../specs/spec-trip-recognition-repair/v1-2-comparison.md));
+M10.5 and M10.7 half done (engine side); M10.8's pure dry-run/rollback core
+done. M10.2 (needs the owner's phone) and M10.6 (needs the in-flight
+travel-window native capture-metadata work to land first) are not started;
+the UI halves of M10.5/M10.8 and the Possible-trips half of M10.7 are
+blocked on the same concurrent work. See
+[delivery-and-diagnostics.md](../specs/spec-trip-recognition-repair/delivery-and-diagnostics.md)
+for the full per-story accounting.
+
+## Next: AI clue layer and learning (M11, accepted 2026-11-19)
+
+[Decision 0022](../../docs/decisions/0022-ai-clue-layer-and-learning.md):
+after the rule engine, background on-device AI adds versioned clues; the same
+rules re-decide; changes show as a short note; corrections become visible
+personal rules; the eval engine gates every new rule or model version.
+[SPEC-ai-clue-layer](../specs/spec-ai-clue-layer/SPEC.md) governs it.
+M11 starts after M10.7 (one detector) and uses the M10.1 benchmark.
+Status (2026-11-19): M11.1 is done except persistence — the clue record
+contract, validity rules and rule consumption (`apps/mobile/src/clues/`:
+`types.ts`, `store.ts`, `consumption.ts`) are implemented and tested: a
+clue can lower a trip or name a destination for display, never raise one
+onto Atlas (promotion classes stay off), and zero clues reproduces M10
+exactly. No SQLite table yet — blocked on the same concurrent-session file
+as M10. M11.2-M11.8 are not started: no clue producer exists yet to feed
+this, and the background pass/personal learning/eval engine need new
+infrastructure.
+
+| Order | Stage | Stories | Exit value |
+| --- | --- | --- | --- |
+| 1 | Foundation | M11.1, M11.2 | Clue store the rules consume; background clue pass with budgets and an "updated" note |
+| 2 | Clue producers | M11.3-M11.5 | Place, photo-source and same-trip clues from existing on-device models |
+| 3 | Learning | M11.6 | Corrections become personal rules listed in Settings |
+| 4 | Gate | M11.7, M11.8 | Eval engine with hard cases and keep/reject signals; owner-approved version and promotion gate |
 
 ## Approved next scope: one account, multiple sources
 

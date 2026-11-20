@@ -1,5 +1,5 @@
 import {
-  assessWindow, buildStoryCard, findCandidateWindows, inferHomeOffsetMinutes, nameWindow, selectMembers,
+  assessWindow, buildStoryCard, findCandidateWindows, inferHomeOffsetMinutes, nameWindow, selectMembers, windowPhotoIds,
   type CaptureRecord, type Clue, type EdgeFix, type PlaceClaim,
 } from '@/travel-window';
 
@@ -37,6 +37,16 @@ describe('window detection', () => {
   it('infers home from the most common recorded offset', () => {
     expect(inferHomeOffsetMinutes([...homeMay, ...koreaTrip])).toBe(VN);
     expect(inferHomeOffsetMinutes(koreaTrip.map((r) => ({ ...r, utcOffsetMinutes: null })))).toBeNull();
+  });
+
+  it('trusts an imported Google Takeout library the same as camera captures (decision 0020)', () => {
+    const importedKorea = trip('takeout', 3, 6, 52, KR, 'imported');
+    expect(inferHomeOffsetMinutes([...homeMay, ...importedKorea])).toBe(VN);
+    const windows = findCandidateWindows([...homeMay, ...importedKorea], home);
+    const trips = windows.filter((w) => w.shiftMinutes !== null);
+    expect(trips).toHaveLength(1);
+    expect(trips[0].cameraCount).toBe(312);
+    expect(assessWindow(trips[0])).toEqual({ travelLooking: true, reason: 'travel-looking' });
   });
 
   it('finds the whole 312-photo Korea window with a clock-shift clue and no place claim', () => {
@@ -166,6 +176,39 @@ describe('membership', () => {
     expect(members.excluded).toContainEqual({ id: 'gps', reason: 'located' });
     expect([...members.memberIds, ...members.reviewIds, ...members.excluded.map((e) => e.id)]).not.toContain('before');
   });
+
+  it('includes a Google Takeout import the same as a camera capture (decision 0020)', () => {
+    const importedKorea = trip('takeout', 3, 6, 52, KR, 'imported');
+    const [window] = findCandidateWindows(importedKorea, home);
+    const members = selectMembers(window, importedKorea);
+    expect(members.memberIds).toHaveLength(312);
+    expect(members.reviewIds).toHaveLength(0);
+    expect(members.excluded).toHaveLength(0);
+  });
+});
+
+describe('windowPhotoIds', () => {
+  it('returns member and review captures in chronological order, excluding GPS-located and other excluded reasons', () => {
+    const [window] = findCandidateWindows(koreaTrip, home);
+    const unknowns = trip('unk', 4, 1, 3, KR, 'unknown'); // inside the trip's own span, so genuinely interleaved
+    const mixed: CaptureRecord[] = [
+      ...koreaTrip, ...unknowns,
+      { id: 'gps', capturedAtMillis: at(2026, 6, 5, 12, 0, KR), utcOffsetMinutes: KR, provenance: 'camera', located: true },
+      ...trip('shot', 5, 1, 2, KR, 'screenshot'),
+    ];
+    const ids = windowPhotoIds(window, mixed);
+    expect(ids).toHaveLength(312 + 3);
+    expect(ids).not.toContain('gps');
+    expect(ids.filter((id) => id.startsWith('shot-'))).toHaveLength(0);
+    const sortedByTime = [...ids].sort((a, b) =>
+      mixed.find((r) => r.id === a)!.capturedAtMillis - mixed.find((r) => r.id === b)!.capturedAtMillis);
+    expect(ids).toEqual(sortedByTime);
+  });
+
+  it('is empty for a window with no in-range captures', () => {
+    const [window] = findCandidateWindows(koreaTrip, home);
+    expect(windowPhotoIds(window, [])).toEqual([]);
+  });
 });
 
 describe('story card', () => {
@@ -176,7 +219,7 @@ describe('story card', () => {
     const naming = nameWindow([signage(1)]);
     const card = buildStoryCard({ window, memberCount: 312, homeOffsetMinutes: VN, naming });
     expect(card.state).toBe('facts-only');
-    expect(card.headline).toBe('You were away for 6 days in June.');
+    expect(card.headline).toBe('You were away for 6 days in June 2026.');
     expect(card.detail).toEqual(['312 photos', 'Your clock moved 2 hours ahead.']);
     expect(card.actions).toEqual(['search-place', 'not-a-trip']);
     const text = JSON.stringify([card.headline, card.detail, card.named, card.actions]);
@@ -214,7 +257,7 @@ describe('story card', () => {
     const across = trip('m', 28, 7, 30, KR, 'camera', 6); // 28 June - 4 July (7 days)
     const [w] = findCandidateWindows(across.map((r) => ({ ...r, capturedAtMillis: r.capturedAtMillis })), home);
     const card = buildStoryCard({ window: w, memberCount: w.cameraCount, homeOffsetMinutes: VN, naming: nameWindow([]) });
-    expect(card.headline).toBe('You were away for 7 days starting 28 June.');
+    expect(card.headline).toBe('You were away for 7 days starting 28 June 2026.');
   });
 
   it('shows the owner-chosen name and a single dismissal', () => {

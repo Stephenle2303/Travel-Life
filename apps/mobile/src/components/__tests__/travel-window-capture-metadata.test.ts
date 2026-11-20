@@ -1,6 +1,6 @@
 import type { AppDiagnosticEvent } from '@/diagnostics/app-diagnostics';
 import {
-  classifyProvenance, inferOffsetFromLocalClock, parseExifLocalTimestampMillis, parseExifOffsetMinutes,
+  bucketFolderCategory, classifyProvenance, inferOffsetFromLocalClock, parseExifLocalTimestampMillis, parseExifOffsetMinutes,
   scanCaptureMetadata, toCaptureRecord, CaptureMetadataError,
   type CaptureAsset,
 } from '@/travel-window';
@@ -53,6 +53,24 @@ describe('inferring offset from local-clock mismatch', () => {
   });
 });
 
+describe('research-only folder bucketing (never a production decision)', () => {
+  it.each([
+    [null, 'no-folder-data'], [undefined, 'no-folder-data'], [42, 'no-folder-data'], ['', 'empty'],
+    ['DCIM/Camera/', 'dcim-camera'], ['dcim/camera/', 'dcim-camera'],
+    ['DCIM/', 'dcim-root'], ['DCIM/100ANDRO/', 'dcim-other-subfolder'], ['DCIM/OpenCamera/', 'dcim-other-subfolder'],
+    ['Pictures/', 'pictures'], ['Pictures/Edited/', 'pictures'],
+    ['Movies/', 'movies'], ['Music/', 'music'], ['Documents/', 'documents'],
+    ['Android/media/com.some.app/', 'android-media'], ['Android/data/com.some.app/files/', 'android-data'],
+    ['Bluetooth/', 'other-top-level'], ['SomeRandomApp/Exports/', 'other-top-level'],
+  ])('%s -> %s', (folder, category) => expect(bucketFolderCategory(folder)).toBe(category));
+
+  it('never includes the input folder text in its output', () => {
+    const secret = 'MySecretDiaryPhotos2026';
+    expect(bucketFolderCategory(`${secret}/`)).not.toContain(secret);
+    expect(bucketFolderCategory(`Android/media/${secret}/`)).not.toContain(secret);
+  });
+});
+
 describe('provenance from folder', () => {
   it.each([
     ['DCIM/Camera/', 'camera'],
@@ -81,6 +99,24 @@ describe('provenance from folder', () => {
     expect(classifyProvenance(undefined)).toBe('unknown');
     expect(classifyProvenance(42)).toBe('unknown');
   });
+
+  it.each([
+    ['takeout-20261021T052809Z-1-001/Takeout/Google Photos/Photos from 2022/', 'imported'],
+    ['Takeout/Google Photos/2015.11_Korea - Autumn Tail/', 'imported'],
+    ['takeout-20200101T000000Z-1-001/Takeout/Google Photos/Profile pictures/', 'imported'],
+    ['TAKEOUT/GOOGLE PHOTOS/Photos from 2013/', 'imported'],
+  ])('%s is imported (decision 0020)', (folder, expected) => expect(classifyProvenance(folder)).toBe(expected));
+
+  it.each([
+    ['Takeout/', 'unknown'],
+    ['Google Photos/', 'unknown'],
+    ['Pictures/Takeout/', 'unknown'],
+    ['MyTakeoutBackup/Google Photos/', 'unknown'],
+  ])('%s does not loosely match the Takeout pattern: is %s', (folder, expected) => expect(classifyProvenance(folder)).toBe(expected));
+
+  it('screenshot and messaging folders still win even nested under a Takeout-like path', () => {
+    expect(classifyProvenance('Screenshots/Takeout/Google Photos/')).toBe('screenshot');
+  });
 });
 
 describe('native result mapping', () => {
@@ -95,6 +131,20 @@ describe('native result mapping', () => {
     const record = toCaptureRecord({ ...asset(2), located: true }, { relativeDirectory: 'DCIM/Camera/' });
     expect(record.located).toBe(true);
     expect(JSON.stringify(record)).not.toContain('DCIM');
+  });
+
+  it('also treats the native EXIF GPS check alone as located, even when the caller flag is false', () => {
+    // The real on-device bug this covers: every production caller passes
+    // located: false unconditionally, so a GPS-tagged photo (already owned
+    // by the separate reconstruction engine) was never excluded here before
+    // the native reader started reporting hasLocation.
+    expect(toCaptureRecord(asset(3), { relativeDirectory: 'DCIM/Camera/', hasLocation: true }).located).toBe(true);
+  });
+
+  it('stays not-located when the native reader omits or falsifies hasLocation', () => {
+    expect(toCaptureRecord(asset(4), { relativeDirectory: 'DCIM/Camera/' }).located).toBe(false);
+    expect(toCaptureRecord(asset(4), { relativeDirectory: 'DCIM/Camera/', hasLocation: false }).located).toBe(false);
+    expect(toCaptureRecord(asset(4), { relativeDirectory: 'DCIM/Camera/', hasLocation: 'yes' }).located).toBe(false);
   });
 
   it.each([null, undefined, 'x', 3, ['DCIM/Camera/']])('rejects malformed result %p as schema', (value) => {

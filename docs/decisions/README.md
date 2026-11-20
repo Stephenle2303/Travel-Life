@@ -34,3 +34,6 @@ The current product direction and provisional defaults are recorded below.
 - [0013 — Reference-faithful Atlas cartography](0013-reference-faithful-atlas-cartography.md): prioritizes the supplied map's actual appearance, permits flat geographic relief texture, defers specified chrome and requires visual acceptance before integration.
 - [0014 — Lean self-serve UX and visual Replay editing](0014-lean-self-serve-replay-editor.md): requires user-centered, reference-led UI, concise copy, few steps, truthful progress and trip-based visual media selection.
 - [0019 — GPS-less trip discovery](0019-gps-less-trip-discovery.md): find a travel window from metadata first, name places only on agreeing free on-device clues, abroad first.
+- [0020 — Trusted Takeout provenance](0020-trusted-takeout-provenance.md): trusts Google Takeout photo imports the same as camera captures for GPS-less trip detection and membership.
+- [0021 — Trip recognition repair](0021-trip-recognition-repair.md): stop silent trip loss, measure on a synthetic lifetime benchmark, conform to V1.1 as `trip-detector-v1.2`, then keep one detector.
+- [0022 — AI clue layer and learning](0022-ai-clue-layer-and-learning.md): after M10, background on-device AI adds versioned clues and rules decide; corrections become visible personal rules; the eval engine gates every new version.

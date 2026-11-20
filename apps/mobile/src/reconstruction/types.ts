@@ -2,6 +2,36 @@ export const RECONSTRUCTION_RULE_VERSION = 'reconstruction-v1';
 /** Additive detector policy.  Legacy graphs remain readable until an approved
  * revision-bound migration activates a qualified generation. */
 export const TRIP_DETECTOR_RULE_VERSION = 'trip-detector-v1.1';
+/** SPEC-trip-recognition-repair / decision 0021. Owner-set Home only (no
+ * learned base); a clear outcome rule replaces score/profile gating; every
+ * non-Atlas outcome carries a closed reason. See detector-v1-2.md. */
+export const TRIP_OUTCOME_RULE_VERSION = 'trip-detector-v1.2';
+/** Closed reason codes shown to the owner (priority order, first match
+ * wins) and stored for every SUGGESTED/NOT_TRIP outcome. */
+export type TripOutcomeReasonCode =
+  | 'home-not-set' | 'time-conflict' | 'no-location' | 'weak-location'
+  | 'near-home' | 'frequent-place' | 'few-photos' | 'single-moment'
+  | 'owner-veto' | 'no-away-evidence' | 'non-capture-source';
+export type TripOutcomeClassification = 'AUTO_CONFIRMED' | 'SUGGESTED' | 'NOT_TRIP' | 'USER_CONFIRMED' | 'REJECTED';
+export type TripOutcome = {
+  classification: TripOutcomeClassification;
+  /** Every applicable reason, highest priority first; reasons[0] is the one
+   * sentence shown on a Possible-trip card. Empty only for AUTO/USER/REJECTED. */
+  reasons: TripOutcomeReasonCode[];
+  /** Stored diagnostic only (CAP-4); the outcome never gates on it. */
+  diagnosticScore: number;
+  supportIds: string[];
+};
+/** Built once per rebuild from the full set of qualified episodes. Counts
+ * distinct prior episodes touching a macro place, not photo days. Each entry
+ * carries its own journey id so a candidate can exclude itself by identity
+ * rather than by start-time comparison (a candidate's own recorded start can
+ * differ from the start its own classification computes, since the marker
+ * is built from a journey's full unfiltered evidence while classification
+ * uses only eligible, non-Home evidence — leave-one-candidate-out must not
+ * depend on those two happening to agree). */
+export type FrequentPlaceEpisodeMarker = { journeyId: string; placeId: string; startMillis: number };
+export type FrequentPlaceContext = ReadonlyMap<string, readonly FrequentPlaceEpisodeMarker[]>;
 
 export type TripClassification = 'AUTO_CONFIRMED' | 'USER_CONFIRMED' | 'SUGGESTED' | 'NOT_TRIP' | 'UNCONFIRMED' | 'REJECTED';
 export type TripQualificationPath = 'SCORE' | 'DAY' | 'STAY' | null;

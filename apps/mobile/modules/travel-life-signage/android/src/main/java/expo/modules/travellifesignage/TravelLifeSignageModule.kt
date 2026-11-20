@@ -106,6 +106,14 @@ class TravelLifeSignageModule : Module() {
         promise.reject("ERR_CAPTURE_DECODE", "Local capture unreadable.", null)
         return@AsyncFunction
       }
+      // Presence only, never the coordinates themselves (diagnostic-logging
+      // policy): a located capture belongs to the separate GPS reconstruction
+      // engine, not GPS-less trip discovery (decision 0019).
+      val hasLocation = try {
+        exif.getLatLong(FloatArray(2))
+      } catch (_: Exception) {
+        false
+      }
       promise.resolve(mapOf(
         "offsetTimeOriginal" to exif.getAttribute("OffsetTimeOriginal")?.take(16),
         "offsetTimeDigitized" to exif.getAttribute("OffsetTimeDigitized")?.take(16),
@@ -113,6 +121,7 @@ class TravelLifeSignageModule : Module() {
         // UTC instant when no explicit offset tag is present (Story 1, Q2).
         "dateTimeOriginal" to exif.getAttribute("DateTimeOriginal")?.take(19),
         "relativeDirectory" to directory?.take(256),
+        "hasLocation" to hasLocation,
       ))
     }
 

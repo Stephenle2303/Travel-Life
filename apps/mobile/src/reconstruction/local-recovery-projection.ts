@@ -1,6 +1,7 @@
 import { recoveryTripPolicy, type CandidateTrip, type CandidateTripProjection } from './candidate-projection';
-import { applyStructuralBoundaries, qualifyGraphJourneyV11 } from './canonical-core';
+import { applyStructuralBoundaries } from './canonical-core';
 import type { projectCanonicalHistory } from './canonical-projection';
+import { qualifyGraphJourneyV12 } from './outcome-v1-2';
 import type { JourneyDraft, JourneyMembership, ReconstructionGraph, TripDetectorEvidence } from './types';
 
 export const LOCAL_RECOVERY_PROJECTION_VERSION = 'atlas-recovery-local-v1';
@@ -53,8 +54,10 @@ export function projectLocalRecoveryGraph({ baseline, candidate, mediaByEvidence
       || [...families].some((key) => withheldFamilies.has(key))) return null;
     return { journey, visitIds, support, families };
   };
+  // v1.2 (decision 0021): agree with the Atlas surface on "reliable", not
+  // the retired v1.1 score/learned-base path.
   const confirmed = (source: ReconstructionGraph, id: string) =>
-    qualifyGraphJourneyV11(source, id, baseline.evidence, mediaByEvidence, baseline.homeAreas).classification === 'AUTO_CONFIRMED';
+    qualifyGraphJourneyV12(source, id, baseline.evidence, mediaByEvidence, baseline.homeAreas).classification === 'AUTO_CONFIRMED';
   const replacements = new Map<string, { journeys: JourneyDraft[]; leftSupport: ReadonlySet<string> }>();
 
   for (const pair of candidate.mergeSuggestions) {

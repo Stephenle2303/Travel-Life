@@ -69,8 +69,22 @@ const messagingSegments = new Set(['line', 'com.facebook.orca', 'org.thoughtcrim
 const screenshotSegments = new Set(['screenshots', 'screenshot', 'screenrecorder', 'screen recordings', 'screenrecordings']);
 
 /**
+ * A Google Takeout photo export (decision 0020): `.../Takeout/Google
+ * Photos/...`. Matches only the fixed inner path, never the timestamped
+ * export wrapper folder name, so it generalizes to any owner's Takeout
+ * export rather than one specific export.
+ */
+function isGoogleTakeoutPhotos(segments: readonly string[]): boolean {
+  for (let i = 0; i < segments.length - 1; i++) {
+    if (segments[i] === 'takeout' && segments[i + 1] === 'google photos') return true;
+  }
+  return false;
+}
+
+/**
  * Provenance from the storage folder only. Camera means the device's own
- * camera folder; anything unrecognised stays `unknown` and goes to review.
+ * camera folder; a Google Takeout photo export is `imported` (decision
+ * 0020); anything else unrecognised stays `unknown` and goes to review.
  */
 export function classifyProvenance(relativeDirectory: unknown): ProvenanceClass {
   if (typeof relativeDirectory !== 'string') return 'unknown';
@@ -80,7 +94,33 @@ export function classifyProvenance(relativeDirectory: unknown): ProvenanceClass 
   if (segments.some((s) => messagingSegments.has(s) || messagingTokens.some((t) => s.includes(t)))) return 'messaging';
   if (segments[0] === 'download' || segments[0] === 'downloads') return 'download';
   if (segments[0] === 'dcim' && segments[1] === 'camera') return 'camera';
+  if (isGoogleTakeoutPhotos(segments)) return 'imported';
   return 'unknown';
+}
+
+/**
+ * Research-only: buckets a folder into a fixed, non-identifying category so
+ * the `unknown`-provenance population can be understood in aggregate without
+ * ever reading or reporting a real folder string. Never used by
+ * `classifyProvenance` or any production decision — counts only.
+ */
+export type FolderCategory =
+  | 'no-folder-data' | 'empty' | 'dcim-camera' | 'dcim-other-subfolder' | 'dcim-root'
+  | 'pictures' | 'movies' | 'music' | 'documents' | 'android-media' | 'android-data' | 'other-top-level';
+
+export function bucketFolderCategory(relativeDirectory: unknown): FolderCategory {
+  if (typeof relativeDirectory !== 'string') return 'no-folder-data';
+  const segments = relativeDirectory.replace(/\\/g, '/').toLowerCase().split('/').map((s) => s.trim()).filter(Boolean);
+  if (segments.length === 0) return 'empty';
+  const [top, next] = segments;
+  if (top === 'dcim') return next === undefined ? 'dcim-root' : next === 'camera' ? 'dcim-camera' : 'dcim-other-subfolder';
+  if (top === 'pictures') return 'pictures';
+  if (top === 'movies') return 'movies';
+  if (top === 'music') return 'music';
+  if (top === 'documents') return 'documents';
+  if (top === 'android' && next === 'media') return 'android-media';
+  if (top === 'android' && next === 'data') return 'android-data';
+  return 'other-top-level';
 }
 
 export function classifyCaptureMetadataError(error: unknown): CaptureMetadataReason {
@@ -104,7 +144,10 @@ export function toCaptureRecord(asset: CaptureAsset, native: unknown): CaptureRe
     capturedAtMillis: asset.capturedAtMillis,
     utcOffsetMinutes: original ?? parseExifOffsetMinutes(readField(native, 'offsetTimeDigitized')),
     provenance: classifyProvenance(readField(native, 'relativeDirectory')),
-    located: asset.located,
+    // The caller's own flag (if it ever has a cheaper source) OR the native
+    // reader's own EXIF GPS tag check: either signal is enough to route a
+    // capture to the separate GPS reconstruction engine instead of here.
+    located: asset.located || readField(native, 'hasLocation') === true,
   };
 }
 

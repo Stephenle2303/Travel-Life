@@ -4,7 +4,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { AssetField, MediaType, Query, requestPermissionsAsync } from 'expo-media-library';
 
 import {
-  assessWindow, classifyCaptureMetadataError, findCandidateWindows, inferHomeOffsetMinutes, inferOffsetFromLocalClock,
+  assessWindow, bucketFolderCategory, classifyCaptureMetadataError, findCandidateWindows, inferHomeOffsetMinutes, inferOffsetFromLocalClock,
   parseExifLocalTimestampMillis, toCaptureRecord,
   type CaptureAsset, type CaptureMetadataReason, type CaptureRecord,
 } from '@/travel-window';
@@ -45,6 +45,10 @@ type Report = {
   inferredOffsetPresence: { inferred: number; unavailable: number };
   inferredOffsetBucketsMinutes: Record<string, number>;
   provenanceCounts: Record<string, number>;
+  /** Research only (open finding from Story 1): why most captures land in `unknown` provenance. Fixed categories, never raw folder text. */
+  unknownFolderCategories: Record<string, number>;
+  /** Count only — never the actual names — of distinct unrecognized top-level folders. */
+  unknownOtherTopLevelDistinctCount: number;
   homeOffsetMinutes: number | null;
   windows: WindowReport[];
   unreadable: Record<string, number>;
@@ -59,8 +63,17 @@ function emptyReport(status: string, debug: Report['debug'] = { nativeReaderAvai
     generatedAt: new Date().toISOString(), scanStatus: status, scanned: 0,
     offsetPresence: { withOffset: 0, withoutOffset: 0 }, offsetBucketsMinutes: {},
     inferredOffsetPresence: { inferred: 0, unavailable: 0 }, inferredOffsetBucketsMinutes: {},
-    provenanceCounts: {}, homeOffsetMinutes: null, windows: [], unreadable: {}, debug,
+    provenanceCounts: {}, unknownFolderCategories: {}, unknownOtherTopLevelDistinctCount: 0, homeOffsetMinutes: null, windows: [], unreadable: {}, debug,
   };
+}
+
+// Local-only, never exported and never put in the report: the real folder
+// name touches this Set in memory for a distinct-count only. The report
+// below carries just that count, never the Set's contents.
+function topLevelSegment(relativeDirectory: unknown): string | null {
+  if (typeof relativeDirectory !== 'string') return null;
+  const [top] = relativeDirectory.replace(/\\/g, '/').toLowerCase().split('/').map((s) => s.trim()).filter(Boolean);
+  return top ?? null;
 }
 
 async function runScan(): Promise<Report> {
@@ -103,6 +116,8 @@ async function runScan(): Promise<Report> {
   const offsetBucketsMinutes: Record<string, number> = {};
   const inferredOffsetBucketsMinutes: Record<string, number> = {};
   const provenanceCounts: Record<string, number> = {};
+  const unknownFolderCategories: Record<string, number> = {};
+  const otherTopLevelDistinct = new Set<string>();
   let withOffset = 0;
   let withoutOffset = 0;
   let inferredCount = 0;
@@ -131,6 +146,15 @@ async function runScan(): Promise<Report> {
     }
     records.push(record);
     provenanceCounts[record.provenance] = (provenanceCounts[record.provenance] ?? 0) + 1;
+    if (record.provenance === 'unknown') {
+      const folder = native && typeof native === 'object' && 'relativeDirectory' in native ? (native as Record<string, unknown>).relativeDirectory : undefined;
+      const category = bucketFolderCategory(folder);
+      unknownFolderCategories[category] = (unknownFolderCategories[category] ?? 0) + 1;
+      if (category === 'other-top-level') {
+        const top = topLevelSegment(folder);
+        if (top !== null) otherTopLevelDistinct.add(top);
+      }
+    }
     if (record.utcOffsetMinutes !== null) {
       withOffset += 1;
       offsetBucketsMinutes[String(record.utcOffsetMinutes)] = (offsetBucketsMinutes[String(record.utcOffsetMinutes)] ?? 0) + 1;
@@ -167,7 +191,7 @@ async function runScan(): Promise<Report> {
     generatedAt: new Date().toISOString(), scanStatus: 'complete', scanned: assets.length,
     offsetPresence: { withOffset, withoutOffset }, offsetBucketsMinutes,
     inferredOffsetPresence: { inferred: inferredCount, unavailable: inferredUnavailable }, inferredOffsetBucketsMinutes,
-    provenanceCounts, homeOffsetMinutes: home.offsetMinutes, windows,
+    provenanceCounts, unknownFolderCategories, unknownOtherTopLevelDistinctCount: otherTopLevelDistinct.size, homeOffsetMinutes: home.offsetMinutes, windows,
     unreadable: unreadable as Record<string, number>,
     debug: debugBase,
   };

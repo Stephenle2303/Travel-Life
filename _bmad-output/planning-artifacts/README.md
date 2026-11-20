@@ -1,5 +1,12 @@
 # Travel Life MVP planning
 
+**Proposed 2026-11-19:** [M10 trip recognition repair](roadmap.md#active-quality-repair-trip-recognition-m10-proposed-2026-11-19)
+adds eight stories under
+[SPEC-trip-recognition-repair](../specs/spec-trip-recognition-repair/SPEC.md);
+decision 0021 is accepted; M10.1 (benchmark) is starting. [M11 AI clue layer](roadmap.md#next-ai-clue-layer-and-learning-m11-accepted-2026-11-19)
+adds eight more (63 backlog rows) under [SPEC-ai-clue-layer](../specs/spec-ai-clue-layer/SPEC.md)
+and accepted decision 0022.
+
 **Next scope approved 2026-10-28:** [M6-M9 private multi-source epics/stories](epics-multi-source.md)
 adds 20 planned stories to the 27-story local baseline. The combined
 [backlog](backlog.csv) has 47 story rows. Account/restore, unified device history

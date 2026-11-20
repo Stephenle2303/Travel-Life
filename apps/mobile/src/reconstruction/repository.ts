@@ -2,12 +2,13 @@ import { projectCanonicalHistory } from './canonical-projection';
 import { candidateTripPolicy, projectCandidateFromCanonical, projectCanonicalCandidateHistory, type CandidateTrip, type CandidateTripProjection } from './candidate-projection';
 import { LOCAL_RECOVERY_PROJECTION_VERSION, projectLocalRecoveryGraph } from './local-recovery-projection';
 import { assertReplicaOpen, trackReplicaConnection } from '@/account/replica-connections';
-import { resolvePlaceCountryCode, qualifyGraphJourneyV11, JourneyCorrectionRemapRequiredError, resolveVerifiedDuplicateFamilies, correctionFamilySnapshots, resolveReviewedSupportKey, predecessorWideScopeRevisions } from './canonical-core';
+import { resolvePlaceCountryCode, JourneyCorrectionRemapRequiredError, resolveVerifiedDuplicateFamilies, correctionFamilySnapshots, resolveReviewedSupportKey, predecessorWideScopeRevisions } from './canonical-core';
 import type { ReconstructionEvidence, ReconstructionGraph } from './types';
 import { RECONSTRUCTION_RULE_VERSION, TRIP_DETECTOR_RULE_VERSION } from './types';
 import { NATURAL_EARTH_ADMIN_0_DATASET_VERSION, countryDisplayName } from './country-resolver';
 import { destinationLabel, type DestinationSupport } from './destination-label';
 import { effectiveConfiguredHomeDistanceV11 } from './engine-v1-1';
+import { buildFrequentPlaceContext, buildV12CandidateLookups, graphJourneyEpisodeMarkers, qualifyGraphJourneyV12, TRIP_OUTCOME_RULE_VERSION } from './outcome-v1-2';
 import type { RecognizableShadowPair } from './recognizable-shadow-types';
 import type { DurableRevealRecord, JourneyDetail, RevealMapAnchor } from '@/reveal/types';
 import type { ManualJourneyInput } from '@/import-record/types';
@@ -28,6 +29,7 @@ import { regionalLandmarkPolicyVersion, regionalPackPreviewConfig } from '@/visu
 import { compareVisualPhotos, resolveVisualPendingPlace, usesVisualCitySupport, validVisualCitySupport, visualTripDestination } from '@/visual-place/trip-recovery';
 import { searchOwnerPlaces } from './owner-place-search';
 export { resolvePlaceCountryCode, qualifyGraphJourneyV11, mergeContinuousAwayJourneysV11, constructCanonicalV11Graph, resolveVerifiedDuplicateFamilies, structuralBoundaryEvidenceIds, applyStructuralBoundaries, predecessorWideScopeRevisions, applyOwnerJourneyMerges, applyJourneyCorrections, mapCorrectionsToCommittedJourneys, mapFinalCorrectionApplications } from './canonical-core';
+export { qualifyGraphJourneyV12, buildFrequentPlaceContext, buildV12CandidateLookups, graphJourneyEpisodeMarkers, summarizeOutcomeDelta, TRIP_OUTCOME_RULE_VERSION } from './outcome-v1-2';
 
 type Database = {
   execAsync(source: string): Promise<void>;
@@ -521,6 +523,25 @@ export function createNativeReconstructionRepository(options?: { databaseName: s
     visualAlbumTokens.set(manualId, snapshot);
     const namedStops = stops.filter((stop) => !isVisualLocality(stop.placeId));
     return { token: snapshot.token, destinationNames: [...new Set(namedStops.map((stop) => resolveVisualPlace(stop.placeId)!.label))] };
+  }
+
+  /** Decision 0019/0020's GPS-less confirmed album. Mirrors visualAlbumRows,
+   * minus the candidate-shadow staleness check: there is no live discovery
+   * pipeline behind this data to go stale against — it is a fixed set
+   * resolved once at confirm time (travel-window/storage.ts). */
+  async function travelAlbumRows(db: Database, manualId: string, run: number) {
+    const attachment = await db.getFirstAsync('SELECT 1 FROM travel_window_album WHERE manual_id = ? LIMIT 1', manualId);
+    if (!attachment) return { revision: 0, attached: false, rows: [] };
+    const privacy = await privacyFilter(db, run);
+    if (privacy.manual.has(manualId)) throw new Error('Journey is private. Review Privacy Settings to restore it.');
+    const rows = await db.getAllAsync<{ slot: number; evidence_id: string; source_ref: string | null; availability: 'available' | 'unavailable' }>(`
+      SELECT attachment.slot, attachment.evidence_id, evidence.source_ref,
+        CASE WHEN evidence.availability IN ('available', 'unknown') THEN 'available' ELSE 'unavailable' END AS availability
+      FROM travel_window_album attachment LEFT JOIN canonical_evidence evidence
+        ON evidence.evidence_id = attachment.evidence_id AND evidence.source_ref = attachment.source_ref
+      WHERE attachment.manual_id = ? ORDER BY attachment.slot`, manualId);
+    await assertPrivacyReadCurrent(db, privacy.revision);
+    return { revision: privacy.revision, attached: rows.length > 0, rows: rows.filter((row) => !privacy.protectedEvidence.has(row.evidence_id)) };
   }
 
   async function candidateCommittedPartition(db: Database, run: number, journeyId: string) {
@@ -1816,6 +1837,41 @@ export function createNativeReconstructionRepository(options?: { databaseName: s
         return `manual:${id}`;
       } catch (error) { await db.execAsync('ROLLBACK'); throw error; }
     },
+    /**
+     * Removes an owner-entered journey and its own source module's data —
+     * never evidence, never a reconstructed journey. A plain "Add journey"
+     * entry has no side tables; a visual-place or travel-window confirmed
+     * trip also clears its album/trip/disposition rows, so the underlying
+     * window or cluster is free to be offered again rather than left
+     * permanently "confirmed" to data that no longer exists.
+     */
+    async removeManualJourney(displayId: string): Promise<void> {
+      if (!displayId.startsWith('manual:')) throw new Error('Only an owner-entered journey can be removed this way.');
+      const manualId = displayId.slice('manual:'.length);
+      const db = await open();
+      await ensureNativeImportSchema(db);
+      await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
+      try {
+        const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
+        if (lifecycle?.state !== 'connected') throw new Error('Private record is not connected.');
+        const existing = await db.getFirstAsync<{ manual_id: string }>('SELECT manual_id FROM manual_journey WHERE manual_id = ?', manualId);
+        if (existing) {
+          if (manualId.startsWith('visual-')) {
+            await db.runAsync('DELETE FROM visual_place_album WHERE manual_id = ?', manualId);
+            await db.runAsync('DELETE FROM visual_place_trip WHERE manual_id = ?', manualId);
+            await db.runAsync('DELETE FROM visual_place_review WHERE manual_id = ?', manualId);
+            await db.runAsync('DELETE FROM visual_place_disposition WHERE manual_id = ?', manualId);
+            visualAlbumTokens.delete(manualId);
+          } else if (manualId.startsWith('travel-')) {
+            await db.runAsync('DELETE FROM travel_window_album WHERE manual_id = ?', manualId);
+            await db.runAsync('DELETE FROM travel_window_trip WHERE manual_id = ?', manualId);
+            await db.runAsync('DELETE FROM travel_window_disposition WHERE manual_id = ?', manualId);
+          }
+          await db.runAsync('DELETE FROM manual_journey WHERE manual_id = ?', manualId);
+        }
+        await db.execAsync('COMMIT');
+      } catch (error) { await db.execAsync('ROLLBACK'); throw error; }
+    },
     async saveConfiguredHomeAreaFromJourney(displayId: string, areaId: string, visitId: string, ownerLabel: string, effectiveStartDay: string | null, effectiveEndDay: string | null) {
       const db = await open();
       const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
@@ -1869,6 +1925,25 @@ export function createNativeReconstructionRepository(options?: { databaseName: s
             ownerPlace: { id: `manual-place:${manualId}`, name: manual.owner_label, context: manual.owner_context, anchor: coarseMapAnchor(manual.latitude, manual.longitude)! }, ownerEntered: true },
           previewSourceRefs: album.rows.slice(0, 4).map((row) => row.availability === 'available' ? row.source_ref : null),
           snapshotToken: snapshot.token, privacyRevision: album.revision };
+        }
+        if (manualId.startsWith('travel-')) {
+          // Decision 0019/0020's GPS-less confirmed trip: a static album
+          // resolved once at confirm time (travel-window/storage.ts), never
+          // re-edited or re-recognized, so there is no separate shadow-stamp
+          // staleness check — only the privacy revision can invalidate it.
+          const run = (await loadPublishedRun(db))?.run_id ?? 0;
+          previewStage?.('PREVIEW_READ');
+          const album = await travelAlbumRows(db, manualId, run);
+          previewStage?.('PREVIEW_VERIFY');
+          const verifiedManual = await db.getFirstAsync<ManualRow>('SELECT manual_id, command_key, owner_label, owner_context, latitude, longitude, date_kind, date_start, date_end FROM manual_journey WHERE manual_id = ?', manualId);
+          if (!album.attached || privacyRevision !== album.revision || JSON.stringify(verifiedManual) !== JSON.stringify(manual)) throw new Error('Journey changed. Reopen Atlas.');
+          return { detail: { id: displayId, title: manual.owner_label, observedSpan: manual.date_start === manual.date_end
+            ? manual.date_start : `${manual.date_start} – ${manual.date_end}`, visits: [],
+            memories: album.rows.map((row) => ({ id: `memory-${row.slot}`, availability: row.availability, association: 'Added by you to the album. Capture location unknown.' })),
+            uncertainty: ['The confirmed place is an owner assertion. The photos do not establish where they were taken.'], ownerClaim,
+            ownerPlace: { id: `manual-place:${manualId}`, name: manual.owner_label, context: manual.owner_context, anchor: coarseMapAnchor(manual.latitude, manual.longitude)! }, ownerEntered: true },
+          previewSourceRefs: album.rows.slice(0, 4).map((row) => row.availability === 'available' ? row.source_ref : null),
+          snapshotToken: album.revision, privacyRevision: album.revision };
         }
         await assertPrivacyVisible(db, displayId);
         return { detail: { id: displayId, title: manual.owner_label, observedSpan: 'Owner-entered date claim; no observed evidence is attached.', visits: [], memories: [], uncertainty: ['This is an owner-entered private assertion. It does not prove presence or create visit support.'], ownerClaim, ownerPlace: { id: `manual-place:${manual.manual_id}`, name: manual.owner_label, context: manual.owner_context, anchor: coarseMapAnchor(manual.latitude, manual.longitude)! }, ownerEntered: true }, previewSourceRefs: [], snapshotToken: 0 };
@@ -2045,6 +2120,12 @@ export function createNativeReconstructionRepository(options?: { databaseName: s
         return album.attached && album.revision === expectedPrivacy && current.token === expectedRun
           && ((await loadPublishedRun(db))?.run_id ?? 0) === run;
       }
+      if (displayId.startsWith('manual:travel-')) {
+        const manualId = displayId.slice(7);
+        const run = (await loadPublishedRun(db))?.run_id ?? 0;
+        const album = await travelAlbumRows(db, manualId, run);
+        return album.attached && album.revision === expectedPrivacy && expectedRun === album.revision;
+      }
       const selected = displayedJourneys.get(displayId);
       if (!selected || selected.runId !== expectedRun) return false;
       const published = await loadPublishedRun(db);
@@ -2074,6 +2155,22 @@ export function createNativeReconstructionRepository(options?: { databaseName: s
         if (!album.attached || album.revision !== revision
           || (await visualAlbumSnapshot(db, manualId, run, album.revision)).token !== expectedSnapshotToken
           || ((await loadPublishedRun(db))?.run_id ?? 0) !== run) throw new VisualPlaceError('HISTORY_STALE');
+        const rows = album.rows.slice(page * pageSize, (page + 1) * pageSize);
+        return { items: rows.map((row) => ({ id: `memory-${row.slot}`, availability: row.availability, kind: 'photo' as const,
+          association: 'Added by you to the album. Capture location unknown.' })),
+        previewSourceRefs: rows.map((row) => row.availability === 'available' ? row.source_ref : null),
+        hasMore: (page + 1) * pageSize < album.rows.length, privacyRevision: album.revision };
+      }
+      if (displayId.startsWith('manual:travel-')) {
+        previewStage?.('PREVIEW_SCOPE');
+        const manualId = displayId.slice(7);
+        const run = (await loadPublishedRun(db))?.run_id ?? 0;
+        const revision = await assertPrivacyVisible(db, displayId);
+        if (revision !== expectedSnapshotToken) throw new Error('Journey changed. Reopen Atlas.');
+        previewStage?.('PREVIEW_READ');
+        const album = await travelAlbumRows(db, manualId, run);
+        previewStage?.('PREVIEW_VERIFY');
+        if (!album.attached || album.revision !== revision) throw new Error('Journey changed. Reopen Atlas.');
         const rows = album.rows.slice(page * pageSize, (page + 1) * pageSize);
         return { items: rows.map((row) => ({ id: `memory-${row.slot}`, availability: row.availability, kind: 'photo' as const,
           association: 'Added by you to the album. Capture location unknown.' })),
@@ -2781,7 +2878,9 @@ export function createNativeReconstructionRepository(options?: { databaseName: s
         stage = 'DURABLE_MANUAL_READ'; profile.next(stage);
         const manualRows = await db.getAllAsync<ManualRow>('SELECT manual_id, command_key, owner_label, owner_context, latitude, longitude, date_kind, date_start, date_end FROM manual_journey ORDER BY date_start DESC, manual_id DESC');
         stage = 'DURABLE_PROJECTION'; profile.next(stage);
-        const manualJourneys = manualRows.filter((row) => !privateFilter.manual.has(row.manual_id)).filter((row) => typeof row.manual_id === 'string' && typeof row.owner_label === 'string' && typeof row.owner_context === 'string' && typeof row.date_start === 'string' && typeof row.date_end === 'string' && (row.date_kind === 'exact' || row.date_kind === 'approximate')).map((row) => ({ displayId: `manual:${row.manual_id}`, state: 'owner-entered' as const, anchor: coarseMapAnchor(row.latitude, row.longitude), years: [Number(row.date_start.slice(0, 4))], periodLabel: row.date_kind === 'exact' ? row.date_start : `${row.date_start} to ${row.date_end} (approximate)`, ordering: 'chronological' as const, label: `${row.owner_label} · ${row.owner_context}`, locationKind: 'owner-entered' as const }));
+        // sortDay rides along only to interleave with reconstructed journeys
+        // below by actual date; it never reaches the returned DurableRevealJourney.
+        const manualJourneys = manualRows.filter((row) => !privateFilter.manual.has(row.manual_id)).filter((row) => typeof row.manual_id === 'string' && typeof row.owner_label === 'string' && typeof row.owner_context === 'string' && typeof row.date_start === 'string' && typeof row.date_end === 'string' && (row.date_kind === 'exact' || row.date_kind === 'approximate')).map((row) => ({ sortDay: row.date_start, journey: { displayId: `manual:${row.manual_id}`, state: 'owner-entered' as const, anchor: coarseMapAnchor(row.latitude, row.longitude), years: [Number(row.date_start.slice(0, 4))], periodLabel: row.date_kind === 'exact' ? row.date_start : `${row.date_start} to ${row.date_end} (approximate)`, ordering: 'chronological' as const, label: `${row.owner_label} · ${row.owner_context}`, locationKind: 'owner-entered' as const } }));
         stage = 'DURABLE_COUNTRY_READ'; profile.next(stage);
         const countryRows = await db.getAllAsync<{ journey_id: string; country_code: string }>(`
         SELECT DISTINCT journey_link.parent_id AS journey_id, place.country_code
@@ -2932,7 +3031,17 @@ export function createNativeReconstructionRepository(options?: { databaseName: s
           return left && right && !left.needsReview && !right.needsReview
             ? [{ leftId, rightId, generation: completed.run_id, privacyRevision: privateFilter.revision }] : [];
         });
-        return { journeys: [...journeys.values(), ...manualJourneys], ...(mergePairs.length ? { mergePairs } : {}), statistics: statistics ? { journeyCount: statistics.journey_count, placeCount: statistics.place_count, supportedCountryCount: statistics.country_count, countryStatus: statistics.resolved_count === statistics.place_count ? 'supported' : 'unavailable' } : null,
+        // Interleave by actual date (newest first) instead of always listing
+        // every manual journey after every reconstructed one — a trip
+        // confirmed yesterday belongs near the top, not at the bottom just
+        // because its evidence came from an owner assertion. An undated
+        // reconstructed journey (first_day null) still sorts last, as before.
+        const orderedJourneys = [
+          ...[...journeys.values()].map((journey) => ({ sortDay: periods.get(journey.displayId)?.first ?? null, journey })),
+          ...manualJourneys,
+        ].sort((a, b) => a.sortDay === b.sortDay ? 0 : a.sortDay === null ? 1 : b.sortDay === null ? -1 : b.sortDay.localeCompare(a.sortDay))
+          .map(({ journey }) => journey);
+        return { journeys: orderedJourneys, ...(mergePairs.length ? { mergePairs } : {}), statistics: statistics ? { journeyCount: statistics.journey_count, placeCount: statistics.place_count, supportedCountryCount: statistics.country_count, countryStatus: statistics.resolved_count === statistics.place_count ? 'supported' : 'unavailable' } : null,
           diagnostics: !privateFilter.policies.length && diagnostics ? { assessed: diagnostics.assessed, supported: diagnostics.supported, places: diagnostics.places, visits: diagnostics.visits, missingDay: diagnostics.missing_day, invalidDay: diagnostics.invalid_day, unavailable: diagnostics.unavailable, duplicateConflict: diagnostics.duplicate_conflict, insufficientLocation: diagnostics.insufficient_location, excluded: diagnostics.excluded } : null };
       } catch (error) {
         if (db && stage === 'DURABLE_MANUAL_READ' && error instanceof Error && error.message.toLowerCase().includes('no such column')) {
@@ -3104,12 +3213,23 @@ export function createNativeReconstructionRepository(options?: { databaseName: s
           }
           for (const visit of graph.visits) { await db.runAsync('INSERT INTO reconstruction_visit (visit_id, run_id, place_id, ordering) VALUES (?, ?, ?, ?)', visit.id, runId, visit.placeId, visit.order); for (const evidenceId of visit.evidenceIds) await links.add([runId, 'visit-support', visit.id, evidenceId]); }
           const confirmedJourneyIds = new Set(corrections.filter((correction) => correction.action === 'confirm').map((correction) => finalMatches.get(correction.revision_id)).filter((id): id is string => Boolean(id)));
+          profile.next('REBUILD_QUALIFY');
+          // trip-detector-v1.2 (decision 0021): one outcome rule for every
+          // journey, built once per rebuild so frequent-place (F-1) can see
+          // every other journey's episode start/place without recomputing
+          // the whole graph per journey.
+          const frequentPlaceContext = buildFrequentPlaceContext(graphJourneyEpisodeMarkers(graph, evidenceById));
+          // Shared once per rebuild so each journey's qualification is
+          // O(its own evidence), not O(the whole library) (found by the
+          // M10.3 code review, 2026-11-19).
+          const v12Lookups = buildV12CandidateLookups(graph, evidence);
           for (const journey of graph.journeys) {
             await db.runAsync('INSERT INTO reconstruction_journey (journey_id, run_id, journey_state) VALUES (?, ?, ?)', journey.id, runId, journey.state);
             const ownerConfirmed = confirmedJourneyIds.has(journey.id);
             const qualification = ownerConfirmed
               ? { classification: 'USER_CONFIRMED' as const, score: 0, path: null, reasons: ['owner-confirmed'] }
-              : qualifyGraphJourneyV11(graph, journey.id, evidence, mediaByEvidence, homeAreas);
+              : (() => { const outcome = qualifyGraphJourneyV12(graph, journey.id, evidence, mediaByEvidence, homeAreas, frequentPlaceContext, v12Lookups);
+                  return { classification: outcome.classification, score: outcome.diagnosticScore, path: null, reasons: outcome.reasons }; })();
             await db.runAsync(
               'INSERT INTO reconstruction_trip_qualification (run_id, journey_id, classification, score, qualification_path, reasons_json) VALUES (?, ?, ?, ?, ?, ?)',
               runId, journey.id, qualification.classification, qualification.score, qualification.path,

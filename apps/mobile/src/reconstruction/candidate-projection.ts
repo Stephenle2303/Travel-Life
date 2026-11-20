@@ -1,6 +1,7 @@
-import { applyStructuralBoundaries, metersBetween, qualifyGraphJourneyV11 } from './canonical-core';
+import { applyStructuralBoundaries, metersBetween } from './canonical-core';
 import { projectCanonicalHistory, type CanonicalProjectionInput } from './canonical-projection';
 import { applyOwnerConfiguredHomeAreas, effectiveConfiguredHomeDistanceV11 } from './engine-v1-1';
+import { qualifyGraphJourneyV12 } from './outcome-v1-2';
 import type { OwnerConfiguredHomeArea, ReconstructionGraph, TripDetectorEvidence } from './types';
 
 export const candidateTripPolicy = Object.freeze({
@@ -399,7 +400,10 @@ export function projectCandidateFromCanonical(baseline: Awaited<ReturnType<typeo
   for (const correction of baseline.corrections) {
     const id = baseline.finalMatches.get(correction.revision_id);
     if (!id || !currentJourneyIds.has(id)) continue;
-    if (correction.action === 'confirm' || qualifyGraphJourneyV11(baseline.graph, id, baseline.evidence, media, baseline.homeAreas).classification === 'AUTO_CONFIRMED') {
+    // v1.2 (decision 0021): agree with the Atlas surface on "reliable",
+    // not the retired v1.1 score/learned-base path (found by the M10.3
+    // code review, 2026-11-19 — the two disagreed on the same journey).
+    if (correction.action === 'confirm' || qualifyGraphJourneyV12(baseline.graph, id, baseline.evidence, media, baseline.homeAreas).classification === 'AUTO_CONFIRMED') {
       reliableReviewedJourneyIds.add(id);
     }
   }

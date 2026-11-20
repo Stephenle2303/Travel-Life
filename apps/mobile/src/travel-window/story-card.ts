@@ -51,8 +51,8 @@ export function buildStoryCard(input: {
   const end = localDate(window.endMillis, offset);
   const days = end.dayNumber - start.dayNumber + 1;
   const when = start.year === end.year && start.month === end.month
-    ? `in ${months[start.month]}`
-    : `starting ${start.day} ${months[start.month]}`;
+    ? `in ${months[start.month]} ${start.year}`
+    : `starting ${start.day} ${months[start.month]} ${start.year}`;
   const headline = `You were away for ${plural(days, 'day')} ${when}.`;
   const detail = [plural(memberCount, 'photo')];
   if (window.shiftMinutes !== null && window.shiftMinutes !== 0) detail.push(clockLine(window.shiftMinutes));

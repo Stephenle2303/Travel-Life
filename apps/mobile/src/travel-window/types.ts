@@ -6,7 +6,12 @@
  * and are always treated conservatively.
  */
 
-export type ProvenanceClass = 'camera' | 'messaging' | 'screenshot' | 'download' | 'unknown';
+/**
+ * `imported`: a bulk Google Takeout photo export (decision 0020). Kept
+ * distinct from `camera`, but trusted the same way for window detection and
+ * membership — never silently merged, so a future UI can still say which.
+ */
+export type ProvenanceClass = 'camera' | 'imported' | 'messaging' | 'screenshot' | 'download' | 'unknown';
 
 export type CaptureRecord = {
   /** Opaque evidence id. Never rendered or logged. */

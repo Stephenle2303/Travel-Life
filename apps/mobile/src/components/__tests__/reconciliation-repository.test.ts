@@ -68,6 +68,44 @@ describe('durable local reconciliation repository', () => {
     expect(JSON.stringify(model)).not.toContain('115.2625');
   });
 
+  it('interleaves a manual journey with reconstructed ones by actual date, newest first, instead of always listing it last', async () => {
+    mockGetAllAsync.mockImplementation(async (sql: string) => {
+      if (sql.includes('WITH journey_anchor AS')) return [{
+        journey_id: 'private:tokyo', run_id: 7, journey_state: 'inferred', latitude: 35.6762, longitude: 139.6503,
+        year: 2026, first_year: 2026, last_year: 2026, ordering: 'chronological', first_day: '2026-06-01', last_day: '2026-06-05',
+      }];
+      if (sql.includes('AS journey_id, visit.place_id')) return [{ journey_id: 'private:tokyo', place_id: 'p', evidence_id: 'e', latitude: 35.6762, longitude: 139.6503, captured_day: '2026-06-01', availability: 'available' }];
+      if (sql.includes('WITH visit_summary AS')) return [{ visit_id: 'v', captured_day: '2026-06-01', ordering: 'chronological', has_precise_offset: 0 }];
+      if (sql.includes('FROM manual_journey')) return [{
+        manual_id: 'travel-window-newer', command_key: 'travel-window-v1:newer', owner_label: 'Seoul', owner_context: 'South Korea',
+        latitude: 37.5, longitude: 127.0, date_kind: 'approximate', date_start: '2026-08-01', date_end: '2026-08-05',
+      }];
+      return [];
+    });
+    const newer = await createNativeReconstructionRepository().loadDurableReveal();
+    // The manual journey (August) is newer than the reconstructed one (June): it sorts first.
+    expect(newer.journeys.map((journey) => journey.displayId)).toEqual(['manual:travel-window-newer', newer.journeys[1]!.displayId]);
+    expect(newer.journeys[1]!.state).toBe('inferred');
+
+    mockGetAllAsync.mockImplementation(async (sql: string) => {
+      if (sql.includes('WITH journey_anchor AS')) return [{
+        journey_id: 'private:tokyo', run_id: 7, journey_state: 'inferred', latitude: 35.6762, longitude: 139.6503,
+        year: 2026, first_year: 2026, last_year: 2026, ordering: 'chronological', first_day: '2026-08-01', last_day: '2026-08-05',
+      }];
+      if (sql.includes('AS journey_id, visit.place_id')) return [{ journey_id: 'private:tokyo', place_id: 'p', evidence_id: 'e', latitude: 35.6762, longitude: 139.6503, captured_day: '2026-08-01', availability: 'available' }];
+      if (sql.includes('WITH visit_summary AS')) return [{ visit_id: 'v', captured_day: '2026-08-01', ordering: 'chronological', has_precise_offset: 0 }];
+      if (sql.includes('FROM manual_journey')) return [{
+        manual_id: 'travel-window-older', command_key: 'travel-window-v1:older', owner_label: 'Seoul', owner_context: 'South Korea',
+        latitude: 37.5, longitude: 127.0, date_kind: 'approximate', date_start: '2026-06-01', date_end: '2026-06-05',
+      }];
+      return [];
+    });
+    const older = await createNativeReconstructionRepository().loadDurableReveal();
+    // Now the reconstructed journey (August) is newer than the manual one (June): it sorts first.
+    expect(older.journeys[0]!.state).toBe('inferred');
+    expect(older.journeys.map((journey) => journey.displayId)[1]).toBe('manual:travel-window-older');
+  });
+
   it('keeps interleaved destination support ordered and isolated per journey', async () => {
     const places = [
       { journey_id: 'synthetic:bali', latitude: -8.5069, longitude: 115.2625, label: 'Bali, Indonesia' },
@@ -1066,5 +1104,168 @@ describe('final-map correction review', () => {
     const correction = { revision_id: 'ambiguous-removal', action: 'remove-visit' as const, reviewed_support_json: JSON.stringify(['E:left', 'E:right']), reviewed_visits_json: JSON.stringify([['E:left'], ['E:right']]) };
 
     expect(() => mapFinalCorrectionApplications(graph, [correction])).toThrow('needs owner remap');
+  });
+
+  describe('GPS-less confirmed trip in the Atlas (decision 0019/0020)', () => {
+    const manualId = 'travel-window-1762128000000-1762300800000-abc123';
+    const displayId = `manual:${manualId}`;
+    const manualRow = {
+      manual_id: manualId, command_key: 'travel-window-v1:1762128000000:1762300800000',
+      owner_label: 'Seoul', owner_context: 'South Korea', latitude: 37.5, longitude: 127.0,
+      date_kind: 'approximate', date_start: '2026-11-03', date_end: '2026-11-05',
+    };
+    const albumRows = [
+      { slot: 1, evidence_id: 'ev-1', source_ref: 'a1', availability: 'available' },
+      { slot: 2, evidence_id: 'ev-2', source_ref: null, availability: 'unavailable' },
+    ];
+
+    function setupAttached() {
+      mockGetFirstAsync.mockImplementation(async (sql: string) => {
+        if (sql.includes('SELECT version FROM import_schema_version')) return { version: 48 };
+        if (sql.includes('private_record_lifecycle')) return { state: 'connected' };
+        if (sql.includes('MAX(revision)')) return { revision: 5 };
+        if (sql.includes('MAX(run_id)')) return { run_id: 7 };
+        if (sql.includes('FROM manual_journey WHERE manual_id')) return manualRow;
+        if (sql.includes('FROM travel_window_album WHERE manual_id') && sql.includes('LIMIT 1')) return { 1: 1 };
+        return null;
+      });
+      mockGetAllAsync.mockImplementation(async (sql: string) => sql.includes('FROM travel_window_album attachment') ? albumRows : []);
+    }
+
+    it('surfaces the confirmed trip with its real attached photos, never fabricating evidence', async () => {
+      setupAttached();
+      const repository = createNativeReconstructionRepository();
+      const result = await repository.loadJourneyDetail(displayId);
+      expect(result.detail.title).toBe('Seoul');
+      expect(result.detail.ownerEntered).toBe(true);
+      expect(result.detail.ownerPlace).toEqual({ id: `manual-place:${manualId}`, name: 'Seoul', context: 'South Korea', anchor: { latitude: 37.5, longitude: 127.0 } });
+      expect(result.detail.memories).toEqual([
+        { id: 'memory-1', availability: 'available', association: 'Added by you to the album. Capture location unknown.' },
+        { id: 'memory-2', availability: 'unavailable', association: 'Added by you to the album. Capture location unknown.' },
+      ]);
+      expect(result.previewSourceRefs).toEqual(['a1', null]);
+      expect(result.detail.uncertainty).toEqual(['The confirmed place is an owner assertion. The photos do not establish where they were taken.']);
+      expect(result.snapshotToken).toBe(5);
+    });
+
+    it('is withheld from Replay like every other owner-entered journey, through the same existing gate', async () => {
+      setupAttached();
+      const repository = createNativeReconstructionRepository();
+      const detail = await repository.loadJourneyDetail(displayId);
+      const eligibility = await repository.loadJourneyEligibility(displayId, detail.snapshotToken, 'replay');
+      expect(eligibility).toEqual({ eligible: false, reason: 'no-observed-destinations', privacyRevision: 5 });
+    });
+
+    it('fails closed when the album was never attached (no confirmed photos yet)', async () => {
+      setupAttached();
+      mockGetAllAsync.mockImplementation(async () => []);
+      mockGetFirstAsync.mockImplementation(async (sql: string) => {
+        if (sql.includes('FROM travel_window_album WHERE manual_id') && sql.includes('LIMIT 1')) return null;
+        if (sql.includes('SELECT version FROM import_schema_version')) return { version: 48 };
+        if (sql.includes('private_record_lifecycle')) return { state: 'connected' };
+        if (sql.includes('MAX(revision)')) return { revision: 5 };
+        if (sql.includes('MAX(run_id)')) return { run_id: 7 };
+        if (sql.includes('FROM manual_journey WHERE manual_id')) return manualRow;
+        return null;
+      });
+      const repository = createNativeReconstructionRepository();
+      await expect(repository.loadJourneyDetail(displayId)).rejects.toThrow('Journey changed. Reopen Atlas.');
+    });
+
+    it('pages the attached album and verifies the same snapshot token loadJourneyDetail returned', async () => {
+      setupAttached();
+      const repository = createNativeReconstructionRepository();
+      const detail = await repository.loadJourneyDetail(displayId);
+      const page = await repository.loadJourneyMediaPage(displayId, detail.snapshotToken, 0);
+      expect(page.items).toEqual([
+        { id: 'memory-1', availability: 'available', kind: 'photo', association: 'Added by you to the album. Capture location unknown.' },
+        { id: 'memory-2', availability: 'unavailable', kind: 'photo', association: 'Added by you to the album. Capture location unknown.' },
+      ]);
+      expect(page.previewSourceRefs).toEqual(['a1', null]);
+      expect(page.hasMore).toBe(false);
+      // For this branch "run" and "privacy" are both the same revision-based
+      // token (no separate run id, unlike a reconstructed journey) — real
+      // callers (loadJourneyMediaInspection) pass the same snapshotToken twice.
+      expect(await repository.verifyJourneyMediaSnapshot(displayId, detail.snapshotToken, detail.snapshotToken)).toBe(true);
+    });
+
+    it('rejects a stale snapshot token rather than silently serving a different privacy revision', async () => {
+      setupAttached();
+      const repository = createNativeReconstructionRepository();
+      await expect(repository.loadJourneyMediaPage(displayId, 999, 0)).rejects.toThrow('Journey changed. Reopen Atlas.');
+      expect(await repository.verifyJourneyMediaSnapshot(displayId, 7, 999)).toBe(false);
+    });
+  });
+
+  describe('removeManualJourney', () => {
+    // This file's top-level 'final-map correction review' describe has no
+    // beforeEach of its own (only the sibling 'durable local reconciliation
+    // repository' describe clears mocks, which never runs for these tests),
+    // so mockRunAsync's call history otherwise accumulates across every test
+    // in this block — fatal for the "not called" assertions below.
+    beforeEach(() => { mockRunAsync.mockClear(); mockExecAsync.mockClear(); });
+
+    function setupConnected(exists: boolean) {
+      mockGetFirstAsync.mockImplementation(async (sql: string) => {
+        if (sql.includes('private_record_lifecycle')) return { state: 'connected' };
+        if (sql.includes('SELECT manual_id FROM manual_journey WHERE manual_id')) return exists ? { manual_id: 'whatever' } : null;
+        return null;
+      });
+    }
+
+    it('refuses a displayId that is not an owner-entered journey, without touching manual_journey or its side tables', async () => {
+      const repository = createNativeReconstructionRepository();
+      await expect(repository.removeManualJourney('private:bali')).rejects.toThrow('Only an owner-entered journey can be removed this way.');
+      expect(mockRunAsync).not.toHaveBeenCalledWith(expect.stringContaining('manual_journey'), expect.anything());
+      expect(mockRunAsync).not.toHaveBeenCalledWith(expect.stringContaining('travel_window'), expect.anything());
+      expect(mockRunAsync).not.toHaveBeenCalledWith(expect.stringContaining('visual_place'), expect.anything());
+    });
+
+    it('refuses when the private record is not connected', async () => {
+      mockGetFirstAsync.mockImplementation(async () => null);
+      const repository = createNativeReconstructionRepository();
+      await expect(repository.removeManualJourney('manual:plain-1')).rejects.toThrow('Private record is not connected.');
+    });
+
+    it('removes a plain "Add journey" entry with no side tables to clean up', async () => {
+      setupConnected(true);
+      const repository = createNativeReconstructionRepository();
+      await repository.removeManualJourney('manual:plain-1');
+      expect(mockRunAsync).toHaveBeenCalledWith('DELETE FROM manual_journey WHERE manual_id = ?', 'plain-1');
+      expect(mockRunAsync).not.toHaveBeenCalledWith(expect.stringContaining('travel_window'), expect.anything());
+      expect(mockRunAsync).not.toHaveBeenCalledWith(expect.stringContaining('visual_place'), expect.anything());
+      expect(mockExecAsync).toHaveBeenCalledWith('COMMIT');
+    });
+
+    it('also clears travel_window_album/trip/disposition for a GPS-less confirmed trip', async () => {
+      setupConnected(true);
+      const repository = createNativeReconstructionRepository();
+      await repository.removeManualJourney('manual:travel-window-123');
+      expect(mockRunAsync).toHaveBeenCalledWith('DELETE FROM travel_window_album WHERE manual_id = ?', 'travel-window-123');
+      expect(mockRunAsync).toHaveBeenCalledWith('DELETE FROM travel_window_trip WHERE manual_id = ?', 'travel-window-123');
+      expect(mockRunAsync).toHaveBeenCalledWith('DELETE FROM travel_window_disposition WHERE manual_id = ?', 'travel-window-123');
+      expect(mockRunAsync).toHaveBeenCalledWith('DELETE FROM manual_journey WHERE manual_id = ?', 'travel-window-123');
+    });
+
+    it('also clears visual_place_album/trip/review/disposition for a visual-place confirmed trip', async () => {
+      setupConnected(true);
+      const repository = createNativeReconstructionRepository();
+      await repository.removeManualJourney('manual:visual-456');
+      expect(mockRunAsync).toHaveBeenCalledWith('DELETE FROM visual_place_album WHERE manual_id = ?', 'visual-456');
+      expect(mockRunAsync).toHaveBeenCalledWith('DELETE FROM visual_place_trip WHERE manual_id = ?', 'visual-456');
+      expect(mockRunAsync).toHaveBeenCalledWith('DELETE FROM visual_place_review WHERE manual_id = ?', 'visual-456');
+      expect(mockRunAsync).toHaveBeenCalledWith('DELETE FROM visual_place_disposition WHERE manual_id = ?', 'visual-456');
+      expect(mockRunAsync).toHaveBeenCalledWith('DELETE FROM manual_journey WHERE manual_id = ?', 'visual-456');
+    });
+
+    it('is a safe no-op (still commits) when the journey no longer exists', async () => {
+      setupConnected(false);
+      const repository = createNativeReconstructionRepository();
+      await repository.removeManualJourney('manual:already-gone');
+      expect(mockRunAsync).not.toHaveBeenCalledWith(expect.stringContaining('manual_journey'), expect.anything());
+      expect(mockRunAsync).not.toHaveBeenCalledWith(expect.stringContaining('travel_window'), expect.anything());
+      expect(mockRunAsync).not.toHaveBeenCalledWith(expect.stringContaining('visual_place'), expect.anything());
+      expect(mockExecAsync).toHaveBeenCalledWith('COMMIT');
+    });
   });
 });

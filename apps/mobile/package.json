@@ -67,6 +67,7 @@
     "ios:device": "expo run:ios --device",
     "test": "jest --runInBand",
     "test:sqlite": "node --test scripts/atlas-sqlite.test.cjs scripts/account-sqlite.test.cjs",
+    "benchmark:lifetime": "node scripts/benchmark-lifetime.cjs",
     "typecheck": "tsc --noEmit",
     "lint": "expo lint",
     "doctor": "npx expo-doctor",

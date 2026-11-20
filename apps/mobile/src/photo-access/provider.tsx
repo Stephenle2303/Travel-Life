@@ -20,6 +20,9 @@ import { AiProposalController, type AiReviewView } from '@/ai';
 import { nativeVisualRecognition } from '@/visual-place/native-signage';
 import { nativeRegionalPackLoader } from '@/visual-place/native-regional-packs';
 import { VisualPlaceError, visualDiagnostic, visualLifecycle, type AutomaticVisualDiscovery, type VisualStage } from '@/visual-place/recovery';
+import { nativeCaptureMetadataReader } from '@/travel-window/native-capture-metadata';
+import { createTravelWindowStorage } from '@/travel-window/storage';
+import { createAutomaticTravelWindowDiscovery, type AutomaticTravelWindowDiscovery } from '@/travel-window/production-discovery';
 import { isVisualLocality, resolveVisualPlace } from '@/visual-place/place-catalog';
 import { isVisualPartialPreviewEnabled, visualDiscoveryTextAttempts, type DiscoveryPhoto, type QualifiedVisualAlbum } from '@/visual-place/discovery';
 import { associateVisualAlbum, qualifyVisualTrip, resolveVisualPendingPlace, usesVisualCitySupport } from '@/visual-place/trip-recovery';
@@ -160,6 +163,7 @@ type PhotoAccessContextValue = {
   discardPrivateReplay(uri: string, options?: { preserveFile?: boolean }): Promise<void>;
   findManualJourneyOverlaps(input: ManualJourneyInput): Promise<{ id: string; label: string; editable: boolean }[]>;
   createManualJourney(input: ManualJourneyInput): Promise<string>;
+  removeManualJourney(displayId: string): Promise<void>;
   loadJourneyDetail(displayId: string): Promise<{ detail: JourneyDetail; previews: OwnerPreview[]; snapshotToken: number }>;
   confirmTimelineMerge?(pair: JourneyMergePair, detail: JourneyDetail, commandKey: string): Promise<'applied' | 'pending'>;
   loadJourneyMediaPage?(displayId: string, snapshotToken: number, page: number): Promise<{ page: JourneyMediaPage; previews: OwnerPreview[] }>;
@@ -184,9 +188,11 @@ type PhotoAccessContextValue = {
   aiReview: AiReviewView;
   aiProposalController: AiProposalController;
   visualDiscovery?: AutomaticVisualDiscovery;
+  /** GPS-less trip discovery (decision 0019/0020). Independent of visualDiscovery and the reconstruction engine. */
+  travelWindowDiscovery?: AutomaticTravelWindowDiscovery;
 };
 
-type OptionalRepositoryMethods = 'loadCandidateShadowSnapshot' | 'verifyCandidateShadowSnapshot' | 'readCandidateShadowMedia' | 'saveCandidateShadowDecision' | 'loadJourneyMediaInspection' | 'hasPendingHomeProjection' | 'verifyJourneyMediaSnapshot' | 'hasReplayMapping' | 'reconcileReplayMutation' | 'findManualJourneyOverlaps' | 'createManualJourney' | 'reviewJourneyPrivacy' | 'saveJourneyPrivacy' | 'loadJourneyPrivacyPolicies' | 'restoreJourneyPrivacy' | 'loadJourneyEligibility' | 'loadReplayManifestInput' | 'loadReplayEditorPreviewPage' | 'saveReplayDraft' | 'stageReplayWorkingDraft' | 'resetReplayDraft' | 'saveReplayPreparedArtifact' | 'applyJourneyPrivacyToRecord'
+type OptionalRepositoryMethods = 'loadCandidateShadowSnapshot' | 'verifyCandidateShadowSnapshot' | 'readCandidateShadowMedia' | 'saveCandidateShadowDecision' | 'loadJourneyMediaInspection' | 'hasPendingHomeProjection' | 'verifyJourneyMediaSnapshot' | 'hasReplayMapping' | 'reconcileReplayMutation' | 'findManualJourneyOverlaps' | 'createManualJourney' | 'removeManualJourney' | 'reviewJourneyPrivacy' | 'saveJourneyPrivacy' | 'loadJourneyPrivacyPolicies' | 'restoreJourneyPrivacy' | 'loadJourneyEligibility' | 'loadReplayManifestInput' | 'loadReplayEditorPreviewPage' | 'saveReplayDraft' | 'stageReplayWorkingDraft' | 'resetReplayDraft' | 'saveReplayPreparedArtifact' | 'applyJourneyPrivacyToRecord'
   | 'loadVisualPlaceOffer' | 'verifyVisualPlaceOffer' | 'reviewVisualPlaceOffer'
   | 'loadVisualDiscoveryEnabled' | 'setVisualDiscoveryEnabled' | 'loadVisualDiscoveryPage' | 'loadVisualDiscoveryAlbum' | 'verifyVisualDiscovery' | 'checkpointVisualDiscovery' | 'reviewVisualDiscovery';
 type ReconstructionRepositoryProp = Omit<ReturnType<typeof createNativeReconstructionRepository>, OptionalRepositoryMethods | 'verifySuggestedMergeReceipt'>
@@ -367,6 +373,8 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
   const [privacyRuntime] = useState(() => new PrivacyCommandRuntime());
   const [aiReview, setAiReview] = useState<AiReviewView>({ status: 'idle', message: 'Optional AI suggestions are not requested.', proposals: [] });
   const [visualRecognition] = useState(() => nativeVisualRecognition());
+  const [travelWindowCaptureReader] = useState(() => nativeCaptureMetadataReader());
+  const [travelWindowStorage] = useState(() => createTravelWindowStorage());
   const [loadRegionalStarter] = useState(() => nativeRegionalPackLoader());
   const [visualSetting, setVisualSetting] = useState({ enabled: false, busy: false, failed: false });
   const visualPermission = useRef(false);
@@ -387,6 +395,7 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     ...reconstructionRepository,
     findManualJourneyOverlaps: reconstructionRepository.findManualJourneyOverlaps ?? (async () => []),
     createManualJourney: reconstructionRepository.createManualJourney ?? (async () => { throw new Error('Manual journeys are unavailable in this runtime.'); }),
+    removeManualJourney: reconstructionRepository.removeManualJourney ?? (async () => { throw new Error('Manual journeys are unavailable in this runtime.'); }),
   } : __DEV__ && process.env.EXPO_PUBLIC_TRAVEL_LIFE_LOCAL_RECOVERY === 'true' ? createNativeReconstructionRepository({
     databaseName: 'travel-life-import-v1.db',
     enableLocalRecovery: true,
@@ -666,6 +675,28 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     });
     return () => { current = false; visualPermission.current = false; };
   }, [controller, nativeReconstructionRepository, privateRecord.state, visualRecognition]);
+
+  const travelWindowDiscovery = useMemo<AutomaticTravelWindowDiscovery | undefined>(() => {
+    if (controller.isAccountRecord || privateRecord.state !== 'connected') return undefined;
+    const resolve = adapter.resolveOwnerPreviews;
+    const discovery = createAutomaticTravelWindowDiscovery({
+      read: travelWindowCaptureReader, storage: travelWindowStorage, enabled: true,
+      resolvePreviews: resolve ? (assetIds, limit) => resolve.call(adapter, assetIds, limit) : null,
+    });
+    if (!discovery) return undefined;
+    return {
+      ...discovery,
+      // The confirmed trip's own manual_journey (storage.ts) is otherwise
+      // invisible until something re-fetches the Atlas — matching how
+      // createManualJourney and visual-place's own review() already refresh
+      // after a successful confirm, never after a dismiss or a failure.
+      async confirm(token, place, signal) {
+        const saved = await discovery.confirm(token, place, signal);
+        if (saved) await refreshDurableReveal().catch(() => {});
+        return saved;
+      },
+    };
+  }, [adapter, controller.isAccountRecord, privateRecord.state, refreshDurableReveal, travelWindowCaptureReader, travelWindowStorage]);
 
   const visualDiscovery = useMemo<AutomaticVisualDiscovery | undefined>(() => {
     const { loadVisualDiscoveryPage, loadVisualDiscoveryAlbum, verifyVisualDiscovery, checkpointVisualDiscovery, reviewVisualDiscovery, setVisualDiscoveryEnabled } = nativeReconstructionRepository;
@@ -1097,6 +1128,16 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     if (!readBack.detail.ownerEntered) throw new Error('The owner-entered journey could not be verified.');
     return displayId;
   }, [nativeReconstructionRepository, privateRecord.state, refreshDurableReveal]);
+  const removeManualJourney = useCallback(async (displayId: string) => {
+    if (privateRecord.state !== 'connected') throw new Error('Private record is unavailable. Reconnect before removing a journey.');
+    await nativeReconstructionRepository.removeManualJourney(displayId);
+    // A full refreshDurableReveal() re-runs the whole Atlas read (every
+    // reconstructed journey's destination labels, etc.) — needlessly slow
+    // for removing one entry whose absence is already certain. Drop it
+    // locally instead, matching runPrivacyCommand's own optimistic-removal
+    // pattern for the same reason.
+    setDurableReveal((current) => current ? { ...current, journeys: current.journeys.filter((journey) => journey.displayId !== displayId) } : current);
+  }, [nativeReconstructionRepository, privateRecord.state]);
   const loadJourneyMediaPage = useCallback(async (displayId: string, snapshotToken: number, page: number) => {
     const visual = displayId.startsWith('manual:visual-');
     const correlationId = visual ? createDiagnosticCorrelationId() : null;
@@ -1821,7 +1862,7 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     if (projection.status !== 'complete') throw new Error('Home base removed but local history rebuild did not complete.');
     await refreshDurableReveal();
   }, [durableRevealGate, privateRecord.state, sharedRepository, refreshHomeBases, reconstructionController, refreshDurableReveal]);
-  return <PhotoAccessContext.Provider value={{ snapshot, controller, importCoverage, privateRecord, privateRecordController, maintenance, maintenanceController, reconciliation, catchUpHistory, reconstruction, durableReveal, reviewJourneyPrivacy, saveJourneyPrivacy, loadJourneyPrivacyPolicies, restoreJourneyPrivacy, loadJourneyEligibility, loadReplayManifestInput, loadReplayEditorPreviewPage, loadPreparedReplay, replayEditSession, saveReplayDraft, stageReplayWorkingDraft, resetReplayDraft, preparePrivateReplay, exportPrivateReplay, discardPrivateReplay, findManualJourneyOverlaps, createManualJourney, homeBases, loadJourneyDetail, loadJourneyMediaPage, inspectJourneyMedia, loadRecognizableShadowPreview, loadRecognizableReveal, readRecognizableTrip, playRecognizableTrip, discardRecognizableTripPreview, reviewRecognizableTrip, loadUncertainMemories, confirmTimelineMerge, saveJourneyCorrection, saveJourneyMemoryCorrection, discardJourneyCorrectionPending, retryJourneyCorrectionProjection, saveConfiguredHomeArea, saveDirectHome, renameConfiguredHomeArea, removeConfiguredHomeArea, reconstructionController, aiReview, aiProposalController, visualDiscovery }}>{children}</PhotoAccessContext.Provider>;
+  return <PhotoAccessContext.Provider value={{ snapshot, controller, importCoverage, privateRecord, privateRecordController, maintenance, maintenanceController, reconciliation, catchUpHistory, reconstruction, durableReveal, reviewJourneyPrivacy, saveJourneyPrivacy, loadJourneyPrivacyPolicies, restoreJourneyPrivacy, loadJourneyEligibility, loadReplayManifestInput, loadReplayEditorPreviewPage, loadPreparedReplay, replayEditSession, saveReplayDraft, stageReplayWorkingDraft, resetReplayDraft, preparePrivateReplay, exportPrivateReplay, discardPrivateReplay, findManualJourneyOverlaps, createManualJourney, removeManualJourney, homeBases, loadJourneyDetail, loadJourneyMediaPage, inspectJourneyMedia, loadRecognizableShadowPreview, loadRecognizableReveal, readRecognizableTrip, playRecognizableTrip, discardRecognizableTripPreview, reviewRecognizableTrip, loadUncertainMemories, confirmTimelineMerge, saveJourneyCorrection, saveJourneyMemoryCorrection, discardJourneyCorrectionPending, retryJourneyCorrectionProjection, saveConfiguredHomeArea, saveDirectHome, renameConfiguredHomeArea, removeConfiguredHomeArea, reconstructionController, aiReview, aiProposalController, visualDiscovery, travelWindowDiscovery }}>{children}</PhotoAccessContext.Provider>;
 }
 
 export function usePhotoAccess() {

@@ -19,16 +19,36 @@ const taskCopy: Record<JourneyEditTask, { label: string; description: string }> 
   privacy: { label: 'Visibility & evidence', description: 'Hide or exclude reviewed travel evidence' },
 };
 
-export function JourneyEditHub({ id, load, onBack, onTask }: { id: string; load(id: string): Promise<{ detail: JourneyDetail }>; onBack(): void; onTask(task: JourneyEditTask): void }) {
+export function JourneyEditHub({ id, load, onBack, onTask, onDelete }: { id: string; load(id: string): Promise<{ detail: JourneyDetail }>; onBack(): void; onTask(task: JourneyEditTask): void; onDelete?(): Promise<void> }) {
   const [loaded, setLoaded] = useState<{ id: string; detail?: JourneyDetail; error?: string } | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteFailed, setDeleteFailed] = useState(false);
   useEffect(() => { let active = true; void load(id).then((result) => { if (active) setLoaded({ id, detail: result.detail }); }).catch(() => { if (active) setLoaded({ id, error: 'This private journey is unavailable. Return to Atlas and choose it again.' }); }); return () => { active = false; }; }, [id, load]);
   const current = loaded?.id === id ? loaded : null;
   if (current?.error) return <ScrollView contentContainerStyle={{ gap: 12, paddingBottom: 32 }} accessibilityLabel="Edit private journey"><Eyebrow>Private journey</Eyebrow><Title>Edit unavailable</Title><Body>{current.error}</Body><ActionButton accessibilityLabel="Return to selected journey" onPress={onBack} variant="secondary">Back</ActionButton></ScrollView>;
   if (!current?.detail) return <ScrollView contentContainerStyle={{ gap: 12, paddingBottom: 32 }} accessibilityLabel="Edit private journey"><Eyebrow>Private journey</Eyebrow><Title>Edit</Title><Body>Opening this private journey.</Body></ScrollView>;
   const detail = current.detail;
+  const remove = async () => {
+    if (!onDelete) return;
+    setDeleting(true); setDeleteFailed(false);
+    try { await onDelete(); }
+    catch { setDeleting(false); setDeleteFailed(true); return; }
+  };
   return <ScrollView contentContainerStyle={{ gap: 12, paddingBottom: 32 }} accessibilityLabel="Edit private journey">
     <Eyebrow>Private journey</Eyebrow><Title>Edit</Title><Body>{detail.title}</Body>
     {(Object.keys(taskCopy) as JourneyEditTask[]).filter((task) => !detail.ownerEntered || task === 'privacy').map((task) => <InsetPanel key={task}><Title>{taskCopy[task].label}</Title><Body>{task === 'location' && detail.ownerPlace ? `${detail.ownerPlace.name} · ${detail.ownerPlace.context}` : taskCopy[task].description}</Body><ActionButton accessibilityLabel={`Edit ${taskCopy[task].label}`} onPress={() => onTask(task)} variant="secondary">Open</ActionButton></InsetPanel>)}
+    {detail.ownerEntered && onDelete && <InsetPanel>
+      <Title>Delete this journey</Title>
+      {confirmingDelete
+        ? <>
+          <Body>This permanently removes this owner-entered journey. It cannot be undone.</Body>
+          {deleteFailed && <Body>Could not delete this journey. Try again.</Body>}
+          <ActionButton accessibilityLabel="Confirm delete this journey" onPress={() => void remove()} disabled={deleting}>{deleting ? 'Deleting…' : 'Yes, delete it'}</ActionButton>
+          <ActionButton accessibilityLabel="Cancel delete" onPress={() => { setConfirmingDelete(false); setDeleteFailed(false); }} variant="secondary" disabled={deleting}>Cancel</ActionButton>
+        </>
+        : <ActionButton accessibilityLabel="Delete this journey" onPress={() => setConfirmingDelete(true)} variant="secondary">Delete this journey</ActionButton>}
+    </InsetPanel>}
     <ActionButton accessibilityLabel="Return to selected journey" onPress={onBack} variant="secondary">Back</ActionButton>
   </ScrollView>;
 }

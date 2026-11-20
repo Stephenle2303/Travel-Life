@@ -25,7 +25,7 @@ type CheckpointRow = {
   status: ImportCheckpoint['status'];
 };
 
-export const CURRENT_SCHEMA_VERSION = 45;
+export const CURRENT_SCHEMA_VERSION = 48;
 const validCivilDay = (day: string | null) => Boolean(day && /^\d{4}-(0[1-9]|1[0-2])-([0-2]\d|3[01])$/.test(day)
   && new Date(`${day}T00:00:00.000Z`).toISOString().slice(0, 10) === day);
 
@@ -855,6 +855,72 @@ const migrationV45 = `
   UPDATE private_history_record SET schema_version = MAX(schema_version, 45) WHERE record_id = 1;
 `;
 
+// GPS-less trip discovery (decision 0019/0020). A fully independent cache and
+// review state, never reading or writing canonical_evidence or any
+// reconstruction_* table — see travel-window/storage.ts.
+const migrationV46 = `
+  CREATE TABLE IF NOT EXISTS travel_window_capture (
+    asset_id TEXT PRIMARY KEY NOT NULL,
+    captured_at_millis INTEGER NOT NULL,
+    utc_offset_minutes INTEGER,
+    provenance TEXT NOT NULL,
+    located INTEGER NOT NULL DEFAULT 0 CHECK (located IN (0, 1))
+  );
+  CREATE INDEX IF NOT EXISTS travel_window_capture_time ON travel_window_capture (captured_at_millis);
+  CREATE TABLE IF NOT EXISTS travel_window_state (
+    record_id INTEGER PRIMARY KEY CHECK (record_id = 1),
+    enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+    backfill_cursor_millis INTEGER,
+    backfill_complete INTEGER NOT NULL DEFAULT 0 CHECK (backfill_complete IN (0, 1)),
+    newest_cursor_millis INTEGER
+  );
+  INSERT OR IGNORE INTO travel_window_state (record_id) VALUES (1);
+  CREATE TABLE IF NOT EXISTS travel_window_trip (
+    manual_id TEXT PRIMARY KEY NOT NULL,
+    command TEXT NOT NULL UNIQUE,
+    member_ids TEXT NOT NULL,
+    review_ids TEXT NOT NULL,
+    owner_place_name TEXT
+  );
+  CREATE TABLE IF NOT EXISTS travel_window_disposition (
+    command TEXT PRIMARY KEY NOT NULL,
+    decision TEXT NOT NULL CHECK (decision IN ('confirmed', 'dismissed')),
+    manual_id TEXT NULL,
+    CHECK ((decision = 'confirmed' AND manual_id IS NOT NULL) OR (decision = 'dismissed' AND manual_id IS NULL))
+  );
+  UPDATE private_history_record SET schema_version = MAX(schema_version, 46) WHERE record_id = 1;
+`;
+
+// `located` (migrationV46) was always written false by every real caller
+// until the fix in capture-metadata.ts/TravelLifeSignageModule.kt: any
+// device that already ran a travel_window_capture backfill under schema 46
+// has GPS-evidenced captures cached as if they were GPS-less, which can
+// re-offer an already-recognized trip. Clearing the cache and cursor forces
+// a clean rescan under the fixed logic; trip/disposition decisions the
+// owner already made are untouched.
+const migrationV47 = `
+  DELETE FROM travel_window_capture;
+  UPDATE travel_window_state SET backfill_cursor_millis = NULL, backfill_complete = 0, newest_cursor_millis = NULL WHERE record_id = 1;
+  UPDATE private_history_record SET schema_version = MAX(schema_version, 47) WHERE record_id = 1;
+`;
+
+// Lets a confirmed GPS-less trip become a real Atlas journey (decision
+// 0019/0020's own acceptance line: "the whole trip... available immediately,
+// including Replay eligibility through the existing gates"). Mirrors
+// visual_place_album exactly (manual_id, slot, evidence_id, source_ref),
+// except with no slot cap: decision 0019's own membership rule is
+// "deliberately no size cap" (travel-window/membership.ts).
+const migrationV48 = `
+  CREATE TABLE IF NOT EXISTS travel_window_album (
+    manual_id TEXT NOT NULL,
+    slot INTEGER NOT NULL CHECK (slot >= 1),
+    evidence_id TEXT NOT NULL UNIQUE,
+    source_ref TEXT NOT NULL,
+    PRIMARY KEY (manual_id, slot)
+  );
+  UPDATE private_history_record SET schema_version = MAX(schema_version, 48) WHERE record_id = 1;
+`;
+
 const migrationV42 = `
   CREATE TABLE IF NOT EXISTS recognizable_candidate_rejection (
     command_key TEXT PRIMARY KEY NOT NULL,
@@ -1008,6 +1074,36 @@ async function ensureReplayDraftWorkingLayout(db: SqliteDatabase) {
   }
 }
 
+/** Decision 0019/0020's tables were added at schema 46 (travel_window_album at 48); an abandoned marker from earlier iteration can leave a device already at or past that version without them. */
+async function readTravelWindowLayout(db: SqliteDatabase): Promise<'current' | 'missing'> {
+  try {
+    await db.getAllAsync('SELECT asset_id, captured_at_millis, utc_offset_minutes, provenance, located FROM travel_window_capture LIMIT 0');
+    await db.getAllAsync('SELECT record_id, backfill_cursor_millis, backfill_complete, newest_cursor_millis FROM travel_window_state LIMIT 0');
+    await db.getAllAsync('SELECT manual_id, command, member_ids, review_ids, owner_place_name FROM travel_window_trip LIMIT 0');
+    await db.getAllAsync('SELECT command, decision, manual_id FROM travel_window_disposition LIMIT 0');
+    await db.getAllAsync('SELECT manual_id, slot, evidence_id, source_ref FROM travel_window_album LIMIT 0');
+    return 'current';
+  } catch (error) {
+    if (!(error instanceof Error) || !/no such table:\s*travel_window_/i.test(error.message)) throw error;
+    return 'missing';
+  }
+}
+
+async function ensureTravelWindowLayout(db: SqliteDatabase) {
+  if ((await readTravelWindowLayout(db)) === 'current') return;
+  await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
+  try {
+    // Another writer may have repaired this while this connection waited for
+    // its serialized turn. migrationV46/V48 are idempotent (CREATE TABLE IF
+    // NOT EXISTS / INSERT OR IGNORE), so re-running them is always safe.
+    if ((await readTravelWindowLayout(db)) !== 'current') { await db.execAsync(migrationV46); await db.execAsync(migrationV48); }
+    await db.execAsync('COMMIT');
+  } catch (error) {
+    try { await db.execAsync('ROLLBACK'); } catch { /* Keep the primary failure. */ }
+    throw error;
+  }
+}
+
 /** Ensures independently opened repositories read the current private schema. */
 export async function ensureNativeImportSchema(db: SqliteDatabase) {
   let currentSchema: SchemaRow | null = null;
@@ -1023,6 +1119,7 @@ export async function ensureNativeImportSchema(db: SqliteDatabase) {
     await ensureManualJourneyLayout(db);
     await ensureJourneyPrivacyLayout(db);
     await ensureReplayDraftWorkingLayout(db);
+    await ensureTravelWindowLayout(db);
     return;
   }
   await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
@@ -1074,6 +1171,9 @@ export async function ensureNativeImportSchema(db: SqliteDatabase) {
     if (version < 43) await db.execAsync(migrationV43);
     if (version < 44) await db.execAsync(migrationV44);
     if (version < 45) await db.execAsync(migrationV45);
+    if (version < 46) await db.execAsync(migrationV46);
+    if (version < 47) await db.execAsync(migrationV47);
+    if (version < 48) await db.execAsync(migrationV48);
     if (version === 0) await db.runAsync('INSERT INTO import_schema_version (version) VALUES (?)', CURRENT_SCHEMA_VERSION);
     else if (version < CURRENT_SCHEMA_VERSION) await db.runAsync('UPDATE import_schema_version SET version = ?', CURRENT_SCHEMA_VERSION);
     await db.execAsync('COMMIT');
@@ -1084,6 +1184,7 @@ export async function ensureNativeImportSchema(db: SqliteDatabase) {
   await ensureManualJourneyLayout(db);
   await ensureJourneyPrivacyLayout(db);
   await ensureReplayDraftWorkingLayout(db);
+  await ensureTravelWindowLayout(db);
 }
 
 const DUPLICATE_TUPLE_VERSION = 1;
@@ -1143,6 +1244,7 @@ export function createNativeImportRepository(options?: { databaseName: string })
         if ((currentSchema?.version ?? 0) >= CURRENT_SCHEMA_VERSION) {
           await ensureManualJourneyLayout(db);
           await ensureReplayDraftWorkingLayout(db);
+          await ensureTravelWindowLayout(db);
           return db;
         }
         await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
@@ -1194,11 +1296,15 @@ export function createNativeImportRepository(options?: { databaseName: string })
           if (version < 43) await db.execAsync(migrationV43);
           if (version < 44) await db.execAsync(migrationV44);
           if (version < 45) await db.execAsync(migrationV45);
+          if (version < 46) await db.execAsync(migrationV46);
+          if (version < 47) await db.execAsync(migrationV47);
+          if (version < 48) await db.execAsync(migrationV48);
           if (version === 0) await db.runAsync('INSERT INTO import_schema_version (version) VALUES (?)', CURRENT_SCHEMA_VERSION);
           else if (version < CURRENT_SCHEMA_VERSION) await db.runAsync('UPDATE import_schema_version SET version = ?', CURRENT_SCHEMA_VERSION);
           await db.execAsync('COMMIT');
           await ensureManualJourneyLayout(db);
           await ensureReplayDraftWorkingLayout(db);
+          await ensureTravelWindowLayout(db);
         } catch (error) {
           await db.execAsync('ROLLBACK');
           throw error;
