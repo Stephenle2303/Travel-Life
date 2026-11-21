@@ -4,7 +4,7 @@
 
 | Story | Caps | Depends | Done when |
 | --- | --- | --- | --- |
-| M11.1 Clue store | CAP-1, CAP-2 | M10.7 | **Done except persistence**: validity rules (`clues/store.ts`) and detector consumption (`clues/consumption.ts`, `qualifyTripOutcomeWithClues`) implemented and tested — a clue can lower a trip, never raise one, zero clues equals M10 exactly. The clue table and its migration are **blocked** on `import-record/repository.ts` (concurrent session), so nothing persists yet; tests pass in-memory `ClueRecord[]` directly |
+| M11.1 Clue store | CAP-1, CAP-2 | **Done** | Validity rules (`clues/store.ts`) and detector consumption (`clues/consumption.ts`: `qualifyTripOutcomeWithClues`, `qualifyGraphJourneyWithClues`) implemented and tested — a clue can lower a trip, never raise one, zero clues equals M10 exactly. SQLite persistence (`migrationV49`'s `travel_clue` table, `loadClues`/`saveClues`/`updateClueStates`) and production wiring (`reconstruction/repository.ts`'s rebuild now calls `qualifyGraphJourneyWithClues`) landed 2026-11-20 once `import-record/repository.ts` was free, verified end-to-end against real SQLite. Still empty in production: no producer exists |
 | M11.2 Background pass | CAP-3 | M11.1 | Scheduling, budget, queue, checkpoints, single rebuild request, "updated" note |
 | M11.3 Place clues | CAP-4 | M11.2 | Sign, landmark, offset, optional Nano producers and combiner; visual-place and travel-window trip state retired after parity |
 | M11.4 Photo-source clues | CAP-5 | M11.2 | Metadata stage; received/screenshot/download stop supporting; review card instead of Atlas removal |

@@ -6,6 +6,11 @@ export const TRIP_DETECTOR_RULE_VERSION = 'trip-detector-v1.1';
  * learned base); a clear outcome rule replaces score/profile gating; every
  * non-Atlas outcome carries a closed reason. See detector-v1-2.md. */
 export const TRIP_OUTCOME_RULE_VERSION = 'trip-detector-v1.2';
+/** M10.8 (CAP-8): the detector rule a rebuild's qualification pass uses.
+ * `trip-detector-v1.2` is the sole, unconditionally active default; v1.1
+ * stays selectable for an owner-initiated rollback only (see
+ * delivery-and-diagnostics.md). */
+export type DetectorPolicy = typeof TRIP_DETECTOR_RULE_VERSION | typeof TRIP_OUTCOME_RULE_VERSION;
 /** Closed reason codes shown to the owner (priority order, first match
  * wins) and stored for every SUGGESTED/NOT_TRIP outcome. */
 export type TripOutcomeReasonCode =
@@ -13,6 +18,16 @@ export type TripOutcomeReasonCode =
   | 'near-home' | 'frequent-place' | 'few-photos' | 'single-moment'
   | 'owner-veto' | 'no-away-evidence' | 'non-capture-source';
 export type TripOutcomeClassification = 'AUTO_CONFIRMED' | 'SUGGESTED' | 'NOT_TRIP' | 'USER_CONFIRMED' | 'REJECTED';
+/** CAP-3's Possible-trips card: one row per SUGGESTED journey on the latest
+ * completed run. `reasonCode` is `reasons[0]` from the stored qualification;
+ * `locatedCount` is read separately for the `few-photos` sentence's {n} and
+ * is informational only (never gates classification). */
+export type PossibleTripSummary = {
+  displayId: string;
+  periodLabel: string;
+  reasonCode: TripOutcomeReasonCode;
+  locatedCount: number;
+};
 export type TripOutcome = {
   classification: TripOutcomeClassification;
   /** Every applicable reason, highest priority first; reasons[0] is the one

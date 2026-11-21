@@ -32,16 +32,29 @@ trips look like.
 | 1 | Measure | M10.1, M10.2 | Public synthetic lifetime benchmark red on the current engine; read-only owner-device count of trips hidden without a reason |
 | 2 | Clear outcome rules (`trip-detector-v1.2`) | M10.3-M10.6 | No silent loss; away trips with clear evidence on Atlas, unsure ones in Possible trips with a reason; Home mandatory, only from onboarding/Settings; original capture time input |
 | 3 | Consolidate | M10.7 | One normalization, Home model and grouping authority feeding Atlas and Possible trips; dead paths removed |
-| 4 | Adopt | M10.8 | Revision-bound dry run, owner-approved activation, correction preservation and rollback on the owner's phone |
+| 4 | Adopt | M10.8 | Correction preservation and rollback on the owner's phone (done); owner-facing dry-run/activation UI closed, not built — see status note |
 
-Decision 0021 is accepted. Status (2026-11-19): M10.1/M10.3/M10.4 in
-progress (engine rules implemented, benchmark 54/54 — see
-[v1-2-comparison.md](../specs/spec-trip-recognition-repair/v1-2-comparison.md));
-M10.5 and M10.7 half done (engine side); M10.8's pure dry-run/rollback core
-done. M10.2 (needs the owner's phone) and M10.6 (needs the in-flight
-travel-window native capture-metadata work to land first) are not started;
-the UI halves of M10.5/M10.8 and the Possible-trips half of M10.7 are
-blocked on the same concurrent work. See
+Decision 0021 is accepted. Status (2026-11-21): M10.1/M10.2/M10.3/M10.4/
+M10.5/M10.6 done — engine rules implemented, benchmark 54/54 (see
+[v1-2-comparison.md](../specs/spec-trip-recognition-repair/v1-2-comparison.md)),
+Home-required UI shipped, real EXIF offset/provenance now flow into import
+on Android, and the owner's real-device classification mix is recorded
+(see [project-state.md](../../docs/project-state.md)). **M10.8 closed
+2026-11-20**: its pure dry-run/rollback core and correction preservation
+are done and proven; the owner-facing dry-run/activation screen is
+descoped, not deferred — v1.2 was already adopted directly (no feature
+flag, no stored policy selector) at the M10.3/M10.4 call-site switch, so
+there is no pending activation decision left for such a screen to gate.
+Revisit only if a future rule version (v1.3+) needs a real approval gate;
+see [sprint-change-proposal-2026-11-20.md](sprint-change-proposal-2026-11-20.md).
+M10.7 is half done — the Atlas surface is consolidated on one detector, but
+the Possible-trips **preview**'s own card-grouping policy is investigated
+and deliberately deferred (dev-preview-only consumer, no equivalent
+benchmark safety net for a rewrite), not blocked. **M10.3's Possible-trips
+card UI done 2026-11-21** (reason sentence + Set Home action, real
+production data — see delivery-and-diagnostics.md), prioritized after
+M10.2's real-device data showed `near-home` alone accounts for 42% of
+every detected episode. See
 [delivery-and-diagnostics.md](../specs/spec-trip-recognition-repair/delivery-and-diagnostics.md)
 for the full per-story accounting.
 
@@ -53,14 +66,17 @@ rules re-decide; changes show as a short note; corrections become visible
 personal rules; the eval engine gates every new rule or model version.
 [SPEC-ai-clue-layer](../specs/spec-ai-clue-layer/SPEC.md) governs it.
 M11 starts after M10.7 (one detector) and uses the M10.1 benchmark.
-Status (2026-11-19): M11.1 is done except persistence — the clue record
-contract, validity rules and rule consumption (`apps/mobile/src/clues/`:
-`types.ts`, `store.ts`, `consumption.ts`) are implemented and tested: a
-clue can lower a trip or name a destination for display, never raise one
-onto Atlas (promotion classes stay off), and zero clues reproduces M10
-exactly. No SQLite table yet — blocked on the same concurrent-session file
-as M10. M11.2-M11.8 are not started: no clue producer exists yet to feed
-this, and the background pass/personal learning/eval engine need new
+Status (2026-11-20): **M11.1 is done**, including SQLite persistence and
+production wiring — the clue record contract, validity rules, rule
+consumption and the `travel_clue` table (`apps/mobile/src/clues/`:
+`types.ts`, `store.ts`, `consumption.ts`; `import-record/repository.ts`'s
+`migrationV49`) are implemented, tested, and the production rebuild
+(`reconstruction/repository.ts`) now reads clues on every rebuild: a clue
+can lower a trip or name a destination for display, never raise one onto
+Atlas (promotion classes stay off), and zero clues reproduces M10 exactly —
+verified against real SQLite, not just mocks. M11.2-M11.8 are not started:
+no clue producer exists yet to feed this (so `travel_clue` stays empty in
+production), and the background pass/personal learning/eval engine need new
 infrastructure.
 
 | Order | Stage | Stories | Exit value |

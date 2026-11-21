@@ -153,23 +153,31 @@ describe('mounted preparation publication and update consent', () => {
     } finally { log.mockRestore(); }
   });
 
-  it('waits for the explicit Home skip before presenting photo access', async () => {
+  it('never offers a skip and requires adding a Home base before presenting photo access (H-4)', async () => {
     const h = fixture();
-    let disposition: 'skipped' | null = null;
+    let disposition: 'saved' | null = null;
     h.repository.loadHomeSetup = async () => disposition;
-    h.repository.saveHomeSetup = jest.fn(async () => { disposition = 'skipped'; });
+    h.repository.saveHomeSetup = jest.fn(async (_command, areas) => { if (areas.length === 0) throw new Error('At least one Home base is required.'); disposition = 'saved'; });
     const view = await render(<PhotoAccessProvider adapter={h.adapter} repository={h.repository} reconstructionRepository={h.native}><ImportScreen /></PhotoAccessProvider>);
     await waitFor(() => expect(view.getByText('Where do you live?')).toBeOnTheScreen());
+    expect(view.queryByRole('button', { name: 'Skip for now' })).toBeNull();
     expect(view.queryByRole('button', { name: 'Use photo library' })).toBeNull();
     expect(h.adapter.inspect).not.toHaveBeenCalled();
     expect(h.adapter.readMetadataPage).not.toHaveBeenCalled();
-    await fireEvent.press(view.getByRole('button', { name: 'Skip for now' }));
+    const input = await view.findByLabelText('Search for a city, province, district, ward or commune');
+    await fireEvent.changeText(input, 'Sa Dec Dong Thap');
+    await fireEvent.press(view.getByRole('button', { name: /^Sa Đéc · City/ }));
+    // H-2: the period already defaults to Forever, so saving needs no further tap.
+    await fireEvent.press(view.getByRole('button', { name: 'Add this Home base' }));
+    await fireEvent.press(view.getByRole('button', { name: 'Continue' }));
     await waitFor(() => expect(view.getByRole('button', { name: 'Use photo library' })).toBeOnTheScreen());
-    expect(h.repository.saveHomeSetup).toHaveBeenCalledWith(expect.any(String), []);
+    expect(h.repository.saveHomeSetup).toHaveBeenCalledWith(expect.any(String), [expect.objectContaining({
+      label: 'Sa Đéc', effectiveStartDay: null, effectiveEndDay: null,
+    })]);
     expect(h.native.rebuild).not.toHaveBeenCalled();
   });
 
-  it('saves a dated offline Home result before photo access without coordinates or a map', async () => {
+  it('saves a dated offline Home result via the month/year picker before photo access, without coordinates or a map', async () => {
     const h = fixture();
     let disposition: 'saved' | null = null;
     h.repository.loadHomeSetup = async () => disposition;
@@ -180,25 +188,29 @@ describe('mounted preparation publication and update consent', () => {
     expect(view.queryByLabelText(/latitude|longitude/i)).toBeNull();
     expect(view.queryByRole('button', { name: 'Add this Home base' })).toBeNull();
     await fireEvent.press(view.getByRole('button', { name: /^Sa Đéc · City/ }));
-    expect(view.getByRole('button', { name: 'Add this Home base' })).toBeDisabled();
+    // Forever is preselected; switching to Choose dates starts both fields unset.
     await fireEvent.press(view.getByRole('button', { name: 'Choose dates' }));
-    await fireEvent.changeText(view.getByLabelText('From date YYYY-MM or YYYY-MM-DD'), '2020-02-03');
-    await fireEvent.changeText(view.getByLabelText('Until date YYYY-MM or YYYY-MM-DD'), '2020-02');
+    await fireEvent.press(view.getByRole('button', { name: 'From · Any time' }));
+    await fireEvent.press(view.getByRole('button', { name: '2020' }));
+    await fireEvent.press(view.getByRole('button', { name: 'Feb' }));
+    await fireEvent.press(view.getByRole('button', { name: 'Until · Now' }));
+    await fireEvent.press(view.getByRole('button', { name: '2020' }));
+    await fireEvent.press(view.getByRole('button', { name: 'Feb' }));
+    expect(view.getByRole('button', { name: 'From · Feb 2020' })).toBeOnTheScreen();
+    expect(view.getByRole('button', { name: 'Until · Feb 2020' })).toBeOnTheScreen();
     await fireEvent.press(view.getByRole('button', { name: 'Add this Home base' }));
     await fireEvent.press(view.getByRole('button', { name: 'Continue' }));
     expect(await view.findByRole('button', { name: 'Use photo library' })).toBeOnTheScreen();
     expect(h.repository.saveHomeSetup).toHaveBeenCalledWith(expect.any(String), [expect.objectContaining({
       label: 'Sa Đéc', latitude: 10.29085, longitude: 105.75635, radiusMeters: 20_000,
-      effectiveStartDay: '2020-02-03', effectiveEndDay: '2020-02-29',
+      effectiveStartDay: '2020-02-01', effectiveEndDay: '2020-02-29',
     })]);
     expect(h.adapter.readMetadataPage).not.toHaveBeenCalled();
   });
 
-  it('keeps Home setup skippable when the offline index fails without logging the query', async () => {
+  it('reports an offline Home-search index failure without logging the query, and never offers a skip', async () => {
     const h = fixture();
-    let disposition: 'skipped' | null = null;
-    h.repository.loadHomeSetup = async () => disposition;
-    h.repository.saveHomeSetup = jest.fn(async () => { disposition = 'skipped'; });
+    h.repository.loadHomeSetup = async () => null;
     const log = jest.spyOn(console, 'info').mockImplementation(() => {});
     const search = jest.spyOn(homePlaceSearch, 'searchHomePlaces').mockImplementation((query) => {
       if (!query) return [];
@@ -210,15 +222,12 @@ describe('mounted preparation publication and update consent', () => {
       await fireEvent.changeText(input, 'PRIVATE_HOME_QUERY');
       expect(await view.findByText('Offline place search is unavailable.')).toBeOnTheScreen();
       expect(view.queryByText('PRIVATE_OFFLINE_HOME_INDEX')).toBeNull();
+      expect(view.queryByRole('button', { name: 'Skip for now' })).toBeNull();
       expect(log).toHaveBeenCalledWith('[Travel Life diagnostic]', expect.objectContaining({
         operation: 'ONBOARDING_SETUP', stage: 'HOME_SEARCH_INDEX', reasonCode: 'UNKNOWN',
         durableOutcome: 'unchanged', retryable: false,
       }));
       expect(JSON.stringify(log.mock.calls)).not.toMatch(/PRIVATE_OFFLINE_HOME_INDEX|PRIVATE_HOME_QUERY/);
-      await fireEvent.press(view.getByRole('button', { name: 'Skip for now' }));
-      await fireEvent.press(view.getByRole('button', { name: 'Discard and skip' }));
-      expect(await view.findByRole('button', { name: 'Use photo library' })).toBeOnTheScreen();
-      expect(h.repository.saveHomeSetup).toHaveBeenCalledWith(expect.any(String), []);
     } finally { search.mockRestore(); log.mockRestore(); }
   });
 

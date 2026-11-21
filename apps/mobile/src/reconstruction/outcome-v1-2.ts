@@ -17,7 +17,12 @@ import type { FrequentPlaceContext, FrequentPlaceEpisodeMarker, OwnerConfiguredH
 import { TRIP_OUTCOME_RULE_VERSION } from './types';
 import { effectiveConfiguredHomeDistanceV11 } from './engine-v1-1';
 
-const NON_CAPTURE_ORIGINS = new Set(['screenshot', 'download', 'unknown']);
+// C-13 (decision 0021): camera and imported (Google Takeout) supply support; screenshots
+// and downloads supply none; messaging and unknown are review-only, same as the others here.
+// Exported so any other reader needing the same own-capture test (e.g. the
+// Possible-trips card's informational located-photo count) uses this one
+// definition rather than a second, driftable copy.
+export const NON_CAPTURE_ORIGINS = new Set(['screenshot', 'download', 'unknown', 'messaging']);
 
 export { TRIP_OUTCOME_RULE_VERSION };
 
@@ -329,4 +334,36 @@ export function summarizeOutcomeDelta(before: ReadonlyMap<string, string>, after
     changedCount: buckets.changed.length, unchangedCount: buckets.unchanged.length,
     gained: buckets.gained.sort(), lost: buckets.lost.sort(), changed: buckets.changed.sort(),
   };
+}
+
+/** The diagnostic reason codes `rebuildClassificationReasonCode` can return.
+ * Each name matches an `AppDiagnosticReasonCode` member one-to-one — kept
+ * as a separate literal union (not an import) so `reconstruction/` never
+ * depends on `diagnostics/` at runtime; `atlas-phase-profile.ts`'s own
+ * `classification()` parameter type is the thing that actually enforces
+ * the match. */
+export type RebuildClassificationReasonCode =
+  | 'HOME_NOT_SET' | 'TIME_CONFLICT' | 'NO_LOCATION' | 'WEAK_LOCATION' | 'NEAR_HOME'
+  | 'FREQUENT_PLACE' | 'FEW_PHOTOS' | 'SINGLE_MOMENT' | 'OWNER_VETO' | 'NO_AWAY_EVIDENCE' | 'NON_CAPTURE_SOURCE'
+  | 'COMPLETE';
+
+const REBUILD_REASON_DIAGNOSTIC_CODES: Record<TripOutcomeReasonCode | 'owner-confirmed', RebuildClassificationReasonCode> = {
+  'home-not-set': 'HOME_NOT_SET', 'time-conflict': 'TIME_CONFLICT', 'no-location': 'NO_LOCATION',
+  'weak-location': 'WEAK_LOCATION', 'near-home': 'NEAR_HOME', 'frequent-place': 'FREQUENT_PLACE',
+  'few-photos': 'FEW_PHOTOS', 'single-moment': 'SINGLE_MOMENT', 'owner-veto': 'OWNER_VETO',
+  'no-away-evidence': 'NO_AWAY_EVIDENCE', 'non-capture-source': 'NON_CAPTURE_SOURCE',
+  'owner-confirmed': 'COMPLETE',
+};
+
+/** M10.2's device-aggregate read (delivery-and-diagnostics.md): bucketed,
+ * content-free classification counts for one rebuild. `reasons[0]` is
+ * already the single sentence a Possible-trip card would show (detector-
+ * v1-2.md's priority table), so mapping just that first entry gives one
+ * bucket per journey; AUTO_CONFIRMED/USER_CONFIRMED/REJECTED carry no
+ * reason and map to 'COMPLETE'. Never logs a journey id, place or date —
+ * only this closed code, counted by the collection recipe across one
+ * correlation id. */
+export function rebuildClassificationReasonCode(reasons: readonly (TripOutcomeReasonCode | 'owner-confirmed')[]): RebuildClassificationReasonCode {
+  const first = reasons[0];
+  return first ? REBUILD_REASON_DIAGNOSTIC_CODES[first] : 'COMPLETE';
 }

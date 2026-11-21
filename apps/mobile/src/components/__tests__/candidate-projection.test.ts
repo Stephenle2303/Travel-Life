@@ -148,6 +148,12 @@ describe('recognizable travel shadow projection', () => {
     })]);
   });
 
+  it('excludes messaging-sourced evidence from support, same as unknown provenance (C-13, decision 0021)', () => {
+    const outing = [evidence('start', 4, 10.15, 9), evidence('end', 4, 10.15, 16)];
+    const messaging = [evidence('shared-1', 4, 10.15, 11, { sourceOrigin: 'messaging' }), evidence('shared-2', 4, 10.15, 12, { sourceOrigin: 'messaging' })];
+    expect(project([...outing, ...messaging]).trips).toEqual([expect.objectContaining({ supportIds: ['end', 'start'] })]);
+  });
+
   it('bridges a four-day gap with independent away support, but respects a corroborated return', () => {
     const holiday = [evidence('one', 1, 12, null), evidence('two', 2, 12.2), evidence('three', 6, 13, null), evidence('four', 7, 13.3)];
     expect(project([...holiday, evidence('unrelated-home', 29, 10)]).trips).toEqual([

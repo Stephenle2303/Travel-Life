@@ -1,12 +1,20 @@
 import { Platform } from 'react-native';
 
 import type { SourceCandidate } from '@/import-record/types';
+import { classifyCaptureMetadataError, toCaptureRecord, type CaptureMetadataReason } from '@/travel-window/capture-metadata';
+import { nativeCaptureMetadataReader } from '@/travel-window/native-capture-metadata';
+import { createDiagnosticCorrelationId, recordAppDiagnostic } from '@/diagnostics/app-diagnostics';
 
 import type { PermissionSnapshot, PhotoAccessAdapter, SelectionResult } from './types';
 
 const mediaPermissions = ['photo', 'video'] as const;
 /** Keep the editor responsive without asking the native library for an entire album at once. */
 const OWNER_PREVIEW_CONCURRENCY = 6;
+/** C-12/C-13 (decision 0021, Android only): the same native EXIF/offset reader and pure
+ * mapper travel-window's GPS-less detector uses — one detector, not a second disagreeing
+ * EXIF path. Null on iOS, Expo Go or a native build without it; import then keeps today's
+ * conservative defaults (no precise offset, unknown provenance). */
+const captureMetadataReader = nativeCaptureMetadataReader();
 
 function supported() {
   return Platform.OS === 'ios' || Platform.OS === 'android';
@@ -94,47 +102,86 @@ function permissionScope(response: {
   };
 }
 
-async function candidateFromMetadata(metadata: { id: string; mediaType: string; creationTime: number | null; modificationTime: number | null }): Promise<SourceCandidate> {
+/** One diagnostic per distinct reason per page (never per asset — `recordAppDiagnostic`
+ * calls in `readMetadataPage` below), so a bad EXIF read is instrumented per the
+ * project's diagnostic policy without logging every successful or failed item. */
+async function candidateFromMetadata(
+  metadata: { id: string; mediaType: string; creationTime: number | null; modificationTime: number | null },
+  onCaptureMetadataFailure?: (reason: CaptureMetadataReason) => void,
+): Promise<SourceCandidate> {
   const library = mediaLibrary();
   const asset = new library.Asset(metadata.id);
-  let locationAvailable: boolean | null = null;
-  let latitude: number | null = null;
-  let longitude: number | null = null;
-  let reportedAccuracyMeters: number | null = null;
-  let availability: SourceCandidate['availability'] = 'unknown';
-  try {
-    const location = await asset.getLocation();
-    locationAvailable = location !== null;
-    if (location && typeof location === 'object') {
-      const candidate = location as { latitude?: unknown; longitude?: unknown; accuracy?: unknown };
-      latitude = typeof candidate.latitude === 'number' && Number.isFinite(candidate.latitude) ? candidate.latitude : null;
-      longitude = typeof candidate.longitude === 'number' && Number.isFinite(candidate.longitude) ? candidate.longitude : null;
-      reportedAccuracyMeters = typeof candidate.accuracy === 'number' && Number.isFinite(candidate.accuracy) ? candidate.accuracy : null;
+
+  // Three independent native-bridge round trips, started together instead of
+  // one after another — the EXIF read only needs `location`'s result at the
+  // very end (to decide `located`), not before it can start its own two awaits.
+  const locationRead = (async () => {
+    let locationAvailable: boolean | null = null;
+    let latitude: number | null = null;
+    let longitude: number | null = null;
+    let reportedAccuracyMeters: number | null = null;
+    try {
+      const location = await asset.getLocation();
+      locationAvailable = location !== null;
+      if (location && typeof location === 'object') {
+        const candidate = location as { latitude?: unknown; longitude?: unknown; accuracy?: unknown };
+        latitude = typeof candidate.latitude === 'number' && Number.isFinite(candidate.latitude) ? candidate.latitude : null;
+        longitude = typeof candidate.longitude === 'number' && Number.isFinite(candidate.longitude) ? candidate.longitude : null;
+        reportedAccuracyMeters = typeof candidate.accuracy === 'number' && Number.isFinite(candidate.accuracy) ? candidate.accuracy : null;
+      }
+    } catch {
+      // Missing platform metadata permission is distinct from a missing location.
     }
-  } catch {
-    // Missing platform metadata permission is distinct from a missing location.
-  }
-  try {
-    availability = await asset.getIsInCloud() ? 'unavailable' : 'available';
-  } catch {
-    // Android and disconnected assets can leave cloud status unknown.
+    return { locationAvailable, latitude, longitude, reportedAccuracyMeters };
+  })();
+
+  const availabilityRead: Promise<SourceCandidate['availability']> = (async () => {
+    try { return await asset.getIsInCloud() ? 'unavailable' : 'available'; }
+    catch { return 'unknown'; } // Android and disconnected assets can leave cloud status unknown.
+  })();
+
+  const captureMetadataRead = captureMetadataReader && metadata.creationTime !== null
+    ? (async () => {
+        try { const uri = await asset.getUri(); return { uri, native: await captureMetadataReader!(uri) }; }
+        catch (error) { onCaptureMetadataFailure?.(classifyCaptureMetadataError(error)); return null; }
+      })()
+    : Promise.resolve(null);
+
+  const [location, availability, capture] = await Promise.all([locationRead, availabilityRead, captureMetadataRead]);
+
+  let hasPreciseOffset = false;
+  let sourceOrigin: string | null = null;
+  if (capture) {
+    try {
+      const record = toCaptureRecord(
+        { id: metadata.id, uri: capture.uri, capturedAtMillis: metadata.creationTime!, located: location.locationAvailable === true },
+        capture.native,
+      );
+      hasPreciseOffset = record.utcOffsetMinutes !== null;
+      sourceOrigin = record.provenance;
+    } catch (error) {
+      // One unreadable asset's EXIF never blocks import; it just keeps the
+      // conservative defaults (no precise offset, unknown provenance) and
+      // reports its reason for the caller to bucket (never per-asset).
+      onCaptureMetadataFailure?.(classifyCaptureMetadataError(error));
+    }
   }
   return {
     assetId: metadata.id,
     mediaType: metadata.mediaType === 'video' ? 'video' : 'image',
     capturedAtMillis: metadata.creationTime,
     capturedDay: metadata.creationTime === null ? null : (() => { const date = new Date(metadata.creationTime); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; })(),
-    hasPreciseOffset: false,
+    hasPreciseOffset,
     modifiedAtMillis: metadata.modificationTime,
-    locationAvailable,
-    latitude,
-    longitude,
-    reportedAccuracyMeters,
+    locationAvailable: location.locationAvailable,
+    latitude: location.latitude,
+    longitude: location.longitude,
+    reportedAccuracyMeters: location.reportedAccuracyMeters,
     // Expo Media Library exposes no documented stable duplicate-family
     // relationship. Keep this explicit null rather than deriving one from
     // metadata that merely happens to look similar.
     platformDuplicateFamilyId: null,
-    sourceOrigin: null,
+    sourceOrigin,
     supportEligible: true,
     availability,
   };
@@ -175,7 +222,18 @@ export const nativePhotoAccess: PhotoAccessAdapter = {
       .offset(offset)
       .limit(limit)
       .exeForMetadata();
-    return Promise.all(page.map((metadata) => candidateFromMetadata(metadata)));
+    const captureMetadataFailures = new Map<CaptureMetadataReason, number>();
+    const candidates = await Promise.all(page.map((metadata) => candidateFromMetadata(
+      metadata, (reason) => captureMetadataFailures.set(reason, (captureMetadataFailures.get(reason) ?? 0) + 1),
+    )));
+    if (captureMetadataFailures.size) {
+      const correlationId = createDiagnosticCorrelationId();
+      for (const reasonCode of captureMetadataFailures.keys()) {
+        recordAppDiagnostic({ operation: 'METADATA_IMPORT', stage: 'CAPTURE_METADATA_READ', reasonCode,
+          retryable: false, durableOutcome: 'unchanged', correlationId });
+      }
+    }
+    return candidates;
   },
 
   async readSelectedMetadata(assetIds) {

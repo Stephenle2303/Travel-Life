@@ -1,5 +1,5 @@
-import { buildFrequentPlaceContext, homeCoversAllDays, partitionSessions, qualifyTripOutcomeV12, summarizeOutcomeDelta } from '@/reconstruction/outcome-v1-2';
-import type { OwnerConfiguredHomeArea, TripDetectorEvidence } from '@/reconstruction/types';
+import { buildFrequentPlaceContext, homeCoversAllDays, partitionSessions, qualifyTripOutcomeV12, rebuildClassificationReasonCode, summarizeOutcomeDelta } from '@/reconstruction/outcome-v1-2';
+import type { OwnerConfiguredHomeArea, TripDetectorEvidence, TripOutcomeReasonCode } from '@/reconstruction/types';
 
 const HOME = { lat: 10.776, lon: 106.700 };
 const forever: OwnerConfiguredHomeArea[] = [{ id: 'home-1', latitude: HOME.lat, longitude: HOME.lon, radiusMeters: 20_000, effectiveStartDay: null, effectiveEndDay: null }];
@@ -191,6 +191,27 @@ describe('summarizeOutcomeDelta', () => {
     expect(delta.gained).toEqual(['j1']);
     expect(delta.lost).toEqual([]);
     expect(delta.changed).toEqual([]);
+  });
+});
+
+describe('rebuildClassificationReasonCode', () => {
+  test('maps every closed Possible-trip/hidden reason to its own diagnostic code, highest priority first', () => {
+    const cases: [TripOutcomeReasonCode, string][] = [
+      ['home-not-set', 'HOME_NOT_SET'], ['time-conflict', 'TIME_CONFLICT'], ['no-location', 'NO_LOCATION'],
+      ['weak-location', 'WEAK_LOCATION'], ['near-home', 'NEAR_HOME'], ['frequent-place', 'FREQUENT_PLACE'],
+      ['few-photos', 'FEW_PHOTOS'], ['single-moment', 'SINGLE_MOMENT'], ['owner-veto', 'OWNER_VETO'],
+      ['no-away-evidence', 'NO_AWAY_EVIDENCE'], ['non-capture-source', 'NON_CAPTURE_SOURCE'],
+    ];
+    for (const [reason, code] of cases) expect(rebuildClassificationReasonCode([reason])).toBe(code);
+  });
+
+  test('reads only reasons[0] (the one sentence a Possible-trip card would show)', () => {
+    expect(rebuildClassificationReasonCode(['single-moment', 'home-not-set'])).toBe('SINGLE_MOMENT');
+  });
+
+  test('empty reasons (AUTO_CONFIRMED/USER_CONFIRMED/REJECTED) and the owner-confirmed path both map to COMPLETE', () => {
+    expect(rebuildClassificationReasonCode([])).toBe('COMPLETE');
+    expect(rebuildClassificationReasonCode(['owner-confirmed'])).toBe('COMPLETE');
   });
 });
 

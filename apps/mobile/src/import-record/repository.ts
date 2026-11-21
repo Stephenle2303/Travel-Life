@@ -8,6 +8,7 @@ import {
   HomeSetupConflictError, ImportLifecycleBlockedError, type ConfiguredHomeArea, type ImportCheckpoint, type ImportRepository, type ImportScope,
   type MaintenanceCheckpoint, type MaintenanceRepository, type MaintenanceSnapshot, type ReconciliationSnapshot, type SourceCandidate,
 } from './types';
+import type { ClueKind, ClueLifecycleState, ClueRecord } from '@/clues/types';
 
 type SqliteDatabase = {
   execAsync(source: string): Promise<void>;
@@ -25,7 +26,35 @@ type CheckpointRow = {
   status: ImportCheckpoint['status'];
 };
 
-export const CURRENT_SCHEMA_VERSION = 48;
+export type ClueRow = {
+  clue_id: string; kind: ClueKind; subject_json: string; value_json: string; strength: ClueRecord['strength'];
+  independence_key: string; producer_id: string; producer_version: string; evidence_revision: number;
+  home_revision: number; correction_revision: number; state: ClueLifecycleState; created_at_millis: number;
+};
+
+/** Reconstructs the closed, kind-discriminated `ClueRecord` from a stored
+ * row. `value_json` is trusted local storage, the same way other correction
+ * JSON blobs in this file are — this repository never validates clue
+ * producer output, only round-trips it (clues/store.ts validates meaning).
+ * Exported so `reconstruction/repository.ts`'s rebuild (same database, its
+ * own raw `travel_clue` read) uses the identical row mapping — one clue
+ * reader, not two that could silently disagree. Returns `null` for a
+ * malformed row (bad JSON) rather than throwing: one corrupted clue must
+ * never abort the whole rebuild, same as a malformed correction row is
+ * never guessed at, just skipped. */
+export function clueFromRow(row: ClueRow): ClueRecord | null {
+  try {
+    const base = {
+      clueId: row.clue_id, subject: JSON.parse(row.subject_json), strength: row.strength, independenceKey: row.independence_key,
+      producerId: row.producer_id, producerVersion: row.producer_version,
+      inputsRevision: { evidenceRevision: row.evidence_revision, homeRevision: row.home_revision, correctionRevision: row.correction_revision },
+      state: row.state, createdAtMillis: row.created_at_millis,
+    };
+    return { ...base, kind: row.kind, value: JSON.parse(row.value_json) } as ClueRecord;
+  } catch { return null; }
+}
+
+export const CURRENT_SCHEMA_VERSION = 50;
 const validCivilDay = (day: string | null) => Boolean(day && /^\d{4}-(0[1-9]|1[0-2])-([0-2]\d|3[01])$/.test(day)
   && new Date(`${day}T00:00:00.000Z`).toISOString().slice(0, 10) === day);
 
@@ -921,6 +950,45 @@ const migrationV48 = `
   UPDATE private_history_record SET schema_version = MAX(schema_version, 48) WHERE record_id = 1;
 `;
 
+// AI clue layer (decision 0022, CAP-1/M11.1). A clue is evidence an AI
+// producer adds; it is never a trip, membership or classification write
+// (clue-contract.md). `subject_json`/`value_json` hold the closed,
+// kind-discriminated shapes `clues/types.ts` defines; this table only
+// persists them, it never interprets them. No producer exists yet
+// (CAP-4/5/6), so this table stays empty in production until one does.
+const migrationV49 = `
+  CREATE TABLE IF NOT EXISTS travel_clue (
+    clue_id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL CHECK (kind IN ('place', 'photo-source', 'same-trip', 'capture-offset', 'landmark', 'sign-place', 'sign-script')),
+    subject_json TEXT NOT NULL,
+    value_json TEXT NOT NULL,
+    strength TEXT NOT NULL CHECK (strength IN ('weak', 'strong')),
+    independence_key TEXT NOT NULL,
+    producer_id TEXT NOT NULL,
+    producer_version TEXT NOT NULL,
+    evidence_revision INTEGER NOT NULL,
+    home_revision INTEGER NOT NULL,
+    correction_revision INTEGER NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('active', 'superseded', 'retracted')),
+    created_at_millis INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS travel_clue_state ON travel_clue (state);
+  UPDATE private_history_record SET schema_version = MAX(schema_version, 49) WHERE record_id = 1;
+`;
+
+// M10.8 (CAP-8) adoption. A single row names which detector rule the
+// rebuild's qualification pass uses; the comparison itself needs no stored
+// snapshot (compareDetectorPolicy computes the alternate rule fresh, in
+// memory, against the current graph — see delivery-and-diagnostics.md).
+const migrationV50 = `
+  CREATE TABLE IF NOT EXISTS detector_policy (
+    record_id INTEGER PRIMARY KEY CHECK (record_id = 1),
+    rule_version TEXT NOT NULL CHECK (rule_version IN ('trip-detector-v1.1', 'trip-detector-v1.2')),
+    activated_at_millis INTEGER NOT NULL
+  );
+  UPDATE private_history_record SET schema_version = MAX(schema_version, 50) WHERE record_id = 1;
+`;
+
 const migrationV42 = `
   CREATE TABLE IF NOT EXISTS recognizable_candidate_rejection (
     command_key TEXT PRIMARY KEY NOT NULL,
@@ -1174,6 +1242,8 @@ export async function ensureNativeImportSchema(db: SqliteDatabase) {
     if (version < 46) await db.execAsync(migrationV46);
     if (version < 47) await db.execAsync(migrationV47);
     if (version < 48) await db.execAsync(migrationV48);
+    if (version < 49) await db.execAsync(migrationV49);
+    if (version < 50) await db.execAsync(migrationV50);
     if (version === 0) await db.runAsync('INSERT INTO import_schema_version (version) VALUES (?)', CURRENT_SCHEMA_VERSION);
     else if (version < CURRENT_SCHEMA_VERSION) await db.runAsync('UPDATE import_schema_version SET version = ?', CURRENT_SCHEMA_VERSION);
     await db.execAsync('COMMIT');
@@ -1299,6 +1369,8 @@ export function createNativeImportRepository(options?: { databaseName: string })
           if (version < 46) await db.execAsync(migrationV46);
           if (version < 47) await db.execAsync(migrationV47);
           if (version < 48) await db.execAsync(migrationV48);
+          if (version < 49) await db.execAsync(migrationV49);
+          if (version < 50) await db.execAsync(migrationV50);
           if (version === 0) await db.runAsync('INSERT INTO import_schema_version (version) VALUES (?)', CURRENT_SCHEMA_VERSION);
           else if (version < CURRENT_SCHEMA_VERSION) await db.runAsync('UPDATE import_schema_version SET version = ?', CURRENT_SCHEMA_VERSION);
           await db.execAsync('COMMIT');
@@ -1455,7 +1527,7 @@ export function createNativeImportRepository(options?: { databaseName: string })
     },
     async saveHomeSetup(command, areas) {
       if (databaseName !== 'travel-life-import-v1.db') throw new ImportLifecycleBlockedError();
-      if (!command || new Set(areas.map((area) => area.id)).size !== areas.length || areas.some((area) => area.origin !== 'manual-pin' || !area.label?.trim())) throw new Error('Configured home area is invalid.');
+      if (!command || areas.length === 0 || new Set(areas.map((area) => area.id)).size !== areas.length || areas.some((area) => area.origin !== 'manual-pin' || !area.label?.trim())) throw new Error('At least one Home base is required.');
       const entries = areas.map((area) => ({ ...area, label: homeAreaLabel(area) }));
       const payload = JSON.stringify(entries);
       const db = await open();
@@ -1467,7 +1539,7 @@ export function createNativeImportRepository(options?: { databaseName: string })
         if (receipt && (receipt.command_key !== command || receipt.payload !== payload)) throw new HomeSetupConflictError();
         if (!receipt) {
           for (const area of entries) await writeHomeArea(db, area, area.label);
-          await db.runAsync('INSERT INTO home_setup_receipt (record_id, command_key, payload, disposition) VALUES (1, ?, ?, ?)', command, payload, areas.length ? 'saved' : 'skipped');
+          await db.runAsync('INSERT INTO home_setup_receipt (record_id, command_key, payload, disposition) VALUES (1, ?, ?, ?)', command, payload, 'saved');
         }
         await db.execAsync('COMMIT');
       } catch (error) {
@@ -1503,12 +1575,59 @@ export function createNativeImportRepository(options?: { databaseName: string })
       try { await assertImportActive(db); await db.runAsync('UPDATE configured_home_area SET owner_label = ? WHERE area_id = ?', trimmed, id); await db.execAsync('COMMIT'); }
       catch (error) { await db.execAsync('ROLLBACK'); throw error; }
     },
+    // H-4's "keep at least one Home" is a Settings-UI rule (mobile-screens.tsx), not a
+    // repository invariant: the engine itself must be able to observe a zero-Home record
+    // (e.g. hasPendingHomeProjection after the owner's last Home is removed).
     async deleteConfiguredHomeArea(id) {
       if (!id) throw new Error('Configured home area requires an identifier.');
       const db = await open();
       await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
       try { await assertImportActive(db); await db.runAsync('DELETE FROM configured_home_area WHERE area_id = ?', id); await db.execAsync('COMMIT'); }
       catch (error) { await db.execAsync('ROLLBACK'); throw error; }
+    },
+    // AI clue layer (decision 0022, CAP-1/M11.1): pure persistence only. This
+    // repository never interprets a clue's kind/value/strength — that is
+    // clues/store.ts and clues/consumption.ts's job, run by the reconstruction
+    // rebuild against whatever rows round-trip through here unchanged.
+    async loadClues() {
+      const db = await open();
+      const rows = await db.getAllAsync<ClueRow>(
+        'SELECT clue_id, kind, subject_json, value_json, strength, independence_key, producer_id, producer_version, evidence_revision, home_revision, correction_revision, state, created_at_millis FROM travel_clue ORDER BY created_at_millis, clue_id',
+      );
+      return rows.map(clueFromRow).filter((clue): clue is ClueRecord => clue !== null);
+    },
+    async saveClues(clues) {
+      if (!clues.length) return;
+      const db = await open();
+      await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
+      try {
+        await assertImportActive(db);
+        for (const clue of clues) {
+          if (!clue.clueId || !clue.producerId || !clue.producerVersion || !clue.independenceKey) throw new Error('Clue record is invalid.');
+          await db.runAsync(
+            `INSERT INTO travel_clue (clue_id, kind, subject_json, value_json, strength, independence_key, producer_id, producer_version, evidence_revision, home_revision, correction_revision, state, created_at_millis)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(clue_id) DO UPDATE SET kind = excluded.kind, subject_json = excluded.subject_json, value_json = excluded.value_json,
+               strength = excluded.strength, independence_key = excluded.independence_key, producer_id = excluded.producer_id,
+               producer_version = excluded.producer_version, evidence_revision = excluded.evidence_revision, home_revision = excluded.home_revision,
+               correction_revision = excluded.correction_revision, state = excluded.state`,
+            clue.clueId, clue.kind, JSON.stringify(clue.subject), JSON.stringify(clue.value), clue.strength, clue.independenceKey,
+            clue.producerId, clue.producerVersion, clue.inputsRevision.evidenceRevision, clue.inputsRevision.homeRevision,
+            clue.inputsRevision.correctionRevision, clue.state, clue.createdAtMillis,
+          );
+        }
+        await db.execAsync('COMMIT');
+      } catch (error) { await db.execAsync('ROLLBACK'); throw error; }
+    },
+    async updateClueStates(updates) {
+      if (!updates.length) return;
+      const db = await open();
+      await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
+      try {
+        await assertImportActive(db);
+        for (const update of updates) await db.runAsync('UPDATE travel_clue SET state = ? WHERE clue_id = ?', update.state, update.clueId);
+        await db.execAsync('COMMIT');
+      } catch (error) { await db.execAsync('ROLLBACK'); throw error; }
     },
     async connectPrivateRecord() {
       const db = await open();
@@ -1573,6 +1692,7 @@ export function createNativeImportRepository(options?: { databaseName: string })
           DELETE FROM reconciliation_run_sequence;
           DELETE FROM local_cache_registry;
           DELETE FROM reconstruction_trip_qualification;
+          DELETE FROM travel_clue;
           DELETE FROM configured_home_area;
           DELETE FROM home_setup_receipt;
           DELETE FROM first_reveal_receipt;

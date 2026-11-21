@@ -1,5 +1,214 @@
 # Project state
 
+## CAP-3's Possible-trips card UI built on real production data (2026-11-21)
+
+Following the owner's approved prioritization (M10.8's dry-run UI closed on
+paper — see the sprint change proposal below — in favor of this), built the
+real Possible-trips card: one closed reason sentence per card
+(`reconstruction/possible-trip-copy.ts`, the exact 8-sentence table from
+detector-v1-2.md) and a Set Home action for `home-not-set`, reading the
+owner's actual `SUGGESTED` journeys (`reconstruction/repository.ts`'s new
+`loadPossibleTrips()`) rather than the old dev-preview-only shadow policy.
+"Review outing" reuses the existing confirm/reject journey-correction screen
+verbatim — no new write path. Wired into the real Atlas screen
+(`mobile-screens.tsx`), visible regardless of the dev-preview flag.
+
+A SQL `NOT IN` NULL-handling bug (silently undercounting the `few-photos`
+sentence's located-photo count to 0 for any evidence with no recorded
+source origin) was caught by a same-task SQLite regression before this was
+declared done — see the error playbook, 2026-11-21.
+
+Verified: 3 new SQLite regressions, 7 new Jest tests, full mobile
+`npm run check` (1615 Jest + 147 SQLite + typecheck + lint + doctor) and
+root `npm run check` (281/281 + eval smoke) clean, benchmark unchanged
+(54/54). Full detail: [delivery-and-diagnostics.md](../_bmad-output/specs/spec-trip-recognition-repair/delivery-and-diagnostics.md).
+
+## M10.8 scope reduction: dry-run UI closed, CAP-3 prioritized (2026-11-20)
+
+BMAD product-manager review (the "John" persona) found M10.8's owner-facing
+dry-run/activation screen had no real decision left to gate — v1.2 was
+already adopted directly (no feature flag, no stored policy selector) back
+at the M10.3/M10.4 call-site switch. Owner approved: close that UI item on
+paper (rollback and correction preservation stay proven; see
+delivery-and-diagnostics.md) and prioritize CAP-3's Possible-trips card
+instead, given M10.2's real-device data below. Full proposal:
+[sprint-change-proposal-2026-11-20.md](../_bmad-output/planning-artifacts/sprint-change-proposal-2026-11-20.md).
+
+## M10.2 device baseline collected on the owner's real phone (2026-11-20)
+
+With the phone connected, read the real classification mix off the device's
+own SQLite `reconstruction_trip_qualification` table (not a fresh profiled
+rebuild — the library was already fully imported/rebuilt earlier today, so
+nothing would have changed to re-log; the durable-read check correctly
+found no change). Pulled read-only, queried locally, pulled copy deleted —
+no raw evidence left this environment. 76 journeys: 24 `AUTO_CONFIRMED`
+(Atlas), 38 `SUGGESTED` (Possible: 32 `near-home`, 4 `few-photos`, 1
+`frequent-place`, 1 `single-moment`), 14 `NOT_TRIP` (hidden: 12
+`no-away-evidence`, 2 `non-capture-source`). Zero silent drops.
+
+Headline finding: `near-home` alone is 42% of every detected episode and
+84% of all Possible trips on this one real, multi-year library — the H-3
+<50 km Atlas threshold is doing a lot of real-world routing to Possible
+rather than Atlas or hidden. Not a bug (the rule runs exactly as specified),
+but it raises the real priority of CAP-3/M10.7's still-unbuilt Possible-trips
+card, since that's what an owner would see for over a third of their whole
+history. Full detail, method and the reinstall-release-afterward note:
+[delivery-and-diagnostics.md](../_bmad-output/specs/spec-trip-recognition-repair/delivery-and-diagnostics.md).
+
+Also verified this session: the Android **release** build variant
+(`app-release.apk`, debug-signed, all 4 ABIs) genuinely runs standalone —
+force-stopped and relaunched via a plain `adb shell am start` (no dev-client
+deep link, no Metro reachable) loaded the embedded JS bundle in ~170ms with
+no crash. `expo-dev-client` being a regular (non-dev) dependency only
+intercepts its own explicit deep-link scheme; a normal app-icon launch is
+unaffected.
+
+## Code review of the M10.5/M10.6/M11.1 work: 8 fixed, 2 documented as tracked gaps (2026-11-20)
+
+Before calling the M10/M11 work in the two entries below finished, ran a
+`/code-review high` pass (8 parallel finder angles, 1-vote verify) over the
+full diff, the same delivery-review step M10.3/M10.4 used. Found 10 issues;
+full detail in the error playbook's new top entry.
+
+Fixed: `candidate-projection.ts`'s `usable()` was missing the `'messaging'`
+exclusion just added to `outcome-v1-2.ts` (a live gap once real provenance
+flows in); the new native EXIF-read boundary had zero diagnostics, violating
+AGENTS.md's instrumentation rule (added a page-level bucketed diagnostic);
+`clueFromRow`'s `JSON.parse` was unguarded (now returns `null` for a
+malformed row instead of aborting the whole rebuild); the rebuild's inline
+`travel_clue` query lacked `loadClues()`'s `ORDER BY`; three native-bridge
+calls in `candidateFromMetadata` ran sequentially instead of concurrently;
+"keep at least one Home" was enforced only in the Settings UI, not at
+`provider.tsx`'s shared `removeConfiguredHomeArea` choke point (added there
+too, as a backstop for any future second caller).
+
+Documented as known, bounded, currently-inert gaps for CAP-4/5/6 (no clue
+producer exists yet to trigger either) rather than fixed in this already-large
+pass: `candidate-projection.ts`/`local-recovery-projection.ts`'s own
+reliability checks stay clue-blind (call `qualifyGraphJourneyV12` directly,
+not the clue-aware wrapper); `correctedKeys` does raw string matching instead
+of the canonical remap-aware family-key resolution real corrections use. Both
+recorded with their exact fix in `_bmad-output/specs/spec-ai-clue-layer/
+clue-contract.md`.
+
+Added regression tests for every fix (messaging-origin exclusion, bucketed
+diagnostic emission, malformed-clue skip, last-Home backstop at the provider
+layer). Full mobile `npm run check` (1602 Jest + 142 SQLite + typecheck +
+lint, all clean) and root `npm run check` green; benchmark unchanged (54/54).
+Nothing committed yet.
+
+## M11.1 done end to end: clue SQLite persistence and production wiring (2026-11-20)
+
+With M10's blocked files free (previous entry), continued into M11 per the
+owner's earlier "I'll tell you when we can get back to the pending of M10"/
+"can do M11's next step (CAP-2) now" direction — M10's reachable pieces are
+now substantively done, and `import-record/repository.ts` being free also
+unblocks M11.1's persistence, so finished it:
+
+- `migrationV49` adds `travel_clue` (schema version 49): one row per clue,
+  `subject_json`/`value_json` holding the closed per-kind shapes
+  `clues/types.ts` defines unchanged — this repository never interprets a
+  clue, only round-trips it. `loadClues`/`saveClues`/`updateClueStates` on
+  `ImportRepository` are pure persistence; `deleteLocalHistory` now clears
+  `travel_clue` too, so clues never outlive the private record.
+- New `qualifyGraphJourneyWithClues` (`clues/consumption.ts`) mirrors
+  `qualifyGraphJourneyV12`'s exact parameter shape (`clues`/`correctedKeys`
+  inserted after `homeAreas`) and is now the production rebuild's sole
+  qualifier — `reconstruction/repository.ts` reads `travel_clue` and every
+  effective correction's `reviewed_support_json` once per rebuild, in place
+  of the direct `qualifyGraphJourneyV12` call. `namedPlace` is read but not
+  persisted or displayed anywhere yet (no UI reads it; CAP-4 has no
+  place-clue producer to populate it).
+- Verified **end to end against a real SQLite database**, not just mocks: a
+  new `scripts/atlas-sqlite.test.cjs` test hand-inserts a `photo-source`
+  clue after a rebuild already classified a journey `AUTO_CONFIRMED`,
+  reruns the rebuild, and confirms the classification changes — then
+  confirms `deleteLocalHistory` clears the clue. No production behavior
+  changes today: `travel_clue` is always empty until a producer exists
+  (CAP-4/5/6, not built).
+- Found and fixed one real import-ordering cleanup in the same pass: removing
+  the direct `qualifyGraphJourneyV12` call from `reconstruction/repository.ts`
+  left its import unused; removed (it stays exported via the file's own
+  `export { qualifyGraphJourneyV12, ... } from './outcome-v1-2'` re-export,
+  a separate statement, for CAP-8 rollback and the other two call sites).
+
+Full mobile `npm run check` (1598 Jest + 142 SQLite + typecheck + lint, all
+clean, zero warnings) and root `npm run check` (281 Foundation + eval
+smoke) green; lifetime benchmark unaffected (54/54 — the benchmark doesn't
+route through `reconstruction/repository.ts`'s SQLite rebuild at all).
+Nothing committed yet.
+
+Still open for M11: CAP-3 (background pass), CAP-4/5/6 (clue producers —
+nothing emits a real clue yet), CAP-7 (personal learning), CAP-8 (eval
+engine) — each needs a new on-device model or new scheduling/eval
+infrastructure not yet started. Still open for M10: M10.2 (needs the
+owner's phone), the diagnostic-map additions to `app-diagnostics.ts`, H-3's
+graph-level half, and M10.8's owner-facing transparency UI (re-scoped, see
+delivery-and-diagnostics.md — there's no longer a pending "activate v1.2"
+decision for it to gate).
+
+## M10.5 and M10.6 done now that travel-window's files are free; M10.7's remainder deliberately deferred (2026-11-20)
+
+With the concurrent travel-window session's work merged to `main`
+(`mobile-screens.tsx`, `import-record/repository.ts`, `photo-access/
+provider.tsx`, `app-diagnostics.ts` and `travel-window/*` all free), resumed
+M10's blocked pieces per the owner's go-ahead ("the other session is done
+the work, you can do now"):
+
+- **M10.5 (Home is required)**: `InitialHomeSetup` in `mobile-screens.tsx`
+  now has no "Skip for now" anywhere in first use; the period defaults to
+  Forever the moment a place is picked, so adding a Home needs only one tap
+  after search; a new `MonthYearField` (year list, then a 12-month grid) and
+  `homePeriodLabel` replace the old typed `YYYY-MM`/`YYYY-MM-DD` text fields,
+  matching home-setup.md's label table exactly, including keeping an
+  existing Home's exact saved days until the owner changes that field.
+  Settings' Remove action refuses the owner's last Home base with a message
+  instead of a confirm dialog. Closed a real migration gap found while
+  wiring this: `requiresHomeSetup`/`resolveEntry`
+  (`photo-access/controller.ts`) checked the `home_setup_receipt`
+  disposition (`'skipped'` vs `null`), so a record that skipped Home under
+  the old flow would never be asked again; fixed to check the actual
+  configured Home-area count instead, and `saveHomeSetup` now rejects an
+  empty area list outright. Considered, then rejected, hardening
+  `deleteConfiguredHomeArea` the same way at the repository layer: a real
+  SQLite test (`scripts/atlas-sqlite.test.cjs`) needs the record to reach
+  zero Home areas to exercise `hasPendingHomeProjection`, so "keep at least
+  one" stays a Settings-UI rule, matching H-4's own wording.
+- **M10.6 (capture time, Android)**: `photo-access/native-adapter.ts` now
+  calls the same native EXIF/offset reader and `toCaptureRecord` mapper
+  travel-window's GPS-less detector already uses, so every imported photo
+  gets a real `hasPreciseOffset` (an EXIF offset tag was present) and real
+  `sourceOrigin` (camera/imported/messaging/screenshot/download/unknown)
+  instead of the previous hardcoded `false`/`null`. `outcome-v1-2.ts` needed
+  no further change, as the spec predicted — except one real gap the real
+  data exposed: `NON_CAPTURE_ORIGINS` was missing `'messaging'`, so a
+  messaging-sourced photo would have counted as full trip support,
+  contradicting C-13's "messaging... review-only" (one-line fix). iOS and
+  older/Expo-Go builds keep today's conservative defaults unchanged.
+- **M10.7's remainder (Possible-trips preview consolidation)**: investigated,
+  then **deliberately deferred**, not blocked. `candidate-projection.ts`'s
+  non-`'recovery'` algorithm feeds only the dev-gated "Reconstruction
+  preview" screen, not the real owner Possible Trips cards (those are
+  travel-window's/visual-place's own independent detectors). Replacing it
+  with v1.2's `SUGGESTED` would drop test-covered routine-learning/
+  `usualPlaceAnswers`/boundary-reason behavior with no equivalent benchmark
+  safety net (unlike M10's own `outcome-v1-2.ts`). Left as a named, tracked
+  gap in consolidation.md rather than rushed.
+
+New tests: `native-photo-adapter-capture-metadata.test.ts` (4, isolated from
+the existing adapter test file because the capture reader is captured once
+at module-load time — see the error playbook's new `jest.mock` hoisting
+lesson); extended `onboarding-integration.test.tsx`,
+`privacy-settings-screen.test.tsx`, `import-repository.test.ts`. Full mobile
+`npm run check` (1595 Jest + 141 SQLite + typecheck + lint) and root
+`npm run check` (281 Foundation + eval smoke) green; lifetime benchmark
+still 54/54, 0 silent drops, 0 false Atlas. Nothing committed yet.
+
+Still open: M10.2 (needs the owner's phone), M10.8's owner-facing dry-run/
+activation UI (unblocked, not started), the diagnostic-map additions to
+`app-diagnostics.ts`, H-3's graph-level half, and M11's clue persistence
+(same files, now also free).
+
 ## Journey ordering fixed app-wide; delete a manual journey, both verified live (2026-11-20)
 
 Both follow-ups from the previous entry, built and confirmed live on-device:

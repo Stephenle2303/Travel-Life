@@ -39,6 +39,36 @@ keeping `'recovery'` mode on the old policy as a named legacy
 path pending its own audit. The removals table below assumes that slice is
 done; today only the rows marked (done) are complete.
 
+**Investigated and deliberately deferred (2026-11-20), not blocked:** once
+`mobile-screens.tsx`/`app-diagnostics.ts`/`travel-window/` were free, this was
+re-examined as the next CAP-7 slice. Two findings changed the call:
+1. `candidate-projection.ts`'s `projectCandidateTrips` (non-`'recovery'` mode)
+   feeds only `recognizable-atlas-preview-screen.tsx`, a dev/owner-gated
+   **comparison preview** (`isReconstructionPreviewEnabled()`) that "neither
+   changes the active projection nor publishes candidate classifications to
+   native or account storage" (its own doc comment). It is **not** the real
+   owner-facing Possible Trips surface — that is travel-window's and
+   visual-place's own independent GPS-less/visual detectors, shipped
+   separately (decisions 0019/0020), which do not call this module at all.
+   So this slice's real-world impact is a preview tool, not production
+   trip recognition.
+2. Replacing its non-recovery branch means deleting the entire
+   routine-learning/session/boundary algorithm those preview cards use today,
+   which `candidate-projection.test.ts`'s `'recognizable travel shadow
+   projection'` describe block (8 tests) exercises in close, scenario-specific
+   detail — routine-photo-volume suppression, `usualPlaceAnswers`, home-return
+   and owner-boundary gap classification, exact-day owner splits. v1.2 has no
+   equivalent concepts for most of these (no routine learning, no
+   `usualPlaceAnswers`, no merge suggestions, no boundary-reason stats), so
+   the replacement would not just swap a data source but drop or
+   reinterpret most of that behavior with no benchmark harness (unlike M10's
+   `outcome-v1-2.ts`) to catch a wrong call before it reaches a screen.
+
+Given a dev-preview-only consumer and a rewrite risk with no equivalent
+regression safety net, this is left as a named, tracked gap rather than
+rushed. It stays the right next slice if/when this preview screen becomes a
+real product surface, or a benchmark is built for it first.
+
 ## Target pipeline
 
 1. **Normalize once** (`capture-evidence-v1.2`): families, provenance, instant

@@ -2,17 +2,19 @@ import { projectCanonicalHistory } from './canonical-projection';
 import { candidateTripPolicy, projectCandidateFromCanonical, projectCanonicalCandidateHistory, type CandidateTrip, type CandidateTripProjection } from './candidate-projection';
 import { LOCAL_RECOVERY_PROJECTION_VERSION, projectLocalRecoveryGraph } from './local-recovery-projection';
 import { assertReplicaOpen, trackReplicaConnection } from '@/account/replica-connections';
-import { resolvePlaceCountryCode, JourneyCorrectionRemapRequiredError, resolveVerifiedDuplicateFamilies, correctionFamilySnapshots, resolveReviewedSupportKey, predecessorWideScopeRevisions } from './canonical-core';
-import type { ReconstructionEvidence, ReconstructionGraph } from './types';
+import { resolvePlaceCountryCode, JourneyCorrectionRemapRequiredError, resolveVerifiedDuplicateFamilies, correctionFamilySnapshots, resolveReviewedSupportKey, predecessorWideScopeRevisions, type FamilySnapshot } from './canonical-core';
+import type { PossibleTripSummary, ReconstructionEvidence, ReconstructionGraph, TripOutcomeReasonCode } from './types';
 import { RECONSTRUCTION_RULE_VERSION, TRIP_DETECTOR_RULE_VERSION } from './types';
 import { NATURAL_EARTH_ADMIN_0_DATASET_VERSION, countryDisplayName } from './country-resolver';
 import { destinationLabel, type DestinationSupport } from './destination-label';
 import { effectiveConfiguredHomeDistanceV11 } from './engine-v1-1';
-import { buildFrequentPlaceContext, buildV12CandidateLookups, graphJourneyEpisodeMarkers, qualifyGraphJourneyV12, TRIP_OUTCOME_RULE_VERSION } from './outcome-v1-2';
+import { buildFrequentPlaceContext, buildV12CandidateLookups, graphJourneyEpisodeMarkers, rebuildClassificationReasonCode } from './outcome-v1-2';
 import type { RecognizableShadowPair } from './recognizable-shadow-types';
 import type { DurableRevealRecord, JourneyDetail, RevealMapAnchor } from '@/reveal/types';
 import type { ManualJourneyInput } from '@/import-record/types';
-import { ensureNativeImportSchema } from '@/import-record/repository';
+import { clueFromRow, ensureNativeImportSchema, type ClueRow } from '@/import-record/repository';
+import { qualifyGraphJourneyWithClues } from '@/clues/consumption';
+import type { ClueRecord } from '@/clues/types';
 import { NativeTransactionWithdrawnError, runOwnedTransaction, serializeNativeTransactions } from '@/database/native-transaction';
 import type { ReplayMutation, ReplayMutationReceipt, ReplayReconciliation } from '@/replay/draft-repository-contract';
 import { ReplayDraftStaleError } from '@/replay/draft-error';
@@ -3060,6 +3062,72 @@ export function createNativeReconstructionRepository(options?: { databaseName: s
         profile.finish(succeeded);
       }
     },
+    /** CAP-3 (detector-v1-2.md): the owner's real Possible-trips card list.
+     * `locatedCount` is informational only (the `few-photos` sentence's
+     * {n}); it approximates `qualifyTripOutcomeV12`'s own `reliable.length`
+     * from the already Home-filtered `visit-support` rows (H-3's graph-level
+     * half, closed 2026-11-20) rather than threading a new persisted field
+     * through the engine for one display count. */
+    async loadPossibleTrips(): Promise<PossibleTripSummary[]> {
+      const correlationId = createDiagnosticCorrelationId();
+      const report = (reasonCode: AppDiagnosticEvent['reasonCode'], durableOutcome: AppDiagnosticEvent['durableOutcome'], retryable = false) =>
+        recordAppDiagnostic({ operation: 'POSSIBLE_TRIP_REVIEW', stage: 'POSSIBLE_TRIPS_LIST_READ', reasonCode, durableOutcome, retryable, correlationId });
+      report('START', 'unchanged');
+      try {
+        const db = await open();
+        await ensureNativeImportSchema(db);
+        const completed = await loadPublishedRun(db);
+        if (!completed?.run_id) { report('COMPLETE', 'complete'); return []; }
+        const privateFilter = await privacyFilter(db, completed.run_id);
+        const rows = await db.getAllAsync<{ journey_id: string; reasons_json: string; first_year: number | null; last_year: number | null; first_day: string | null; last_day: string | null; located_count: number }>(`
+          WITH journey_metadata AS (
+            SELECT journey.journey_id, qualification.reasons_json,
+              MIN(CASE WHEN canonical.captured_day GLOB '????-??-??' THEN CAST(SUBSTR(canonical.captured_day, 1, 4) AS INTEGER) END) AS first_year,
+              MAX(CASE WHEN canonical.captured_day GLOB '????-??-??' THEN CAST(SUBSTR(canonical.captured_day, 1, 4) AS INTEGER) END) AS last_year,
+              MIN(CASE WHEN canonical.captured_day GLOB '????-??-??' THEN canonical.captured_day END) AS first_day,
+              MAX(CASE WHEN canonical.captured_day GLOB '????-??-??' THEN canonical.captured_day END) AS last_day,
+              SUM(CASE WHEN canonical.media_type <> 'video' AND canonical.availability = 'available'
+                AND canonical.latitude IS NOT NULL AND canonical.longitude IS NOT NULL
+                AND (canonical.reported_accuracy_meters IS NULL OR canonical.reported_accuracy_meters <= 1000)
+                AND (canonical.source_origin IS NULL OR canonical.source_origin NOT IN ('screenshot', 'download', 'unknown', 'messaging'))
+                THEN 1 ELSE 0 END) AS located_count
+            FROM reconstruction_journey journey
+            JOIN reconstruction_trip_qualification qualification ON qualification.run_id = journey.run_id AND qualification.journey_id = journey.journey_id
+            LEFT JOIN reconstruction_link journey_visit ON journey_visit.run_id = journey.run_id AND journey_visit.link_kind = 'journey-visit' AND journey_visit.parent_id = journey.journey_id
+            LEFT JOIN reconstruction_link visit_support ON visit_support.run_id = journey.run_id AND visit_support.link_kind = 'visit-support' AND visit_support.parent_id = journey_visit.child_id
+            LEFT JOIN canonical_evidence canonical ON canonical.evidence_id = visit_support.child_id
+            WHERE journey.run_id = ? AND qualification.classification = 'SUGGESTED'
+            GROUP BY journey.journey_id
+          )
+          SELECT journey_id, reasons_json, first_year, last_year, first_day, last_day, located_count
+          FROM journey_metadata
+          ORDER BY first_day IS NULL, first_day DESC, journey_id DESC
+        `, completed.run_id);
+        const summaries: PossibleTripSummary[] = [];
+        for (const row of rows) {
+          if (privateFilter.blocked.has(row.journey_id)) continue;
+          let reasonCode: TripOutcomeReasonCode | null = null;
+          try {
+            const reasons = JSON.parse(row.reasons_json) as unknown;
+            if (Array.isArray(reasons) && typeof reasons[0] === 'string') reasonCode = reasons[0] as TripOutcomeReasonCode;
+          } catch {
+            // A malformed row is skipped, never shown with a fabricated reason.
+          }
+          if (!reasonCode) continue;
+          const displayId = opaqueJourneyDisplayId(row.journey_id);
+          displayedJourneys.set(displayId, { runId: completed.run_id, journeyId: row.journey_id });
+          summaries.push({ displayId, periodLabel: monthRangeLabel(row.first_day, row.last_day, row.first_year, row.last_year), reasonCode, locatedCount: row.located_count });
+        }
+        await assertPrivacyReadCurrent(db, privateFilter.revision);
+        if ((await loadPublishedRun(db))?.run_id !== completed.run_id) throw new Error('Journey changed. Reopen Atlas.');
+        report('COMPLETE', 'complete');
+        return summaries;
+      } catch (error) {
+        const reason = classifyAppDiagnosticError(error);
+        report(reason, reason === 'HISTORY_STALE' ? 'unchanged' : 'failed', reason === 'DATABASE_BUSY' || reason === 'NATIVE_HANDLE');
+        throw error;
+      }
+    },
     async rebuild(nowMillis = Date.now(), consumeQueuedChanges = false, canUseSource: () => Promise<boolean> = async () => true, transactionAlreadyOpen = false, ownedDatabase?: Database): Promise<ReconstructionGraph> {
       const profile = createAtlasPhaseProfile('ATLAS_REBUILD_PROFILE', 'REBUILD_OPEN');
       let succeeded = false;
@@ -3118,6 +3186,60 @@ export function createNativeReconstructionRepository(options?: { databaseName: s
           });
           const { evidence, homeAreas, corrections, memoryCorrections, memoryMatches, finalMatches, pendingFinalRemaps } = baseline;
           const mediaByEvidence = new Map(rows.map((row) => [row.evidence_id, row.media_type ?? 'image'] as const));
+          // AI clue layer (decision 0022, CAP-2/M11.1). No producer exists yet
+          // (CAP-4/5/6), so `clues` is always empty in production today; this
+          // wiring just stops being a second place that would need to change
+          // once one does. A clue is ignored for a subject the owner already
+          // corrected on this rebuild (same support-key convention as
+          // `candidate-projection.ts`'s own `supportKey`). Ordered the same
+          // way `loadClues()` orders its own identical SELECT, so a
+          // "first clue wins" tie-break never depends on SQLite's incidental
+          // row order across the two readers of this table. Read before the
+          // local-recovery block below (found by the 2026-11-20 code review)
+          // so its own "reliable"/"confirmed" checks can be clue-aware too,
+          // not just the main per-journey qualification loop further down.
+          const clueRows = await db.getAllAsync<ClueRow>(
+            `SELECT clue_id, kind, subject_json, value_json, strength, independence_key, producer_id, producer_version,
+               evidence_revision, home_revision, correction_revision, state, created_at_millis FROM travel_clue
+             ORDER BY created_at_millis, clue_id`,
+          );
+          const clues = clueRows.map(clueFromRow).filter((clue): clue is ClueRecord => clue !== null);
+          // Resolved through the same family identity `baseline.families`
+          // already computes for the rebuild, closing the 2026-11-20 code
+          // review's known gap (clue-contract.md): a correction's `F:` key
+          // only names a family as it stood when the owner reviewed it, so
+          // matching that raw key alone misses a clue whose subject key
+          // reflects the same evidence after it was later regrouped.
+          // `reviewed_family_snapshot_json`'s own `memberIds` names the
+          // exact evidence the owner corrected regardless of family drift;
+          // re-deriving each member's *current* key closes that gap without
+          // the stricter, remap-throwing `resolveReviewedSupportKey` —
+          // correctedKeys only ever makes a clue less usable, so a
+          // best-effort match is the safe direction here (unlike
+          // re-applying a correction itself, this never needs to fail
+          // closed). The raw key stays in the set too, for a legacy row
+          // with no snapshot.
+          const correctedKeys = new Set<string>();
+          const addCorrectedKey = (key: string, snapshots: Record<string, FamilySnapshot>) => {
+            correctedKeys.add(key);
+            if (key.startsWith('E:')) { correctedKeys.add(baseline.families.keyForEvidence(key.slice(2))); return; }
+            if (!key.startsWith('F:')) return;
+            for (const memberId of snapshots[key]?.memberIds ?? []) correctedKeys.add(baseline.families.keyForEvidence(memberId));
+          };
+          for (const correction of corrections) {
+            let snapshots: Record<string, FamilySnapshot> = {};
+            try { snapshots = correctionFamilySnapshots(correction.reviewed_family_snapshot_json, correction.revision_id); }
+            catch { /* no usable snapshot: addCorrectedKey still adds the raw key below */ }
+            try { for (const key of JSON.parse(correction.reviewed_support_json) as unknown[]) if (typeof key === 'string') addCorrectedKey(key, snapshots); }
+            catch { /* malformed legacy row: never guess which keys it covered */ }
+          }
+          for (const correction of memoryCorrections) {
+            let snapshots: Record<string, FamilySnapshot> = {};
+            try { snapshots = correctionFamilySnapshots(correction.reviewed_family_snapshot_json, correction.revision_id); }
+            catch { /* no usable snapshot: addCorrectedKey still adds the raw key below */ }
+            try { for (const key of JSON.parse(correction.reviewed_support_json) as unknown[]) if (typeof key === 'string') addCorrectedKey(key, snapshots); }
+            catch { /* malformed legacy row: never guess which keys it covered */ }
+          }
           let graph = baseline.graph;
           let policy: string = RECONSTRUCTION_RULE_VERSION;
           let verifyRecoverySource: (() => Promise<boolean>) | undefined;
@@ -3133,7 +3255,13 @@ export function createNativeReconstructionRepository(options?: { databaseName: s
                 const canReadRecoverySource = options?.canUseRecoverySource ?? (consumeQueuedChanges ? canUseSource : async () => true);
                 if (full && !replay.ambiguous && await canReadRecoverySource()) {
                   recoveryStage = 'CANDIDATE_CLASSIFY';
-                  const candidate = projectCandidateFromCanonical(baseline, mediaByEvidence, undefined, 'recovery');
+                  // Clue-aware (CAP-2/M11.1, found by the 2026-11-20 code
+                  // review): this narrower "reliable" check must agree with
+                  // the main per-journey qualification below on the same
+                  // journey, the same reason `candidate-projection.ts`'s
+                  // check was switched from v1.1 to v1.2 during the M10.3
+                  // review.
+                  const candidate = projectCandidateFromCanonical(baseline, mediaByEvidence, undefined, 'recovery', clues, correctedKeys);
                   const visitById = new Map(graph.visits.map((visit) => [visit.id, visit]));
                   const evidenceById = new Map(evidence.map((item) => [item.id, item]));
                   candidate.mergeSuggestions = candidate.mergeSuggestions.filter(({ left, right }) => {
@@ -3144,7 +3272,7 @@ export function createNativeReconstructionRepository(options?: { databaseName: s
                     return firstRight - lastLeft > 72 * 60 * 60 * 1000;
                   });
                   const recovered = projectLocalRecoveryGraph({ baseline, candidate, mediaByEvidence,
-                    protectedJourneyIds: replay.ids, withheldEvidence: new Set([...excluded, ...privateFilter.protectedEvidence]) });
+                    protectedJourneyIds: replay.ids, withheldEvidence: new Set([...excluded, ...privateFilter.protectedEvidence]), clues, correctedKeys });
                   recoveryStage = 'CANDIDATE_READBACK';
                   if (!await canReadRecoverySource()) throw new Error('Photo access is not permitted.');
                   graph = recovered.graph;
@@ -3211,7 +3339,28 @@ export function createNativeReconstructionRepository(options?: { databaseName: s
             await db.runAsync('INSERT INTO reconstruction_place (place_id, run_id, representative_evidence_id, uncertainty_json, country_code, country_dataset_version) VALUES (?, ?, ?, ?, ?, ?)', place.id, runId, place.representativeId, JSON.stringify(place.uncertainty), countryCode, NATURAL_EARTH_ADMIN_0_DATASET_VERSION);
             for (const evidenceId of place.memberIds) await links.add([runId, 'place-support', place.id, evidenceId]);
           }
-          for (const visit of graph.visits) { await db.runAsync('INSERT INTO reconstruction_visit (visit_id, run_id, place_id, ordering) VALUES (?, ?, ?, ?)', visit.id, runId, visit.placeId, visit.order); for (const evidenceId of visit.evidenceIds) await links.add([runId, 'visit-support', visit.id, evidenceId]); }
+          for (const visit of graph.visits) {
+            await db.runAsync('INSERT INTO reconstruction_visit (visit_id, run_id, place_id, ordering) VALUES (?, ?, ?, ?)', visit.id, runId, visit.placeId, visit.order);
+            for (const evidenceId of visit.evidenceIds) {
+              // H-3's graph-level half (detector-v1-2.md, closed 2026-11-20):
+              // a Home-covered photo is never trip support, cover or album
+              // media. `qualifyTripOutcomeV12` already excludes it from
+              // classification, but every other reader of `visit-support`
+              // (readDestinationLabels' title, loadJourneyDetail/
+              // loadJourneyMediaPage's cover and album) read the unfiltered
+              // link rows this loop writes. `visit-support` is fully
+              // rewritten every rebuild (DELETE above), never accumulated,
+              // so filtering here — the one place it is generated — makes
+              // every one of those ~20 readers agree without touching
+              // correction/replay matching's own exact-support semantics,
+              // which never legitimately included Home evidence as
+              // "support" to begin with. An owner's explicit manual
+              // addition is a separate `membership:owner:%` link kind,
+              // untouched by this.
+              if (evidenceById.get(evidenceId)?.configuredHomeAreaId) continue;
+              await links.add([runId, 'visit-support', visit.id, evidenceId]);
+            }
+          }
           const confirmedJourneyIds = new Set(corrections.filter((correction) => correction.action === 'confirm').map((correction) => finalMatches.get(correction.revision_id)).filter((id): id is string => Boolean(id)));
           profile.next('REBUILD_QUALIFY');
           // trip-detector-v1.2 (decision 0021): one outcome rule for every
@@ -3228,13 +3377,18 @@ export function createNativeReconstructionRepository(options?: { databaseName: s
             const ownerConfirmed = confirmedJourneyIds.has(journey.id);
             const qualification = ownerConfirmed
               ? { classification: 'USER_CONFIRMED' as const, score: 0, path: null, reasons: ['owner-confirmed'] }
-              : (() => { const outcome = qualifyGraphJourneyV12(graph, journey.id, evidence, mediaByEvidence, homeAreas, frequentPlaceContext, v12Lookups);
+              : (() => { const outcome = qualifyGraphJourneyWithClues(graph, journey.id, evidence, mediaByEvidence, homeAreas, clues, correctedKeys, frequentPlaceContext, v12Lookups);
                   return { classification: outcome.classification, score: outcome.diagnosticScore, path: null, reasons: outcome.reasons }; })();
             await db.runAsync(
               'INSERT INTO reconstruction_trip_qualification (run_id, journey_id, classification, score, qualification_path, reasons_json) VALUES (?, ?, ?, ?, ?, ?)',
               runId, journey.id, qualification.classification, qualification.score, qualification.path,
               JSON.stringify(qualification.reasons),
             );
+            // M10.2's device-aggregate read (delivery-and-diagnostics.md):
+            // bucketed, content-free per-journey classification counts —
+            // never the journey id, place or date, only the closed reason
+            // code; a no-op unless phase profiling is enabled.
+            profile.classification(rebuildClassificationReasonCode(qualification.reasons as (TripOutcomeReasonCode | 'owner-confirmed')[]));
             for (const visitId of journey.visitIds) await links.add([runId, 'journey-visit', journey.id, visitId]);
           }
           for (const membership of graph.memberships) await links.add([runId, `membership:${membership.state}:${membership.reason}`, membership.journeyId, membership.evidenceId]);

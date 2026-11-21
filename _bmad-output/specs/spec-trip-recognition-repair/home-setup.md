@@ -50,3 +50,34 @@ Atlas design system and decision 0017 typed place search.
   the table; screen readers announce each picker value.
 - Removing the last Home in Settings is refused; first use cannot finish
   without a Home.
+
+## Implementation status (2026-11-20)
+
+Shipped in `InitialHomeSetup`/`MonthYearField`/`homePeriodLabel`
+(`apps/mobile/src/components/mobile-screens.tsx`), once the concurrent session's
+edits to that file landed. "Skip for now" is removed from first use entirely;
+the period defaults to Forever as soon as a place is picked, so Add/Save works
+in one tap; the From/Until fields are a year-list-then-month-grid picker (no
+typed date format), with "Any time"/"Now" to clear and an inline message when
+Until precedes From. Settings' Remove action refuses the owner's last Home
+base with a message instead of opening the confirm dialog
+(`homeBases.length > 1` gate, mirrored nowhere else — deleting down to zero
+Home areas must stay possible for the engine itself, see below).
+
+`requiresHomeSetup`/`resolveEntry` (`apps/mobile/src/photo-access/controller.ts`)
+were fixed to check the owner's actual configured Home-area count, not the
+`home_setup_receipt` disposition: a record that skipped Home under the old,
+now-removed flow is routed back to the required step on its next app open,
+closing H-4's migration gap. `saveHomeSetup` (`import-record/repository.ts`)
+now rejects an empty area list outright. `deleteConfiguredHomeArea` was
+deliberately **not** hardened the same way at the repository layer — a real
+SQLite integration test (`scripts/atlas-sqlite.test.cjs`) needs the record to
+reach zero Home areas to exercise `hasPendingHomeProjection`, so "keep at
+least one" stays a Settings-UI rule only, per H-4's own wording ("Settings
+cannot remove the last Home area").
+
+Verified: `onboarding-integration.test.tsx` (no-skip, month/year-picker save,
+offline-index-failure paths), `privacy-settings-screen.test.tsx` (exact-day
+retention on edit, last-Home refusal, two-Home removal),
+`import-repository.test.ts` (`saveHomeSetup([])` rejection), full mobile
+`npm run check` and root `npm run check` green.

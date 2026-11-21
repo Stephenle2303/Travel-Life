@@ -21,8 +21,8 @@
  * always yields the same outcome; with zero clues the result equals the
  * clue-free `qualifyTripOutcomeV12`/`qualifyGraphJourneyV12`.
  */
-import { qualifyTripOutcomeV12, type TripOutcomeOptions } from '../reconstruction/outcome-v1-2';
-import type { TripDetectorEvidence, TripOutcome } from '../reconstruction/types';
+import { buildV12CandidateEvidence, qualifyTripOutcomeV12, type TripOutcomeOptions, type V12CandidateLookups } from '../reconstruction/outcome-v1-2';
+import type { FrequentPlaceContext, ReconstructionEvidence, ReconstructionGraph, TripDetectorEvidence, TripOutcome } from '../reconstruction/types';
 import { usableClues } from './store';
 import type { ClueRecord } from './types';
 
@@ -100,4 +100,23 @@ export function qualifyTripOutcomeWithClues(evidence: readonly TripDetectorEvide
   const supportIds = outcome.supportIds.length ? outcome.supportIds : evidence.map((item) => item.id);
   const subjectKeys = supportIds.map((id) => { const item = byId.get(id); return item ? supportKey(item) : `E:${id}`; });
   return { ...outcome, namedPlace: namedPlaceForSubject(subjectKeys, usable) };
+}
+
+/** The same per-journey entry point `reconstruction/repository.ts`'s rebuild
+ * calls (`qualifyGraphJourneyV12`), but clue-aware (CAP-2) — same parameter
+ * shape, with `clues`/`correctedKeys` inserted after `homeAreas`. Builds
+ * this journey's candidate evidence exactly as `qualifyGraphJourneyV12`
+ * does (same `buildV12CandidateEvidence`/`lookups`, so a rebuild stays
+ * O(library size) with or without clues — see outcome-v1-2.ts's own note),
+ * then runs it through `qualifyTripOutcomeWithClues`. With zero clues this
+ * is byte-for-byte `qualifyGraphJourneyV12`'s own result plus
+ * `namedPlace: null`. */
+export function qualifyGraphJourneyWithClues(
+  graph: ReconstructionGraph, journeyId: string, evidence: readonly ReconstructionEvidence[],
+  mediaByEvidence: ReadonlyMap<string, 'image' | 'video'>, homeAreas: TripOutcomeOptions['homeAreas'],
+  clues: readonly ClueRecord[], correctedKeys: ReadonlySet<string>,
+  frequentPlaceContext?: FrequentPlaceContext, lookups?: V12CandidateLookups,
+): TripOutcomeWithClue {
+  const candidateEvidence = buildV12CandidateEvidence(graph, journeyId, evidence, mediaByEvidence, lookups);
+  return qualifyTripOutcomeWithClues(candidateEvidence, clues, correctedKeys, { homeAreas, frequentPlaceContext, currentJourneyId: journeyId });
 }

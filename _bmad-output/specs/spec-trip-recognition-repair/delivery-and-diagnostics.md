@@ -5,34 +5,37 @@
 | Story | Caps | Status | Done when |
 | --- | --- | --- | --- |
 | M10.1 Benchmark | CAP-1 | **Done** (first pass) | Labels reviewed by owner; baseline frozen on `fbfe8b8`; probe failures reproduced. S15/S17/S20 proven at the unit level only — see [v1-2-comparison.md](v1-2-comparison.md)'s closing notes |
-| M10.2 Device baseline | CAP-2 | **Blocked** — needs the owner's phone connected | Aggregate recorded in project state |
-| M10.3 No silent loss, clear reasons | CAP-3 | **Done** at the qualification layer | Closed reasons on every hidden candidate (verified: 0 empty-reason NOT_TRIP on the benchmark); 8-code priority table implemented. The Possible-trip **card UI** showing the sentence and a Set Home button is not built — blocked, see below |
+| M10.2 Device baseline | CAP-2 | **Done** (2026-11-20) | Aggregate recorded in project state and below |
+| M10.3 No silent loss, clear reasons | CAP-3 | **Done** (2026-11-21) | Closed reasons on every hidden candidate (verified: 0 empty-reason NOT_TRIP on the benchmark); 8-code priority table implemented. The Possible-trip **card UI** (reason sentence + Set Home) is built — real production data, not the dev-preview shadow policy; see below |
 | M10.4 Outcome rule | CAP-4 | **Done** | Atlas/Possible/hidden rule with C-3, C-4, C-6 and F-1; 54/54 on the benchmark with and without Home |
-| M10.5 Home is required | CAP-5 | **Half done** | Engine half done: H-1..H-5 enforced in `qualifyTripOutcomeV12` (no learned Home, Home photos never support, Forever/dated periods). UI half (onboarding "Skip for now" removal, Settings keep-one-Home, [home-setup.md](home-setup.md)'s period picker) is **blocked**, see below |
-| M10.6 Capture time | CAP-6 | **Blocked** | C-12, C-13, D-7 on Android; blocked on the in-flight native capture-metadata work under `travel-window/` (a concurrent session building the same underlying EXIF/offset reader for the GPS-less spec). `outcome-v1-2.ts` already reads `hasPreciseOffset`/`sourceOrigin` and needs no further engine change once that import path populates them |
-| M10.7 One detector | CAP-7 | **Half done** | Atlas surface consolidated (one call site, `qualifyGraphJourneyV12`, shared lookups); two narrower "reliable" checks (`candidate-projection.ts`, `local-recovery-projection.ts`) switched to v1.2 during the 2026-11-19 code review. The Possible-trips surface's primary card-grouping policy still reads the separate `candidate-projection.ts` shadow policy — **not done**, see [consolidation.md](consolidation.md) |
-| M10.8 Adoption | CAP-8 | **Core done, wiring blocked** | Pure dry-run diff (`summarizeOutcomeDelta`) and rollback proof (the 4 core v1.1 rule files — `engine.ts`, `engine-v1-1.ts`, `canonical-core.ts`, `canonical-projection.ts` — are byte-unchanged; `qualifyGraphJourneyV11` stays exported and callable) are done and tested. Owner-facing dry-run UI and activation/rollback on the owner's device are not built — blocked, see below |
+| M10.5 Home is required | CAP-5 | **Done** | Engine half (H-1..H-5 in `qualifyTripOutcomeV12`) plus the UI half (onboarding "Skip for now" removed, Settings keep-one-Home, [home-setup.md](home-setup.md)'s Forever/From/Until month-year picker) — done 2026-11-20 once `mobile-screens.tsx` was free |
+| M10.6 Capture time | CAP-6 | **Done on Android** | C-12/C-13 wired into `photo-access/native-adapter.ts` using the same native EXIF/offset reader and mapper travel-window's GPS-less detector uses; D-7 unchanged by design. iOS/older builds keep the prior conservative defaults. Done 2026-11-20 — see [detector-v1-2.md](detector-v1-2.md)'s status update |
+| M10.7 One detector | CAP-7 | **Half done, remainder deliberately deferred** | Atlas surface consolidated (one call site, `qualifyGraphJourneyV12`, shared lookups); two narrower "reliable" checks (`candidate-projection.ts`, `local-recovery-projection.ts`) switched to v1.2 during the 2026-11-19 code review. The Possible-trips **preview**'s card-grouping policy still reads the separate `candidate-projection.ts` shadow policy — investigated 2026-11-20 and deferred (not blocked): it feeds only the dev-gated comparison preview, not the real owner Possible Trips surface, and replacing it would drop test-covered behavior with no equivalent benchmark safety net; see [consolidation.md](consolidation.md) |
+| M10.8 Adoption | CAP-8 | **Done (closed 2026-11-20)** | Pure dry-run diff (`summarizeOutcomeDelta`) and rollback proof (the 4 core v1.1 rule files — `engine.ts`, `engine-v1-1.ts`, `canonical-core.ts`, `canonical-projection.ts` — are byte-unchanged; `qualifyGraphJourneyV11` stays exported and callable) are done and tested. Owner-facing dry-run/activation UI is **descoped, not deferred**: v1.2 was already adopted directly (no feature flag, no gate) at the M10.3/M10.4 call-site switch, so there is no pending activation decision left for such a screen to gate — owner-approved scope reduction, see [sprint-change-proposal-2026-11-20.md](../../planning-artifacts/sprint-change-proposal-2026-11-20.md) |
 
-## Why four pieces are blocked, not skipped
+## Why four pieces were blocked, not skipped (2026-11-19, resolved 2026-11-20)
 
 A second session was actively editing `apps/mobile/src/components/mobile-screens.tsx`,
 `apps/mobile/src/diagnostics/app-diagnostics.ts`,
 `apps/mobile/src/import-record/repository.ts`,
 `apps/mobile/src/photo-access/provider.tsx` and every file under
-`apps/mobile/src/travel-window/` throughout this work (confirmed by `git
-status` at multiple points). Two sessions writing to the same files at once
-risks losing one session's work with no clean way to merge it back, so this
-session did not touch them. That blocks exactly:
-- M10.5's UI slice (`mobile-screens.tsx`).
-- M10.6 end to end (`travel-window/` owns the same EXIF/offset reading this
-  story needs; building a second, separate reader would duplicate and likely
-  conflict with that work rather than complete it).
-- The closed-reason-code diagnostics this policy would otherwise add
-  (`app-diagnostics.ts`'s reason-code union is defined in that one file).
-- Any schema change for capture-time/provenance persistence
-  (`import-record/repository.ts` owns the migrations).
-- M10.8's device-facing dry-run/activation UI (also `mobile-screens.tsx`
-  and the schema file).
+`apps/mobile/src/travel-window/` throughout the 2026-11-19 work (confirmed by
+`git status` at multiple points). Two sessions writing to the same files at
+once risks losing one session's work with no clean way to merge it back, so
+that session did not touch them. That session's travel-window work merged to
+`main` on 2026-11-20 (commit `a13a63c` and ancestors), freeing all of the
+above files. Once free:
+- M10.5's UI slice (`mobile-screens.tsx`) — **done** same day, see the table.
+- M10.6 (`travel-window/` owns the EXIF/offset reader this story needs) —
+  **done on Android** same day, reusing that reader rather than building a
+  second one.
+- M10.8's device-facing dry-run/activation UI (`mobile-screens.tsx`) — still
+  **not started**: unblocked, but no longer the next scheduled slice this
+  session reached before its own stopping point.
+- The closed-reason-code diagnostics this policy would add
+  (`app-diagnostics.ts`'s reason-code union) and any further schema change in
+  `import-record/repository.ts` beyond what M10.5/M10.6 above already needed
+  — still **not started**.
 
 Everything else in this table was implemented in files that session was not
 touching: `apps/mobile/src/reconstruction/*` (new `outcome-v1-2.ts`, and
@@ -63,11 +66,115 @@ file is separate from `app-diagnostics.ts` and was not being edited), and
      non-empty `reasons` array except AUTO/USER/REJECTED) and verified by
      21 unit tests plus the benchmark's `silentDrops: 0` result, not by a
      runtime assertion.
-- **Still needed, blocked on `app-diagnostics.ts`:** closed reason codes for
-  `home-not-set` lifecycle events, the Possible-card Set Home action, the
-  `ATLAS_REBUILD_PROFILE` bucketed classification counts for the owner's
-  device (M10.2), and `ONBOARDING_SETUP`'s required-Home stage. These are
-  tied to the UI/device stories above, which are blocked for the same reason.
+- **Done (2026-11-20), now that `app-diagnostics.ts` is free:**
+  `AppDiagnosticReasonCode` gained 11 new closed codes mirroring
+  detector-v1-2.md's own closed Possible-trip/hidden reason table
+  (`HOME_NOT_SET`, `TIME_CONFLICT`, `NO_LOCATION`, `WEAK_LOCATION`,
+  `NEAR_HOME`, `FREQUENT_PLACE`, `FEW_PHOTOS`, `SINGLE_MOMENT`,
+  `OWNER_VETO`, `NO_AWAY_EVIDENCE`, `NON_CAPTURE_SOURCE`) plus a new
+  `REBUILD_QUALIFY_PROFILE` stage and `AtlasPhaseProfile.classification()`
+  method (`atlas-phase-profile.ts`). `reconstruction/repository.ts`'s
+  per-journey rebuild loop now calls it once per journey
+  (`rebuildClassificationReasonCode`, `outcome-v1-2.ts`, mapping
+  `reasons[0]` or `COMPLETE` for AUTO/USER-confirmed), giving **M10.2's
+  device-aggregate read** a real, content-free, bucketed signal: filter
+  Metro's existing `ATLAS_REBUILD_PROFILE` output to `REBUILD_QUALIFY_
+  PROFILE` and count lines per `reasonCode` to get the owner's device's
+  real classification mix, same collection recipe as before, same
+  `EXPO_PUBLIC_ATLAS_PHASE_PROFILE=1` dev gate, no-op in production.
+  Verified end-to-end against a real rebuild (a mixed AUTO_CONFIRMED +
+  hidden-single-photo scenario correctly emitted `COMPLETE` and
+  `NO_AWAY_EVIDENCE`) and with new unit/shape tests
+  (`reconstruction-outcome-v1-2.test.ts`, `atlas-phase-profile.test.ts`).
+  `ONBOARDING_SETUP`'s required-Home stage turned out to already be fully
+  instrumented (`photo-access/controller.ts`'s `requiresHomeSetup`/
+  `saveInitialHomes`, built as part of M10.5's UI slice) — this status
+  table's 2026-11-19 note was stale, not a real gap.
+  **Still blocked on new UI, not on diagnostics:** the Possible-card's own
+  "Set Home" action has no code to instrument yet — the v1.2 Possible-trips
+  card itself is still the named, deliberately deferred CAP-7/M10.7 gap
+  (see consolidation.md); the `HOME_NOT_SET` reason code above is ready for
+  it once that card exists.
+  **Run 2026-11-20, done:** see the Collection recipe section's new note
+  below for the real result.
+
+## Diagnostic map: CAP-3's Possible-trips card UI (2026-11-21, before implementation)
+
+Per the diagnostic implementation policy, defined before building the card.
+Reuses the existing `POSSIBLE_TRIP_REVIEW` operation (already in
+`app-diagnostics.ts`'s closed operation union, previously used only by the
+dev-preview's shadow-token decision path) rather than inventing a new
+operation, since it is already the correctly-named operation for this
+feature; the shadow path's own stages (`CANDIDATE_*`) are untouched and
+keep their separate meaning.
+
+- **New stage `POSSIBLE_TRIPS_LIST_READ`** (`loadPossibleTrips()`, read
+  boundary): `reasonCode: 'START'` on entry, `'COMPLETE'` with
+  `durableOutcome: 'complete'` on success. A privacy-scope change mid-read
+  (the same race every other reveal read already guards) reports
+  `'HISTORY_STALE'` with `durableOutcome: 'unchanged'` — an expected
+  lifecycle outcome, not a new failure category. Any other failure reports
+  `classifyAppDiagnosticError(error)` (existing closed classifier) with
+  `durableOutcome: 'failed'`, `retryable` from that classifier. No journey
+  id, place, date, reason text or media reaches the log — only the closed
+  reason code.
+- **New stage `POSSIBLE_TRIP_SET_HOME`** (owner taps "Set Home" on a
+  `home-not-set` card): `reasonCode: 'HOME_NOT_SET'` (the code already
+  reserved for exactly this, per the 2026-11-20 comment in
+  `app-diagnostics.ts`), `durableOutcome: 'complete'`, `retryable: false`.
+  Pure navigation signal (to the existing Settings Home flow); no failure
+  path — the button is simply not rendered if the navigation callback is
+  unavailable.
+- **Keep / Reject a Possible trip**: routed through the existing, already
+  fully-instrumented `saveJourneyCorrection`/`JourneyCorrectionScreen` path
+  (same mechanism the main Atlas's confirm/reject already uses for any
+  journey, confirmed or not) — no new diagnostic boundary, by design
+  (reusing an existing one, not duplicating it).
+
+**Collection recipe:** same approved local console boundary
+(`app-diagnostics.ts`) as every other event; filter to
+`"operation":"POSSIBLE_TRIP_REVIEW"` and `"stage":"POSSIBLE_TRIPS_LIST_READ"`
+or `"POSSIBLE_TRIP_SET_HOME"`. No new transport, no new collection process.
+
+## CAP-3's Possible-trips card UI: built (2026-11-21)
+
+M10.2's real device data (24 Atlas / 38 Possible / 14 hidden of 76 journeys,
+`near-home` alone 42% of all episodes) made this the clear next slice. Built:
+- `reconstruction/repository.ts`'s `loadPossibleTrips()`: reads the latest
+  completed run's `SUGGESTED` journeys, mirrors `reasons[0]` into the
+  card's one reason code, and computes an informational `locatedCount`
+  (the `few-photos` sentence's {n}) from the already Home-filtered
+  `visit-support` evidence (H-3's graph-level half, closed 2026-11-20) —
+  no new persisted field or engine change needed. Registers each
+  `displayId` into the same in-memory map `loadDurableReveal` uses, so
+  "Review outing" can open the existing `loadJourneyDetail`/
+  `saveJourneyCorrection`/`JourneyCorrectionScreen` path verbatim — no new
+  write path, no new confirm/reject mechanism (the old dev-preview-only
+  `saveCandidateShadowDecision`/`POSSIBLE_TRIP_REVIEW`-shadow-stage path is
+  untouched and still used only by that separate, deliberately deferred
+  preview, per consolidation.md).
+- `reconstruction/possible-trip-copy.ts`: the exact 8 closed card sentences
+  from the table below, pure and unit-tested, with a safe generic fallback
+  for `owner-veto` (not one of the 8; can appear as `reasons[0]` when every
+  Atlas condition holds except an owner veto — an edge case the public
+  table doesn't name).
+- `components/possible-trips-v12.tsx`: the real card list (period + reason
+  sentence + Set Home for `home-not-set` + Review outing), a new
+  `AtlasReveal` `possibleTrips` slot independent of the `recognizable` dev
+  flag/shadow overlay, wired into the real Atlas screen
+  (`mobile-screens.tsx`), always visible regardless of
+  `isRecognizableRevealEnabled()`.
+- `NON_CAPTURE_ORIGINS` exported from `outcome-v1-2.ts` so the new SQL
+  query's `locatedCount` and the engine's own `ownCapture` check share one
+  definition.
+Verified: 3 new SQLite regressions (list+reason+count, privacy exclusion,
+closed-shape-only failure/redaction), 7 new Jest tests (reason-sentence
+table + component), full mobile `npm run check` (1615 Jest + 147 SQLite +
+typecheck + lint + doctor, all clean), benchmark unchanged (54/54), root
+`npm run check` (281/281, eval smoke PASS, history-domain bundle
+regenerated for the `PossibleTripSummary` type addition — see the error
+playbook, 2026-11-21, for a NULL-handling SQL bug caught and fixed by the
+new regression before this was declared done).
 
 ## Collection recipe (for what exists today)
 
@@ -75,9 +182,53 @@ Development build on the owner's Android with
 `EXPO_PUBLIC_ATLAS_PHASE_PROFILE=1`, via the existing Metro/ADB route
 (verify listener address and build freshness first, per the error
 playbook). Filter Metro output to `ATLAS_REBUILD_PROFILE`; the `REBUILD_QUALIFY`
-phase's START/COMPLETE pair brackets the v1.2 outcome pass. No reason-coded
-production diagnostic exists yet for this story (see above); the read-only
-device aggregate query for M10.2 is a separate, still-blocked piece.
+phase's START/COMPLETE pair brackets the v1.2 outcome pass. **M10.2's own
+aggregate (2026-11-20):** within that same `ATLAS_REBUILD_PROFILE`
+correlation, filter further to `stage":"REBUILD_QUALIFY_PROFILE` and count
+occurrences of each `reasonCode` — one line per journey, `COMPLETE` for
+AUTO_CONFIRMED/USER_CONFIRMED, one of the 11 Possible-trip/hidden codes
+otherwise (detector-v1-2.md's table). That count *is* the device's real
+classification mix; no further query or schema change is needed.
+
+**Run 2026-11-20, owner's device connected.** Rather than re-run the
+`EXPO_PUBLIC_ATLAS_PHASE_PROFILE` Metro-log recipe above (the device's data
+was already fully imported and rebuilt from an earlier session today, so a
+fresh profiled rebuild would have logged nothing new — the durable-read
+check correctly found nothing changed and skipped re-qualifying), read the
+*already-persisted* classification straight from the device's private
+`travel-life-import-v1.db` (`reconstruction_trip_qualification`, latest
+completed `run_id`): pulled read-only via `adb exec-out run-as ... cat`,
+queried locally with Node's built-in `node:sqlite`, and the pulled copy
+deleted immediately after reading the aggregate — no raw evidence,
+coordinates or place labels left this environment, per this project's
+privacy rule. 76 journeys total:
+
+| Classification | Reason | Count |
+| --- | --- | ---: |
+| `AUTO_CONFIRMED` (Atlas) | — | 24 |
+| `SUGGESTED` (Possible) | `near-home` | 32 |
+| `SUGGESTED` (Possible) | `few-photos` | 4 |
+| `SUGGESTED` (Possible) | `frequent-place` | 1 |
+| `SUGGESTED` (Possible) | `single-moment` | 1 |
+| `NOT_TRIP` (hidden) | `no-away-evidence` | 12 |
+| `NOT_TRIP` (hidden) | `non-capture-source` | 2 |
+
+The dominant Possible-trip reason by far is `near-home` (32/76 — 42% of
+every detected episode, 84% of all Possible trips): on one real multi-year
+photo library, H-3's <50 km Atlas threshold routes nearly half of all
+episodes to Possible rather than Atlas or hidden. Read as a calibration
+signal, not a defect — the rule is working as specified — but it means
+CAP-3's still-unbuilt Possible-trips card (see M10.7 above) is what an
+owner would actually see for over a third of their whole history, raising
+that card's real priority. No silent drops: every `NOT_TRIP` carried a
+populated reason, consistent with the benchmark's 0-empty-reasons
+invariant. Collected on a **debug** build with the profiling flag
+(reinstalled temporarily over the already-verified-standalone **release**
+build to reach the dev-client/Metro path, then the release build was
+reinstalled afterward, restoring the prior confirmed state).
+`reconstruction_run.rule_version` reads `reconstruction-v1` (the base
+engine, decision 0007) — there is still no separately stored outcome-rule
+version (v1.1 vs v1.2), per this doc's existing adoption note above.
 
 ## Adoption (CAP-8)
 
@@ -99,7 +250,7 @@ stored generations.
   Selecting it again at the `repository.ts` rebuild call site reproduces the
   exact v1.1 column of [v1-2-comparison.md](v1-2-comparison.md).
 
-**Not done (blocked, see above):**
+**Not done:**
 - A local policy selector recording which detector version is active, and
   rebuilding only when input revisions changed.
 - The owner-facing dry-run screen and activation approval.
@@ -107,6 +258,20 @@ stored generations.
   activation (the underlying `applyJourneyCorrections`/
   `mapFinalCorrectionApplications` machinery is unchanged and already does
   this; what's missing is the UI path that lets the owner trigger and see it).
+
+**Re-examined 2026-11-20, once unblocked:** M10.3/M10.4 did not build a
+feature-flagged dual path — the rebuild call site was switched from
+`qualifyGraphJourneyV11` to `qualifyGraphJourneyV12` directly, with no stored
+policy selector and no gate in front of it. v1.2 has therefore already been
+the sole, unconditionally active production rule since that commit; there is
+no longer a pending "activate v1.2" decision for an owner-facing dry-run
+screen to gate. The three items above stay genuinely not done, but building
+them now would be a *transparency* feature (show what a future rule change
+would do) rather than the originally-scoped adoption gate, and needs new
+persistence (a stored prior-rebuild snapshot to diff against) that does not
+exist yet. Left undone rather than built speculatively; revisit when a next
+rule change actually needs a dry-run gate, or if the owner asks for this
+transparency view on its own.
 
 ## Checks run this session
 

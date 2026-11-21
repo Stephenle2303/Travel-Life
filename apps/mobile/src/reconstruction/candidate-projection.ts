@@ -1,7 +1,8 @@
 import { applyStructuralBoundaries, metersBetween } from './canonical-core';
 import { projectCanonicalHistory, type CanonicalProjectionInput } from './canonical-projection';
 import { applyOwnerConfiguredHomeAreas, effectiveConfiguredHomeDistanceV11 } from './engine-v1-1';
-import { qualifyGraphJourneyV12 } from './outcome-v1-2';
+import { qualifyGraphJourneyWithClues } from '../clues/consumption';
+import type { ClueRecord } from '../clues/types';
 import type { OwnerConfiguredHomeArea, ReconstructionGraph, TripDetectorEvidence } from './types';
 
 export const candidateTripPolicy = Object.freeze({
@@ -49,10 +50,12 @@ function civilDay(value: string | null) {
   return Number.isFinite(time) && new Date(time).toISOString().slice(0, 10) === value ? time / dayLength : null;
 }
 
+// Kept in step with outcome-v1-2.ts's NON_CAPTURE_ORIGINS (C-13, decision
+// 0021): messaging-sourced evidence is review-only, same as unknown.
 function usable(item: TripDetectorEvidence) {
   return !item.excluded && !item.duplicateConflict && item.supportEligible !== false && !item.timeConflict
     && item.availability !== 'unavailable' && item.reliableLocation !== false && item.captureLike !== false
-    && item.sourceOrigin !== 'screenshot' && item.sourceOrigin !== 'download' && item.sourceOrigin !== 'unknown'
+    && item.sourceOrigin !== 'screenshot' && item.sourceOrigin !== 'download' && item.sourceOrigin !== 'unknown' && item.sourceOrigin !== 'messaging'
     && item.origin !== 'screenshot' && item.origin !== 'download' && item.origin !== 'unknown'
     && item.latitude !== null && Number.isFinite(item.latitude) && Math.abs(item.latitude) <= 90
     && item.longitude !== null && Number.isFinite(item.longitude) && Math.abs(item.longitude) <= 180
@@ -393,7 +396,8 @@ export function projectCandidateTrips({ graph, evidence, homeAreas, protectedJou
 }
 
 export function projectCandidateFromCanonical(baseline: Awaited<ReturnType<typeof projectCanonicalHistory>>,
-  media: Map<string, 'image' | 'video'>, usualPlaceAnswers: readonly UsualPlaceAnswer[] = [], mode?: 'recovery') {
+  media: Map<string, 'image' | 'video'>, usualPlaceAnswers: readonly UsualPlaceAnswer[] = [], mode?: 'recovery',
+  clues: readonly ClueRecord[] = [], correctedKeys: ReadonlySet<string> = new Set()) {
   const protectedJourneyIds = new Set([...baseline.finalMatches.values(), ...baseline.memoryMatches.values()]);
   const reliableReviewedJourneyIds = new Set<string>();
   const currentJourneyIds = new Set(baseline.graph.journeys.map((journey) => journey.id));
@@ -403,7 +407,12 @@ export function projectCandidateFromCanonical(baseline: Awaited<ReturnType<typeo
     // v1.2 (decision 0021): agree with the Atlas surface on "reliable",
     // not the retired v1.1 score/learned-base path (found by the M10.3
     // code review, 2026-11-19 — the two disagreed on the same journey).
-    if (correction.action === 'confirm' || qualifyGraphJourneyV12(baseline.graph, id, baseline.evidence, media, baseline.homeAreas).classification === 'AUTO_CONFIRMED') {
+    // Clue-aware (CAP-2/M11.1, found by the 2026-11-20 code review): with
+    // zero clues this is byte-identical to the old qualifyGraphJourneyV12
+    // call, so the deferred preview caller (mode undefined, no clues passed)
+    // is unaffected.
+    if (correction.action === 'confirm'
+      || qualifyGraphJourneyWithClues(baseline.graph, id, baseline.evidence, media, baseline.homeAreas, clues, correctedKeys).classification === 'AUTO_CONFIRMED') {
       reliableReviewedJourneyIds.add(id);
     }
   }

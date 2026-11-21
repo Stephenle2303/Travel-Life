@@ -100,8 +100,9 @@ describe('private record settings', () => {
       await fireEvent.changeText(view.getByLabelText('Search for a city, province, district, ward or commune'), 'Sa Dec Dong Thap');
       expect(stored).toMatchObject({ latitude: 10.2, longitude: 105.7, origin: 'legacy' });
       await fireEvent.press(view.getByRole('button', { name: /^Sa Đéc · City/ }));
-      expect(view.getByLabelText('From date YYYY-MM or YYYY-MM-DD')).toHaveDisplayValue('2019-02-04');
-      expect(view.getByLabelText('Until date YYYY-MM or YYYY-MM-DD')).toHaveDisplayValue('2020-04-18');
+      // Editing a Home saved with exact days keeps those days until the owner changes the field (home-setup.md).
+      expect(view.getByRole('button', { name: 'From · Feb 2019' })).toBeOnTheScreen();
+      expect(view.getByRole('button', { name: 'Until · Apr 2020' })).toBeOnTheScreen();
       await fireEvent.press(view.getByRole('button', { name: 'Save Home base' }));
       expect(await view.findByText(/Couldn't verify your Home setup/)).toBeOnTheScreen();
       expect(rebuild).not.toHaveBeenCalled();
@@ -132,6 +133,60 @@ describe('private record settings', () => {
     await waitFor(() => expect(view.getByText('Unnamed home base')).toBeOnTheScreen());
     expect(view.getByText(/Within 50 km/)).toBeOnTheScreen();
     expect(view.getByRole('button', { name: 'Rename unnamed Home base' })).toBeOnTheScreen();
+  });
+
+  it('refuses to remove the last Home base (H-4) without calling the repository', async () => {
+    const deleteConfiguredHomeArea = jest.fn(async () => {});
+    const repository: ImportRepository = { ...namedHomeRepository(), deleteConfiguredHomeArea };
+    const view = await render(<PhotoAccessProvider adapter={adapter} repository={repository}><PrivacySettingsScreen /></PhotoAccessProvider>);
+    await fireEvent.press(view.getByRole('button', { name: 'Home bases' }));
+    await fireEvent.press(await view.findByRole('button', { name: 'Remove unnamed Home base' }));
+    expect(await view.findByText(/Add another Home base before removing this one/)).toBeOnTheScreen();
+    expect(view.queryByRole('button', { name: 'Confirm remove Home base' })).toBeNull();
+    expect(deleteConfiguredHomeArea).not.toHaveBeenCalled();
+  });
+
+  it('refuses to remove the last Home base even when called directly, bypassing the Settings UI gate', async () => {
+    const deleteConfiguredHomeArea = jest.fn(async () => {});
+    const repository: ImportRepository = { ...namedHomeRepository(), deleteConfiguredHomeArea };
+    let access!: ReturnType<typeof usePhotoAccess>;
+    const Harness = () => { const value = usePhotoAccess(); useEffect(() => { access = value; }, [value]); return null; };
+    await render(<PhotoAccessProvider adapter={adapter} repository={repository}><Harness /></PhotoAccessProvider>);
+    await waitFor(() => expect(access.homeBases).toHaveLength(1));
+
+    await expect(access.removeConfiguredHomeArea('legacy-home')).rejects.toThrow('At least one Home base is required.');
+
+    expect(deleteConfiguredHomeArea).not.toHaveBeenCalled();
+  });
+
+  it('removes a Home base once another one exists', async () => {
+    let areas: ConfiguredHomeArea[] = [
+      { id: 'home-a', label: 'Home A', origin: 'manual-pin', latitude: 10.2, longitude: 105.7, effectiveStartDay: null, effectiveEndDay: null, radiusMeters: 20_000 },
+      { id: 'home-b', label: 'Home B', origin: 'manual-pin', latitude: 11.2, longitude: 106.7, effectiveStartDay: null, effectiveEndDay: null, radiusMeters: 20_000 },
+    ];
+    const graph = { ruleVersion: 'reconstruction-v1' as const, places: [], visits: [], journeys: [], possibleMerges: [], dispositions: [], memberships: [] };
+    const repository: ImportRepository = {
+      ...lifecycleRepository(),
+      loadConfiguredHomeAreas: async () => areas,
+      deleteConfiguredHomeArea: jest.fn(async (id: string) => { areas = areas.filter((area) => area.id !== id); }),
+    };
+    const reconstructionRepository = {
+      loadDurableReveal: async () => ({ journeys: [] }),
+      loadJourneyDetail: async () => ({ detail: null as never, previewSourceRefs: [], snapshotToken: 1 }),
+      loadJourneyMediaPage: async () => ({ items: [], previewSourceRefs: [], hasMore: false }),
+      loadUncertainMemories: async () => ({ memories: [], hasMore: false }),
+      saveJourneyCorrection: async () => ({ revisionId: 'review', state: 'confirmed' as const, graph }),
+      saveJourneyMemoryCorrection: async () => ({ revisionId: 'memory', graph }),
+      discardJourneyCorrectionPending: async () => ({ graph }), markJourneyCorrectionPending: async () => {},
+      saveConfiguredHomeAreaFromJourney: async () => {}, rebuild: async () => graph, reconcileQueued: async () => ({ graph, newJourneyCount: 0, updatedJourneyCount: 0 }),
+    };
+    const view = await render(<PhotoAccessProvider adapter={adapter} repository={repository} reconstructionRepository={reconstructionRepository}><PrivacySettingsScreen /></PhotoAccessProvider>);
+    await fireEvent.press(view.getByRole('button', { name: 'Home bases' }));
+    await fireEvent.press(await view.findByRole('button', { name: 'Remove Home A' }));
+    await fireEvent.press(view.getByRole('button', { name: 'Confirm remove Home base' }));
+    expect(await view.findByText(/Home base removed/)).toBeOnTheScreen();
+    expect(view.queryByText('Home A')).toBeNull();
+    expect(view.getByText('Home B')).toBeOnTheScreen();
   });
 
   it('requires reviewing a journey and selecting its observed area before saving a home base', async () => {

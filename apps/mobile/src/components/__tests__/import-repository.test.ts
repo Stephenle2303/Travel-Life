@@ -190,6 +190,7 @@ describe('native import SQLite repository', () => {
     const statements = mockExecAsync.mock.calls.flat().join('\n');
     expect(statements).toContain('DELETE FROM correction_markers');
     expect(statements).toContain('DELETE FROM reconstruction_trip_qualification');
+    expect(statements).toContain('DELETE FROM travel_clue');
     expect(statements).toContain('DELETE FROM correction_overlays');
     expect(statements).toContain('DELETE FROM journey_correction_revision');
     expect(statements).toContain('DELETE FROM journey_correction_candidate');
@@ -334,4 +335,51 @@ describe('native import SQLite repository', () => {
 
     expect(mockExecAsync).toHaveBeenCalledWith('ROLLBACK');
   });
+
+  it('saves, loads and updates a clue record (M11.1 persistence)', async () => {
+    const repository = createNativeImportRepository();
+    const clue = {
+      clueId: 'clue-1', kind: 'photo-source' as const, subject: { evidenceKeys: ['E:photo-1'] }, value: { source: 'screenshot' as const },
+      strength: 'strong' as const, independenceKey: 'producer-a', producerId: 'photo-source-v1', producerVersion: 'v1',
+      inputsRevision: { evidenceRevision: 3, homeRevision: 1, correctionRevision: 0 }, state: 'active' as const, createdAtMillis: 1_700_000_000_000,
+    };
+    await repository.saveClues!([clue]);
+    expect(mockRunAsync).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO travel_clue'),
+      'clue-1', 'photo-source', JSON.stringify(clue.subject), JSON.stringify(clue.value), 'strong', 'producer-a',
+      'photo-source-v1', 'v1', 3, 1, 0, 'active', 1_700_000_000_000);
+
+    mockGetAllAsync.mockImplementation(async (sql: string) => sql.includes('FROM travel_clue') ? [{
+      clue_id: 'clue-1', kind: 'photo-source', subject_json: JSON.stringify(clue.subject), value_json: JSON.stringify(clue.value),
+      strength: 'strong', independence_key: 'producer-a', producer_id: 'photo-source-v1', producer_version: 'v1',
+      evidence_revision: 3, home_revision: 1, correction_revision: 0, state: 'active', created_at_millis: 1_700_000_000_000,
+    }] : []);
+    await expect(repository.loadClues!()).resolves.toEqual([clue]);
+
+    await repository.updateClueStates!([{ clueId: 'clue-1', state: 'retracted' }]);
+    expect(mockRunAsync).toHaveBeenCalledWith('UPDATE travel_clue SET state = ? WHERE clue_id = ?', 'retracted', 'clue-1');
+  });
+
+  it('skips a malformed clue row instead of throwing out of the whole load', async () => {
+    const repository = createNativeImportRepository();
+    mockGetAllAsync.mockImplementation(async (sql: string) => sql.includes('FROM travel_clue') ? [
+      { clue_id: 'bad', kind: 'photo-source', subject_json: 'not valid json', value_json: '{"source":"screenshot"}',
+        strength: 'strong', independence_key: 'p', producer_id: 'p', producer_version: 'v1',
+        evidence_revision: 0, home_revision: 0, correction_revision: 0, state: 'active', created_at_millis: 0 },
+      { clue_id: 'good', kind: 'photo-source', subject_json: '{"evidenceKeys":["E:x"]}', value_json: '{"source":"screenshot"}',
+        strength: 'strong', independence_key: 'p', producer_id: 'p', producer_version: 'v1',
+        evidence_revision: 0, home_revision: 0, correction_revision: 0, state: 'active', created_at_millis: 0 },
+    ] : []);
+
+    const clues = await repository.loadClues!();
+
+    expect(clues).toHaveLength(1);
+    expect(clues[0].clueId).toBe('good');
+  });
+
+  it('refuses to save a skipped Home setup with no areas (H-4: nothing learns Home)', async () => {
+    const repository = createNativeImportRepository();
+    await expect(repository.saveHomeSetup!('command-1', [])).rejects.toThrow('At least one Home base is required.');
+    expect(mockRunAsync).not.toHaveBeenCalledWith(expect.stringContaining('INSERT INTO home_setup_receipt'), expect.anything(), expect.anything(), expect.anything());
+  });
+
 });

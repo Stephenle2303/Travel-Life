@@ -74,14 +74,21 @@ export class PhotoAccessController {
   /** Lets Atlas wait for an owner-initiated local metadata write before rebuilding. */
   whenImportIdle() { return this.importTransition; }
 
+  /** No learned Home exists (decision 0021, H-4): required whenever the owner has not
+   * configured a single real Home area, regardless of a stale pre-H-4 "skipped" receipt. */
   async requiresHomeSetup(entry?: Awaited<ReturnType<PhotoAccessController['resolveEntry']>>, correlationId = createDiagnosticCorrelationId()) {
     if (!this.repository.loadHomeSetup || this.isAccountRecord) return false;
     if ((entry ?? await this.resolveEntry(correlationId)) === 'atlas') return false;
-    try { return (await this.repository.loadHomeSetup()) === null; }
+    try { return await this.hasNoConfiguredHomeArea(); }
     catch (error) {
       recordAppDiagnostic({ operation: 'ONBOARDING_ENTRY', stage: 'HOME_SETUP_READ', reasonCode: classifyAppDiagnosticError(error), retryable: true, durableOutcome: 'unchanged', correlationId });
       throw new Error("Couldn't check your Home setup.");
     }
+  }
+
+  private async hasNoConfiguredHomeArea() {
+    if (this.repository.loadConfiguredHomeAreas) return (await this.repository.loadConfiguredHomeAreas()).length === 0;
+    return (await this.repository.loadHomeSetup!()) === null;
   }
 
   async saveInitialHomes(command: string, areas: readonly ConfiguredHomeArea[]) {
@@ -111,6 +118,7 @@ export class PhotoAccessController {
       const intent = await this.repository.loadPreparationIntent?.();
       const established = await this.repository.hasEstablishedHistory?.();
       if (marker?.disposition === 'atlas' || this.isAccountRecord || established || intent || checkpoints.some(Boolean) || lifecycle.state !== 'connected') {
+        if (!this.isAccountRecord && this.repository.loadHomeSetup && await this.hasNoConfiguredHomeArea()) return 'access';
         await savePresentation('atlas', undefined, correlationId);
         return 'atlas';
       }

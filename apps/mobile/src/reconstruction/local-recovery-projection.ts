@@ -1,7 +1,8 @@
 import { recoveryTripPolicy, type CandidateTrip, type CandidateTripProjection } from './candidate-projection';
 import { applyStructuralBoundaries } from './canonical-core';
 import type { projectCanonicalHistory } from './canonical-projection';
-import { qualifyGraphJourneyV12 } from './outcome-v1-2';
+import { qualifyGraphJourneyWithClues } from '../clues/consumption';
+import type { ClueRecord } from '../clues/types';
 import type { JourneyDraft, JourneyMembership, ReconstructionGraph, TripDetectorEvidence } from './types';
 
 export const LOCAL_RECOVERY_PROJECTION_VERSION = 'atlas-recovery-local-v1';
@@ -15,10 +16,14 @@ type LocalRecoveryInput = {
   mediaByEvidence: Map<string, 'image' | 'video'>;
   protectedJourneyIds: ReadonlySet<string>;
   withheldEvidence: ReadonlySet<string>;
+  /** CAP-2/M11.1 (found by the 2026-11-20 code review): defaults to zero
+   * clues, so a caller that never passes these keeps today's exact behavior. */
+  clues?: readonly ClueRecord[];
+  correctedKeys?: ReadonlySet<string>;
 };
 
 /** In-memory Local experiment. Its caller owns source, generation and Replay authority. */
-export function projectLocalRecoveryGraph({ baseline, candidate, mediaByEvidence, protectedJourneyIds, withheldEvidence }: LocalRecoveryInput) {
+export function projectLocalRecoveryGraph({ baseline, candidate, mediaByEvidence, protectedJourneyIds, withheldEvidence, clues = [], correctedKeys = new Set() }: LocalRecoveryInput) {
   const { graph } = baseline;
   const pairs: LocalRecoveryPair[] = [];
   const result = { policyVersion: LOCAL_RECOVERY_PROJECTION_VERSION, graph, pairs };
@@ -55,9 +60,9 @@ export function projectLocalRecoveryGraph({ baseline, candidate, mediaByEvidence
     return { journey, visitIds, support, families };
   };
   // v1.2 (decision 0021): agree with the Atlas surface on "reliable", not
-  // the retired v1.1 score/learned-base path.
+  // the retired v1.1 score/learned-base path. Clue-aware (CAP-2/M11.1).
   const confirmed = (source: ReconstructionGraph, id: string) =>
-    qualifyGraphJourneyV12(source, id, baseline.evidence, mediaByEvidence, baseline.homeAreas).classification === 'AUTO_CONFIRMED';
+    qualifyGraphJourneyWithClues(source, id, baseline.evidence, mediaByEvidence, baseline.homeAreas, clues, correctedKeys).classification === 'AUTO_CONFIRMED';
   const replacements = new Map<string, { journeys: JourneyDraft[]; leftSupport: ReadonlySet<string> }>();
 
   for (const pair of candidate.mergeSuggestions) {

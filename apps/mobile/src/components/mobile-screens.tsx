@@ -1,6 +1,6 @@
 import { JourneyPrivacyManager } from './journey-privacy';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, BackHandler, Keyboard, Linking, TextInput, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, BackHandler, Keyboard, Linking, ScrollView, TextInput, View, useWindowDimensions } from 'react-native';
 import { readPresentation, savePresentation } from '@/onboarding/presentation';
 import { classifyAppDiagnosticError, createDiagnosticCorrelationId, recordAppDiagnostic } from '@/diagnostics/app-diagnostics';
 import { useRouter } from 'expo-router';
@@ -15,6 +15,7 @@ import { AtlasActionButton, AtlasReveal } from '@/components/atlas-reveal';
 import { RecognizableAtlasExperience } from '@/components/recognizable-atlas-experience';
 import { VisualDiscoverySetting, VisualPlaceRecovery } from '@/components/visual-place-recovery';
 import { TravelWindowRecovery } from '@/components/travel-window-recovery';
+import { PossibleTripsV12Section } from '@/components/possible-trips-v12';
 import { usePhotoAccess } from '@/photo-access/provider';
 import { projectReveal } from '@/reveal/projection';
 import { consumeAtlasPreviewContext, saveAtlasPreviewContext } from '@/atlas/preview-context';
@@ -83,6 +84,53 @@ function homeDate(value: string, end: boolean) {
 
 type SavedHomeSetup = { id: string; label: string | null; radiusMeters: number; effectiveStartDay: string | null; effectiveEndDay: string | null };
 
+const HOME_MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function monthYearLabel(day: string) {
+  const match = /^(\d{4})-(\d{2})-\d{2}$/.exec(day);
+  return match ? `${HOME_MONTH_NAMES[Number(match[2]) - 1]} ${match[1]}` : day;
+}
+
+/** Decision 0021 (H-2): no start/end is Forever; a dated Home shows only the saved month and year. */
+export function homePeriodLabel(startDay: string | null, endDay: string | null) {
+  if (!startDay && !endDay) return 'Forever';
+  if (startDay && !endDay) return `From ${monthYearLabel(startDay)}`;
+  if (!startDay && endDay) return `Until ${monthYearLabel(endDay)}`;
+  return `${monthYearLabel(startDay!)} – ${monthYearLabel(endDay!)}`;
+}
+
+/** Month/year picker (year list, then a 12-month grid); no typed date format (home-setup.md). */
+function MonthYearField({ label, clearLabel, resolvedDay, onPick, onClear }: {
+  label: string; clearLabel: string; resolvedDay: string | null;
+  onPick: (monthValue: string) => void; onClear: () => void;
+}) {
+  const [stage, setStage] = useState<'closed' | 'year' | 'month'>('closed');
+  const [year, setYear] = useState<number | null>(null);
+  if (stage === 'year') {
+    const thisYear = new Date().getUTCFullYear();
+    const years = Array.from({ length: 101 }, (_, index) => thisYear - index);
+    return <InsetPanel>
+      <Body>{label}</Body>
+      <ActionButton variant="secondary" onPress={() => { onClear(); setStage('closed'); }}>{clearLabel}</ActionButton>
+      <ScrollView style={{ maxHeight: 260 }}><View style={{ gap: 8 }}>
+        {years.map((candidate) => <ActionButton key={candidate} variant="secondary" onPress={() => { setYear(candidate); setStage('month'); }}>{candidate}</ActionButton>)}
+      </View></ScrollView>
+      <ActionButton variant="secondary" onPress={() => setStage('closed')}>Cancel</ActionButton>
+    </InsetPanel>;
+  }
+  if (stage === 'month' && year !== null) return <InsetPanel>
+    <Body>{label} · {year}</Body>
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+      {HOME_MONTH_NAMES.map((month, index) => <ActionButton key={month} variant="secondary"
+        onPress={() => { onPick(`${year}-${String(index + 1).padStart(2, '0')}`); setStage('closed'); }}>{month}</ActionButton>)}
+    </View>
+    <ActionButton variant="secondary" onPress={() => setStage('year')}>Back to years</ActionButton>
+  </InsetPanel>;
+  return <ActionButton variant="secondary" onPress={() => { setYear(null); setStage('year'); }}>
+    {label} · {resolvedDay ? monthYearLabel(resolvedDay) : clearLabel}
+  </ActionButton>;
+}
+
 function InitialHomeSetup({ save, settings, existing }: {
   save(command: string, areas: readonly ConfiguredHomeArea[]): Promise<void>;
   settings?: () => void;
@@ -93,20 +141,18 @@ function InitialHomeSetup({ save, settings, existing }: {
   const [editing, setEditing] = useState(true);
   const [query, setQuery] = useState(existing?.label ?? '');
   const [place, setPlace] = useState<HomeSearchPlace | null>(null);
-  const [period, setPeriod] = useState<'all' | 'dates' | null>(existing
-    ? existing.effectiveStartDay || existing.effectiveEndDay ? 'dates' : 'all' : null);
+  // H-2: the period defaults to Forever — the owner can save after only picking a place.
+  const [period, setPeriod] = useState<'all' | 'dates'>(existing?.effectiveStartDay || existing?.effectiveEndDay ? 'dates' : 'all');
   const [from, setFrom] = useState(existing?.effectiveStartDay ?? '');
   const [until, setUntil] = useState(existing?.effectiveEndDay ?? '');
-  const [discard, setDiscard] = useState(false);
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
   const command = useRef<{ key: string; areas: readonly ConfiguredHomeArea[] } | null>(null);
   const inFlight = useRef(false);
-  const start = homeDate(from.trim(), false);
-  const end = homeDate(until.trim(), true);
-  const validDates = period === 'all' || (period === 'dates' && Boolean(start || end)
-    && (!from.trim() || start !== null) && (!until.trim() || end !== null) && (!start || !end || start <= end));
+  const start = from ? homeDate(from, false) : null;
+  const end = until ? homeDate(until, true) : null;
+  const validDates = period === 'all' || !start || !end || start <= end;
   const search = useMemo(() => {
     try { return { places: place || !editing ? [] : searchHomePlaces(query), failure: null }; }
     catch (error) { return { places: [], failure: error instanceof HomePlaceIndexError ? 'SCHEMA' as const : classifyAppDiagnosticError(error) }; }
@@ -129,21 +175,19 @@ function InitialHomeSetup({ save, settings, existing }: {
       ? error.message : "Couldn't verify your Home setup. Check again."); }
     finally { inFlight.current = false; setPending(false); }
   };
-  const reset = () => { setEditing(false); setQuery(''); setPlace(null); setFrom(''); setUntil(''); setPeriod(null); };
-  const field = (name: string, value: string, onChangeText: (value: string) => void) => (
-    <TextInput accessibilityLabel={name} placeholder={name} placeholderTextColor="#B4C6B5" value={value}
-      onChangeText={onChangeText} style={{ color: '#F3EEDD', borderColor: '#B4C6B5', borderWidth: 1, borderRadius: 10, padding: 10 }} />
-  );
+  const reset = () => { setEditing(false); setQuery(''); setPlace(null); setFrom(''); setUntil(''); setPeriod('all'); };
   return <Screen>
     <Title>{settings ? (existing ? 'Edit Home base' : 'Add Home base') : 'Where do you live?'}</Title>
     <Body>Photos taken near your Home bases are left out of automatic trips. Your photos stay in your library.</Body>
     <Body>Home bases selected here apply to Local history on this device.</Body>
+    {!settings && <Body>Add at least one Home base to continue. Nothing here is learned automatically.</Body>}
     {areas.map((area) => <InsetPanel key={area.id}><Body>{area.label} · Within {Math.round(area.radiusMeters / 1_000)} km</Body>
-      <Body>{area.effectiveStartDay || area.effectiveEndDay ? `${area.effectiveStartDay ?? 'Any start'} to ${area.effectiveEndDay ?? 'Present and later'}` : 'All available history'}</Body>
+      <Body>{homePeriodLabel(area.effectiveStartDay, area.effectiveEndDay)}</Body>
       {!submitted && <ActionButton variant="secondary" onPress={() => setAreas((current) => current.filter((candidate) => candidate.id !== area.id))}>Remove {area.label}</ActionButton>}
     </InsetPanel>)}
     {editing && !submitted && <InsetPanel>
-      {field('Search for a city, province, district, ward or commune', query, (value) => { setQuery(value); setPlace(null); })}
+      <TextInput accessibilityLabel="Search for a city, province, district, ward or commune" placeholder="Search for a city, province, district, ward or commune" placeholderTextColor="#B4C6B5" value={query}
+        onChangeText={(value) => { setQuery(value); setPlace(null); }} style={{ color: '#F3EEDD', borderColor: '#B4C6B5', borderWidth: 1, borderRadius: 10, padding: 10 }} />
       {search.failure ? <Body>Offline place search is unavailable.</Body>
         : !place && query.trim().length >= 2 && !search.places.length ? <Body>No offline matches. Try a nearby city or include the province.</Body> : null}
       {search.places.map((result) => <ActionButton key={result.id} variant="secondary"
@@ -153,9 +197,13 @@ function InitialHomeSetup({ save, settings, existing }: {
       {place && <>
         <Body>{place.name} · {place.level} · {place.context}</Body>
         <Body>Photos within {Math.round(radiusMeters / 1_000)} km of the selected place point will count as near Home during this period.</Body>
-        <ActionButton variant={period === 'all' ? 'primary' : 'secondary'} onPress={() => setPeriod('all')}>All available history</ActionButton>
+        <ActionButton variant={period === 'all' ? 'primary' : 'secondary'} onPress={() => setPeriod('all')}>Forever</ActionButton>
         <ActionButton variant={period === 'dates' ? 'primary' : 'secondary'} onPress={() => setPeriod('dates')}>Choose dates</ActionButton>
-        {period === 'dates' && <>{field('From date YYYY-MM or YYYY-MM-DD', from, setFrom)}{field('Until date YYYY-MM or YYYY-MM-DD', until, setUntil)}</>}
+        {period === 'dates' && <>
+          <MonthYearField label="From" clearLabel="Any time" resolvedDay={start} onPick={setFrom} onClear={() => setFrom('')} />
+          <MonthYearField label="Until" clearLabel="Now" resolvedDay={end} onPick={setUntil} onClear={() => setUntil('')} />
+          {!validDates && <Body>Until must be on or after From.</Body>}
+        </>}
         <ActionButton disabled={!validDates} onPress={() => {
           if (!validDates) return;
           const area: ConfiguredHomeArea = { id: existing?.id ?? randomUUID(), label: place.name, origin: 'manual-pin',
@@ -170,12 +218,8 @@ function InitialHomeSetup({ save, settings, existing }: {
     </InsetPanel>}
     {!editing && !submitted && <ActionButton variant={areas.length ? 'secondary' : 'primary'} onPress={() => setEditing(true)}>Add Home base</ActionButton>}
     {!editing && !submitted && areas.length > 0 && <ActionButton onPress={() => void submit(areas)}>Continue</ActionButton>}
-    {!settings && !submitted && <ActionButton variant="secondary" onPress={() => areas.length || query.trim() ? setDiscard(true) : void submit([])}>Skip for now</ActionButton>}
-    {discard && !submitted && <InsetPanel><Body>Discard your unsaved Home bases and skip?</Body>
-      <ActionButton onPress={() => void submit([])}>Discard and skip</ActionButton>
-      <ActionButton variant="secondary" onPress={() => setDiscard(false)}>Keep editing</ActionButton></InsetPanel>}
     {pending && <Body>Saving your Home setup…</Body>}
-    {message && <><Body>{message}</Body><ActionButton disabled={pending} onPress={() => void submit([])}>Check again</ActionButton>
+    {message && <><Body>{message}</Body><ActionButton disabled={pending} onPress={() => void submit(areas)}>Check again</ActionButton>
       {settings && <ActionButton variant="secondary" onPress={settings}>Back</ActionButton>}</>}
   </Screen>;
 }
@@ -241,7 +285,7 @@ export function ImportScreen() {
 
 export function EmptyAtlasScreen() {
   const router = useRouter();
-  const { snapshot, controller, importCoverage, maintenance, maintenanceController, reconciliation, catchUpHistory, reconstruction, retryJourneyCorrectionProjection, visualDiscovery, travelWindowDiscovery, durableReveal, loadJourneyDetail, loadJourneyMediaPage, inspectJourneyMedia, confirmTimelineMerge, privateRecord, privateRecordController } = usePhotoAccess();
+  const { snapshot, controller, importCoverage, maintenance, maintenanceController, reconciliation, catchUpHistory, reconstruction, retryJourneyCorrectionProjection, visualDiscovery, travelWindowDiscovery, durableReveal, loadJourneyDetail, loadJourneyMediaPage, inspectJourneyMedia, confirmTimelineMerge, privateRecord, privateRecordController, loadPossibleTrips } = usePhotoAccess();
   const AtlasContent = isRecognizableRevealEnabled() ? RecognizableAtlasExperience : AtlasReveal;
   const [initialAtlasContext] = useState(() => consumeAtlasPreviewContext(controller));
   const exploration = useRef<AtlasExploration | null>(initialAtlasContext);
@@ -260,6 +304,14 @@ export function EmptyAtlasScreen() {
   const [openingAccount, setOpeningAccount] = useState(false);
   const [accountSourceError, setAccountSourceError] = useState(false);
   const manualRecoveryRequest = useRef(0);
+  // CAP-3 (detector-v1-2.md): reloads whenever the completed rebuild changes,
+  // same lifecycle as the rest of this screen's reveal data.
+  const [possibleTrips, setPossibleTrips] = useState<import('@/reconstruction/types').PossibleTripSummary[]>([]);
+  useEffect(() => {
+    let active = true;
+    void loadPossibleTrips().then((result) => { if (active) setPossibleTrips(result); }).catch(() => { if (active) setPossibleTrips([]); });
+    return () => { active = false; };
+  }, [durableReveal, loadPossibleTrips]);
   const reveal = projectReveal({
     graph: reconstruction.graph,
     durableRecord: durableReveal,
@@ -351,6 +403,9 @@ export function EmptyAtlasScreen() {
           saveExploration(context);
           router.push({ pathname: '/journey/[id]/edit' as never, params: { id, fromAtlas: '1' } });
         }}
+        possibleTrips={<PossibleTripsV12Section trips={possibleTrips}
+          onReviewOuting={(id) => { if (exploration.current) saveExploration(exploration.current); router.push({ pathname: '/journey/[id]/edit' as never, params: { id, fromAtlas: '1' } }); }}
+          onSetHome={() => { if (exploration.current) saveExploration(exploration.current); openRoute(router, appRoutes.settings); }} />}
       />
       <UpdatesInvitation eligible={controller.preparation === 'complete' && controller.preparationScope !== 'selected' && controller.preparationScope !== null && !maintenance.enabled} enable={() => maintenanceController.setEnabled(true)} />
       {manualEntryRecovery && <InsetPanel>
@@ -509,11 +564,11 @@ export function PrivacySettingsScreen() {
             <ActionButton accessibilityLabel="Cancel Home base rename" onPress={() => { setEditingHomeId(null); setHomeLabel(''); }} variant="secondary">Cancel</ActionButton>
           </> : <>
             <Title>{home.label ?? 'Unnamed home base'}</Title>
-            <Body>{home.effectiveStartDay || home.effectiveEndDay ? `Active ${home.effectiveStartDay ?? 'from earliest available'} to ${home.effectiveEndDay ?? 'ongoing'}` : 'All available history'} · Within {Math.round(home.radiusMeters / 1_000)} km</Body>
+            <Body>{homePeriodLabel(home.effectiveStartDay, home.effectiveEndDay)} · Within {Math.round(home.radiusMeters / 1_000)} km</Body>
             {home.origin === 'legacy' && <Body>This existing Home base has no saved name. You can name it without changing its area.</Body>}
             {saveDirectHome && !controller.isAccountRecord && <ActionButton accessibilityLabel={`Edit area for ${home.label ?? 'unnamed Home base'}`}
               variant="secondary" onPress={() => setDirectHome({ existing: home })}>Edit area and dates</ActionButton>}
-            {pendingHomeRemoval === home.id ? <><Body>Remove this Home base? Original photos and your private history remain.</Body><ActionButton accessibilityLabel="Confirm remove Home base" onPress={() => void confirmHomeRemoval(home.id)} disabled={savingHome}>Remove Home base</ActionButton><ActionButton accessibilityLabel="Cancel remove Home base" onPress={() => setPendingHomeRemoval(null)} variant="secondary">Cancel</ActionButton></> : <View style={{ flexDirection: 'row', gap: 8 }}><ActionButton accessibilityLabel={`Rename ${home.label ?? 'unnamed Home base'}`} onPress={() => { setEditingHomeId(home.id); setHomeLabel(home.label ?? ''); }} variant="secondary">Rename</ActionButton><ActionButton accessibilityLabel={`Remove ${home.label ?? 'unnamed Home base'}`} onPress={() => setPendingHomeRemoval(home.id)} variant="secondary">Remove</ActionButton></View>}
+            {pendingHomeRemoval === home.id ? <><Body>Remove this Home base? Original photos and your private history remain.</Body><ActionButton accessibilityLabel="Confirm remove Home base" onPress={() => void confirmHomeRemoval(home.id)} disabled={savingHome}>Remove Home base</ActionButton><ActionButton accessibilityLabel="Cancel remove Home base" onPress={() => setPendingHomeRemoval(null)} variant="secondary">Cancel</ActionButton></> : <View style={{ flexDirection: 'row', gap: 8 }}><ActionButton accessibilityLabel={`Rename ${home.label ?? 'unnamed Home base'}`} onPress={() => { setEditingHomeId(home.id); setHomeLabel(home.label ?? ''); }} variant="secondary">Rename</ActionButton><ActionButton accessibilityLabel={`Remove ${home.label ?? 'unnamed Home base'}`} onPress={() => homeBases.length > 1 ? setPendingHomeRemoval(home.id) : setHomeMessage('Add another Home base before removing this one. At least one is required.')} variant="secondary">Remove</ActionButton></View>}
           </>}
         </InsetPanel>)}
         {(durableReveal?.journeys ?? []).filter((journey) => journey.anchor !== null && journey.state !== 'owner-entered').map((journey) => <ActionButton key={journey.displayId} accessibilityLabel={`Review ${journey.label ?? journey.periodLabel} for a home base`} onPress={() => void chooseHomeJourney(journey.displayId)} variant={selectedHome === journey.displayId ? 'primary' : 'secondary'}>{journey.label ?? 'Private journey'} · {journey.periodLabel}</ActionButton>)}

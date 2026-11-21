@@ -1,5 +1,102 @@
 # Error and improvement playbook
 
+## CAP-3's Possible-trips card: SQL NULL undercounted located photos to 0 (2026-11-21)
+
+Building `loadPossibleTrips()`'s informational `locatedCount` (the
+`few-photos` sentence's {n}), the first-draft SQL filtered support evidence
+with `canonical.source_origin NOT IN ('screenshot', 'download', 'unknown',
+'messaging')` to mirror `outcome-v1-2.ts`'s own `NON_CAPTURE_ORIGINS`
+exclusion. In SQLite (and standard SQL generally), `NOT IN` evaluates to
+`NULL` (not true) when the compared column is `NULL`, silently excluding
+every row with no `source_origin` set — the common case for synthetic
+fixtures and for photos imported before provenance tracking existed. Every
+such journey's `locatedCount` came back `0` regardless of how many photos
+actually had a location, even though `outcome-v1-2.ts`'s own JS-side check
+(`!NON_CAPTURE_ORIGINS.has(item.sourceOrigin ?? '')`) correctly treats a
+null `sourceOrigin` as own-capture (own-capture is the default, not the
+exception). Caught by a same-task SQLite regression test
+(`scripts/atlas-sqlite.test.cjs`, "loadPossibleTrips lists a SUGGESTED
+journey...") before this was declared done, not by a later report. Fixed:
+`AND (canonical.source_origin IS NULL OR canonical.source_origin NOT IN
+(...))`, matching the JS side's null-is-own-capture default exactly.
+Verified: the regression now asserts `locatedCount: 2` for two null-origin
+photos (previously silently read `0`); full mobile `npm run check` and
+`npx tsc --noEmit` clean. Prevention: any new SQL predicate that re-expresses
+an existing JS boolean check (here, `ownCapture`) must be checked against
+SQL's three-valued (true/false/unknown) logic for every nullable column it
+touches, not just translated expecting two-valued semantics — `NOT IN`,
+`<>` and `=` against a nullable column all silently exclude NULL rows
+unless given an explicit `IS NULL` branch.
+
+## M10.6/M11.1 code review: 8 bugs fixed, 2 documented as known gaps (2026-11-20)
+
+A `/code-review high` pass (8 finder angles, 1-vote verify, run before declaring
+M10.5/M10.6/M11.1 done) found 10 issues. Fixed in the same task: `candidate-
+projection.ts`'s `usable()` was missing the same `'messaging'` exclusion just
+added to `outcome-v1-2.ts`'s `NON_CAPTURE_ORIGINS`, a live divergence once
+real provenance data exists; the new native EXIF-read boundary in
+`native-adapter.ts` had zero diagnostic instrumentation, violating AGENTS.md's
+"instrument each fallible boundary" rule (added a page-level bucketed
+diagnostic, one per distinct reason, reusing the existing `CAPTURE_METADATA_READ`
+stage and `METADATA_IMPORT` operation rather than inventing new ones);
+`clueFromRow`'s `JSON.parse` was unguarded, inconsistent with the adjacent
+`correctedKeys` code's own defensive try/catch (now returns `null` for a
+malformed row instead of throwing out of the whole rebuild); the rebuild's
+inline `travel_clue` SELECT had no `ORDER BY` while `loadClues()` did (added
+the same order, since `photoSourceBySupportKey`'s "first clue wins" tie-break
+would otherwise depend on SQLite's incidental row order); three native-bridge
+calls in `candidateFromMetadata` ran sequentially when only the final
+combination step needed `location`'s result (parallelized); "keep at least
+one Home" was enforced only in one UI call site, not at `provider.tsx`'s
+shared `removeConfiguredHomeArea` choke point (added there too).
+
+Documented, not fixed (bounded, currently inert — no clue producer exists
+yet): `candidate-projection.ts`/`local-recovery-projection.ts`'s own
+"reliable"/"confirmed" checks still call the clue-blind `qualifyGraphJourneyV12`
+directly while the production rebuild now uses clue-aware
+`qualifyGraphJourneyWithClues`, so once a producer exists these narrower
+checks could disagree with the real Atlas classification on the same journey;
+and the new `correctedKeys` set does raw string matching on `E:`/`F:` keys
+without resolving family-key drift through `resolveReviewedSupportKey`, so a
+stale correction could theoretically fail to match a clue on since-regrouped
+evidence. Both tracked in `_bmad-output/specs/spec-ai-clue-layer/clue-
+contract.md` as CAP-4/5/6 prerequisites. Prevention: when a new consumer reads
+a cross-cutting concept (provenance, correction scope) that the codebase
+already has a canonical, validated resolver for, grep for that resolver
+before writing a second simplified version — this is the same class of
+mistake as the `NON_CAPTURE_ORIGINS` gap below, just one layer removed.
+
+## C-13's "messaging is review-only" was missing from the real engine check (2026-11-20)
+
+Wiring real EXIF/provenance data into import (M10.6) exposed a gap that synthetic
+benchmark fixtures never exercised: `outcome-v1-2.ts`'s `NON_CAPTURE_ORIGINS`
+set only excluded `'screenshot' | 'download' | 'unknown'` from trip support,
+but C-13 (detector-v1-2.md) also requires messaging-sourced photos to be
+review-only, same as unknown. No test or benchmark scenario had ever produced
+a `'messaging'`-origin unit, so the gap was invisible until a real provenance
+value could actually be `'messaging'`. Fixed by adding `'messaging'` to the
+set (one line). Prevention: when wiring a previously-hardcoded/always-default
+field to a real data source, re-check every closed-set rule that field feeds
+against the real value space the new source can produce, not just the values
+existing fixtures happened to cover.
+
+## `jest.mock` factory variable silently undefined at the mocked module's own import time (2026-11-20)
+
+Writing a new test for `native-adapter.ts`'s EXIF wiring (M10.6), a `jest.mock('@/travel-window/native-capture-metadata', () => ({ nativeCaptureMetadataReader: () => mockReadCaptureMetadata }))`
+with a top-level `import { nativePhotoAccess } from '@/photo-access/native-adapter'` produced no thrown
+error, but the module-level `const captureMetadataReader = nativeCaptureMetadataReader();` inside
+`native-adapter.ts` always evaluated to `undefined`, even though calling the same mocked function
+later in the test body (after import) correctly returned the mock. Root cause: Babel hoists `import`
+statements (which become `require()` calls) above the test file's own `const mockReadCaptureMetadata = jest.fn();`,
+so `native-adapter.ts` — and its own module-level call to the mocked `nativeCaptureMetadataReader()` —
+ran before `mockReadCaptureMetadata` was assigned; the factory closure read it as still-undefined.
+`jest.clearAllMocks()`/correct mock registration were red herrings; the bug was purely import-order
+timing invisible from the test's own top-to-bottom reading. Fixed by replacing the top-level `import`
+of the module under test with a plain `const { nativePhotoAccess } = require(...)` statement placed
+after the mock-fn `const`, which Babel does not hoist. Prevention: when a module under test calls a
+mocked dependency eagerly at its own top level (not inside a function), import that module under test
+with `require()` after the mock variables are defined, never with a top-level `import`.
+
 ## Engine review probe tooling and control design (2026-11-19)
 
 During the reconstruction engine review, `npx --no-install tsx` and

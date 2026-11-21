@@ -39,6 +39,15 @@ export type AppDiagnosticReasonCode =
   | 'ACCOUNT_REAUTH' | 'HISTORY_REVIEW'
   | 'HISTORY_SCHEMA' | 'HISTORY_VERSION_UNSUPPORTED' | 'HISTORY_FENCED' | 'HISTORY_CONSENT' | 'HISTORY_CONFLICT' | 'HISTORY_QUOTA' | 'HISTORY_STALE' | 'HISTORY_INCOMPLETE' | 'HISTORY_NETWORK' | 'HISTORY_READ_TIMEOUT' | 'HISTORY_STORAGE'
   | 'ACCOUNT_DISABLED' | 'ACCOUNT_INPUT' | 'ACCOUNT_RATE_LIMIT' | 'ACCOUNT_NETWORK' | 'ACCOUNT_PROVIDER' | 'ACCOUNT_CODE' | 'ACCOUNT_SESSION' | 'ACCOUNT_STORAGE'
+  // trip-detector-v1.2's own closed Possible-trip/hidden reason codes
+  // (detector-v1-2.md), mirrored here so a rebuild's classification mix is
+  // observable without logging any journey content: ATLAS_REBUILD_PROFILE's
+  // REBUILD_QUALIFY_PROFILE stage emits one of these per journey (M10.2's
+  // device-aggregate read counts them by reasonCode within one
+  // correlationId). The same closed set also names the Possible-trip card's
+  // "Set Home" action for `home-not-set`, once that card is built (CAP-7).
+  | 'HOME_NOT_SET' | 'TIME_CONFLICT' | 'NO_LOCATION' | 'WEAK_LOCATION' | 'NEAR_HOME'
+  | 'FREQUENT_PLACE' | 'FEW_PHOTOS' | 'SINGLE_MOMENT' | 'OWNER_VETO' | 'NO_AWAY_EVIDENCE' | 'NON_CAPTURE_SOURCE'
   | 'START'
   | 'COMPLETE'
   | 'ATLAS_UPDATED'
@@ -92,6 +101,10 @@ export type AppDiagnosticEvent = Readonly<{
   reasonCode: AppDiagnosticReasonCode;
   stage: 'QUESTION_OFFER_SAVE' | 'QUESTION_DECISION_COMMIT' | 'MEDIA_ASSOCIATION_CHECK' | 'MEDIA_ORIGINAL_CHECK' | 'MEDIA_SLOT_CHECK' | 'HOME_CONTEXT_READ' | 'HOME_SETUP_READ' | 'HOME_SCOPE' | 'HOME_COMMAND_COMMIT' | 'HOME_COMMAND_READBACK' | 'MAP_STYLE' | 'PREVIEW_LIFECYCLE' | 'PREVIEW_READ' | 'PREVIEW_MEDIA' | 'HISTORY_OPEN_AUTH' | 'HISTORY_OPEN_REPLICA' | 'HISTORY_OPEN_SCOPE' | 'HISTORY_OPEN_PREFERENCE' | 'HISTORY_OPEN_BIND' | 'HISTORY_PULL' | 'HISTORY_REPLICA_STAGE' | 'HISTORY_REBUILD' | 'HISTORY_READ' | 'HISTORY_AUTHORITY' | 'HISTORY_POINTER'
     | 'CANDIDATE_INPUT_READ' | 'CANDIDATE_CLASSIFY' | 'CANDIDATE_PRESENTATION' | 'CANDIDATE_READBACK' | 'HOME_SEARCH_INDEX' | JourneyPreviewStage
+    // CAP-3's real Possible-trips card (detector-v1-2.md), reusing the
+    // existing POSSIBLE_TRIP_REVIEW operation: the dev-preview shadow path's
+    // CANDIDATE_* stages above are untouched.
+    | 'POSSIBLE_TRIPS_LIST_READ' | 'POSSIBLE_TRIP_SET_HOME'
     | 'HINT_ELIGIBILITY' | 'DATE_SEARCH' | 'MEDIA_SCOPE' | 'CONSENT_CHECK' | 'CONSENT_WRITE' | 'RECOGNITION' | 'LANDMARK_MODEL' | 'LANDMARK_MATCH' | 'RESULT_VALIDATE' | 'NANO_STATUS' | 'NANO_DOWNLOAD' | 'NANO_INFERENCE'
     | 'TRAVEL_WINDOW_CACHE_READ' | 'TRAVEL_WINDOW_CACHE_WRITE' | 'TRAVEL_WINDOW_REVIEW'
     | 'PACK_LOAD' | 'PACK_VALIDATE' | 'REGION_ROUTE' | 'CAPTURE_METADATA_READ'

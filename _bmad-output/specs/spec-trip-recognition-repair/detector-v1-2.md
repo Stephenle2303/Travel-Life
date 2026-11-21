@@ -134,33 +134,68 @@ O(journeys × library size) instead of O(library size). See the error
 playbook (2026-11-19) for the full list. One finding was real but not fixed
 this session — see "CAP-7's remaining half" below.
 
-Not yet done:
-- **C-12/C-13/D-7** (original capture day/offset/provenance from EXIF):
-  blocked on the in-flight native capture-metadata work under
-  `travel-window/` (a concurrent session); `outcome-v1-2.ts` already consumes
-  `hasPreciseOffset`/`sourceOrigin` once that import path populates them.
+Status update (2026-11-20), after the concurrent travel-window session's
+work landed:
+
+**Done:**
+- **C-12/C-13 on Android**: `apps/mobile/src/photo-access/native-adapter.ts`'s
+  `candidateFromMetadata` now calls the same native EXIF/offset reader and
+  `toCaptureRecord` mapper travel-window's GPS-less detector uses (one
+  detector, not a second disagreeing EXIF path) — real `hasPreciseOffset`
+  (an `OffsetTimeOriginal`/`Digitized` tag was present) and real `sourceOrigin`
+  (camera/imported/messaging/screenshot/download/unknown from the folder
+  classifier) now flow into every imported photo on Android; iOS/Expo
+  Go/older builds keep today's conservative defaults (`false`/`null`), same
+  as before. `outcome-v1-2.ts` needed no further change to consume them, as
+  predicted — except one real gap the real wiring exposed: `NON_CAPTURE_ORIGINS`
+  was missing `'messaging'`, so a messaging-sourced photo would have counted
+  as full capture-like support, contradicting C-13's "messaging... review-only"
+  (fixed, one line). One asset's unreadable EXIF never blocks its own import
+  or any other asset's (caught, falls back to the conservative defaults).
+  Verified: new `native-photo-adapter-capture-metadata.test.ts` (4 tests:
+  real offset+provenance, screenshot folder, native-read failure, no-date
+  skip), full mobile `npm run check`, benchmark still 54/54.
+- **D-7**: unchanged by design — the civil-day derivation this wiring did not
+  touch already keeps the device-zone fallback the spec asks for.
 - **M10.5's UI** (onboarding "Skip for now" removal, Settings keep-one-Home,
-  the Forever/From/Until period picker in [home-setup.md](home-setup.md)):
-  blocked on the same session's edits to `mobile-screens.tsx`.
+  the Forever/From/Until period picker): done, see
+  [home-setup.md](home-setup.md)'s own implementation-status note.
+
+**Not yet done:**
 - **Diagnostic map** (`delivery-and-diagnostics.md`'s new stages/reasons):
-  blocked on the same session's edits to `app-diagnostics.ts`. Per the
-  diagnostic implementation policy, this makes the runtime delivery
-  incomplete until that file is free and the map lands.
+  `app-diagnostics.ts` is free now, but this still needs its own pass —
+  not started this session.
 - **CAP-7's remaining half** (Possible-trips UI reading `SUGGESTED` instead
-  of the separate shadow policy): see [consolidation.md](consolidation.md).
-  (The narrower "reliable reviewed" checks in `candidate-projection.ts` and
-  `local-recovery-projection.ts` were switched to v1.2 during the code
-  review, closing one specific instance of this disagreement; the primary
-  card-grouping policy itself is unchanged.)
-- **H-3's graph-level half**: `qualifyTripOutcomeV12` correctly excludes a
-  Home-radius photo from the episode's own `supportIds` and every gate, but
-  `reconstruction/repository.ts` discards that filtered list, and the
-  graph's own `visit-support` rows — what `readDestinationLabels` and ~20
-  other queries actually read for a journey's title/cover/album — stay
-  unfiltered. A Home photo grouped into an away episode by V1's unchanged
-  visit linking can therefore still appear in that trip's displayed
-  cover/album even though it is correctly excluded from classification.
-  The real fix belongs at episode-building time (so every consumer of
-  `graph.visits` agrees), not inside one classifier; out of scope for this
-  pass, found and left open by the 2026-11-19 code review.
+  of the separate shadow policy): investigated 2026-11-20 and **deliberately
+  deferred**, not blocked — see [consolidation.md](consolidation.md)'s status
+  note for why replacing it is higher-risk than its real (preview-only)
+  impact justifies right now.
+- **H-3's graph-level half (closed 2026-11-20):** `canonical-projection.ts`
+  already rebuilds an unreviewed journey's visits from Home-filtered
+  evidence (the `travelGraph`/`travelEvidence` pass), but a **protected**
+  (owner-confirmed or corrected) journey's visits are taken verbatim from
+  the graph as it stood before that filter, via `retainProtectedJourneys` —
+  by design, so a reviewed journey's structure doesn't silently change. If
+  the owner then configures a Home covering a photo that was already part
+  of that confirmed visit, the visit's own identity (and, before this fix,
+  every `visit-support` row generated from it) kept including that photo
+  forever, even though `qualifyTripOutcomeV12` correctly excludes it from
+  classification on every later rebuild. Fixed at the one place
+  `visit-support` rows are generated each rebuild
+  (`reconstruction/repository.ts`'s main write loop, fully rewritten every
+  rebuild, never accumulated): an evidence id with `configuredHomeAreaId`
+  set (the exact field the classifier's own exclusion already keys on) is
+  no longer written, for every visit regardless of its journey's protection
+  state. An owner's own explicit manual addition is unaffected (separate
+  `membership:owner:%` link kind). Verified two ways: (1) a direct
+  `reconstructV1` call confirms Home-tagged evidence enters a visit's
+  `evidenceIds` at the base engine level — the underlying gap is real, not
+  hypothetical; (2) a new SQLite regression
+  (`scripts/atlas-sqlite.test.cjs`, "a confirmed journey never writes a
+  later-configured Home photo into visit-support") confirms to fail without
+  the fix (the Home photo appears in `visit-support`) and pass with it.
+  Full mobile `npm run check` (1608 Jest + 129 SQLite) and `npx tsc
+  --noEmit` clean, zero regressions across the correction/replay/
+  visual-place/travel-window suites that depend on `visit-support`'s other
+  (unchanged) semantics.
 - **M10.2** (read-only device count): needs the owner's phone connected.

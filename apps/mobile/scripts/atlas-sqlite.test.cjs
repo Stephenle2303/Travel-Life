@@ -556,6 +556,225 @@ test('initial Home receipt is exact and the first projection excludes matched me
   assert.equal(await repository.hasPendingHomeProjection(), false);
 }));
 
+test('a stored clue can take a journey off the Atlas on rebuild, with no producer involved (decision 0022, M11.1)', async () => withDatabase(async (database) => {
+  const importer = createNativeImportRepository();
+  await importer.saveConfiguredHomeArea({ id: 'clue-wiring-home', label: 'Home', origin: 'manual-pin', latitude: 10, longitude: 100,
+    radiusMeters: 5_000, effectiveStartDay: null, effectiveEndDay: null });
+  const away = [2, 2, 2, 2, 2, 2, 4, 4, 4, 4, 4, 4].map((day, index) => ({
+    assetId: `synthetic-clue-wiring-${index}`, mediaType: 'image',
+    capturedAtMillis: Date.UTC(2025, 0, day, 9 + (index % 6)), capturedDay: `2025-01-0${day}`,
+    hasPreciseOffset: true, modifiedAtMillis: null, locationAvailable: true,
+    latitude: 21.03, longitude: 105.85, reportedAccuracyMeters: 10, availability: 'available',
+  }));
+  await importer.commitPage({ scope: 'full', nextOffset: away.length, scanned: away.length, geotagged: away.length, unavailable: 0, status: 'complete' }, away);
+  const repository = createNativeReconstructionRepository();
+  const classification = () => database.sqlite.prepare(
+    'SELECT q.classification FROM reconstruction_trip_qualification q JOIN reconstruction_run r ON r.run_id = q.run_id ORDER BY r.run_id DESC LIMIT 1',
+  ).get().classification;
+
+  const bare = await repository.rebuild();
+  assert.equal(bare.journeys.length, 1);
+  assert.equal(classification(), 'AUTO_CONFIRMED');
+
+  const now = Date.now();
+  const insertClue = database.sqlite.prepare(`INSERT INTO travel_clue
+    (clue_id, kind, subject_json, value_json, strength, independence_key, producer_id, producer_version, evidence_revision, home_revision, correction_revision, state, created_at_millis)
+    VALUES (?, 'photo-source', ?, '{"source":"screenshot"}', 'strong', ?, 'test-producer', 'v1', 0, 0, 0, 'active', ?)`);
+  for (let index = 0; index < 8; index++) {
+    insertClue.run(`clue-${index}`, JSON.stringify({ evidenceKeys: [`E:synthetic-clue-wiring-${index}`] }), `producer-${index}`, now);
+  }
+
+  await repository.rebuild();
+  assert.notEqual(classification(), 'AUTO_CONFIRMED');
+
+  // Deleting the private record deletes clues (clue-contract.md).
+  assert.equal(database.sqlite.prepare('SELECT COUNT(*) n FROM travel_clue').get().n, 8);
+  await importer.deleteLocalHistory();
+  assert.equal(database.sqlite.prepare('SELECT COUNT(*) n FROM travel_clue').get().n, 0);
+}));
+
+test('a correction keeps protecting its reviewed evidence through family drift (clue-contract.md gap closed 2026-11-20)', async () => withDatabase(async (database) => {
+  const importer = createNativeImportRepository();
+  await importer.saveConfiguredHomeArea({ id: 'drift-home', label: 'Home', origin: 'manual-pin', latitude: 10, longitude: 100,
+    radiusMeters: 5_000, effectiveStartDay: null, effectiveEndDay: null });
+  const away = [2, 2, 2, 4, 4].map((day, index) => ({
+    assetId: `drift-away-${index}`, mediaType: 'image',
+    capturedAtMillis: Date.UTC(2025, 0, day, 9 + index), capturedDay: `2025-01-0${day}`,
+    hasPreciseOffset: true, modifiedAtMillis: null, locationAvailable: true,
+    latitude: 21.03, longitude: 105.85, reportedAccuracyMeters: 10, availability: 'available',
+  }));
+  // A decoy far enough in time from the January episode to never join it
+  // (so it cannot change this journey's own classification on its own),
+  // used only to give 'drift-away-0' a same-family partner at review time.
+  const decoy = { assetId: 'drift-decoy', mediaType: 'image',
+    capturedAtMillis: Date.UTC(2025, 5, 1, 9), capturedDay: '2025-06-01',
+    hasPreciseOffset: true, modifiedAtMillis: null, locationAvailable: true,
+    latitude: 21.03, longitude: 105.85, reportedAccuracyMeters: 10, availability: 'available' };
+  const units = [...away, decoy];
+  await importer.commitPage({ scope: 'full', nextOffset: units.length, scanned: units.length, geotagged: units.length, unavailable: 0, status: 'complete' }, units);
+
+  // At the moment the owner reviews this journey, their away photo and the
+  // decoy are the same verified duplicate family (e.g. the same photo
+  // synced from two sources).
+  database.sqlite.exec(`UPDATE canonical_evidence SET platform_duplicate_family_id = 'drift-family', duplicate_tuple_version = 1, duplicate_tuple_fingerprint = 'drift-fingerprint'
+    WHERE evidence_id IN ('drift-away-0', 'drift-decoy')`);
+
+  const repository = createNativeReconstructionRepository();
+  const classification = () => database.sqlite.prepare(
+    'SELECT q.classification FROM reconstruction_trip_qualification q JOIN reconstruction_run r ON r.run_id = q.run_id ORDER BY r.run_id DESC LIMIT 1',
+  ).get().classification;
+
+  const bare = await repository.rebuild();
+  assert.equal(bare.journeys.length, 1);
+  assert.equal(classification(), 'AUTO_CONFIRMED');
+  const runId = database.sqlite.prepare("SELECT run_id FROM reconstruction_run WHERE status = 'complete' ORDER BY run_id DESC LIMIT 1").get().run_id;
+  const journeyRows = database.sqlite.prepare('SELECT journey_id FROM reconstruction_journey WHERE run_id = ?').all(runId);
+  assert.equal(journeyRows.length, 1);
+  const journeyId = journeyRows[0].journey_id;
+
+  // The owner reviews the journey (a 'place' correction has no other side
+  // effect on grouping) while 'drift-away-0' is still part of 'drift-family';
+  // the saved snapshot records that.
+  database.sqlite.prepare(`INSERT INTO journey_correction_revision
+    (revision_id, action, source_run_id, journey_id, reviewed_support_json, state, created_at_millis, reviewed_family_snapshot_json)
+    VALUES ('drift-correction', 'place', ?, ?, ?, 'effective', ?, ?)`).run(
+    runId, journeyId, JSON.stringify(['F:drift-family']), Date.now(),
+    JSON.stringify({ 'F:drift-family': { memberIds: ['drift-away-0', 'drift-decoy'], tupleVersion: 1, tupleFingerprint: 'drift-fingerprint' } }),
+  );
+
+  // The family dissolves afterward: only the decoy still carries it, so
+  // 'drift-away-0's own current support key reverts to its bare evidence
+  // id, no longer the 'F:drift-family' string the correction named.
+  database.sqlite.exec("UPDATE canonical_evidence SET platform_duplicate_family_id = NULL, duplicate_tuple_version = 0, duplicate_tuple_fingerprint = NULL WHERE evidence_id = 'drift-away-0'");
+
+  database.sqlite.prepare(`INSERT INTO travel_clue
+    (clue_id, kind, subject_json, value_json, strength, independence_key, producer_id, producer_version, evidence_revision, home_revision, correction_revision, state, created_at_millis)
+    VALUES ('drift-clue', 'photo-source', ?, '{"source":"screenshot"}', 'strong', 'drift-producer', 'test-producer', 'v1', 0, 0, 0, 'active', ?)`)
+    .run(JSON.stringify({ evidenceKeys: ['E:drift-away-0'] }), Date.now());
+
+  // Without resolving the correction's family snapshot down to its member
+  // evidence ids, `correctedKeys` would still only hold the stale
+  // 'F:drift-family' string, the clue's current 'E:drift-away-0' key would
+  // not match it, and the clue would wrongly drop the journey below the
+  // 5-independent-unit Atlas threshold despite the owner's own correction.
+  await repository.rebuild();
+  assert.equal(classification(), 'AUTO_CONFIRMED');
+}));
+
+test('a confirmed journey never writes a later-configured Home photo into visit-support (H-3 graph-level half, closed 2026-11-20)', async () => withDatabase(async (database) => {
+  const importer = createNativeImportRepository();
+  await importer.connectPrivateRecord();
+  // One photo at what will become the owner's Home, clustered by raw
+  // coordinates into the SAME place/visit as three nearby away photos —
+  // reconstructV1 has no concept of Home, so it groups them together.
+  const units = [
+    { assetId: 'h3-inhome', mediaType: 'image', capturedAtMillis: Date.UTC(2025, 0, 2, 9), capturedDay: '2025-01-02',
+      hasPreciseOffset: true, modifiedAtMillis: null, locationAvailable: true, latitude: 21.03, longitude: 105.85, reportedAccuracyMeters: 10, availability: 'available' },
+    ...[1, 2, 3].map((i) => ({ assetId: `h3-away-${i}`, mediaType: 'image', capturedAtMillis: Date.UTC(2025, 0, 2, 9 + i), capturedDay: '2025-01-02',
+      hasPreciseOffset: true, modifiedAtMillis: null, locationAvailable: true, latitude: 21.04, longitude: 105.85, reportedAccuracyMeters: 10, availability: 'available' })),
+  ];
+  await importer.commitPage({ scope: 'full', nextOffset: units.length, scanned: units.length, geotagged: units.length, unavailable: 0, status: 'complete' }, units);
+  const repository = createNativeReconstructionRepository();
+  await repository.rebuild();
+  // The owner reviews and confirms this journey (fixture state for the
+  // qualification, same pattern as prepareConfirmedJourney) while it still
+  // has no configured Home at all, so 'h3-inhome' is ordinary support.
+  database.sqlite.exec("UPDATE reconstruction_trip_qualification SET classification = 'USER_CONFIRMED'");
+  const existing = await repository.loadDurableReveal();
+  const selected = await repository.loadJourneyDetail(existing.journeys[0].displayId);
+  await repository.saveJourneyCorrection(existing.journeys[0].displayId, 'confirm', selected.snapshotToken, selected.detail, 'h3-confirm-command', Date.now());
+  // Only now does the owner configure a Home covering exactly that one
+  // photo. A protected (confirmed) journey's visit comes verbatim from the
+  // graph built before this, per `retainProtectedJourneys` — so without
+  // the H-3 write-site filter, 'h3-inhome' would stay in visit-support
+  // forever, even though `qualifyTripOutcomeV12` now correctly excludes it
+  // from classification.
+  await importer.saveConfiguredHomeArea({ id: 'h3-home', label: 'Home', origin: 'manual-pin', latitude: 21.03, longitude: 105.85,
+    radiusMeters: 50, effectiveStartDay: null, effectiveEndDay: null });
+  await repository.rebuild();
+  const runId = database.sqlite.prepare("SELECT run_id FROM reconstruction_run WHERE status = 'complete' ORDER BY run_id DESC LIMIT 1").get().run_id;
+  const support = database.sqlite.prepare("SELECT child_id FROM reconstruction_link WHERE run_id = ? AND link_kind = 'visit-support' ORDER BY child_id").all(runId).map((row) => row.child_id);
+  assert.deepEqual(support, ['h3-away-1', 'h3-away-2', 'h3-away-3']);
+  // The visit's own identity is still the graph `retainProtectedJourneys`
+  // preserved verbatim (it includes 'h3-inhome' in its id), confirming this
+  // exercises the protected-journey path, not a fresh, already-Home-aware one.
+  const visit = database.sqlite.prepare('SELECT visit_id FROM reconstruction_visit WHERE run_id = ?').get(runId);
+  assert.ok(visit.visit_id.includes('h3-inhome'));
+}));
+
+test('loadPossibleTrips lists a SUGGESTED journey with its priority reason and located count (CAP-3)', async () => withDatabase(async (database) => {
+  const importer = createNativeImportRepository();
+  await importer.connectPrivateRecord();
+  await importer.saveConfiguredHomeArea({ id: 'cap3-home', label: 'Home', origin: 'manual-pin', latitude: 21.03, longitude: 105.85,
+    radiusMeters: 20000, effectiveStartDay: null, effectiveEndDay: null });
+  // Two day-only (no precise offset) units on different days and far enough
+  // from Home (~93 km) to be away evidence, but below MIN_PHOTOS_FOR_AUTO (5)
+  // reliable photos — qualifies SUGGESTED with reasons = ['few-photos'] only
+  // (farEnough, corroborated via two distinct day sessions, no Home/time
+  // conflict, not frequent).
+  const units = [1, 2].map((day) => ({ assetId: `cap3-away-${day}`, mediaType: 'image', capturedAtMillis: Date.UTC(2025, 0, day, 9),
+    capturedDay: `2025-01-0${day}`, hasPreciseOffset: false, modifiedAtMillis: null, locationAvailable: true,
+    latitude: 21.03, longitude: 106.85, reportedAccuracyMeters: 10, availability: 'available' }));
+  await importer.commitPage({ scope: 'full', nextOffset: units.length, scanned: units.length, geotagged: units.length, unavailable: 0, status: 'complete' }, units);
+  const repository = createNativeReconstructionRepository();
+  await repository.rebuild();
+  const runId = database.sqlite.prepare("SELECT run_id FROM reconstruction_run WHERE status = 'complete' ORDER BY run_id DESC LIMIT 1").get().run_id;
+  const stored = database.sqlite.prepare('SELECT classification, reasons_json FROM reconstruction_trip_qualification WHERE run_id = ?').get(runId);
+  assert.equal(stored.classification, 'SUGGESTED');
+  assert.deepEqual(JSON.parse(stored.reasons_json), ['few-photos']);
+  const trips = await repository.loadPossibleTrips();
+  assert.equal(trips.length, 1);
+  assert.equal(trips[0].reasonCode, 'few-photos');
+  assert.equal(trips[0].locatedCount, 2);
+  assert.equal(trips[0].periodLabel.includes('2025'), true);
+  // The returned displayId must be usable by the existing journey-detail/
+  // correction path (the "Review outing" action reuses it verbatim).
+  const detail = await repository.loadJourneyDetail(trips[0].displayId);
+  assert.equal(detail.detail.visits.length > 0, true);
+}));
+
+test('loadPossibleTrips reports only its closed diagnostic shape on failure, never the raw error content (CAP-3)', async () => withDatabase(async (database) => {
+  const importer = createNativeImportRepository();
+  await importer.connectPrivateRecord();
+  const repository = createNativeReconstructionRepository();
+  await repository.rebuild();
+  const events = [];
+  const originalInfo = console.info;
+  console.info = (_, event) => events.push(event);
+  const sentinel = 'SYNTHETIC_PRIVATE_SENTINEL';
+  try {
+    database.failOnce(/WITH journey_metadata AS/, new Error(`database is locked: ${sentinel}`));
+    await assert.rejects(repository.loadPossibleTrips());
+    const terminal = events.filter(({ reasonCode }) => reasonCode !== 'START');
+    assert.equal(terminal.length, 1);
+    assert.equal(JSON.stringify(terminal[0]).includes(sentinel), false);
+    assert.equal(terminal[0].stage, 'POSSIBLE_TRIPS_LIST_READ');
+    assert.equal(terminal[0].reasonCode, 'DATABASE_BUSY');
+    assert.equal(terminal[0].durableOutcome, 'failed');
+    assert.equal(terminal[0].retryable, true);
+  } finally { console.info = originalInfo; }
+}));
+
+test('loadPossibleTrips excludes a privacy-hidden Possible trip (CAP-3)', async () => withDatabase(async (database) => {
+  const importer = createNativeImportRepository();
+  await importer.connectPrivateRecord();
+  await importer.saveConfiguredHomeArea({ id: 'cap3-home', label: 'Home', origin: 'manual-pin', latitude: 21.03, longitude: 105.85,
+    radiusMeters: 20000, effectiveStartDay: null, effectiveEndDay: null });
+  const units = [1, 2].map((day) => ({ assetId: `cap3-hide-${day}`, mediaType: 'image', capturedAtMillis: Date.UTC(2025, 0, day, 9),
+    capturedDay: `2025-01-0${day}`, hasPreciseOffset: false, modifiedAtMillis: null, locationAvailable: true,
+    latitude: 21.03, longitude: 106.85, reportedAccuracyMeters: 10, availability: 'available' }));
+  await importer.commitPage({ scope: 'full', nextOffset: units.length, scanned: units.length, geotagged: units.length, unavailable: 0, status: 'complete' }, units);
+  const repository = createNativeReconstructionRepository();
+  await repository.rebuild();
+  const before = await repository.loadPossibleTrips();
+  assert.equal(before.length, 1);
+  const detail = await repository.loadJourneyDetail(before[0].displayId);
+  const review = await repository.reviewJourneyPrivacy(before[0].displayId, detail.snapshotToken);
+  await repository.saveJourneyPrivacy(review.reviewId, 'hide', 'cap3-hide-command');
+  const after = await repository.loadPossibleTrips();
+  assert.equal(after.length, 0);
+}));
+
 test('reviewed privacy hides manual records durably, restores, and delete-all clears policies', async () => withDatabase(async (database) => {
   const importer = createNativeImportRepository();
   await importer.connectPrivateRecord();

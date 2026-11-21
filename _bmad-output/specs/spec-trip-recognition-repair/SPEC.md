@@ -74,6 +74,18 @@ reveal (decision 0009) depends on this record being right.
 - **CAP-8 Reversible adoption**
   - **intent:** The owner adopts the repaired engine without losing decisions.
   - **success:** A dry run reports gained, lost and changed Atlas and Possible trips as aggregates; activation needs owner approval; every owner correction survives; selecting V1.1 again reproduces the prior result exactly.
+  - **Closed 2026-11-20 (owner-approved scope reduction):** M10.3/M10.4
+    switched the rebuild call site from `qualifyGraphJourneyV11` to
+    `qualifyGraphJourneyV12` directly — no feature flag, no stored policy
+    selector, no gate. v1.2 was adopted unconditionally at that commit, so
+    there was never a pending activation decision for a dry-run/activation
+    screen to gate. The rollback half holds exactly as specified (v1.1
+    stays byte-unchanged and callable; every owner correction survives);
+    the dry-run-then-approve mechanism is accepted as satisfied by this
+    direct adoption rather than a built UI. See
+    [sprint-change-proposal-2026-11-20.md](../../planning-artifacts/sprint-change-proposal-2026-11-20.md).
+    A real dry-run/activation screen is deferred until an actual future
+    rule version (v1.3+) needs one to compare against.
 
 ## Constraints
 

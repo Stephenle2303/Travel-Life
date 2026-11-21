@@ -1,7 +1,7 @@
-import { applyPhotoSourceClues, namedPlaceForSubject, qualifyTripOutcomeWithClues } from '@/clues/consumption';
+import { applyPhotoSourceClues, namedPlaceForSubject, qualifyGraphJourneyWithClues, qualifyTripOutcomeWithClues } from '@/clues/consumption';
 import type { ClueRecord } from '@/clues/types';
-import { qualifyTripOutcomeV12 } from '@/reconstruction/outcome-v1-2';
-import type { OwnerConfiguredHomeArea, TripDetectorEvidence } from '@/reconstruction/types';
+import { qualifyGraphJourneyV12, qualifyTripOutcomeV12 } from '@/reconstruction/outcome-v1-2';
+import type { OwnerConfiguredHomeArea, ReconstructionGraph, TripDetectorEvidence } from '@/reconstruction/types';
 
 const HOME = { lat: 10.776, lon: 106.700 };
 const forever: OwnerConfiguredHomeArea[] = [{ id: 'home-1', latitude: HOME.lat, longitude: HOME.lon, radiusMeters: 20_000, effectiveStartDay: null, effectiveEndDay: null }];
@@ -136,5 +136,32 @@ describe('qualifyTripOutcomeWithClues', () => {
     const clues = [clue({ kind: 'photo-source', value: { source: 'screenshot' }, state: 'retracted', subject: { evidenceKeys: [`E:${units[0].id}`] } })];
     const result = qualifyTripOutcomeWithClues(units, clues, new Set(), { homeAreas: forever });
     expect(result.classification).toBe('AUTO_CONFIRMED');
+  });
+});
+
+describe('qualifyGraphJourneyWithClues', () => {
+  function graphFor(units: ReturnType<typeof outingUnits>): ReconstructionGraph {
+    const visit = { id: 'visit-1', placeId: 'place-1', evidenceIds: units.map((u) => u.id), order: 'ordered' as const };
+    const journey = { id: 'journey-1', visitIds: [visit.id], state: 'inferred' as const };
+    return { ruleVersion: 'reconstruction-v1', places: [{ id: 'place-1', memberIds: visit.evidenceIds, representativeId: units[0].id, uncertainty: [] }],
+      visits: [visit], journeys: [journey], possibleMerges: [], dispositions: [], memberships: [] };
+  }
+  const media = new Map<string, 'image' | 'video'>();
+
+  test('with zero clues, the result equals qualifyGraphJourneyV12 plus namedPlace: null', () => {
+    const units = outingUnits();
+    const graph = graphFor(units);
+    const bare = qualifyGraphJourneyV12(graph, 'journey-1', units, media, forever);
+    const withClues = qualifyGraphJourneyWithClues(graph, 'journey-1', units, media, forever, [], new Set());
+    expect(withClues).toEqual({ ...bare, namedPlace: null });
+  });
+
+  test('a photo-source clue can lower a journey from Atlas through the graph-level entry point', () => {
+    const units = outingUnits();
+    const graph = graphFor(units);
+    expect(qualifyGraphJourneyV12(graph, 'journey-1', units, media, forever).classification).toBe('AUTO_CONFIRMED');
+    const clues = units.slice(0, 8).map((item) => clue({ kind: 'photo-source', value: { source: 'screenshot' }, subject: { evidenceKeys: [`E:${item.id}`] } }));
+    const result = qualifyGraphJourneyWithClues(graph, 'journey-1', units, media, forever, clues, new Set());
+    expect(result.classification).not.toBe('AUTO_CONFIRMED');
   });
 });

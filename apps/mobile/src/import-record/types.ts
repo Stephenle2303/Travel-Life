@@ -97,6 +97,18 @@ export interface ImportRepository extends HistoryRecordRepository {
   saveConfiguredHomeArea?(area: ConfiguredHomeArea): Promise<void>;
   renameConfiguredHomeArea?(id: string, label: string): Promise<void>;
   deleteConfiguredHomeArea?(id: string): Promise<void>;
+  /** AI clue layer (decision 0022, M11.1). No producer writes these yet
+   * (CAP-4/5/6 are not built); the store exists so CAP-2's consumption can
+   * be wired into the production rebuild ahead of them. */
+  loadClues?(): Promise<import('@/clues/types').ClueRecord[]>;
+  saveClues?(clues: readonly import('@/clues/types').ClueRecord[]): Promise<void>;
+  updateClueStates?(updates: readonly { clueId: string; state: import('@/clues/types').ClueLifecycleState }[]): Promise<void>;
+  /** M10.8 (CAP-8) adoption: which detector rule a rebuild qualifies with.
+   * Defaults to the current, sole active rule; v1.1 stays selectable only
+   * for an owner-initiated rollback (byte-unchanged rule files, M10.8's
+   * rollback proof). */
+  loadDetectorPolicy?(): Promise<import('@/reconstruction/types').DetectorPolicy>;
+  setDetectorPolicy?(ruleVersion: import('@/reconstruction/types').DetectorPolicy, nowMillis?: number): Promise<void>;
 }
 
 /**
