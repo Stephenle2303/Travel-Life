@@ -44,6 +44,17 @@ describe('applyPhotoSourceClues', () => {
     expect(result[1].sourceOrigin).toBe(units[1].sourceOrigin);
   });
 
+  test('a received clue overrides sourceOrigin to the engine\'s own "messaging" term, not the clue\'s public "received" spelling', () => {
+    // outcome-v1-2.ts's NON_CAPTURE_ORIGINS only recognizes 'messaging', never
+    // 'received' — these are the same concept under two vocabularies built in
+    // separate sessions. Setting sourceOrigin to the clue's own literal value
+    // would silently fail to exclude the photo (found 2026-11-21).
+    const units = outingUnits();
+    const clues = [clue({ kind: 'photo-source', value: { source: 'received' }, subject: { evidenceKeys: [`E:${units[0].id}`] } })];
+    const result = applyPhotoSourceClues(units, clues);
+    expect(result[0].sourceOrigin).toBe('messaging');
+  });
+
   test('a camera/imported clue value changes nothing', () => {
     const units = outingUnits();
     const clues = [clue({ kind: 'photo-source', value: { source: 'camera' }, subject: { evidenceKeys: [`E:${units[0].id}`] } })];
@@ -99,6 +110,15 @@ describe('qualifyTripOutcomeWithClues', () => {
     expect(bare.classification).toBe('AUTO_CONFIRMED');
     // Reclassify 8 of the 12 units as screenshots, leaving only 4 own-capture units: below the 5-photo floor.
     const clues = units.slice(0, 8).map((item) => clue({ kind: 'photo-source', value: { source: 'screenshot' }, subject: { evidenceKeys: [`E:${item.id}`] } }));
+    const result = qualifyTripOutcomeWithClues(units, clues, new Set(), { homeAreas: forever });
+    expect(result.classification).not.toBe('AUTO_CONFIRMED');
+  });
+
+  test('a received clue can lower a trip from Atlas through the full pipeline, not just the override function', () => {
+    const units = outingUnits();
+    const bare = qualifyTripOutcomeV12(units, { homeAreas: forever });
+    expect(bare.classification).toBe('AUTO_CONFIRMED');
+    const clues = units.slice(0, 8).map((item) => clue({ kind: 'photo-source', value: { source: 'received' }, subject: { evidenceKeys: [`E:${item.id}`] } }));
     const result = qualifyTripOutcomeWithClues(units, clues, new Set(), { homeAreas: forever });
     expect(result.classification).not.toBe('AUTO_CONFIRMED');
   });

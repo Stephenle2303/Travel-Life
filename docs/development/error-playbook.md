@@ -1,5 +1,40 @@
 # Error and improvement playbook
 
+## Clue layer's 'received' photo-source value never matched the engine's 'messaging' origin (2026-11-21)
+
+Scoping M11's first clue producer (CAP-5, photo-source), found that
+`clues/types.ts`'s closed `PhotoSourceValue` union (CAP-1, built
+2026-11-19) uses `'received'` for a messaging-sourced photo, while
+`outcome-v1-2.ts`'s `NON_CAPTURE_ORIGINS` set and the Story 1 folder
+classifier that already populates evidence (`travel-window/
+capture-metadata.ts`, M10.6) both use `'messaging'` — the same concept,
+two different literal strings, built in separate sessions that never
+cross-checked each other's exact vocabulary. `clues/consumption.ts`'s
+`applyPhotoSourceClues` (CAP-2, 2026-11-19) wrote the clue's own value
+(`'received'`) straight onto `sourceOrigin`; since `NON_CAPTURE_ORIGINS` has
+no `'received'` entry, a `photo-source` clue saying "received" would
+silently fail to exclude the photo from trip support — the opposite of
+CAP-5's stated success criterion. No existing test caught this: every
+`clue-consumption.test.ts` case happened to use `'screenshot'`/`'download'`,
+which spell identically in both vocabularies, so the one value that
+actually differs (`'received'`/`'messaging'`) was never exercised.
+
+Fixed: `applyPhotoSourceClues` now maps the clue's public vocabulary to the
+engine's own term (`received → messaging`, others pass through unchanged)
+in the one place already responsible for bridging clue values onto
+evidence, rather than changing either vocabulary (the clue layer's
+`'received'` and the engine's `'messaging'` are each the right word for
+their own audience — a card sentence and an internal exclusion set).
+Verified: 2 new tests (`clue-consumption.test.ts`) — the override function
+directly, and the full `qualifyTripOutcomeWithClues` pipeline actually
+lowering a trip off Atlas on a `'received'` clue, not just on `'screenshot'`.
+Full mobile `npm run check` and `npx tsc --noEmit` clean. Prevention: when
+two specs define a closed vocabulary for the same real-world concept from
+different angles (a producer's public value vs. an existing internal
+exclusion set), diff the literal string lists against each other before
+assuming a "pass the value through" bridge is correct — do not rely on
+most values happening to spell the same.
+
 ## CAP-3's Possible-trips card: SQL NULL undercounted located photos to 0 (2026-11-21)
 
 Building `loadPossibleTrips()`'s informational `locatedCount` (the

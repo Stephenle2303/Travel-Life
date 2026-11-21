@@ -1,5 +1,32 @@
 # Project state
 
+## M11's first clue producer: CAP-5 photo-source built, not yet wired (2026-11-21)
+
+Scoping which clue producer to start with (CAP-4 place / CAP-5 photo-source
+/ CAP-6 same-trip), found CAP-5 is the right first slice: its metadata
+stage reuses data M10.6 already computes (the folder classifier's
+`sourceOrigin`), needs no new on-device model, and its consumption path
+(CAP-2) and persistence (M11.1) were already built and tested. Found and
+fixed a real latent bug along the way: the clue layer's `'received'` value
+never matched the engine's `'messaging'` origin string (two vocabularies
+for the same concept, built in separate sessions) — see the error
+playbook. Built `clues/producers/photo-source.ts`'s pure
+`photoSourceClues()`, verified with 4 new tests including an end-to-end
+round-trip proving a messaging-sourced photo is actually excluded from
+trip support.
+
+**Deliberately not wired to any live path yet** — same pattern M11.1 used:
+build and verify the layer in isolation with zero production effect, then
+wire it in as its own slice. Running this producer for real needs CAP-3's
+background-pass machinery (queue/budget/checkpoint, and the rule that a
+clue lowering an already-Atlas trip must create a review card rather than
+silently demote it) — none of that exists yet and is a materially larger
+piece of work than the producer itself. Full detail:
+[clue-contract.md](../_bmad-output/specs/spec-ai-clue-layer/clue-contract.md).
+
+Verified: full mobile `npm run check` (1621 Jest + 147 SQLite + typecheck +
+lint + doctor) and root `npm run check` (281/281 + eval smoke) clean.
+
 ## CAP-3's Possible-trips card UI built on real production data (2026-11-21)
 
 Following the owner's approved prioritization (M10.8's dry-run UI closed on

@@ -69,6 +69,12 @@ regression safety net, this is left as a named, tracked gap rather than
 rushed. It stays the right next slice if/when this preview screen becomes a
 real product surface, or a benchmark is built for it first.
 
+**Reconfirmed 2026-11-21**, after CAP-3 shipped the real Possible-trips card
+independent of this shadow policy (so its only remaining consumer is even
+more clearly dev-only now): owner agreed to leave this deferred, with no
+fixed revisit date — the two trigger conditions above are still the only
+reasons to pick it back up.
+
 ## Target pipeline
 
 1. **Normalize once** (`capture-evidence-v1.2`): families, provenance, instant

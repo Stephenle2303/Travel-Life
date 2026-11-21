@@ -85,6 +85,41 @@ drops from `AUTO_CONFIRMED` to `NOT_TRIP`) with the fix reverted, and to
 pass with it in place. Full mobile `npm run check` and `npx tsc --noEmit`
 clean.
 
+**Fixed (2026-11-21), found while scoping CAP-5's producer:** the closed
+`PhotoSourceValue.received` code never matched `outcome-v1-2.ts`'s
+`NON_CAPTURE_ORIGINS` (which uses `'messaging'`, the Story 1 folder
+classifier's own term) — a `photo-source` clue saying "received" silently
+did nothing. `clues/consumption.ts`'s `applyPhotoSourceClues` now maps the
+clue's public `received` value to the engine's internal `messaging` term
+when overriding `sourceOrigin`; see the error playbook, 2026-11-21, for the
+full account and the two new regression tests.
+
+**CAP-5's metadata-stage producer built (2026-11-21):** `clues/producers/
+photo-source.ts`'s `photoSourceClues()` is a pure function reusing the
+already-known, already-imported `sourceOrigin` (M10.6's Story 1 folder
+classifier) — no new model, no async work, no DB access. One clue per
+distinct support key (duplicate families share one, same convention as
+every other clue consumer); abstains entirely for `unknown`/unset origin
+("abstention is the default" is for ambiguous metadata, not for a
+no-op-on-classification result — `camera`/`imported` still get a clue,
+satisfying CAP-5's literal "each photo gets a source clue"). Verified: 4
+new unit tests (one per unambiguous origin incl. the `messaging`→`received`
+vocabulary bridge, abstention, family dedup, and a round-trip through
+`applyPhotoSourceClues` proving the clue actually excludes a messaging
+photo from support end to end).
+
+**Not yet wired to anything:** this producer is not called from any
+production path. Per background-and-surfacing.md (CAP-3), clue producers
+must run after a completed rebuild in the existing maintenance task
+window, never inside rebuild itself ("rebuilds never run AI"), and a clue
+that would lower an *already-Atlas* trip must create a review card instead
+of silently demoting it — none of that queue/budget/checkpoint/review-gate
+machinery exists yet. Building the producer in isolation first (same
+pattern M11.1 used for persistence before any producer existed) lets it be
+fully tested now without a live effect on anyone's Atlas. CAP-3's
+background-pass wiring is the next piece needed before this producer's
+output reaches a real rebuild.
+
 
 ## Clue record
 

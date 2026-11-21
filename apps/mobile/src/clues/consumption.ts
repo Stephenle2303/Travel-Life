@@ -24,7 +24,7 @@
 import { buildV12CandidateEvidence, qualifyTripOutcomeV12, type TripOutcomeOptions, type V12CandidateLookups } from '../reconstruction/outcome-v1-2';
 import type { FrequentPlaceContext, ReconstructionEvidence, ReconstructionGraph, TripDetectorEvidence, TripOutcome } from '../reconstruction/types';
 import { usableClues } from './store';
-import type { ClueRecord } from './types';
+import type { ClueRecord, PhotoSourceValue } from './types';
 
 /** Same derivation as `candidate-projection.ts`'s own `supportKey`. */
 function supportKey(item: Pick<TripDetectorEvidence, 'id' | 'duplicateFamilyId'>): string {
@@ -44,6 +44,18 @@ function photoSourceBySupportKey(clues: readonly ClueRecord[]): ReadonlyMap<stri
   return byKey;
 }
 
+/** `PhotoSourceValue`'s public `'received'` code names what
+ * `outcome-v1-2.ts`'s `NON_CAPTURE_ORIGINS` (and the Story 1 folder
+ * classifier that already populates evidence) calls `'messaging'` — the
+ * same concept, two different vocabularies built in separate sessions
+ * without cross-checking the literal strings (found while scoping CAP-5's
+ * producer, 2026-11-21; see the error playbook). This is the one place
+ * that bridges them. `screenshot`/`download`/`unknown` already spell
+ * identically in both and pass through unchanged. */
+const PHOTO_SOURCE_TO_ORIGIN: Record<Exclude<PhotoSourceValue, 'camera' | 'imported'>, string> = {
+  received: 'messaging', screenshot: 'screenshot', download: 'download', unknown: 'unknown',
+};
+
 /** Applies every usable `photo-source` clue to `evidence`, overriding
  * `sourceOrigin` so the existing own-capture exclusion in
  * `qualifyTripOutcomeV12` picks it up unchanged — this function changes
@@ -58,7 +70,7 @@ export function applyPhotoSourceClues<T extends TripDetectorEvidence>(evidence: 
   return evidence.map((item) => {
     const clue = bySubject.get(supportKey(item));
     if (!clue || clue.value.source === 'camera' || clue.value.source === 'imported') return item;
-    return { ...item, sourceOrigin: clue.value.source };
+    return { ...item, sourceOrigin: PHOTO_SOURCE_TO_ORIGIN[clue.value.source] };
   });
 }
 
