@@ -733,6 +733,153 @@ test('loadPossibleTrips lists a SUGGESTED journey with its priority reason and l
   assert.equal(detail.detail.visits.length > 0, true);
 }));
 
+function cluePassAtlasUnits(messagingCount) {
+  // 12 units, one day, two places ~1.5 km apart (two day-only session
+  // buckets => corroborated) and ~71 km from Home (=> far enough). The
+  // first `messagingCount` units get sourceOrigin 'messaging'; the rest are
+  // camera-default (sourceOrigin unset).
+  return Array.from({ length: 12 }, (_, i) => ({
+    assetId: `pass-${i}`, mediaType: 'image', capturedAtMillis: Date.UTC(2025, 2, 1, 9 + i), capturedDay: '2025-03-01',
+    hasPreciseOffset: false, modifiedAtMillis: null, locationAvailable: true,
+    latitude: i % 2 === 0 ? 11.200 : 11.210, longitude: i % 2 === 0 ? 107.200 : 107.210,
+    reportedAccuracyMeters: 10, availability: 'available',
+    // A real Android import always classifies an explicit origin (never
+    // leaves it unset) once M10.6's native reader runs; 'camera' is the
+    // ordinary case this simulates for every non-messaging unit.
+    sourceOrigin: i < messagingCount ? 'messaging' : 'camera',
+  }));
+}
+
+test('runCluePass activates safe photo-source clues and a rebuild reflects them (CAP-3)', async () => withDatabase(async (database) => {
+  const importer = createNativeImportRepository();
+  await importer.connectPrivateRecord();
+  await importer.saveConfiguredHomeArea({ id: 'pass-home', label: 'Home', origin: 'manual-pin', latitude: 10.776, longitude: 106.700,
+    radiusMeters: 20000, effectiveStartDay: null, effectiveEndDay: null });
+  const units = cluePassAtlasUnits(1); // only 1 of 12 messaging-sourced: safe, 11 reliable remain
+  await importer.commitPage({ scope: 'full', nextOffset: units.length, scanned: units.length, geotagged: units.length, unavailable: 0, status: 'complete' }, units);
+  const repository = createNativeReconstructionRepository();
+  await repository.rebuild();
+  const classification = () => database.sqlite.prepare(
+    "SELECT classification FROM reconstruction_trip_qualification WHERE run_id = (SELECT MAX(run_id) FROM reconstruction_run WHERE status = 'complete')",
+  ).get().classification;
+  assert.equal(classification(), 'AUTO_CONFIRMED');
+
+  const result = await repository.runCluePass(Date.now(), 100);
+  assert.equal(result.status, 'complete');
+  assert.equal(result.produced, 12);
+  assert.equal(result.activated, 12);
+  assert.equal(result.reviewCards, 0);
+  assert.equal(result.rebuildTriggered, true);
+  assert.equal(classification(), 'AUTO_CONFIRMED');
+
+  const activeClues = database.sqlite.prepare("SELECT kind, value_json, state FROM travel_clue WHERE state = 'active'").all();
+  assert.equal(activeClues.length, 12);
+  const received = activeClues.filter((row) => JSON.parse(row.value_json).source === 'received');
+  assert.equal(received.length, 1);
+  assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS count FROM clue_review_card').get().count, 0);
+}));
+
+// CAP-5's metadata-stage producer reads the exact same `source_origin`
+// field `outcome-v1-2.ts`'s `NON_CAPTURE_ORIGINS` already reads directly
+// from evidence — so whenever it has enough information to emit a
+// confident clue, the base classification (with zero clues at all)
+// already reflects that same exclusion; there is no real-evidence scenario
+// where this specific producer's clue could ever disagree with, and so
+// ever need gating against, the already-current classification. The gate
+// itself (and its "never lowers Atlas" guarantee) is proven directly
+// against synthetic candidate clues in background-pass.test.ts; a future
+// producer that can see something the base evidence does not (CAP-4's
+// place clues, CAP-5's own later content stage) is what will actually
+// exercise review cards through this orchestration.
+test('runCluePass never review-gates a non-Atlas (SUGGESTED) journey\'s clues (CAP-3)', async () => withDatabase(async (database) => {
+  const importer = createNativeImportRepository();
+  await importer.connectPrivateRecord();
+  await importer.saveConfiguredHomeArea({ id: 'pass-home', label: 'Home', origin: 'manual-pin', latitude: 10.776, longitude: 106.700,
+    radiusMeters: 20000, effectiveStartDay: null, effectiveEndDay: null });
+  const units = cluePassAtlasUnits(8); // 8 of 12 messaging-sourced from import: only 4 reliable remain, below the 5-photo floor
+  await importer.commitPage({ scope: 'full', nextOffset: units.length, scanned: units.length, geotagged: units.length, unavailable: 0, status: 'complete' }, units);
+  const repository = createNativeReconstructionRepository();
+  await repository.rebuild();
+  const classification = () => database.sqlite.prepare(
+    "SELECT classification FROM reconstruction_trip_qualification WHERE run_id = (SELECT MAX(run_id) FROM reconstruction_run WHERE status = 'complete')",
+  ).get().classification;
+  // Already SUGGESTED from the raw evidence alone, with zero clues — the
+  // messaging exclusion is not something a clue adds here, it is what the
+  // base engine already does with the imported source_origin directly.
+  assert.equal(classification(), 'SUGGESTED');
+
+  const result = await repository.runCluePass(Date.now(), 100);
+  assert.equal(result.produced, 12);
+  assert.equal(result.activated, 12);
+  assert.equal(result.reviewCards, 0);
+  assert.equal(classification(), 'SUGGESTED');
+  assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS count FROM clue_review_card').get().count, 0);
+
+  // A second pass must not reprocess the same evidence: every subject
+  // already has an active clue.
+  const second = await repository.runCluePass(Date.now(), 100);
+  assert.equal(second.produced, 0);
+}));
+
+test('runCluePass never activates a clue on evidence claimed by a confirmed GPS-less trip, holding it for review instead (CAP-3, code review 2026-11-21)', async () => withDatabase(async (database) => {
+  const importer = createNativeImportRepository();
+  await importer.connectPrivateRecord();
+  await importer.saveConfiguredHomeArea({ id: 'pass-home', label: 'Home', origin: 'manual-pin', latitude: 10.776, longitude: 106.700,
+    radiusMeters: 20000, effectiveStartDay: null, effectiveEndDay: null });
+  const units = cluePassAtlasUnits(0); // all camera-origin: a clean AUTO_CONFIRMED baseline
+  await importer.commitPage({ scope: 'full', nextOffset: units.length, scanned: units.length, geotagged: units.length, unavailable: 0, status: 'complete' }, units);
+  const repository = createNativeReconstructionRepository();
+  await repository.rebuild();
+  const classification = () => database.sqlite.prepare(
+    "SELECT classification FROM reconstruction_trip_qualification WHERE run_id = (SELECT MAX(run_id) FROM reconstruction_run WHERE status = 'complete')",
+  ).get().classification;
+  assert.equal(classification(), 'AUTO_CONFIRMED');
+
+  // 'pass-0' is ALSO claimed as a member of a confirmed GPS-less trip
+  // (decision 0019/0020) that lives entirely outside reconstruction_journey
+  // — the gate cannot verify that trip's own classification, so it must
+  // never silently activate a clue touching this evidence.
+  database.sqlite.prepare(`INSERT INTO travel_window_trip (manual_id, command, member_ids, review_ids, owner_place_name) VALUES (?, ?, ?, ?, ?)`)
+    .run('travel-pass-trip', 'pass-command', JSON.stringify(['pass-0']), JSON.stringify([]), 'Somewhere');
+
+  const result = await repository.runCluePass(Date.now(), 100);
+  assert.equal(result.produced, 12);
+  assert.equal(result.activated, 11);
+  assert.equal(result.reviewCards, 1);
+  assert.equal(classification(), 'AUTO_CONFIRMED');
+
+  const protectedActive = database.sqlite.prepare("SELECT COUNT(*) AS count FROM travel_clue WHERE state = 'active' AND subject_json LIKE '%pass-0%'").get().count;
+  assert.equal(protectedActive, 0);
+  const card = database.sqlite.prepare("SELECT reason, journey_id FROM clue_review_card").get();
+  assert.equal(card.reason, 'protected-confirmed-trip');
+  assert.equal(card.journey_id, 'protected-confirmed-trip');
+}));
+
+test('runCluePass reports only its closed diagnostic shape on failure, never the raw error content (CAP-3)', async () => withDatabase(async (database) => {
+  const importer = createNativeImportRepository();
+  await importer.connectPrivateRecord();
+  await importer.saveConfiguredHomeArea({ id: 'pass-home', label: 'Home', origin: 'manual-pin', latitude: 10.776, longitude: 106.700,
+    radiusMeters: 20000, effectiveStartDay: null, effectiveEndDay: null });
+  const units = cluePassAtlasUnits(1);
+  await importer.commitPage({ scope: 'full', nextOffset: units.length, scanned: units.length, geotagged: units.length, unavailable: 0, status: 'complete' }, units);
+  const repository = createNativeReconstructionRepository();
+  await repository.rebuild();
+  const events = [];
+  const originalInfo = console.info;
+  console.info = (_, event) => events.push(event);
+  const sentinel = 'SYNTHETIC_PRIVATE_SENTINEL';
+  try {
+    database.failOnce(/FROM canonical_evidence/, new Error(`database is locked: ${sentinel}`));
+    await assert.rejects(repository.runCluePass(Date.now(), 100));
+    const terminal = events.filter(({ operation, reasonCode }) => operation === 'AI_CLUE_PASS' && reasonCode !== 'START');
+    assert.equal(terminal.length, 1);
+    assert.equal(JSON.stringify(terminal[0]).includes(sentinel), false);
+    assert.equal(terminal[0].reasonCode, 'DATABASE_BUSY');
+    assert.equal(terminal[0].durableOutcome, 'failed');
+    assert.equal(terminal[0].retryable, true);
+  } finally { console.info = originalInfo; }
+}));
+
 test('loadPossibleTrips reports only its closed diagnostic shape on failure, never the raw error content (CAP-3)', async () => withDatabase(async (database) => {
   const importer = createNativeImportRepository();
   await importer.connectPrivateRecord();
@@ -773,6 +920,34 @@ test('loadPossibleTrips excludes a privacy-hidden Possible trip (CAP-3)', async 
   await repository.saveJourneyPrivacy(review.reviewId, 'hide', 'cap3-hide-command');
   const after = await repository.loadPossibleTrips();
   assert.equal(after.length, 0);
+}));
+
+test('clue review cards round-trip, filter by state, and resolve exactly once (CAP-3)', async () => withDatabase(async (database) => {
+  const importer = createNativeImportRepository();
+  await importer.connectPrivateRecord();
+  const clueRecord = {
+    clueId: 'review-clue-1', kind: 'photo-source', subject: { evidenceKeys: ['E:synthetic-0'] }, value: { source: 'screenshot' },
+    strength: 'strong', independenceKey: 'photo-source-metadata', producerId: 'photo-source-metadata', producerVersion: '1',
+    inputsRevision: { evidenceRevision: 1, homeRevision: 0, correctionRevision: 0 }, state: 'active', createdAtMillis: 1000,
+  };
+  const card = { cardId: 'card-1', journeyId: 'journey-1', reason: 'would-lower-atlas-trip', clue: clueRecord, state: 'pending', createdAtMillis: 1000 };
+  await importer.saveClueReviewCards([card]);
+  const pending = await importer.loadClueReviewCards('pending');
+  assert.equal(pending.length, 1);
+  assert.deepEqual(pending[0].clue, clueRecord);
+  assert.equal(pending[0].journeyId, 'journey-1');
+
+  await importer.resolveClueReviewCard('card-1', 'approved');
+  assert.equal((await importer.loadClueReviewCards('pending')).length, 0);
+  const approved = await importer.loadClueReviewCards('approved');
+  assert.equal(approved.length, 1);
+  assert.equal(approved[0].state, 'approved');
+
+  // Resolving an already-resolved card is a no-op, never silently flips a
+  // dismissed card back through approve or vice versa.
+  await importer.resolveClueReviewCard('card-1', 'dismissed');
+  assert.equal((await importer.loadClueReviewCards('approved')).length, 1);
+  assert.equal((await importer.loadClueReviewCards()).length, 1);
 }));
 
 test('reviewed privacy hides manual records durably, restores, and delete-all clears policies', async () => withDatabase(async (database) => {

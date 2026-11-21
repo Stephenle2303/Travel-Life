@@ -34,6 +34,16 @@ try {
         recordAppDiagnostic({ operation: 'MAINTENANCE_RECONCILIATION', reasonCode: classifyAppDiagnosticError(error), stage: error instanceof ReconciliationStageError ? error.stage : null, retryable: true, durableOutcome: 'failed', correlationId });
         return backgroundTask.BackgroundTaskResult.Failed;
       }
+      // CAP-3 (background-and-surfacing.md): after a completed rebuild, in
+      // this same maintenance window. runCluePass() always self-reports its
+      // own accurate AI_CLUE_PASS diagnostic (with the real failing stage
+      // and its own correlation id) before rethrowing, so this catch stays
+      // silent rather than re-logging a second, differently-staged event
+      // under an unrelated correlation id (closed 2026-11-21, code review).
+      // A failure here is a missed enhancement pass, not a reconciliation
+      // integrity problem, so it never blocks account sync or fails the task.
+      try { await createNativeReconstructionRepository().runCluePass(Date.now()); }
+      catch { /* runCluePass already recorded its own accurate diagnostic */ }
     }
     if (result !== 'complete') recordAppDiagnostic({ operation: 'MAINTENANCE_RECONCILIATION', reasonCode: result === 'paused' ? 'PAUSED' : 'RESTRICTED', stage: null, retryable: result === 'paused', durableOutcome: result === 'paused' ? 'paused' : 'restricted', correlationId });
     // This separately gated runner restores only account credentials, then reads

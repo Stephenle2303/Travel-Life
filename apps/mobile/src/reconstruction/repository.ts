@@ -1,9 +1,9 @@
-import { projectCanonicalHistory } from './canonical-projection';
+import { projectCanonicalHistory, type CanonicalProjectionStage } from './canonical-projection';
 import { candidateTripPolicy, projectCandidateFromCanonical, projectCanonicalCandidateHistory, type CandidateTrip, type CandidateTripProjection } from './candidate-projection';
 import { LOCAL_RECOVERY_PROJECTION_VERSION, projectLocalRecoveryGraph } from './local-recovery-projection';
 import { assertReplicaOpen, trackReplicaConnection } from '@/account/replica-connections';
 import { resolvePlaceCountryCode, JourneyCorrectionRemapRequiredError, resolveVerifiedDuplicateFamilies, correctionFamilySnapshots, resolveReviewedSupportKey, predecessorWideScopeRevisions, type FamilySnapshot } from './canonical-core';
-import type { PossibleTripSummary, ReconstructionEvidence, ReconstructionGraph, TripOutcomeReasonCode } from './types';
+import type { JourneyMembership, PossibleTripSummary, ReconstructionEvidence, ReconstructionGraph, TripOutcomeClassification, TripOutcomeReasonCode } from './types';
 import { RECONSTRUCTION_RULE_VERSION, TRIP_DETECTOR_RULE_VERSION } from './types';
 import { NATURAL_EARTH_ADMIN_0_DATASET_VERSION, countryDisplayName } from './country-resolver';
 import { destinationLabel, type DestinationSupport } from './destination-label';
@@ -15,6 +15,8 @@ import type { ManualJourneyInput } from '@/import-record/types';
 import { clueFromRow, ensureNativeImportSchema, type ClueRow } from '@/import-record/repository';
 import { qualifyGraphJourneyWithClues } from '@/clues/consumption';
 import type { ClueRecord } from '@/clues/types';
+import { gateCandidateClues } from '@/clues/background-pass';
+import { photoSourceClues } from '@/clues/producers/photo-source';
 import { NativeTransactionWithdrawnError, runOwnedTransaction, serializeNativeTransactions } from '@/database/native-transaction';
 import type { ReplayMutation, ReplayMutationReceipt, ReplayReconciliation } from '@/replay/draft-repository-contract';
 import { ReplayDraftStaleError } from '@/replay/draft-error';
@@ -890,6 +892,98 @@ export function createNativeReconstructionRepository(options?: { databaseName: s
       LIMIT 1
     `, latestRevision.evidence_revision);
     return retained ?? latest;
+  }
+
+  /** The read side of `rebuild()`'s input assembly (evidence, excluded ids,
+   * privacy filter, configured Homes, stored corrections, the canonical
+   * baseline graph, existing clues, and corrected-support keys) — extracted
+   * unchanged (2026-11-21, for CAP-3's background pass) so the pass can
+   * read the exact same inputs `rebuild()` itself uses without a second,
+   * driftable copy of this logic. Deliberately stops before `rebuild()`'s
+   * own local-recovery branch, which conditionally replaces `baseline.graph`
+   * for a narrow, legacy retained-recovery case: the pass reads the graph
+   * already persisted from the last rebuild instead (see `runCluePass`),
+   * so it never needs to reproduce that branch. `profile` is optional so a
+   * caller with its own diagnostic profile (or none) can pass it through;
+   * `rebuild()` passes its own `AtlasPhaseProfile` unchanged. */
+  async function loadRebuildBaseline(db: Database, consumeQueuedChanges: boolean, profile: { next(stage: CanonicalProjectionStage): void } = { next: () => {} }) {
+    const rows = await db.getAllAsync<EvidenceRow>('SELECT evidence_id, media_type, captured_at_millis, captured_day, has_precise_offset, availability, latitude, longitude, reported_accuracy_meters, platform_duplicate_family_id, source_origin, support_eligible, duplicate_tuple_version, duplicate_tuple_fingerprint FROM canonical_evidence');
+    const excluded = new Set((await db.getAllAsync<{ target_id: string }>(`SELECT current.target_id FROM correction_overlays current
+      JOIN (SELECT target_id, MAX(revision) AS revision FROM correction_overlays WHERE target_kind = 'evidence' AND correction_scope = 'inclusion' GROUP BY target_id) latest
+      ON latest.target_id = current.target_id AND latest.revision = current.revision
+      WHERE current.target_kind = 'evidence' AND current.correction_scope = 'inclusion' AND current.owner_action = 'remove'`)).map((row) => row.target_id));
+    // History corrections and owner-entered/confirmed records are already
+    // durable, but M2.1 has no projection mapper for their semantics yet.
+    // Keep the prior complete graph and queue checkpoint pending rather
+    // than silently rebuilding around an owner decision.
+    if (consumeQueuedChanges) {
+      const protectedHistory = await db.getFirstAsync<{ count: number }>(`SELECT COUNT(*) AS count FROM correction_overlays
+        WHERE target_kind = 'history'`);
+      if ((protectedHistory?.count ?? 0) > 0) throw new Error('History corrections need owner review before local reconciliation.');
+    }
+    const privateFilter = await privacyFilter(db, 0);
+    for (const id of privateFilter.excluded) excluded.add(id);
+    const configuredHomeAreas = await db.getAllAsync<{ area_id: string; latitude: number; longitude: number; effective_start_day: string | null; effective_end_day: string | null; radius_meters: number }>(
+      'SELECT area_id, latitude, longitude, effective_start_day, effective_end_day, radius_meters FROM configured_home_area ORDER BY area_id',
+    );
+    const storedCorrections = await db.getAllAsync<JourneyCorrectionRevision>(`SELECT revision_id, action, source_run_id, reviewed_support_json, reviewed_visits_json, reviewed_family_snapshot_json, structural_boundary_json
+      FROM journey_correction_revision WHERE state = 'effective'`);
+    const storedMemoryCorrections = await db.getAllAsync<MemoryCorrectionRevision>(`SELECT revision_id, action, source_evidence_id, reviewed_support_json, reviewed_family_snapshot_json, created_at_millis
+      FROM journey_memory_correction_revision WHERE state = 'effective' ORDER BY created_at_millis, revision_id`);
+    const baseline = await projectCanonicalHistory({ rows, excluded, privateFilter, configuredHomeAreas, storedCorrections, storedMemoryCorrections }, profile, async (mappedCorrections) => {
+      for (const correction of mappedCorrections) await db.runAsync(
+        "UPDATE journey_memory_correction_candidate SET state = 'resolved' WHERE revision_id = ? AND state = 'pending_remap'", correction.revision_id,
+      );
+    });
+    const { evidence, homeAreas, corrections, memoryCorrections, memoryMatches, finalMatches, pendingFinalRemaps } = baseline;
+    const mediaByEvidence = new Map(rows.map((row) => [row.evidence_id, row.media_type ?? 'image'] as const));
+    // AI clue layer (decision 0022, CAP-2/M11.1/CAP-3). A clue is ignored for
+    // a subject the owner already corrected on this rebuild (same
+    // support-key convention as `candidate-projection.ts`'s own
+    // `supportKey`). Ordered the same way `loadClues()` orders its own
+    // identical SELECT, so a "first clue wins" tie-break never depends on
+    // SQLite's incidental row order across the two readers of this table.
+    const clueRows = await db.getAllAsync<ClueRow>(
+      `SELECT clue_id, kind, subject_json, value_json, strength, independence_key, producer_id, producer_version,
+         evidence_revision, home_revision, correction_revision, state, created_at_millis FROM travel_clue
+       ORDER BY created_at_millis, clue_id`,
+    );
+    const clues = clueRows.map(clueFromRow).filter((clue): clue is ClueRecord => clue !== null);
+    // Resolved through the same family identity `baseline.families` already
+    // computes for the rebuild, closing the 2026-11-20 code review's known
+    // gap (clue-contract.md): a correction's `F:` key only names a family as
+    // it stood when the owner reviewed it, so matching that raw key alone
+    // misses a clue whose subject key reflects the same evidence after it
+    // was later regrouped. `reviewed_family_snapshot_json`'s own `memberIds`
+    // names the exact evidence the owner corrected regardless of family
+    // drift; re-deriving each member's *current* key closes that gap without
+    // the stricter, remap-throwing `resolveReviewedSupportKey` — correctedKeys
+    // only ever makes a clue less usable, so a best-effort match is the safe
+    // direction here (unlike re-applying a correction itself, this never
+    // needs to fail closed). The raw key stays in the set too, for a legacy
+    // row with no snapshot.
+    const correctedKeys = new Set<string>();
+    const addCorrectedKey = (key: string, snapshots: Record<string, FamilySnapshot>) => {
+      correctedKeys.add(key);
+      if (key.startsWith('E:')) { correctedKeys.add(baseline.families.keyForEvidence(key.slice(2))); return; }
+      if (!key.startsWith('F:')) return;
+      for (const memberId of snapshots[key]?.memberIds ?? []) correctedKeys.add(baseline.families.keyForEvidence(memberId));
+    };
+    for (const correction of corrections) {
+      let snapshots: Record<string, FamilySnapshot> = {};
+      try { snapshots = correctionFamilySnapshots(correction.reviewed_family_snapshot_json, correction.revision_id); }
+      catch { /* no usable snapshot: addCorrectedKey still adds the raw key below */ }
+      try { for (const key of JSON.parse(correction.reviewed_support_json) as unknown[]) if (typeof key === 'string') addCorrectedKey(key, snapshots); }
+      catch { /* malformed legacy row: never guess which keys it covered */ }
+    }
+    for (const correction of memoryCorrections) {
+      let snapshots: Record<string, FamilySnapshot> = {};
+      try { snapshots = correctionFamilySnapshots(correction.reviewed_family_snapshot_json, correction.revision_id); }
+      catch { /* no usable snapshot: addCorrectedKey still adds the raw key below */ }
+      try { for (const key of JSON.parse(correction.reviewed_support_json) as unknown[]) if (typeof key === 'string') addCorrectedKey(key, snapshots); }
+      catch { /* malformed legacy row: never guess which keys it covered */ }
+    }
+    return { rows, excluded, privateFilter, baseline, evidence, homeAreas, corrections, memoryCorrections, memoryMatches, finalMatches, pendingFinalRemaps, mediaByEvidence, clues, correctedKeys };
   }
 
   async function readReplayRecoveryProtection(db: Database) {
@@ -3156,90 +3250,7 @@ export function createNativeReconstructionRepository(options?: { databaseName: s
             await db.runAsync("UPDATE reconciliation_state SET status = 'running', message = 'Reconciling local journey updates.' WHERE record_id = 1");
           }
           const previousJourneyIds = new Set((await db.getAllAsync<{ journey_id: string }>('SELECT journey_id FROM reconstruction_journey')).map((row) => row.journey_id));
-          const rows = await db.getAllAsync<EvidenceRow>('SELECT evidence_id, media_type, captured_at_millis, captured_day, has_precise_offset, availability, latitude, longitude, reported_accuracy_meters, platform_duplicate_family_id, source_origin, support_eligible, duplicate_tuple_version, duplicate_tuple_fingerprint FROM canonical_evidence');
-          const excluded = new Set((await db.getAllAsync<{ target_id: string }>(`SELECT current.target_id FROM correction_overlays current
-            JOIN (SELECT target_id, MAX(revision) AS revision FROM correction_overlays WHERE target_kind = 'evidence' AND correction_scope = 'inclusion' GROUP BY target_id) latest
-            ON latest.target_id = current.target_id AND latest.revision = current.revision
-            WHERE current.target_kind = 'evidence' AND current.correction_scope = 'inclusion' AND current.owner_action = 'remove'`)).map((row) => row.target_id));
-          // History corrections and owner-entered/confirmed records are already
-          // durable, but M2.1 has no projection mapper for their semantics yet.
-          // Keep the prior complete graph and queue checkpoint pending rather
-          // than silently rebuilding around an owner decision.
-          if (consumeQueuedChanges) {
-            const protectedHistory = await db.getFirstAsync<{ count: number }>(`SELECT COUNT(*) AS count FROM correction_overlays
-              WHERE target_kind = 'history'`);
-            if ((protectedHistory?.count ?? 0) > 0) throw new Error('History corrections need owner review before local reconciliation.');
-          }
-          const privateFilter = await privacyFilter(db, 0);
-          for (const id of privateFilter.excluded) excluded.add(id);
-          const configuredHomeAreas = await db.getAllAsync<{ area_id: string; latitude: number; longitude: number; effective_start_day: string | null; effective_end_day: string | null; radius_meters: number }>(
-            'SELECT area_id, latitude, longitude, effective_start_day, effective_end_day, radius_meters FROM configured_home_area ORDER BY area_id',
-          );
-          const storedCorrections = await db.getAllAsync<JourneyCorrectionRevision>(`SELECT revision_id, action, source_run_id, reviewed_support_json, reviewed_visits_json, reviewed_family_snapshot_json, structural_boundary_json
-            FROM journey_correction_revision WHERE state = 'effective'`);
-          const storedMemoryCorrections = await db.getAllAsync<MemoryCorrectionRevision>(`SELECT revision_id, action, source_evidence_id, reviewed_support_json, reviewed_family_snapshot_json, created_at_millis
-            FROM journey_memory_correction_revision WHERE state = 'effective' ORDER BY created_at_millis, revision_id`);
-          const baseline = await projectCanonicalHistory({rows,excluded,privateFilter,configuredHomeAreas,storedCorrections,storedMemoryCorrections},profile,async (mappedCorrections) => {
-          for (const correction of mappedCorrections) await db.runAsync(
-            "UPDATE journey_memory_correction_candidate SET state = 'resolved' WHERE revision_id = ? AND state = 'pending_remap'", correction.revision_id,
-          );
-          });
-          const { evidence, homeAreas, corrections, memoryCorrections, memoryMatches, finalMatches, pendingFinalRemaps } = baseline;
-          const mediaByEvidence = new Map(rows.map((row) => [row.evidence_id, row.media_type ?? 'image'] as const));
-          // AI clue layer (decision 0022, CAP-2/M11.1). No producer exists yet
-          // (CAP-4/5/6), so `clues` is always empty in production today; this
-          // wiring just stops being a second place that would need to change
-          // once one does. A clue is ignored for a subject the owner already
-          // corrected on this rebuild (same support-key convention as
-          // `candidate-projection.ts`'s own `supportKey`). Ordered the same
-          // way `loadClues()` orders its own identical SELECT, so a
-          // "first clue wins" tie-break never depends on SQLite's incidental
-          // row order across the two readers of this table. Read before the
-          // local-recovery block below (found by the 2026-11-20 code review)
-          // so its own "reliable"/"confirmed" checks can be clue-aware too,
-          // not just the main per-journey qualification loop further down.
-          const clueRows = await db.getAllAsync<ClueRow>(
-            `SELECT clue_id, kind, subject_json, value_json, strength, independence_key, producer_id, producer_version,
-               evidence_revision, home_revision, correction_revision, state, created_at_millis FROM travel_clue
-             ORDER BY created_at_millis, clue_id`,
-          );
-          const clues = clueRows.map(clueFromRow).filter((clue): clue is ClueRecord => clue !== null);
-          // Resolved through the same family identity `baseline.families`
-          // already computes for the rebuild, closing the 2026-11-20 code
-          // review's known gap (clue-contract.md): a correction's `F:` key
-          // only names a family as it stood when the owner reviewed it, so
-          // matching that raw key alone misses a clue whose subject key
-          // reflects the same evidence after it was later regrouped.
-          // `reviewed_family_snapshot_json`'s own `memberIds` names the
-          // exact evidence the owner corrected regardless of family drift;
-          // re-deriving each member's *current* key closes that gap without
-          // the stricter, remap-throwing `resolveReviewedSupportKey` —
-          // correctedKeys only ever makes a clue less usable, so a
-          // best-effort match is the safe direction here (unlike
-          // re-applying a correction itself, this never needs to fail
-          // closed). The raw key stays in the set too, for a legacy row
-          // with no snapshot.
-          const correctedKeys = new Set<string>();
-          const addCorrectedKey = (key: string, snapshots: Record<string, FamilySnapshot>) => {
-            correctedKeys.add(key);
-            if (key.startsWith('E:')) { correctedKeys.add(baseline.families.keyForEvidence(key.slice(2))); return; }
-            if (!key.startsWith('F:')) return;
-            for (const memberId of snapshots[key]?.memberIds ?? []) correctedKeys.add(baseline.families.keyForEvidence(memberId));
-          };
-          for (const correction of corrections) {
-            let snapshots: Record<string, FamilySnapshot> = {};
-            try { snapshots = correctionFamilySnapshots(correction.reviewed_family_snapshot_json, correction.revision_id); }
-            catch { /* no usable snapshot: addCorrectedKey still adds the raw key below */ }
-            try { for (const key of JSON.parse(correction.reviewed_support_json) as unknown[]) if (typeof key === 'string') addCorrectedKey(key, snapshots); }
-            catch { /* malformed legacy row: never guess which keys it covered */ }
-          }
-          for (const correction of memoryCorrections) {
-            let snapshots: Record<string, FamilySnapshot> = {};
-            try { snapshots = correctionFamilySnapshots(correction.reviewed_family_snapshot_json, correction.revision_id); }
-            catch { /* no usable snapshot: addCorrectedKey still adds the raw key below */ }
-            try { for (const key of JSON.parse(correction.reviewed_support_json) as unknown[]) if (typeof key === 'string') addCorrectedKey(key, snapshots); }
-            catch { /* malformed legacy row: never guess which keys it covered */ }
-          }
+          const { excluded, privateFilter, baseline, evidence, homeAreas, corrections, memoryCorrections, mediaByEvidence, clues, correctedKeys, memoryMatches, finalMatches, pendingFinalRemaps } = await loadRebuildBaseline(db, consumeQueuedChanges, profile);
           let graph = baseline.graph;
           let policy: string = RECONSTRUCTION_RULE_VERSION;
           let verifyRecoverySource: (() => Promise<boolean>) | undefined;
@@ -3446,6 +3457,157 @@ export function createNativeReconstructionRepository(options?: { databaseName: s
       } finally {
         profile.finish(succeeded);
       }
+    },
+    /** CAP-3 (background-and-surfacing.md): the background clue pass.
+     * Reads the same inputs `rebuild()` itself reads (`loadRebuildBaseline`),
+     * reads the already-persisted graph from the last rebuild (never
+     * recomputes it — sidesteps `rebuild()`'s own local-recovery branch
+     * entirely), runs CAP-5's metadata-stage producer over evidence that
+     * has no clue yet, gates the result through `gateCandidateClues`
+     * (never silently lowers an Atlas trip), commits what is safe, and
+     * triggers one ordinary rebuild if anything was activated. Scheduling,
+     * platform-window timing and the owner-facing "trips updated" note are
+     * the caller's job (the maintenance task); this method itself only
+     * guards against running while another writer holds the lease. */
+    async runCluePass(nowMillis = Date.now(), budget = visualDiscoveryPhotoAttempts): Promise<{ status: 'complete' | 'skipped' | 'blocked'; produced: number; activated: number; reviewCards: number; rebuildTriggered: boolean }> {
+      const correlationId = createDiagnosticCorrelationId();
+      let stage: 'CLUE_SCHEDULE' | 'CLUE_PRODUCE' | 'CLUE_VALIDATE' | 'CLUE_COMMIT' | 'CLUE_REBUILD' = 'CLUE_SCHEDULE';
+      const report = (reasonCode: AppDiagnosticEvent['reasonCode'], durableOutcome: AppDiagnosticEvent['durableOutcome'], retryable = false) =>
+        recordAppDiagnostic({ operation: 'AI_CLUE_PASS', stage, reasonCode, durableOutcome, retryable, correlationId });
+      report('START', 'unchanged');
+      const db = await openProjectionWriter();
+      await ensureNativeImportSchema(db);
+      await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
+      let toActivateCount = 0;
+      let toReviewCount = 0;
+      let producedCount = 0;
+      try {
+        const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
+        if (lifecycle?.state !== 'connected') { await db.execAsync('ROLLBACK'); report('BLOCKED', 'blocked'); return { status: 'blocked', produced: 0, activated: 0, reviewCards: 0, rebuildTriggered: false }; }
+        const completed = await loadPublishedRun(db);
+        if (!completed?.run_id) { await db.execAsync('ROLLBACK'); report('SKIPPED', 'skipped'); return { status: 'skipped', produced: 0, activated: 0, reviewCards: 0, rebuildTriggered: false }; }
+
+        const { rows, evidence, mediaByEvidence, homeAreas, clues, correctedKeys } = await loadRebuildBaseline(db, false);
+        const evidenceById = new Map(evidence.map((item) => [item.id, item]));
+
+        // The already-persisted graph from the last rebuild — never
+        // recomputed here, so this never touches `rebuild()`'s own
+        // local-recovery branch.
+        const visitRows = await db.getAllAsync<{ visit_id: string; place_id: string }>('SELECT visit_id, place_id FROM reconstruction_visit WHERE run_id = ?', completed.run_id);
+        const linkRows = await db.getAllAsync<{ parent_id: string; child_id: string; link_kind: string }>(`SELECT parent_id, child_id, link_kind FROM reconstruction_link WHERE run_id = ? AND (link_kind = 'journey-visit' OR link_kind = 'visit-support' OR link_kind LIKE 'membership:%')`, completed.run_id);
+        const evidenceIdsByVisit = new Map<string, string[]>();
+        const visitIdsByJourney = new Map<string, string[]>();
+        // decision 0006: a GPS-less/date-limited "memory" is attached to a
+        // journey directly via a `membership:%` link, a separate relation
+        // from visit-support — still real evidence that journey's Atlas
+        // card shows the owner, so the gate must see it too (closed
+        // 2026-11-21, code review: the first draft silently bypassed the
+        // gate for this evidence by omitting it entirely).
+        const memberships: ReconstructionGraph['memberships'] = [];
+        for (const row of linkRows) {
+          if (row.link_kind === 'visit-support') evidenceIdsByVisit.set(row.parent_id, [...(evidenceIdsByVisit.get(row.parent_id) ?? []), row.child_id]);
+          else if (row.link_kind === 'journey-visit') visitIdsByJourney.set(row.parent_id, [...(visitIdsByJourney.get(row.parent_id) ?? []), row.child_id]);
+          else { const [, state, reason] = row.link_kind.split(':'); memberships.push({ evidenceId: row.child_id, journeyId: row.parent_id, state: state as JourneyMembership['state'], reason: reason as JourneyMembership['reason'] }); }
+        }
+        const graph: ReconstructionGraph = {
+          ruleVersion: RECONSTRUCTION_RULE_VERSION, places: [], possibleMerges: [], dispositions: [], memberships,
+          visits: visitRows.map((row) => ({ id: row.visit_id, placeId: row.place_id, evidenceIds: evidenceIdsByVisit.get(row.visit_id) ?? [], order: 'ordered' as const })),
+          journeys: [...visitIdsByJourney.entries()].map(([journeyId, visitIds]) => ({ id: journeyId, visitIds, state: 'inferred' as const })),
+        };
+        const classificationRows = await db.getAllAsync<{ journey_id: string; classification: TripOutcomeClassification }>('SELECT journey_id, classification FROM reconstruction_trip_qualification WHERE run_id = ?', completed.run_id);
+        const currentClassifications = new Map(classificationRows.map((row) => [row.journey_id, row.classification]));
+        // The gate's own protection reaches only reconstruction-engine
+        // journeys. A confirmed GPS-less (travel_window_trip) or
+        // visual-place (visual_place_trip, via its visual_place_album
+        // membership rows) trip lives entirely outside
+        // reconstruction_journey/reconstruction_trip_qualification, so this
+        // gate cannot dry-run its classification — any clue touching that
+        // evidence is never auto-activated, only ever held for review
+        // (closed 2026-11-21, code review).
+        const travelWindowRows = await db.getAllAsync<{ member_ids: string }>('SELECT member_ids FROM travel_window_trip');
+        const protectedEvidenceIds = new Set<string>();
+        for (const row of travelWindowRows) { try { for (const id of JSON.parse(row.member_ids) as unknown[]) if (typeof id === 'string') protectedEvidenceIds.add(id); } catch { /* malformed row: over-protect nothing more, under-protect nothing already parsed */ } }
+        const visualAlbumRows = await db.getAllAsync<{ evidence_id: string }>('SELECT evidence_id FROM visual_place_album');
+        for (const row of visualAlbumRows) protectedEvidenceIds.add(row.evidence_id);
+        // Same frequent-place context the real qualification loop builds
+        // (rebuild()'s own, further below) — omitting it would let the dry
+        // run miss F-1 entirely and falsely call a frequent-place journey
+        // safe (closed 2026-11-21, code review).
+        const frequentPlaceContext = buildFrequentPlaceContext(graphJourneyEpisodeMarkers(graph, evidenceById));
+        const lookups = buildV12CandidateLookups(graph, evidence);
+
+        stage = 'CLUE_PRODUCE';
+        report('START', 'unchanged');
+        const alreadyCovered = new Set<string>();
+        for (const existing of clues) if (existing.kind === 'photo-source') for (const key of existing.subject.evidenceKeys) alreadyCovered.add(key);
+        const pendingReviewRows = await db.getAllAsync<{ clue_json: string }>(`SELECT clue_json FROM clue_review_card WHERE state = 'pending'`);
+        for (const row of pendingReviewRows) {
+          try { const pendingClue = JSON.parse(row.clue_json) as ClueRecord; if (pendingClue.kind === 'photo-source') for (const key of pendingClue.subject.evidenceKeys) alreadyCovered.add(key); }
+          catch {
+            // A malformed stored card is never a reason to reprocess or
+            // crash the pass, but it is still a real, diagnosable boundary
+            // (AGENTS.md: every fallible boundary needs a fixed category).
+            recordAppDiagnostic({ operation: 'AI_CLUE_PASS', stage: 'CLUE_VALIDATE', reasonCode: 'CLUE_INVALID', durableOutcome: 'unchanged', retryable: false, correlationId });
+          }
+        }
+        const subjects: { evidenceId: string; duplicateFamilyId: string | null; sourceOrigin: string | null }[] = [];
+        const seenKeys = new Set<string>();
+        for (const row of rows) {
+          if (subjects.length >= budget) break;
+          if (!evidenceById.has(row.evidence_id)) continue;
+          const key = row.platform_duplicate_family_id ? `F:${row.platform_duplicate_family_id}` : `E:${row.evidence_id}`;
+          if (alreadyCovered.has(key) || seenKeys.has(key)) continue;
+          seenKeys.add(key);
+          subjects.push({ evidenceId: row.evidence_id, duplicateFamilyId: row.platform_duplicate_family_id ?? null, sourceOrigin: row.source_origin ?? null });
+        }
+        const evidenceRevision = (await db.getFirstAsync<{ canonical_evidence_revision: number | null }>('SELECT canonical_evidence_revision FROM private_history_record WHERE record_id = 1'))?.canonical_evidence_revision ?? 0;
+        const homeRevision = (await db.getFirstAsync<{ revision: number | null }>('SELECT revision FROM home_projection_context WHERE record_id = 1'))?.revision ?? 0;
+        const correctionRevision = (await db.getFirstAsync<{ revision: number | null }>('SELECT MAX(revision) AS revision FROM correction_overlays'))?.revision ?? 0;
+        const candidateClues = photoSourceClues(subjects, { evidenceRevision, homeRevision, correctionRevision }, nowMillis);
+        producedCount = candidateClues.length;
+        report('COMPLETE', 'complete');
+
+        if (!candidateClues.length) { await db.execAsync('COMMIT'); report('SKIPPED', 'skipped'); return { status: 'complete', produced: 0, activated: 0, reviewCards: 0, rebuildTriggered: false }; }
+
+        const { toActivate, toReview } = gateCandidateClues({ graph, evidence, mediaByEvidence, homeAreas, existingClues: clues, correctedKeys, currentClassifications, protectedEvidenceIds, candidateClues, frequentPlaceContext, lookups });
+        toActivateCount = toActivate.length;
+        toReviewCount = toReview.length;
+
+        stage = 'CLUE_COMMIT';
+        report('START', 'unchanged');
+        for (const clue of toActivate) await db.runAsync(
+          `INSERT INTO travel_clue (clue_id, kind, subject_json, value_json, strength, independence_key, producer_id, producer_version, evidence_revision, home_revision, correction_revision, state, created_at_millis)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(clue_id) DO UPDATE SET kind = excluded.kind, subject_json = excluded.subject_json, value_json = excluded.value_json,
+             strength = excluded.strength, independence_key = excluded.independence_key, producer_id = excluded.producer_id,
+             producer_version = excluded.producer_version, evidence_revision = excluded.evidence_revision, home_revision = excluded.home_revision,
+             correction_revision = excluded.correction_revision, state = excluded.state`,
+          clue.clueId, clue.kind, JSON.stringify(clue.subject), JSON.stringify(clue.value), clue.strength, clue.independenceKey,
+          clue.producerId, clue.producerVersion, clue.inputsRevision.evidenceRevision, clue.inputsRevision.homeRevision,
+          clue.inputsRevision.correctionRevision, clue.state, clue.createdAtMillis,
+        );
+        for (const item of toReview) await db.runAsync(
+          `INSERT INTO clue_review_card (card_id, journey_id, reason, clue_json, state, created_at_millis) VALUES (?, ?, ?, ?, 'pending', ?)
+           ON CONFLICT(card_id) DO UPDATE SET journey_id = excluded.journey_id, reason = excluded.reason, clue_json = excluded.clue_json`,
+          `review-${item.clue.clueId}`, item.journeyId, item.reason, JSON.stringify(item.clue), nowMillis,
+        );
+        await db.execAsync('COMMIT');
+        report('COMPLETE', 'complete');
+      } catch (error) {
+        await db.execAsync('ROLLBACK');
+        const reason = classifyAppDiagnosticError(error);
+        report(reason, 'failed', reason === 'DATABASE_BUSY' || reason === 'NATIVE_HANDLE');
+        throw error;
+      }
+
+      let rebuildTriggered = false;
+      if (toActivateCount > 0) {
+        stage = 'CLUE_REBUILD';
+        report('START', 'unchanged');
+        try { await this.rebuild(nowMillis); rebuildTriggered = true; report('ATLAS_UPDATED', 'complete'); }
+        catch (error) { report(classifyAppDiagnosticError(error), 'failed', true); throw error; }
+      }
+      return { status: 'complete', produced: producedCount, activated: toActivateCount, reviewCards: toReviewCount, rebuildTriggered };
     },
     async reconcileQueued(nowMillis = Date.now(), canUseSource: () => Promise<boolean> = async () => true) {
       let token: number | null = null;

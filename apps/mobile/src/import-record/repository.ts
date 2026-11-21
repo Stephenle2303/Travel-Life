@@ -54,7 +54,20 @@ export function clueFromRow(row: ClueRow): ClueRecord | null {
   } catch { return null; }
 }
 
-export const CURRENT_SCHEMA_VERSION = 50;
+/** CAP-3's review card (migrationV51): a clue the pass computed but did not
+ * activate because it would have lowered an already-AUTO_CONFIRMED/
+ * USER_CONFIRMED journey. `clue` is the full closed record, round-tripped
+ * the same untyped-trust way `clueFromRow` does — this repository never
+ * interprets it. */
+export type ClueReviewCardRow = { card_id: string; journey_id: string; reason: string; clue_json: string; state: 'pending' | 'approved' | 'dismissed'; created_at_millis: number };
+export type ClueReviewCard = { cardId: string; journeyId: string; reason: string; clue: ClueRecord; state: 'pending' | 'approved' | 'dismissed'; createdAtMillis: number };
+
+function clueReviewCardFromRow(row: ClueReviewCardRow): ClueReviewCard | null {
+  try { return { cardId: row.card_id, journeyId: row.journey_id, reason: row.reason, clue: JSON.parse(row.clue_json) as ClueRecord, state: row.state, createdAtMillis: row.created_at_millis }; }
+  catch { return null; }
+}
+
+export const CURRENT_SCHEMA_VERSION = 51;
 const validCivilDay = (day: string | null) => Boolean(day && /^\d{4}-(0[1-9]|1[0-2])-([0-2]\d|3[01])$/.test(day)
   && new Date(`${day}T00:00:00.000Z`).toISOString().slice(0, 10) === day);
 
@@ -989,6 +1002,28 @@ const migrationV50 = `
   UPDATE private_history_record SET schema_version = MAX(schema_version, 50) WHERE record_id = 1;
 `;
 
+// CAP-3 (background-and-surfacing.md): "never removes or lowers an Atlas
+// trip by itself" — a candidate clue that would drop an already-AUTO_CONFIRMED/
+// USER_CONFIRMED journey is held here instead of being written to
+// `travel_clue` as active. `clue_json` is the full closed `ClueRecord` the
+// clue layer would otherwise have stored; approval copies it verbatim.
+// `journey_id` is the run it was detected against — like every other
+// journey id in this schema it can churn across a rebuild, so a stale
+// reference at review time is a known, explicit "journey changed" case,
+// not silently ignored.
+const migrationV51 = `
+  CREATE TABLE IF NOT EXISTS clue_review_card (
+    card_id TEXT PRIMARY KEY,
+    journey_id TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    clue_json TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('pending', 'approved', 'dismissed')),
+    created_at_millis INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS clue_review_card_state ON clue_review_card (state);
+  UPDATE private_history_record SET schema_version = MAX(schema_version, 51) WHERE record_id = 1;
+`;
+
 const migrationV42 = `
   CREATE TABLE IF NOT EXISTS recognizable_candidate_rejection (
     command_key TEXT PRIMARY KEY NOT NULL,
@@ -1244,6 +1279,7 @@ export async function ensureNativeImportSchema(db: SqliteDatabase) {
     if (version < 48) await db.execAsync(migrationV48);
     if (version < 49) await db.execAsync(migrationV49);
     if (version < 50) await db.execAsync(migrationV50);
+    if (version < 51) await db.execAsync(migrationV51);
     if (version === 0) await db.runAsync('INSERT INTO import_schema_version (version) VALUES (?)', CURRENT_SCHEMA_VERSION);
     else if (version < CURRENT_SCHEMA_VERSION) await db.runAsync('UPDATE import_schema_version SET version = ?', CURRENT_SCHEMA_VERSION);
     await db.execAsync('COMMIT');
@@ -1371,6 +1407,7 @@ export function createNativeImportRepository(options?: { databaseName: string })
           if (version < 48) await db.execAsync(migrationV48);
           if (version < 49) await db.execAsync(migrationV49);
           if (version < 50) await db.execAsync(migrationV50);
+          if (version < 51) await db.execAsync(migrationV51);
           if (version === 0) await db.runAsync('INSERT INTO import_schema_version (version) VALUES (?)', CURRENT_SCHEMA_VERSION);
           else if (version < CURRENT_SCHEMA_VERSION) await db.runAsync('UPDATE import_schema_version SET version = ?', CURRENT_SCHEMA_VERSION);
           await db.execAsync('COMMIT');
@@ -1629,6 +1666,42 @@ export function createNativeImportRepository(options?: { databaseName: string })
         await db.execAsync('COMMIT');
       } catch (error) { await db.execAsync('ROLLBACK'); throw error; }
     },
+    // CAP-3 (background-and-surfacing.md): review cards for a clue the pass
+    // held back rather than silently lowering an Atlas trip. Pure
+    // persistence, same convention as travel_clue above.
+    async loadClueReviewCards(state?: 'pending' | 'approved' | 'dismissed') {
+      const db = await open();
+      const rows = state
+        ? await db.getAllAsync<ClueReviewCardRow>('SELECT card_id, journey_id, reason, clue_json, state, created_at_millis FROM clue_review_card WHERE state = ? ORDER BY created_at_millis, card_id', state)
+        : await db.getAllAsync<ClueReviewCardRow>('SELECT card_id, journey_id, reason, clue_json, state, created_at_millis FROM clue_review_card ORDER BY created_at_millis, card_id');
+      return rows.map(clueReviewCardFromRow).filter((card): card is ClueReviewCard => card !== null);
+    },
+    async saveClueReviewCards(cards: readonly ClueReviewCard[]) {
+      if (!cards.length) return;
+      const db = await open();
+      await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
+      try {
+        await assertImportActive(db);
+        for (const card of cards) {
+          if (!card.cardId || !card.journeyId) throw new Error('Clue review card is invalid.');
+          await db.runAsync(
+            `INSERT INTO clue_review_card (card_id, journey_id, reason, clue_json, state, created_at_millis) VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT(card_id) DO UPDATE SET journey_id = excluded.journey_id, reason = excluded.reason, clue_json = excluded.clue_json, state = excluded.state`,
+            card.cardId, card.journeyId, card.reason, JSON.stringify(card.clue), card.state, card.createdAtMillis,
+          );
+        }
+        await db.execAsync('COMMIT');
+      } catch (error) { await db.execAsync('ROLLBACK'); throw error; }
+    },
+    async resolveClueReviewCard(cardId: string, state: 'approved' | 'dismissed') {
+      const db = await open();
+      await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
+      try {
+        await assertImportActive(db);
+        await db.runAsync("UPDATE clue_review_card SET state = ? WHERE card_id = ? AND state = 'pending'", state, cardId);
+        await db.execAsync('COMMIT');
+      } catch (error) { await db.execAsync('ROLLBACK'); throw error; }
+    },
     async connectPrivateRecord() {
       const db = await open();
       await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
@@ -1693,6 +1766,7 @@ export function createNativeImportRepository(options?: { databaseName: string })
           DELETE FROM local_cache_registry;
           DELETE FROM reconstruction_trip_qualification;
           DELETE FROM travel_clue;
+          DELETE FROM clue_review_card;
           DELETE FROM configured_home_area;
           DELETE FROM home_setup_receipt;
           DELETE FROM first_reveal_receipt;

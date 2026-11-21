@@ -1,5 +1,92 @@
 # Project state
 
+## CAP-3 wired into the real maintenance task, then code-reviewed before trusting it (2026-11-21)
+
+Wired `runCluePass()` into the real `travel-life-library-maintenance-v1`
+maintenance task (after `reconcileQueued`, never blocking account sync).
+Before leaving it live, ran a high-effort 8-angle code review and found
+three real holes in the "never silently lower an Atlas trip" gate:
+
+- It only recognized journeys built from `visit-support` — never
+  `membership:%`-linked evidence (GPS-less "memories"), and never
+  confirmed GPS-less (`travel_window_trip`) or visual-place
+  (`visual_place_trip`) trips, which live entirely outside the
+  reconstruction engine's own tables. Evidence belonging to those just
+  bypassed the gate.
+- The dry-run never received the frequent-place context, so a frequent
+  spot's journey could look falsely safe.
+- A journey with no stored classification failed *open* (treated as safe)
+  instead of closed.
+
+All three fixed, plus 7 smaller issues (a double-logged diagnostic with the
+wrong stage, a budget loop that scanned the whole library after its cap was
+met, `deleteLocalHistory` missing `clue_review_card`, three disagreeing
+upsert paths, a silently-swallowed malformed row). Two performance findings
+(the transaction holding the write lock too long, and activation
+re-loading evidence twice) were deliberately deferred — correctness came
+first for something about to run live. Full detail:
+[delivery-and-diagnostics.md](../_bmad-output/specs/spec-ai-clue-layer/delivery-and-diagnostics.md),
+[error-playbook.md](development/error-playbook.md).
+
+Verified: 3 new gate unit tests, 1 new SQLite end-to-end test, full mobile
+`npm run check` (1630 Jest + 152 SQLite + typecheck + lint + doctor) and
+root `npm run check` (281/281 + eval smoke) clean. Nothing from this
+session has been committed yet.
+
+## CAP-3's background clue pass: core pipeline built end to end (2026-11-21)
+
+Following the refactor-not-duplicate decision below, extracted `rebuild()`'s
+own input assembly into a reusable `loadRebuildBaseline()` (verified
+behavior-preserving: the full existing test suite stayed green with no
+test changes) and built `runCluePass()` on top of it — reads real evidence/
+clues, runs CAP-5's producer, gates the result, commits, and triggers a
+rebuild, all verified against real SQLite.
+
+**Real finding, not a defect:** CAP-5's current (metadata-stage) producer
+can never actually trigger the review-card gate against real evidence,
+because it only ever confirms what the base engine's classification
+already does directly from the same `source_origin` field. The gate's
+actual protection is proven separately with synthetic clues
+(`background-pass.test.ts`) and exists for a future producer that can see
+something the base evidence cannot (CAP-4's place clues, or a later
+CAP-5 content stage for ambiguous photos).
+
+**Still not wired to anything automatic**: `runCluePass()` is not yet
+called from the real maintenance task, so it has no live effect on anyone's
+Atlas today. That wiring, a real wall-clock/checkpoint budget, and the
+owner-facing review-card UI are the remaining pieces. Full detail:
+[delivery-and-diagnostics.md](../_bmad-output/specs/spec-ai-clue-layer/delivery-and-diagnostics.md).
+
+Verified: full mobile `npm run check` (1625 Jest + 151 SQLite + typecheck +
+lint + doctor) and root `npm run check` (281/281 + eval smoke) clean.
+
+## CAP-3's safety-critical gate built and tested; DB orchestration is the next decision (2026-11-21)
+
+Started CAP-3 (the background clue pass). Built and fully tested, with zero
+production effect yet:
+- `migrationV51`'s `clue_review_card` table + persistence, for a clue the
+  pass must hold back rather than silently lower an Atlas trip
+  (background-and-surfacing.md's "never" rule).
+- `clues/background-pass.ts`'s `gateCandidateClues` — the actual dry-run
+  safety gate. Found and fixed a real design bug while writing its tests:
+  gating each candidate clue alone against only the already-stored clues
+  missed the case where several of the *same pass's own* new clues
+  combine to drop a trip below the reliable-photo floor, even though none
+  of them would individually. Now gates all of a pass's clues together per
+  affected journey.
+
+**Deliberately stopped before the DB orchestration** (`runCluePass()`,
+which would read real evidence/graph/Home state, call CAP-5's producer,
+call the gate, and trigger a rebuild) — that piece needs the same
+graph-construction `rebuild()` already does internally, and duplicating it
+versus refactoring `rebuild()` to expose it is a real tradeoff (drift risk
+vs. risk to a core tested path) worth deciding deliberately rather than
+picking under momentum. Full detail:
+[delivery-and-diagnostics.md](../_bmad-output/specs/spec-ai-clue-layer/delivery-and-diagnostics.md).
+
+Verified: full mobile `npm run check` (1625 Jest + 148 SQLite + typecheck +
+lint + doctor) and root `npm run check` (281/281 + eval smoke) clean.
+
 ## M11's first clue producer: CAP-5 photo-source built, not yet wired (2026-11-21)
 
 Scoping which clue producer to start with (CAP-4 place / CAP-5 photo-source

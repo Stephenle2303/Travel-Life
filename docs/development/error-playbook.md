@@ -1,5 +1,106 @@
 # Error and improvement playbook
 
+## CAP-3 code review: 3 real holes in the "never silently lower Atlas" gate, 7 more issues fixed (2026-11-21)
+
+Before declaring CAP-3's clue pass done (it was about to start actually
+running on the owner's device via the real maintenance task), ran a
+high-effort 8-angle code review, same practice as every prior story in
+this spec. Found and fixed 10 issues; 2 deliberately deferred.
+
+**The three safety-critical ones**, found independently by the reuse,
+altitude, and removed-behavior angles (two of them converging on the same
+root cause from different directions):
+1. `gateCandidateClues`'s evidence→journey resolution walked only
+   `visit-support`, never `membership:%` links (decision 0006's GPS-less/
+   date-limited "memories" attached to a journey directly) and never the
+   `travel_window_trip`/`visual_place_trip` confirmed-trip families, which
+   live entirely outside `reconstruction_journey`/
+   `reconstruction_trip_qualification`. A clue on that evidence resolved to
+   no journey at all and bypassed the gate completely — for exactly the
+   GPS-less trips wired into the Atlas the commit immediately before this
+   one.
+2. The dry-run never received `frequentPlaceContext`, so `isFrequentPlace`
+   always returned false inside the gate, letting a frequent-place journey
+   look safe when the real rebuild (with the true context) would actually
+   demote it.
+3. `ATLAS_CLASSIFICATIONS.has(currentClassifications.get(journeyId) as
+   TripOutcomeClassification)` cast `undefined` away silently, treating a
+   journey with no stored classification as "not Atlas, don't gate" —
+   fails open, the inverse of what a safety gate should default to.
+
+Each was masked today only by the narrow scope of what the gate's graph
+actually included; #3 in particular becomes live the moment #1 widens that
+scope, which is exactly what this same pass did.
+
+Fixed: `membership:%` links now feed the hand-built graph alongside
+`visit-support`; evidence belonging to any confirmed GPS-less/visual-place
+trip is read from `travel_window_trip.member_ids` and
+`visual_place_album.evidence_id` into a `protectedEvidenceIds` set that
+unconditionally defers to review (this gate cannot dry-run those trip
+types' own classification, so it never certifies them safe); the
+classification check now fails closed; `frequentPlaceContext`/`lookups`
+are now passed into the dry-run the same way the main qualification loop
+builds them.
+
+Seven more issues from the same review: the maintenance task's outer catch
+double-logged every `runCluePass` failure under a hardcoded wrong stage and
+an unrelated correlation id (now silent — `runCluePass` already
+self-reports accurately); the subject-budget loop used `continue` instead
+of `break`, scanning the whole evidence table after the cap was met on
+every pass; `deleteLocalHistory` cleared `travel_clue` but not
+`clue_review_card` (clue data could outlive a deleted private record,
+contradicting clue-contract.md); three independently-written upsert paths
+for `travel_clue`/`clue_review_card` disagreed on conflict behavior (one
+`DO NOTHING`, two different partial `DO UPDATE`s); a malformed
+`clue_review_card` row was silently swallowed with zero diagnostic despite
+a `CLUE_INVALID` code existing for exactly this.
+
+Deliberately deferred (performance, not correctness): the transaction holds
+SQLite's write lock across all the pass's CPU-bound work, not just the
+final writes; activating any clue triggers a rebuild that redundantly
+reloads and re-clusters evidence `runCluePass` had just read moments
+earlier. Both are real and documented in delivery-and-diagnostics.md as
+known follow-ups, not fixed in this pass — correctness took priority given
+this was about to go live.
+
+Verified: 3 new gate unit tests, 1 new SQLite end-to-end test proving a
+GPS-less confirmed trip's evidence is held for review rather than silently
+activated, full mobile and root checks clean. Prevention: when a gate's
+"what does this evidence belong to" resolver is scoped to only one of
+several ways evidence can be associated with a confirmed/owner-visible
+entity in this codebase, grep for every other association mechanism
+(`membership:%`, `manual_journey`, `visual_place_*`, `travel_window_*`)
+before trusting the narrower scope is complete — a safety gate is only as
+strong as the resolver that tells it what to protect.
+
+## CAP-3's gate evaluated candidate clues one at a time, missing their cumulative effect (2026-11-21)
+
+Writing `clues/background-pass.ts`'s `gateCandidateClues` (the "never
+silently lower an Atlas trip" safety gate for the background clue pass),
+the first draft dry-ran each freshly computed candidate clue individually
+against only the already-stored active clues. A same-task unit test
+("defers a clue to review when it would drop an AUTO_CONFIRMED journey
+below Atlas") caught the gap immediately: reclassifying 8 of 12 photos as
+screenshots should drop a journey below the 5-reliable-photo floor, but
+each of the 8 candidate clues, evaluated alone, only ever removes 1 of 12
+— comfortably still above the floor — so every one of them individually
+looked safe and all 8 were wrongly activated. The real risk only appears
+when several of the *same pass's own* new clues combine, which a one-at-
+a-time check can never see.
+
+Fixed: clues touching the same journey are now gated *together* — grouped
+by affected journey, with all of that pass's own candidate clues for a
+journey added to the dry-run classification at once, matching how the
+following rebuild would actually apply them. Verified: the test fails with
+the one-at-a-time version reverted and passes with the grouped version;
+3 further scenarios (safe single clue, a non-Atlas journey needing no
+gating, evidence with no visit-support) confirm the common cases are
+unaffected. Full mobile `npm run check` clean. Prevention: when gating or
+validating a *batch* of changes against a single-item rule, always ask
+whether the batch's combined effect, not just each item's effect alone,
+is what the rule is actually meant to bound — a safety check is only as
+strong as the unit it evaluates at once.
+
 ## Clue layer's 'received' photo-source value never matched the engine's 'messaging' origin (2026-11-21)
 
 Scoping M11's first clue producer (CAP-5, photo-source), found that
