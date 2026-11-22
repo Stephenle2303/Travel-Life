@@ -302,4 +302,28 @@ describe('private record settings', () => {
     await fireEvent.press(view.getByRole('button', { name: 'delete lifecycle' }));
     await waitFor(() => expect(view.getByText('idle')).toBeOnTheScreen());
   });
+
+  describe('CAP-7 "What Travel Life learned"', () => {
+    it('lists a learned preference in plain language and removes it without a raw rule kind ever showing', async () => {
+      const removePersonalRule = jest.fn(async () => {});
+      const repository: ImportRepository = {
+        ...lifecycleRepository(),
+        loadPersonalRules: async () => [{ ruleId: 'pair-preference:clue-1', kind: 'pair-preference', scope: { clueId: 'clue-1' }, createdAtMillis: 1000 }],
+        removePersonalRule,
+      };
+      const view = await render(<PhotoAccessProvider adapter={adapter} repository={repository}><PrivacySettingsScreen /></PhotoAccessProvider>);
+      await fireEvent.press(view.getByRole('button', { name: 'What Travel Life learned' }));
+      await waitFor(() => expect(view.getByText(/won't suggest merging them again/i)).toBeOnTheScreen());
+      expect(view.queryByText(/pair-preference/)).toBeNull();
+      await fireEvent.press(view.getByRole('button', { name: 'Remove this learned preference' }));
+      await waitFor(() => expect(removePersonalRule).toHaveBeenCalledWith('pair-preference:clue-1'));
+      await waitFor(() => expect(view.queryByText(/won't suggest merging them again/i)).toBeNull());
+    });
+
+    it('shows an empty-state message rather than a blank screen when nothing has been learned yet', async () => {
+      const view = await render(<PhotoAccessProvider adapter={adapter} repository={{ ...lifecycleRepository(), loadPersonalRules: async () => [] }}><PrivacySettingsScreen /></PhotoAccessProvider>);
+      await fireEvent.press(view.getByRole('button', { name: 'What Travel Life learned' }));
+      await waitFor(() => expect(view.getByText(/hasn't learned any preferences yet/i)).toBeOnTheScreen());
+    });
+  });
 });

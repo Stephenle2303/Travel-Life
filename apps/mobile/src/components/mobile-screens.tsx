@@ -16,6 +16,8 @@ import { RecognizableAtlasExperience } from '@/components/recognizable-atlas-exp
 import { VisualDiscoverySetting, VisualPlaceRecovery } from '@/components/visual-place-recovery';
 import { TravelWindowRecovery } from '@/components/travel-window-recovery';
 import { PossibleTripsV12Section } from '@/components/possible-trips-v12';
+import { ClueReviewCardsSection, CluePassNoticeBanner } from '@/components/clue-review-cards';
+import { personalRuleSentence } from '@/clues/personal-rule-copy';
 import { usePhotoAccess } from '@/photo-access/provider';
 import { projectReveal } from '@/reveal/projection';
 import { consumeAtlasPreviewContext, saveAtlasPreviewContext } from '@/atlas/preview-context';
@@ -285,7 +287,7 @@ export function ImportScreen() {
 
 export function EmptyAtlasScreen() {
   const router = useRouter();
-  const { snapshot, controller, importCoverage, maintenance, maintenanceController, reconciliation, catchUpHistory, reconstruction, retryJourneyCorrectionProjection, visualDiscovery, travelWindowDiscovery, durableReveal, loadJourneyDetail, loadJourneyMediaPage, inspectJourneyMedia, confirmTimelineMerge, privateRecord, privateRecordController, loadPossibleTrips } = usePhotoAccess();
+  const { snapshot, controller, importCoverage, maintenance, maintenanceController, reconciliation, catchUpHistory, reconstruction, retryJourneyCorrectionProjection, visualDiscovery, travelWindowDiscovery, durableReveal, loadJourneyDetail, loadJourneyMediaPage, inspectJourneyMedia, confirmTimelineMerge, privateRecord, privateRecordController, loadPossibleTrips, loadPendingClueReviewCards, reviewClueCard, loadCluePassNotice, dismissCluePassNotice } = usePhotoAccess();
   const AtlasContent = isRecognizableRevealEnabled() ? RecognizableAtlasExperience : AtlasReveal;
   const [initialAtlasContext] = useState(() => consumeAtlasPreviewContext(controller));
   const exploration = useRef<AtlasExploration | null>(initialAtlasContext);
@@ -312,6 +314,20 @@ export function EmptyAtlasScreen() {
     void loadPossibleTrips().then((result) => { if (active) setPossibleTrips(result); }).catch(() => { if (active) setPossibleTrips([]); });
     return () => { active = false; };
   }, [durableReveal, loadPossibleTrips]);
+  // CAP-3's owner-facing surfaces: clues the background pass held back,
+  // and the one-time "trips updated" note. Both reload whenever the
+  // completed rebuild changes, same lifecycle as possibleTrips above.
+  const [reviewCards, setReviewCards] = useState<import('@/components/clue-review-cards').PendingClueReviewCard[]>([]);
+  const refreshReviewCards = useCallback(() => {
+    void loadPendingClueReviewCards().then(setReviewCards).catch(() => setReviewCards([]));
+  }, [loadPendingClueReviewCards]);
+  useEffect(() => { refreshReviewCards(); }, [durableReveal, refreshReviewCards]);
+  const [cluePassNotice, setCluePassNotice] = useState<{ message: string } | null>(null);
+  useEffect(() => {
+    let active = true;
+    void loadCluePassNotice().then((result) => { if (active) setCluePassNotice(result); }).catch(() => { if (active) setCluePassNotice(null); });
+    return () => { active = false; };
+  }, [durableReveal, loadCluePassNotice]);
   const reveal = projectReveal({
     graph: reconstruction.graph,
     durableRecord: durableReveal,
@@ -403,9 +419,17 @@ export function EmptyAtlasScreen() {
           saveExploration(context);
           router.push({ pathname: '/journey/[id]/edit' as never, params: { id, fromAtlas: '1' } });
         }}
-        possibleTrips={<PossibleTripsV12Section trips={possibleTrips}
-          onReviewOuting={(id) => { if (exploration.current) saveExploration(exploration.current); router.push({ pathname: '/journey/[id]/edit' as never, params: { id, fromAtlas: '1' } }); }}
-          onSetHome={() => { if (exploration.current) saveExploration(exploration.current); openRoute(router, appRoutes.settings); }} />}
+        possibleTrips={<>
+          <CluePassNoticeBanner notice={cluePassNotice} onDismiss={() => { setCluePassNotice(null); void dismissCluePassNotice(); }} />
+          <ClueReviewCardsSection cards={reviewCards} onResolve={async (cardId, decision) => {
+            const result = await reviewClueCard(cardId, decision);
+            if (result !== 'stale') refreshReviewCards();
+            return result;
+          }} />
+          <PossibleTripsV12Section trips={possibleTrips}
+            onReviewOuting={(id) => { if (exploration.current) saveExploration(exploration.current); router.push({ pathname: '/journey/[id]/edit' as never, params: { id, fromAtlas: '1' } }); }}
+            onSetHome={() => { if (exploration.current) saveExploration(exploration.current); openRoute(router, appRoutes.settings); }} />
+        </>}
       />
       <UpdatesInvitation eligible={controller.preparation === 'complete' && controller.preparationScope !== 'selected' && controller.preparationScope !== null && !maintenance.enabled} enable={() => maintenanceController.setEnabled(true)} />
       {manualEntryRecovery && <InsetPanel>
@@ -449,8 +473,21 @@ export function ReplayAvailabilityScreen() {
 
 export function PrivacySettingsScreen() {
   const router = useRouter();
-  const { controller, privateRecord, privateRecordController, maintenance, maintenanceController, reconciliation, durableReveal, homeBases, loadJourneyPrivacyPolicies, restoreJourneyPrivacy, loadJourneyDetail, saveConfiguredHomeArea, saveDirectHome, renameConfiguredHomeArea, removeConfiguredHomeArea, visualDiscovery } = usePhotoAccess();
-  const [task, setTask] = useState<'account' | 'homes' | 'updates' | 'privacy' | null>(null);
+  const { controller, privateRecord, privateRecordController, maintenance, maintenanceController, reconciliation, durableReveal, homeBases, loadJourneyPrivacyPolicies, restoreJourneyPrivacy, loadJourneyDetail, saveConfiguredHomeArea, saveDirectHome, renameConfiguredHomeArea, removeConfiguredHomeArea, visualDiscovery, loadPersonalRules, removePersonalRule } = usePhotoAccess();
+  const [task, setTask] = useState<'account' | 'homes' | 'updates' | 'privacy' | 'learned' | null>(null);
+  const [personalRules, setPersonalRules] = useState<{ ruleId: string; kind: string; scope: Record<string, unknown>; createdAtMillis: number }[]>([]);
+  const [removingRuleId, setRemovingRuleId] = useState<string | null>(null);
+  useEffect(() => {
+    if (task !== 'learned') return;
+    let active = true;
+    void loadPersonalRules().then((rules) => { if (active) setPersonalRules(rules); }).catch(() => { if (active) setPersonalRules([]); });
+    return () => { active = false; };
+  }, [task, loadPersonalRules]);
+  const removeRule = async (ruleId: string) => {
+    setRemovingRuleId(ruleId);
+    try { await removePersonalRule(ruleId); setPersonalRules((previous) => previous.filter((rule) => rule.ruleId !== ruleId)); }
+    finally { setRemovingRuleId(null); }
+  };
   const [directHome, setDirectHome] = useState<{ existing?: SavedHomeSetup } | null>(null);
   useEffect(() => {
     if (!task) return;
@@ -535,12 +572,13 @@ export function PrivacySettingsScreen() {
   return (
     <Screen>
       <Eyebrow>Private record</Eyebrow>
-      <Title>{task === 'homes' ? 'Home bases' : task === 'updates' ? 'Updates' : task === 'privacy' ? 'Privacy & data' : task === 'account' ? 'Account & sources' : 'Settings'}</Title>
+      <Title>{task === 'homes' ? 'Home bases' : task === 'updates' ? 'Updates' : task === 'privacy' ? 'Privacy & data' : task === 'account' ? 'Account & sources' : task === 'learned' ? 'What Travel Life learned' : 'Settings'}</Title>
       {!task && <>
         <ActionButton onPress={() => setTask('account')} variant="secondary">Account & sources</ActionButton>
         <ActionButton onPress={() => setTask('homes')} variant="secondary">Home bases</ActionButton>
         <ActionButton onPress={() => setTask('updates')} variant="secondary">Updates</ActionButton>
         <ActionButton onPress={() => setTask('privacy')} variant="secondary">Privacy & data</ActionButton>
+        <ActionButton onPress={() => setTask('learned')} variant="secondary">What Travel Life learned</ActionButton>
         {isReconstructionPreviewEnabled() && !controller.isAccountRecord && privateRecord.state === 'connected'
           && <ActionButton variant="secondary" onPress={() => openRoute(router, appRoutes.atlasPreview)}>Reconstruction preview</ActionButton>}
       </>}
@@ -624,6 +662,14 @@ export function PrivacySettingsScreen() {
       </InsetPanel>}
       {privateRecord.pendingAction === 'delete' && <Body>Deleting local history from this device…</Body>}
       {privateRecord.message && <InsetPanel><Body>{privateRecord.message}</Body></InsetPanel>}
+      </>}
+      {task === 'learned' && <>
+        <Body>Decisions you make while reviewing your Atlas are remembered here. Remove any of them to let Travel Life suggest that again.</Body>
+        {!personalRules.length && <Body>Travel Life hasn&apos;t learned any preferences yet.</Body>}
+        {personalRules.map((rule) => <InsetPanel key={rule.ruleId}>
+          <Body>{personalRuleSentence(rule.kind)}</Body>
+          <ActionButton accessibilityLabel={`Remove this learned preference`} onPress={() => void removeRule(rule.ruleId)} disabled={removingRuleId === rule.ruleId} variant="secondary">{removingRuleId === rule.ruleId ? 'Removing…' : 'Remove'}</ActionButton>
+        </InsetPanel>)}
       </>}
       <ActionButton accessibilityLabel={task ? 'Back to Settings' : 'Return to Atlas'} onPress={() => task ? setTask(null) : openRoute(router, appRoutes.atlas, 'dismissTo')} variant="secondary">Back</ActionButton>
     </Screen>

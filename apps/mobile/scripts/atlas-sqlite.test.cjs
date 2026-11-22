@@ -779,6 +779,39 @@ test('runCluePass activates safe photo-source clues and a rebuild reflects them 
   assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS count FROM clue_review_card').get().count, 0);
 }));
 
+test('runCluePass resumes its scan from a persisted cursor instead of rescanning covered evidence (CAP-3, 2026-11-21)', async () => withDatabase(async (database) => {
+  const importer = createNativeImportRepository();
+  await importer.connectPrivateRecord();
+  await importer.saveConfiguredHomeArea({ id: 'pass-home', label: 'Home', origin: 'manual-pin', latitude: 10.776, longitude: 106.700,
+    radiusMeters: 20000, effectiveStartDay: null, effectiveEndDay: null });
+  const units = cluePassAtlasUnits(0); // 12 camera-origin units, one AUTO_CONFIRMED journey
+  await importer.commitPage({ scope: 'full', nextOffset: units.length, scanned: units.length, geotagged: units.length, unavailable: 0, status: 'complete' }, units);
+  const repository = createNativeReconstructionRepository();
+  await repository.rebuild();
+  const activeCount = () => database.sqlite.prepare("SELECT COUNT(*) AS count FROM travel_clue WHERE state = 'active'").get().count;
+  const cursor = () => database.sqlite.prepare("SELECT cursor_evidence_id FROM clue_pass_checkpoint WHERE producer_id = 'photo-source-metadata'").get()?.cursor_evidence_id ?? null;
+
+  // A budget of 1 forces 12 separate calls, one evidence row apiece, each
+  // one strictly resuming after the last: never re-examining an
+  // already-clued row, and never skipping one either.
+  for (let i = 1; i <= 12; i += 1) {
+    const result = await repository.runCluePass(Date.now(), 1);
+    assert.equal(result.produced, 1, `call ${i} should produce exactly one new clue`);
+    assert.equal(result.activated, 1, `call ${i} should activate exactly one new clue`);
+    assert.equal(activeCount(), i, `call ${i} should bring the active-clue count to ${i}`);
+    if (i < 12) assert.notEqual(cursor(), null, `call ${i} of 12 should leave a cursor for the next call to resume from`);
+  }
+  // The 12th call reached the end of the table within its own budget-1
+  // slice (nothing left to resume into), so the cursor wraps to the start.
+  assert.equal(cursor(), null);
+
+  // Fully covered: a 13th call finds nothing left to produce, and the
+  // wrapped cursor does not make it reprocess anything already active.
+  const done = await repository.runCluePass(Date.now(), 1);
+  assert.equal(done.produced, 0);
+  assert.equal(activeCount(), 12);
+}));
+
 // CAP-5's metadata-stage producer reads the exact same `source_origin`
 // field `outcome-v1-2.ts`'s `NON_CAPTURE_ORIGINS` already reads directly
 // from evidence — so whenever it has enough information to emit a
@@ -821,6 +854,155 @@ test('runCluePass never review-gates a non-Atlas (SUGGESTED) journey\'s clues (C
   assert.equal(second.produced, 0);
 }));
 
+function sameTripUnit(assetId, day, millis, latitude, longitude, sourceOrigin = 'camera') {
+  return { assetId, mediaType: 'image', capturedAtMillis: millis, capturedDay: day, hasPreciseOffset: true, modifiedAtMillis: null,
+    locationAvailable: true, latitude, longitude, reportedAccuracyMeters: 10, availability: 'available', sourceOrigin, supportEligible: true };
+}
+
+function sameTripCluster(prefix, day, baseMillis, latitude, longitude, count) {
+  return Array.from({ length: count }, (_, i) => sameTripUnit(`${prefix}-${i}`, day, baseMillis + i * 3_600_000, latitude, longitude));
+}
+
+test('CAP-4 capture-offset + CAP-6 same-trip: two Possible trips with a corroborated Home gap at rebuild time, matching device-clock offsets and no corroboration left at clue-pass time, get a same-trip clue; it is retracted once a return reappears', async () => withDatabase(async (database) => {
+  const importer = createNativeImportRepository();
+  await importer.connectPrivateRecord();
+  await importer.saveConfiguredHomeArea({ id: 'same-trip-home', label: 'Home', origin: 'manual-pin', latitude: 10.776, longitude: 106.700,
+    radiusMeters: 20000, effectiveStartDay: null, effectiveEndDay: null });
+  // Trip A and trip B: 3 photos each, below the 5-photo reliable floor —
+  // Possible, never Atlas. Both are >50km from Home ("away"), and alone
+  // (with no Home evidence between them) the engine's own v1.1 episode
+  // builder would merge any two "away" blocks within a 10-day gap into one
+  // continuous episode — so a genuine *corroborated Home return* between
+  // them is what makes the engine treat them as two separate journeys in
+  // the first place. The Home visit is then removed before `runCluePass`
+  // runs, so its own live "no corroborated return" check (reading
+  // evidence fresh, independent of the frozen graph) finds the pair
+  // eligible even though the stored journeys are already split.
+  const tripA = sameTripCluster('same-trip-a', '2026-03-01', Date.UTC(2026, 2, 1, 9), 11.200, 107.200, 3);
+  const tripB = sameTripCluster('same-trip-b', '2026-03-08', Date.UTC(2026, 2, 8, 9), 21.028, 105.854, 3);
+  const homeVisit = [
+    sameTripUnit('same-trip-home-0', '2026-03-04', Date.UTC(2026, 2, 4, 9), 10.776, 106.700),
+    sameTripUnit('same-trip-home-1', '2026-03-04', Date.UTC(2026, 2, 4, 11), 10.776, 106.700),
+  ];
+  const units = [...tripA, ...tripB, ...homeVisit];
+  await importer.commitPage({ scope: 'full', nextOffset: units.length, scanned: units.length, geotagged: units.length, unavailable: 0, status: 'complete' }, units);
+  const repository = createNativeReconstructionRepository();
+  await repository.rebuild();
+  const classifications = () => database.sqlite.prepare(
+    "SELECT classification FROM reconstruction_trip_qualification WHERE run_id = (SELECT MAX(run_id) FROM reconstruction_run WHERE status = 'complete')",
+  ).all().map((row) => row.classification);
+  assert.ok(classifications().filter((value) => value === 'SUGGESTED').length >= 2, 'expected trip A and trip B to be separate SUGGESTED journeys');
+
+  const insertCapture = database.sqlite.prepare('INSERT INTO travel_window_capture (asset_id, captured_at_millis, utc_offset_minutes, provenance, located) VALUES (?, ?, ?, ?, ?)');
+  for (const unit of [...tripA, ...tripB]) insertCapture.run(unit.assetId, unit.capturedAtMillis, 540, 'camera', 1);
+
+  // Let CAP-5's own photo-source producer settle first (it clues every
+  // never-clued subject regardless of origin, which always re-triggers a
+  // rebuild) *while the Home visit still corroborates the split* — so that
+  // unrelated rebuild preserves two separate SUGGESTED journeys rather than
+  // re-merging them once the Home evidence is removed below.
+  await repository.runCluePass(Date.now(), 100);
+  assert.ok(classifications().filter((value) => value === 'SUGGESTED').length >= 2, 'trip A and trip B must still be separate after photo-source settles');
+
+  // The Home visit's own job (forcing the engine's split) is done; remove
+  // it so the live eligibility check no longer sees a corroborated return.
+  database.sqlite.prepare("DELETE FROM canonical_evidence WHERE source_ref LIKE 'same-trip-home-%'").run();
+
+  const result = await repository.runCluePass(Date.now(), 100);
+  assert.equal(result.status, 'complete');
+  assert.equal(result.rebuildTriggered, false); // nothing left for photo-source to produce; CAP-4/CAP-6 never trigger one
+
+  const captureOffsetActive = database.sqlite.prepare("SELECT COUNT(*) AS count FROM travel_clue WHERE kind = 'capture-offset' AND state = 'active'").get().count;
+  assert.equal(captureOffsetActive, 6);
+  const sameTripRows = database.sqlite.prepare("SELECT subject_json, value_json FROM travel_clue WHERE kind = 'same-trip' AND state = 'active'").all();
+  assert.equal(sameTripRows.length, 1, 'expected exactly one active same-trip clue (trip A paired with trip B)');
+  const allKeys = [...JSON.parse(sameTripRows[0].subject_json).evidenceKeys, ...JSON.parse(sameTripRows[0].value_json).pairedSubject.evidenceKeys];
+  assert.ok(allKeys.some((key) => key.includes('same-trip-a')));
+  assert.ok(allKeys.some((key) => key.includes('same-trip-b')));
+
+  // The same clue drives `loadJourneyDetail`'s merge candidates: each
+  // Possible trip now names the *other* one, never "any other journey in
+  // this run" (the naive placeholder this field showed before CAP-6).
+  const possible = await repository.loadPossibleTrips();
+  assert.equal(possible.length, 2);
+  const [tripADetail, tripBDetail] = await Promise.all(possible.map((trip) => repository.loadJourneyDetail(trip.displayId)));
+  assert.equal(tripADetail.detail.mergeCandidates?.length, 1);
+  assert.equal(tripBDetail.detail.mergeCandidates?.length, 1);
+  assert.equal(tripADetail.detail.mergeCandidates[0].id, possible[1].displayId);
+  assert.equal(tripBDetail.detail.mergeCandidates[0].id, possible[0].displayId);
+
+  // A second, identical pass is idempotent: the same clue_id, not a
+  // duplicate, and the budget-exhausted producers do not reprocess
+  // already-covered evidence.
+  const second = await repository.runCluePass(Date.now(), 100);
+  assert.equal(database.sqlite.prepare("SELECT COUNT(*) AS count FROM travel_clue WHERE kind = 'same-trip'").get().count, 1);
+  assert.equal(database.sqlite.prepare("SELECT COUNT(*) AS count FROM travel_clue WHERE kind = 'capture-offset'").get().count, 6);
+  assert.equal(second.produced, 1); // only the still-recomputed same-trip clue; both evidence scans are now fully covered
+
+  // A corroborated Home visit reappearing between the two trips (read live
+  // from canonical_evidence, independent of whether a rebuild has run)
+  // makes the pair ineligible on the next pass; the now-stale clue must be
+  // retracted, not left stale.
+  await importer.commitPage({ scope: 'full', nextOffset: units.length + 2, scanned: units.length + 2, geotagged: units.length + 2, unavailable: 0, status: 'complete' }, homeVisit);
+  await repository.runCluePass(Date.now(), 100);
+  assert.equal(database.sqlite.prepare("SELECT COUNT(*) AS count FROM travel_clue WHERE kind = 'same-trip' AND state = 'active'").get().count, 0);
+  assert.equal(database.sqlite.prepare("SELECT COUNT(*) AS count FROM travel_clue WHERE kind = 'same-trip' AND state = 'superseded'").get().count, 1);
+}));
+
+test('CAP-7 personal learning: rejecting a merge suggestion creates a rule, supersedes the clue, and the producer never re-emits that pair; removing the rule lets it resurface', async () => withDatabase(async (database) => {
+  const importer = createNativeImportRepository();
+  await importer.connectPrivateRecord();
+  await importer.saveConfiguredHomeArea({ id: 'rule-home', label: 'Home', origin: 'manual-pin', latitude: 10.776, longitude: 106.700,
+    radiusMeters: 20000, effectiveStartDay: null, effectiveEndDay: null });
+  const tripA = sameTripCluster('rule-a', '2026-03-01', Date.UTC(2026, 2, 1, 9), 11.200, 107.200, 3);
+  const tripB = sameTripCluster('rule-b', '2026-03-08', Date.UTC(2026, 2, 8, 9), 21.028, 105.854, 3);
+  const homeVisit = [
+    sameTripUnit('rule-home-0', '2026-03-04', Date.UTC(2026, 2, 4, 9), 10.776, 106.700),
+    sameTripUnit('rule-home-1', '2026-03-04', Date.UTC(2026, 2, 4, 11), 10.776, 106.700),
+  ];
+  const units = [...tripA, ...tripB, ...homeVisit];
+  await importer.commitPage({ scope: 'full', nextOffset: units.length, scanned: units.length, geotagged: units.length, unavailable: 0, status: 'complete' }, units);
+  const repository = createNativeReconstructionRepository();
+  await repository.rebuild();
+  const insertCapture = database.sqlite.prepare('INSERT INTO travel_window_capture (asset_id, captured_at_millis, utc_offset_minutes, provenance, located) VALUES (?, ?, ?, ?, ?)');
+  for (const unit of [...tripA, ...tripB]) insertCapture.run(unit.assetId, unit.capturedAtMillis, 540, 'camera', 1);
+  await repository.runCluePass(Date.now(), 100); // let photo-source settle while the Home visit still corroborates the split
+  database.sqlite.prepare("DELETE FROM canonical_evidence WHERE source_ref LIKE 'rule-home-%'").run();
+  await repository.runCluePass(Date.now(), 100);
+  assert.equal(database.sqlite.prepare("SELECT COUNT(*) AS count FROM travel_clue WHERE kind = 'same-trip' AND state = 'active'").get().count, 1);
+
+  const [tripADetail, tripBDetail] = await Promise.all((await repository.loadPossibleTrips()).map((trip) => repository.loadJourneyDetail(trip.displayId)));
+  assert.equal(tripADetail.detail.mergeCandidates?.length, 1);
+
+  const importRepository = createNativeImportRepository();
+  assert.equal(await repository.rejectSameTripSuggestion('not-a-real-id', tripADetail.detail.mergeCandidates[0].id), 'stale');
+  const rejected = await repository.rejectSameTripSuggestion(tripADetail.detail.id, tripADetail.detail.mergeCandidates[0].id);
+  assert.equal(rejected, 'rejected');
+  assert.equal(database.sqlite.prepare("SELECT COUNT(*) AS count FROM travel_clue WHERE kind = 'same-trip' AND state = 'active'").get().count, 0);
+  assert.equal(database.sqlite.prepare("SELECT COUNT(*) AS count FROM travel_clue WHERE kind = 'same-trip' AND state = 'superseded'").get().count, 1);
+
+  const rules = await importRepository.loadPersonalRules();
+  assert.equal(rules.length, 1);
+  assert.equal(rules[0].kind, 'pair-preference');
+  assert.equal(typeof rules[0].scope.clueId, 'string');
+
+  // Rejecting the same pair again (the clue is already gone) is a stale
+  // no-op, never a second rule or a crash.
+  assert.equal(await repository.rejectSameTripSuggestion(tripADetail.detail.id, tripADetail.detail.mergeCandidates[0].id), 'stale');
+  assert.equal((await importRepository.loadPersonalRules()).length, 1);
+
+  // The rule persists across passes: the producer's own pair is still
+  // eligible and offset-matching, but the rule suppresses it every time.
+  await repository.runCluePass(Date.now(), 100);
+  assert.equal(database.sqlite.prepare("SELECT COUNT(*) AS count FROM travel_clue WHERE kind = 'same-trip' AND state = 'active'").get().count, 0);
+
+  // Removing the rule from Settings lets the suggestion resurface.
+  await importRepository.removePersonalRule(rules[0].ruleId);
+  assert.equal((await importRepository.loadPersonalRules()).length, 0);
+  await repository.runCluePass(Date.now(), 100);
+  assert.equal(database.sqlite.prepare("SELECT COUNT(*) AS count FROM travel_clue WHERE kind = 'same-trip' AND state = 'active'").get().count, 1);
+}));
+
 test('runCluePass never activates a clue on evidence claimed by a confirmed GPS-less trip, holding it for review instead (CAP-3, code review 2026-11-21)', async () => withDatabase(async (database) => {
   const importer = createNativeImportRepository();
   await importer.connectPrivateRecord();
@@ -853,6 +1035,39 @@ test('runCluePass never activates a clue on evidence claimed by a confirmed GPS-
   const card = database.sqlite.prepare("SELECT reason, journey_id FROM clue_review_card").get();
   assert.equal(card.reason, 'protected-confirmed-trip');
   assert.equal(card.journey_id, 'protected-confirmed-trip');
+}));
+
+test('the owner-facing review-card surface lists a held-back clue and re-validates it on approval (CAP-3)', async () => withDatabase(async (database) => {
+  const importer = createNativeImportRepository();
+  await importer.connectPrivateRecord();
+  await importer.saveConfiguredHomeArea({ id: 'pass-home', label: 'Home', origin: 'manual-pin', latitude: 10.776, longitude: 106.700,
+    radiusMeters: 20000, effectiveStartDay: null, effectiveEndDay: null });
+  const units = cluePassAtlasUnits(0);
+  await importer.commitPage({ scope: 'full', nextOffset: units.length, scanned: units.length, geotagged: units.length, unavailable: 0, status: 'complete' }, units);
+  const repository = createNativeReconstructionRepository();
+  await repository.rebuild();
+  database.sqlite.prepare(`INSERT INTO travel_window_trip (manual_id, command, member_ids, review_ids, owner_place_name) VALUES (?, ?, ?, ?, ?)`)
+    .run('travel-pass-trip', 'pass-command', JSON.stringify(['pass-0']), JSON.stringify([]), 'Somewhere');
+  await repository.runCluePass(Date.now(), 100);
+
+  const pending = await repository.loadPendingClueReviewCards();
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].reason, 'protected-confirmed-trip');
+  assert.equal(typeof pending[0].cardId, 'string');
+
+  // The GPS-less trip still claims this evidence, so the gate still cannot
+  // verify it: approving must re-check live, never trust the stale card.
+  assert.equal(await repository.reviewClueCard(pending[0].cardId, 'approve'), 'stale');
+  assert.equal(database.sqlite.prepare("SELECT state FROM clue_review_card WHERE card_id = ?").get(pending[0].cardId).state, 'pending');
+  assert.equal(database.sqlite.prepare("SELECT COUNT(*) AS count FROM travel_clue WHERE state = 'active' AND subject_json LIKE '%pass-0%'").get().count, 0);
+
+  assert.equal(await repository.reviewClueCard(pending[0].cardId, 'dismiss'), 'dismissed');
+  assert.equal((await repository.loadPendingClueReviewCards()).length, 0);
+  assert.equal(database.sqlite.prepare("SELECT state FROM clue_review_card WHERE card_id = ?").get(pending[0].cardId).state, 'dismissed');
+
+  // Resolving an already-resolved card is a stale no-op, not a crash or a
+  // silent flip back to pending.
+  assert.equal(await repository.reviewClueCard(pending[0].cardId, 'approve'), 'stale');
 }));
 
 test('runCluePass reports only its closed diagnostic shape on failure, never the raw error content (CAP-3)', async () => withDatabase(async (database) => {

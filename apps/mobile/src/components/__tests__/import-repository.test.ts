@@ -191,6 +191,10 @@ describe('native import SQLite repository', () => {
     expect(statements).toContain('DELETE FROM correction_markers');
     expect(statements).toContain('DELETE FROM reconstruction_trip_qualification');
     expect(statements).toContain('DELETE FROM travel_clue');
+    expect(statements).toContain('DELETE FROM clue_review_card');
+    expect(statements).toContain('DELETE FROM clue_pass_notice');
+    expect(statements).toContain('DELETE FROM clue_pass_checkpoint');
+    expect(statements).toContain('DELETE FROM personal_rule');
     expect(statements).toContain('DELETE FROM correction_overlays');
     expect(statements).toContain('DELETE FROM journey_correction_revision');
     expect(statements).toContain('DELETE FROM journey_correction_candidate');
@@ -374,6 +378,76 @@ describe('native import SQLite repository', () => {
 
     expect(clues).toHaveLength(1);
     expect(clues[0].clueId).toBe('good');
+  });
+
+  it('upgrades to v52, adding the clue-pass notice table', async () => {
+    const repository = createNativeImportRepository();
+    mockGetFirstAsync.mockResolvedValueOnce({ version: 51 }).mockResolvedValueOnce({ version: 51 }).mockResolvedValueOnce(null);
+    await repository.getCheckpoint('full');
+    const migration = mockExecAsync.mock.calls.flat().join('\n');
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS clue_pass_notice');
+    expect(mockRunAsync).toHaveBeenCalledWith('UPDATE import_schema_version SET version = ?', CURRENT_SCHEMA_VERSION);
+  });
+
+  it('saves, loads once and dismisses the "trips updated" notice (CAP-3 background-and-surfacing.md)', async () => {
+    const repository = createNativeImportRepository();
+    await repository.saveCluePassNotice!('Travel Life updated 2 trips.', 1_700_000_000_000);
+    expect(mockRunAsync).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO clue_pass_notice'), 'Travel Life updated 2 trips.', 1_700_000_000_000);
+
+    mockGetFirstAsync.mockImplementation(async (sql: string) => sql.includes('FROM clue_pass_notice')
+      ? { message: 'Travel Life updated 2 trips.', created_at_millis: 1_700_000_000_000 }
+      : sql.includes('import_schema_version') ? { version: CURRENT_SCHEMA_VERSION } : { state: 'connected' });
+    await expect(repository.loadCluePassNotice!()).resolves.toEqual({ message: 'Travel Life updated 2 trips.', created_at_millis: 1_700_000_000_000 });
+    const query = mockGetFirstAsync.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('FROM clue_pass_notice'))?.[0] as string;
+    expect(query).toContain('WHERE record_id = 1 AND seen = 0');
+
+    await repository.dismissCluePassNotice!();
+    expect(mockRunAsync).toHaveBeenCalledWith('UPDATE clue_pass_notice SET seen = 1 WHERE record_id = 1');
+  });
+
+  it('upgrades to v53, adding the clue-pass resumable checkpoint table', async () => {
+    const repository = createNativeImportRepository();
+    mockGetFirstAsync.mockResolvedValueOnce({ version: 52 }).mockResolvedValueOnce({ version: 52 }).mockResolvedValueOnce(null);
+    await repository.getCheckpoint('full');
+    const migration = mockExecAsync.mock.calls.flat().join('\n');
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS clue_pass_checkpoint');
+    expect(mockRunAsync).toHaveBeenCalledWith('UPDATE import_schema_version SET version = ?', CURRENT_SCHEMA_VERSION);
+  });
+
+  it('upgrades to v54, adding the personal-rule table', async () => {
+    const repository = createNativeImportRepository();
+    mockGetFirstAsync.mockResolvedValueOnce({ version: 53 }).mockResolvedValueOnce({ version: 53 }).mockResolvedValueOnce(null);
+    await repository.getCheckpoint('full');
+    const migration = mockExecAsync.mock.calls.flat().join('\n');
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS personal_rule');
+    expect(mockRunAsync).toHaveBeenCalledWith('UPDATE import_schema_version SET version = ?', CURRENT_SCHEMA_VERSION);
+  });
+
+  it('saves, lists newest first, skips a malformed row, and removes a personal rule (CAP-7)', async () => {
+    const repository = createNativeImportRepository();
+    mockGetAllAsync.mockImplementation(async (sql: string) => sql.includes('FROM personal_rule') ? [
+      { rule_id: 'pair-preference:clue-2', kind: 'pair-preference', scope_json: '{"clueId":"clue-2"}', created_at_millis: 2000 },
+      { rule_id: 'bad-row', kind: 'pair-preference', scope_json: 'not valid json', created_at_millis: 1500 },
+      { rule_id: 'pair-preference:clue-1', kind: 'pair-preference', scope_json: '{"clueId":"clue-1"}', created_at_millis: 1000 },
+    ] : []);
+
+    const rules = await repository.loadPersonalRules!();
+    expect(rules).toEqual([
+      { ruleId: 'pair-preference:clue-2', kind: 'pair-preference', scope: { clueId: 'clue-2' }, createdAtMillis: 2000 },
+      { ruleId: 'pair-preference:clue-1', kind: 'pair-preference', scope: { clueId: 'clue-1' }, createdAtMillis: 1000 },
+    ]);
+    const query = mockGetAllAsync.mock.calls.find(([sql]) => typeof sql === 'string' && sql.includes('FROM personal_rule'))?.[0] as string;
+    expect(query).toContain('ORDER BY created_at_millis DESC');
+
+    await repository.removePersonalRule!('pair-preference:clue-2');
+    expect(mockRunAsync).toHaveBeenCalledWith('DELETE FROM personal_rule WHERE rule_id = ?', 'pair-preference:clue-2');
+  });
+
+  it('rolls back a failed personal-rule removal without reporting it removed', async () => {
+    const repository = createNativeImportRepository();
+    mockRunAsync.mockImplementation(async (sql: string) => { if (sql.includes('DELETE FROM personal_rule')) throw new Error('database is locked'); });
+    await expect(repository.removePersonalRule!('pair-preference:clue-1')).rejects.toThrow('database is locked');
+    expect(mockExecAsync).toHaveBeenCalledWith('ROLLBACK');
   });
 
   it('refuses to save a skipped Home setup with no areas (H-4: nothing learns Home)', async () => {

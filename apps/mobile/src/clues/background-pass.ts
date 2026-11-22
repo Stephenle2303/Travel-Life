@@ -14,6 +14,14 @@ import type { V12CandidateLookups } from '../reconstruction/outcome-v1-2';
 
 const ATLAS_CLASSIFICATIONS = new Set<TripOutcomeClassification>(['AUTO_CONFIRMED', 'USER_CONFIRMED']);
 
+/** `runCluePass`'s own wall-clock slice (2026-11-21): a background-task
+ * invocation is time-limited by the OS, not item-count-limited, so a slow
+ * producer or a library with many evidence rows could otherwise run far
+ * longer than one maintenance window regardless of its item `budget`. 8s
+ * leaves headroom inside a typical ~30s background-task execution window
+ * for the schedule/produce/commit/rebuild stages around this loop. */
+export const cluePassMaxDurationMillis = 8000;
+
 /** Every raw evidence id a clue's subject names, resolving an `F:` family
  * key back to its current members (a family can gain/lose members across
  * rebuilds; this uses the graph's own current evidence snapshot, never a

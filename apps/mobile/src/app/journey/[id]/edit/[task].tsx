@@ -7,10 +7,10 @@ import { appRoutes, openRoute } from '@/navigation/app-contract';
 
 export default function JourneyEditTaskRoute() {
   const router = useRouter(); const { id, task, fromAtlas } = useLocalSearchParams<{ id?: string; task?: string; fromAtlas?: string }>(); const journeyId = typeof id === 'string' ? id : ''; const selectedTask = task as JourneyEditTask;
-  const { reviewJourneyPrivacy, saveJourneyPrivacy, loadJourneyDetail, loadUncertainMemories, saveJourneyCorrection, saveJourneyMemoryCorrection, discardJourneyCorrectionPending, retryJourneyCorrectionProjection } = usePhotoAccess();
+  const { reviewJourneyPrivacy, saveJourneyPrivacy, loadJourneyDetail, loadUncertainMemories, saveJourneyCorrection, saveJourneyMemoryCorrection, discardJourneyCorrectionPending, retryJourneyCorrectionProjection, rejectSameTripSuggestion } = usePhotoAccess();
   const back = () => router.replace({ pathname: '/journey/[id]/edit' as never, params: { id: journeyId, fromAtlas } });
   if (selectedTask === 'privacy') return <JourneyPrivacyTask id={journeyId} review={reviewJourneyPrivacy} save={saveJourneyPrivacy} onBack={back} onApplied={() => openRoute(router, appRoutes.atlas, 'replace')} />;
   if (selectedTask === 'location') return <JourneyLocationTask id={journeyId} load={loadJourneyDetail} save={saveJourneyCorrection} retryProjection={retryJourneyCorrectionProjection} onBack={back} onApplied={() => router.replace('/history')} />;
-  if (selectedTask === 'name-dates' || selectedTask === 'destinations' || selectedTask === 'photos' || selectedTask === 'accuracy') return <JourneyCorrectionScreen id={journeyId} task={selectedTask} load={loadJourneyDetail} save={saveJourneyCorrection} saveMemory={saveJourneyMemoryCorrection} loadUncertainMemories={loadUncertainMemories} discardPendingRemap={discardJourneyCorrectionPending} retryProjection={retryJourneyCorrectionProjection} onBack={back} onRejected={() => openRoute(router, appRoutes.atlas, 'replace')} />;
+  if (selectedTask === 'name-dates' || selectedTask === 'destinations' || selectedTask === 'photos' || selectedTask === 'accuracy') return <JourneyCorrectionScreen id={journeyId} task={selectedTask} load={loadJourneyDetail} save={saveJourneyCorrection} saveMemory={saveJourneyMemoryCorrection} loadUncertainMemories={loadUncertainMemories} discardPendingRemap={discardJourneyCorrectionPending} retryProjection={retryJourneyCorrectionProjection} rejectSameTrip={rejectSameTripSuggestion} onBack={back} onRejected={() => openRoute(router, appRoutes.atlas, 'replace')} />;
   return null;
 }

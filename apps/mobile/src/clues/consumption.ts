@@ -15,7 +15,13 @@
  *   built) can name a destination for display, but never changes
  *   AUTO/SUGGESTED/NOT_TRIP: "Can raise to Atlas? Only via a promotion
  *   class" (default off, gated by the eval engine, CAP-8 — not built).
- * - `same-trip`/`capture-offset` consumption is not implemented yet.
+ * - `capture-offset` is never consumed here at all — it never names a place
+ *   or affects classification on its own (clue-producers.md); its only
+ *   reader is CAP-6's same-trip matcher.
+ * - `same-trip` never changes AUTO/SUGGESTED/NOT_TRIP either: it is read
+ *   directly by `reconstruction/repository.ts`'s `loadJourneyDetail`
+ *   (`sameTripCandidateJourneyIds`), not through this module, to drive the
+ *   owner-facing merge-candidate list — never a silent merge.
  *
  * Determinism: the same evidence + Home + corrections + active clues
  * always yields the same outcome; with zero clues the result equals the

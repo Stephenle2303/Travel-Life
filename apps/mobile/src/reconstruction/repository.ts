@@ -8,15 +8,17 @@ import { RECONSTRUCTION_RULE_VERSION, TRIP_DETECTOR_RULE_VERSION } from './types
 import { NATURAL_EARTH_ADMIN_0_DATASET_VERSION, countryDisplayName } from './country-resolver';
 import { destinationLabel, type DestinationSupport } from './destination-label';
 import { effectiveConfiguredHomeDistanceV11 } from './engine-v1-1';
-import { buildFrequentPlaceContext, buildV12CandidateLookups, graphJourneyEpisodeMarkers, rebuildClassificationReasonCode } from './outcome-v1-2';
+import { buildFrequentPlaceContext, buildV12CandidateLookups, graphJourneyEpisodeMarkers, rebuildClassificationReasonCode, summarizeOutcomeDelta } from './outcome-v1-2';
 import type { RecognizableShadowPair } from './recognizable-shadow-types';
 import type { DurableRevealRecord, JourneyDetail, RevealMapAnchor } from '@/reveal/types';
 import type { ManualJourneyInput } from '@/import-record/types';
 import { clueFromRow, ensureNativeImportSchema, type ClueRow } from '@/import-record/repository';
 import { qualifyGraphJourneyWithClues } from '@/clues/consumption';
 import type { ClueRecord } from '@/clues/types';
-import { gateCandidateClues } from '@/clues/background-pass';
-import { photoSourceClues } from '@/clues/producers/photo-source';
+import { cluePassMaxDurationMillis, gateCandidateClues } from '@/clues/background-pass';
+import { photoSourceClues, PHOTO_SOURCE_PRODUCER_ID } from '@/clues/producers/photo-source';
+import { captureOffsetClues, CAPTURE_OFFSET_PRODUCER_ID } from '@/clues/producers/capture-offset';
+import { buildSameTripJourneys, findSameTripCandidatePairs, hasCorroboratedHomeReturn, sameTripClues } from '@/clues/producers/same-trip';
 import { NativeTransactionWithdrawnError, runOwnedTransaction, serializeNativeTransactions } from '@/database/native-transaction';
 import type { ReplayMutation, ReplayMutationReceipt, ReplayReconciliation } from '@/replay/draft-repository-contract';
 import { ReplayDraftStaleError } from '@/replay/draft-error';
@@ -892,6 +894,235 @@ export function createNativeReconstructionRepository(options?: { databaseName: s
       LIMIT 1
     `, latestRevision.evidence_revision);
     return retained ?? latest;
+  }
+
+  /** CAP-3's gate inputs: the already-persisted graph from the last
+   * rebuild (visits/journeys/memberships read from storage, never
+   * recomputed — so this never touches `rebuild()`'s own local-recovery
+   * branch), the journeys' current classifications, the frequent-place
+   * context the main qualification loop builds, and the evidence ids
+   * belonging to a confirmed trip family this gate cannot verify at all
+   * (GPS-less `travel_window_trip` / visual-place `visual_place_trip`).
+   * Shared by `runCluePass` and `reviewClueCard` so a card's approval is
+   * re-checked against the exact same inputs a fresh pass would use —
+   * never a second, driftable copy of this assembly. */
+  async function loadCluePassGateContext(db: Database, runId: number, evidence: readonly ReconstructionEvidence[], evidenceById: ReadonlyMap<string, ReconstructionEvidence>) {
+    const visitRows = await db.getAllAsync<{ visit_id: string; place_id: string }>('SELECT visit_id, place_id FROM reconstruction_visit WHERE run_id = ?', runId);
+    const linkRows = await db.getAllAsync<{ parent_id: string; child_id: string; link_kind: string }>(`SELECT parent_id, child_id, link_kind FROM reconstruction_link WHERE run_id = ? AND (link_kind = 'journey-visit' OR link_kind = 'visit-support' OR link_kind LIKE 'membership:%')`, runId);
+    const evidenceIdsByVisit = new Map<string, string[]>();
+    const visitIdsByJourney = new Map<string, string[]>();
+    // decision 0006: a GPS-less/date-limited "memory" is attached to a
+    // journey directly via a `membership:%` link, a separate relation
+    // from visit-support — still real evidence that journey's Atlas
+    // card shows the owner, so the gate must see it too (closed
+    // 2026-11-21, code review: the first draft silently bypassed the
+    // gate for this evidence by omitting it entirely).
+    const memberships: ReconstructionGraph['memberships'] = [];
+    for (const row of linkRows) {
+      if (row.link_kind === 'visit-support') evidenceIdsByVisit.set(row.parent_id, [...(evidenceIdsByVisit.get(row.parent_id) ?? []), row.child_id]);
+      else if (row.link_kind === 'journey-visit') visitIdsByJourney.set(row.parent_id, [...(visitIdsByJourney.get(row.parent_id) ?? []), row.child_id]);
+      else { const [, state, reason] = row.link_kind.split(':'); memberships.push({ evidenceId: row.child_id, journeyId: row.parent_id, state: state as JourneyMembership['state'], reason: reason as JourneyMembership['reason'] }); }
+    }
+    const graph: ReconstructionGraph = {
+      ruleVersion: RECONSTRUCTION_RULE_VERSION, places: [], possibleMerges: [], dispositions: [], memberships,
+      visits: visitRows.map((row) => ({ id: row.visit_id, placeId: row.place_id, evidenceIds: evidenceIdsByVisit.get(row.visit_id) ?? [], order: 'ordered' as const })),
+      journeys: [...visitIdsByJourney.entries()].map(([journeyId, visitIds]) => ({ id: journeyId, visitIds, state: 'inferred' as const })),
+    };
+    const classificationRows = await db.getAllAsync<{ journey_id: string; classification: TripOutcomeClassification }>('SELECT journey_id, classification FROM reconstruction_trip_qualification WHERE run_id = ?', runId);
+    const currentClassifications = new Map(classificationRows.map((row) => [row.journey_id, row.classification]));
+    // The gate's own protection reaches only reconstruction-engine
+    // journeys. A confirmed GPS-less (travel_window_trip) or
+    // visual-place (visual_place_trip, via its visual_place_album
+    // membership rows) trip lives entirely outside
+    // reconstruction_journey/reconstruction_trip_qualification, so this
+    // gate cannot dry-run its classification — any clue touching that
+    // evidence is never auto-activated, only ever held for review
+    // (closed 2026-11-21, code review).
+    const travelWindowRows = await db.getAllAsync<{ member_ids: string }>('SELECT member_ids FROM travel_window_trip');
+    const protectedEvidenceIds = new Set<string>();
+    for (const row of travelWindowRows) { try { for (const id of JSON.parse(row.member_ids) as unknown[]) if (typeof id === 'string') protectedEvidenceIds.add(id); } catch { /* malformed row: over-protect nothing more, under-protect nothing already parsed */ } }
+    const visualAlbumRows = await db.getAllAsync<{ evidence_id: string }>('SELECT evidence_id FROM visual_place_album');
+    for (const row of visualAlbumRows) protectedEvidenceIds.add(row.evidence_id);
+    // Same frequent-place context the real qualification loop builds
+    // (rebuild()'s own) — omitting it would let the dry run miss F-1
+    // entirely and falsely call a frequent-place journey safe (closed
+    // 2026-11-21, code review).
+    const frequentPlaceContext = buildFrequentPlaceContext(graphJourneyEpisodeMarkers(graph, evidenceById));
+    const lookups = buildV12CandidateLookups(graph, evidence);
+    return { graph, currentClassifications, protectedEvidenceIds, frequentPlaceContext, lookups };
+  }
+
+  /** The one place a clue is written into `travel_clue` as active —
+   * `runCluePass` and `reviewClueCard`'s own approval both call this,
+   * instead of each keeping its own copy of the insert (closed 2026-11-21,
+   * code review: three independently-written upsert variants for this
+   * table had drifted to disagree on conflict behavior). */
+  async function writeActiveClue(db: Database, clue: ClueRecord) {
+    await db.runAsync(
+      `INSERT INTO travel_clue (clue_id, kind, subject_json, value_json, strength, independence_key, producer_id, producer_version, evidence_revision, home_revision, correction_revision, state, created_at_millis)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(clue_id) DO UPDATE SET kind = excluded.kind, subject_json = excluded.subject_json, value_json = excluded.value_json,
+         strength = excluded.strength, independence_key = excluded.independence_key, producer_id = excluded.producer_id,
+         producer_version = excluded.producer_version, evidence_revision = excluded.evidence_revision, home_revision = excluded.home_revision,
+         correction_revision = excluded.correction_revision, state = excluded.state`,
+      clue.clueId, clue.kind, JSON.stringify(clue.subject), JSON.stringify(clue.value), clue.strength, clue.independenceKey,
+      clue.producerId, clue.producerVersion, clue.inputsRevision.evidenceRevision, clue.inputsRevision.homeRevision,
+      clue.inputsRevision.correctionRevision, clue.state, clue.createdAtMillis,
+    );
+  }
+
+  /** CAP-3's resumable, wall-clock-budgeted per-producer scan (2026-11-21):
+   * shared by every producer `runCluePass` runs over an ordered row set, so
+   * the cursor/budget/time-cap logic is written and tested once instead of
+   * drifting across copies. `orderedRows` must already be sorted
+   * deterministically by `evidence_id` (the caller's own row source, e.g.
+   * all of `canonical_evidence` for CAP-5's photo-source producer, or a
+   * smaller joined subset for CAP-4's capture-offset producer) — every row
+   * reached (even one excluded or already covered) advances
+   * `lastConsideredEvidenceId`, so the next call's cursor always reflects
+   * real scan progress through this exact row set. */
+  async function scanCluePassEvidence<R extends { evidence_id: string }, S>(
+    db: Database, producerId: string, orderedRows: readonly R[], evidenceById: ReadonlyMap<string, ReconstructionEvidence>,
+    budget: number, maxDurationMillis: number, nowMillis: number,
+    isCovered: (key: string) => boolean, keyOf: (row: R) => string, buildSubject: (row: R) => S,
+  ): Promise<{ subjects: S[]; budgetExhausted: boolean }> {
+    const cursorRow = await db.getFirstAsync<{ cursor_evidence_id: string | null }>('SELECT cursor_evidence_id FROM clue_pass_checkpoint WHERE producer_id = ?', producerId);
+    const cursor = cursorRow?.cursor_evidence_id ?? null;
+    const startIndex = cursor === null ? 0 : (() => {
+      const index = orderedRows.findIndex((row) => row.evidence_id > cursor);
+      return index === -1 ? 0 : index;
+    })();
+    const subjects: S[] = [];
+    const seenKeys = new Set<string>();
+    const loopStartedAt = Date.now();
+    let lastConsideredEvidenceId: string | null = null;
+    let budgetExhausted = false;
+    for (let index = startIndex; index < orderedRows.length; index += 1) {
+      if (subjects.length >= budget || Date.now() - loopStartedAt >= maxDurationMillis) { budgetExhausted = true; break; }
+      const row = orderedRows[index];
+      lastConsideredEvidenceId = row.evidence_id;
+      if (!evidenceById.has(row.evidence_id)) continue;
+      const key = keyOf(row);
+      if (isCovered(key) || seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      subjects.push(buildSubject(row));
+    }
+    // Cut short (budget or wall-clock): resume right after the last row
+    // looked at. Reached the end on its own: wrap to the start next time, a
+    // fresh lap rather than scanning nothing forever.
+    const nextCursor = budgetExhausted ? lastConsideredEvidenceId : null;
+    await db.runAsync(
+      `INSERT INTO clue_pass_checkpoint (producer_id, cursor_evidence_id, updated_at_millis) VALUES (?, ?, ?)
+       ON CONFLICT(producer_id) DO UPDATE SET cursor_evidence_id = excluded.cursor_evidence_id, updated_at_millis = excluded.updated_at_millis`,
+      producerId, nextCursor, nowMillis,
+    );
+    return { subjects, budgetExhausted };
+  }
+
+  /** This journey's own support keys (E:/F:), via `visit-support` *and*
+   * `membership:%` (decision 0006's GPS-less/date-limited "memories") —
+   * same resolution the gate uses, shared by CAP-6's merge-candidate
+   * lookup and its own-suggestion rejection. */
+  async function journeyEvidenceKeys(db: Database, runId: number, journeyId: string): Promise<Set<string>> {
+    const rows = await db.getAllAsync<{ evidence_id: string; platform_duplicate_family_id: string | null }>(`
+      WITH journey_evidence AS (
+        SELECT child_id AS evidence_id FROM reconstruction_link WHERE run_id = ? AND parent_id = ? AND link_kind LIKE 'membership:%'
+        UNION
+        SELECT support.child_id AS evidence_id FROM reconstruction_link journey_visit
+        JOIN reconstruction_link support ON support.run_id = journey_visit.run_id AND support.link_kind = 'visit-support' AND support.parent_id = journey_visit.child_id
+        WHERE journey_visit.run_id = ? AND journey_visit.link_kind = 'journey-visit' AND journey_visit.parent_id = ?
+      )
+      SELECT evidence.evidence_id, evidence.platform_duplicate_family_id FROM journey_evidence JOIN canonical_evidence evidence ON evidence.evidence_id = journey_evidence.evidence_id`,
+      runId, journeyId, runId, journeyId,
+    );
+    return new Set(rows.map((row) => (row.platform_duplicate_family_id ? `F:${row.platform_duplicate_family_id}` : `E:${row.evidence_id}`)));
+  }
+
+  /** CAP-6's own merge-candidate resolution for `loadJourneyDetail`: every
+   * active `same-trip` clue whose subject or paired subject overlaps this
+   * journey's own evidence, resolved to the *other* side's current journey
+   * id. A clue's evidence keys never name a journey directly (journey ids
+   * churn across rebuilds; clues deliberately outlive one), so each key is
+   * expanded back to raw evidence ids (a family key to every current
+   * member) and matched against `visit-support`/`membership:%` the same
+   * way the gate resolves evidence to a journey. */
+  async function sameTripCandidateJourneyIds(db: Database, runId: number, journeyId: string): Promise<string[]> {
+    const ownKeys = await journeyEvidenceKeys(db, runId, journeyId);
+    if (!ownKeys.size) return [];
+    const resolveJourneyId = async (keys: readonly string[]): Promise<string | null> => {
+      const evidenceIds = new Set<string>(keys.filter((key) => key.startsWith('E:')).map((key) => key.slice(2)));
+      const familyKeys = keys.filter((key) => key.startsWith('F:')).map((key) => key.slice(2));
+      if (familyKeys.length) {
+        const familyRows = await db.getAllAsync<{ evidence_id: string }>(
+          `SELECT evidence_id FROM canonical_evidence WHERE platform_duplicate_family_id IN (${familyKeys.map(() => '?').join(',')})`, ...familyKeys,
+        );
+        for (const row of familyRows) evidenceIds.add(row.evidence_id);
+      }
+      if (!evidenceIds.size) return null;
+      const idList = [...evidenceIds];
+      const row = await db.getFirstAsync<{ journey_id: string }>(`
+        SELECT journey.journey_id FROM reconstruction_journey journey
+        LEFT JOIN reconstruction_link journey_visit ON journey_visit.run_id = journey.run_id AND journey_visit.link_kind = 'journey-visit' AND journey_visit.parent_id = journey.journey_id
+        LEFT JOIN reconstruction_link visit_support ON visit_support.run_id = journey_visit.run_id AND visit_support.link_kind = 'visit-support' AND visit_support.parent_id = journey_visit.child_id
+        LEFT JOIN reconstruction_link membership ON membership.run_id = journey.run_id AND membership.link_kind LIKE 'membership:%' AND membership.parent_id = journey.journey_id
+        WHERE journey.run_id = ? AND journey.journey_id <> ?
+          AND (visit_support.child_id IN (${idList.map(() => '?').join(',')}) OR membership.child_id IN (${idList.map(() => '?').join(',')}))
+        LIMIT 1`,
+        runId, journeyId, ...idList, ...idList,
+      );
+      return row?.journey_id ?? null;
+    };
+    const sameTripRows = await db.getAllAsync<{ subject_json: string; value_json: string }>(`SELECT subject_json, value_json FROM travel_clue WHERE kind = 'same-trip' AND state = 'active'`);
+    const candidateIds = new Set<string>();
+    for (const row of sameTripRows) {
+      let subjectKeys: string[]; let pairedKeys: string[];
+      try {
+        subjectKeys = (JSON.parse(row.subject_json) as { evidenceKeys: string[] }).evidenceKeys;
+        pairedKeys = (JSON.parse(row.value_json) as { pairedSubject: { evidenceKeys: string[] } }).pairedSubject.evidenceKeys;
+      } catch { continue; } // malformed row: never guess a candidate from it
+      const subjectIsOwn = subjectKeys.some((key) => ownKeys.has(key));
+      const pairedIsOwn = pairedKeys.some((key) => ownKeys.has(key));
+      if (!subjectIsOwn && !pairedIsOwn) continue;
+      const otherSideKeys = subjectIsOwn ? pairedKeys : subjectKeys;
+      const candidateId = await resolveJourneyId(otherSideKeys);
+      if (candidateId) candidateIds.add(candidateId);
+    }
+    return [...candidateIds];
+  }
+
+  /** CAP-7's one built rule (personal-learning.md): "Keep or reject a merge
+   * suggestion" -> "Pair preference by support signature" -> "Same pair not
+   * suggested again." Finds the exact active same-trip clue connecting the
+   * two given journeys, writes a `personal_rule` naming its own `clueId`
+   * (stable across rebuilds — never the journey ids, which churn), and
+   * supersedes the clue immediately rather than waiting for the next pass
+   * to notice it is no longer in the fresh set. Returns `'stale'` (writes
+   * nothing) when the two journeys no longer have an active suggestion
+   * between them — the owner sees this as "no longer available," never a
+   * silent no-op that could later surprise them with an unrelated rule.
+   * Runs inside the caller's own transaction. */
+  async function supersedeSameTripClueBetween(leftJourneyId: string, rightJourneyId: string, runId: number, db: Database): Promise<'rejected' | 'stale'> {
+    const [leftKeys, rightKeys] = await Promise.all([journeyEvidenceKeys(db, runId, leftJourneyId), journeyEvidenceKeys(db, runId, rightJourneyId)]);
+    if (!leftKeys.size || !rightKeys.size) return 'stale';
+    const sameTripRows = await db.getAllAsync<{ clue_id: string; subject_json: string; value_json: string }>(`SELECT clue_id, subject_json, value_json FROM travel_clue WHERE kind = 'same-trip' AND state = 'active'`);
+    for (const row of sameTripRows) {
+      let subjectKeys: string[]; let pairedKeys: string[];
+      try {
+        subjectKeys = (JSON.parse(row.subject_json) as { evidenceKeys: string[] }).evidenceKeys;
+        pairedKeys = (JSON.parse(row.value_json) as { pairedSubject: { evidenceKeys: string[] } }).pairedSubject.evidenceKeys;
+      } catch { continue; }
+      const matches = (subjectKeys.some((key) => leftKeys.has(key)) && pairedKeys.some((key) => rightKeys.has(key)))
+        || (subjectKeys.some((key) => rightKeys.has(key)) && pairedKeys.some((key) => leftKeys.has(key)));
+      if (!matches) continue;
+      await db.runAsync(
+        `INSERT INTO personal_rule (rule_id, kind, scope_json, created_at_millis) VALUES (?, 'pair-preference', ?, ?)
+         ON CONFLICT(rule_id) DO NOTHING`,
+        `pair-preference:${row.clue_id}`, JSON.stringify({ clueId: row.clue_id }), Date.now(),
+      );
+      await db.runAsync("UPDATE travel_clue SET state = 'superseded' WHERE clue_id = ? AND state = 'active'", row.clue_id);
+      return 'rejected';
+    }
+    return 'stale';
   }
 
   /** The read side of `rebuild()`'s input assembly (evidence, excluded ids,
@@ -2078,11 +2309,17 @@ export function createNativeReconstructionRepository(options?: { databaseName: s
         ORDER BY evidence.captured_day IS NULL, evidence.captured_day, evidence.evidence_id LIMIT 4`, selected.runId, selected.journeyId, selected.runId, selected.journeyId, selected.runId);
       if (!visits.length && !memories.length) throw new Error('Journey is unavailable.');
       const days = visits.map((visit) => visit.captured_day).filter((day): day is string => !!day).sort();
-      const mergeRows = (await db.getAllAsync<{ journey_id: string; captured_day: string | null }>(`SELECT journey.journey_id, MIN(evidence.captured_day) AS captured_day
+      // CAP-6 same-trip clues (clue-producers.md): merge candidates are the
+      // journeys a real corroborating signal (today: matching capture
+      // offset) actually suggested are the same trip — never "any other
+      // journey in this run," which this field showed before CAP-6 existed.
+      const candidateJourneyIds = await sameTripCandidateJourneyIds(db, selected.runId, selected.journeyId);
+      const mergeRows = candidateJourneyIds.length ? (await db.getAllAsync<{ journey_id: string; captured_day: string | null }>(`SELECT journey.journey_id, MIN(evidence.captured_day) AS captured_day
         FROM reconstruction_journey journey JOIN reconstruction_link journey_visit ON journey_visit.run_id = journey.run_id AND journey_visit.link_kind = 'journey-visit' AND journey_visit.parent_id = journey.journey_id
         JOIN reconstruction_link visit_support ON visit_support.run_id = journey_visit.run_id AND visit_support.link_kind = 'visit-support' AND visit_support.parent_id = journey_visit.child_id
         JOIN canonical_evidence evidence ON evidence.evidence_id = visit_support.child_id
-        WHERE journey.run_id = ? AND journey.journey_id <> ? GROUP BY journey.journey_id ORDER BY captured_day IS NULL, captured_day, journey.journey_id LIMIT 2`, selected.runId, selected.journeyId)) ?? [];
+        WHERE journey.run_id = ? AND journey.journey_id IN (${candidateJourneyIds.map(() => '?').join(',')}) GROUP BY journey.journey_id ORDER BY captured_day IS NULL, captured_day, journey.journey_id`,
+        selected.runId, ...candidateJourneyIds)) ?? [] : [];
       const privateFilter = await privacyFilter(db, selected.runId);
       const mergeCandidates = mergeRows.filter((row) => !privateFilter.blocked.has(row.journey_id)).map((row, index) => {
         const id = opaqueJourneyDisplayId(row.journey_id);
@@ -3469,9 +3706,9 @@ export function createNativeReconstructionRepository(options?: { databaseName: s
      * platform-window timing and the owner-facing "trips updated" note are
      * the caller's job (the maintenance task); this method itself only
      * guards against running while another writer holds the lease. */
-    async runCluePass(nowMillis = Date.now(), budget = visualDiscoveryPhotoAttempts): Promise<{ status: 'complete' | 'skipped' | 'blocked'; produced: number; activated: number; reviewCards: number; rebuildTriggered: boolean }> {
+    async runCluePass(nowMillis = Date.now(), budget = visualDiscoveryPhotoAttempts, maxDurationMillis = cluePassMaxDurationMillis): Promise<{ status: 'complete' | 'skipped' | 'blocked'; produced: number; activated: number; reviewCards: number; rebuildTriggered: boolean }> {
       const correlationId = createDiagnosticCorrelationId();
-      let stage: 'CLUE_SCHEDULE' | 'CLUE_PRODUCE' | 'CLUE_VALIDATE' | 'CLUE_COMMIT' | 'CLUE_REBUILD' = 'CLUE_SCHEDULE';
+      let stage: 'CLUE_SCHEDULE' | 'CLUE_PRODUCE' | 'CLUE_VALIDATE' | 'CLUE_COMMIT' | 'CLUE_REBUILD' | 'CLUE_NOTICE' = 'CLUE_SCHEDULE';
       const report = (reasonCode: AppDiagnosticEvent['reasonCode'], durableOutcome: AppDiagnosticEvent['durableOutcome'], retryable = false) =>
         recordAppDiagnostic({ operation: 'AI_CLUE_PASS', stage, reasonCode, durableOutcome, retryable, correlationId });
       report('START', 'unchanged');
@@ -3481,6 +3718,8 @@ export function createNativeReconstructionRepository(options?: { databaseName: s
       let toActivateCount = 0;
       let toReviewCount = 0;
       let producedCount = 0;
+      let activatedTotal = 0;
+      let beforeClassifications: ReadonlyMap<string, TripOutcomeClassification> | undefined;
       try {
         const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
         if (lifecycle?.state !== 'connected') { await db.execAsync('ROLLBACK'); report('BLOCKED', 'blocked'); return { status: 'blocked', produced: 0, activated: 0, reviewCards: 0, rebuildTriggered: false }; }
@@ -3489,60 +3728,23 @@ export function createNativeReconstructionRepository(options?: { databaseName: s
 
         const { rows, evidence, mediaByEvidence, homeAreas, clues, correctedKeys } = await loadRebuildBaseline(db, false);
         const evidenceById = new Map(evidence.map((item) => [item.id, item]));
-
-        // The already-persisted graph from the last rebuild — never
-        // recomputed here, so this never touches `rebuild()`'s own
-        // local-recovery branch.
-        const visitRows = await db.getAllAsync<{ visit_id: string; place_id: string }>('SELECT visit_id, place_id FROM reconstruction_visit WHERE run_id = ?', completed.run_id);
-        const linkRows = await db.getAllAsync<{ parent_id: string; child_id: string; link_kind: string }>(`SELECT parent_id, child_id, link_kind FROM reconstruction_link WHERE run_id = ? AND (link_kind = 'journey-visit' OR link_kind = 'visit-support' OR link_kind LIKE 'membership:%')`, completed.run_id);
-        const evidenceIdsByVisit = new Map<string, string[]>();
-        const visitIdsByJourney = new Map<string, string[]>();
-        // decision 0006: a GPS-less/date-limited "memory" is attached to a
-        // journey directly via a `membership:%` link, a separate relation
-        // from visit-support — still real evidence that journey's Atlas
-        // card shows the owner, so the gate must see it too (closed
-        // 2026-11-21, code review: the first draft silently bypassed the
-        // gate for this evidence by omitting it entirely).
-        const memberships: ReconstructionGraph['memberships'] = [];
-        for (const row of linkRows) {
-          if (row.link_kind === 'visit-support') evidenceIdsByVisit.set(row.parent_id, [...(evidenceIdsByVisit.get(row.parent_id) ?? []), row.child_id]);
-          else if (row.link_kind === 'journey-visit') visitIdsByJourney.set(row.parent_id, [...(visitIdsByJourney.get(row.parent_id) ?? []), row.child_id]);
-          else { const [, state, reason] = row.link_kind.split(':'); memberships.push({ evidenceId: row.child_id, journeyId: row.parent_id, state: state as JourneyMembership['state'], reason: reason as JourneyMembership['reason'] }); }
-        }
-        const graph: ReconstructionGraph = {
-          ruleVersion: RECONSTRUCTION_RULE_VERSION, places: [], possibleMerges: [], dispositions: [], memberships,
-          visits: visitRows.map((row) => ({ id: row.visit_id, placeId: row.place_id, evidenceIds: evidenceIdsByVisit.get(row.visit_id) ?? [], order: 'ordered' as const })),
-          journeys: [...visitIdsByJourney.entries()].map(([journeyId, visitIds]) => ({ id: journeyId, visitIds, state: 'inferred' as const })),
-        };
-        const classificationRows = await db.getAllAsync<{ journey_id: string; classification: TripOutcomeClassification }>('SELECT journey_id, classification FROM reconstruction_trip_qualification WHERE run_id = ?', completed.run_id);
-        const currentClassifications = new Map(classificationRows.map((row) => [row.journey_id, row.classification]));
-        // The gate's own protection reaches only reconstruction-engine
-        // journeys. A confirmed GPS-less (travel_window_trip) or
-        // visual-place (visual_place_trip, via its visual_place_album
-        // membership rows) trip lives entirely outside
-        // reconstruction_journey/reconstruction_trip_qualification, so this
-        // gate cannot dry-run its classification — any clue touching that
-        // evidence is never auto-activated, only ever held for review
-        // (closed 2026-11-21, code review).
-        const travelWindowRows = await db.getAllAsync<{ member_ids: string }>('SELECT member_ids FROM travel_window_trip');
-        const protectedEvidenceIds = new Set<string>();
-        for (const row of travelWindowRows) { try { for (const id of JSON.parse(row.member_ids) as unknown[]) if (typeof id === 'string') protectedEvidenceIds.add(id); } catch { /* malformed row: over-protect nothing more, under-protect nothing already parsed */ } }
-        const visualAlbumRows = await db.getAllAsync<{ evidence_id: string }>('SELECT evidence_id FROM visual_place_album');
-        for (const row of visualAlbumRows) protectedEvidenceIds.add(row.evidence_id);
-        // Same frequent-place context the real qualification loop builds
-        // (rebuild()'s own, further below) — omitting it would let the dry
-        // run miss F-1 entirely and falsely call a frequent-place journey
-        // safe (closed 2026-11-21, code review).
-        const frequentPlaceContext = buildFrequentPlaceContext(graphJourneyEpisodeMarkers(graph, evidenceById));
-        const lookups = buildV12CandidateLookups(graph, evidence);
+        const { graph, currentClassifications, protectedEvidenceIds, frequentPlaceContext, lookups } = await loadCluePassGateContext(db, completed.run_id, evidence, evidenceById);
+        beforeClassifications = currentClassifications;
 
         stage = 'CLUE_PRODUCE';
         report('START', 'unchanged');
-        const alreadyCovered = new Set<string>();
-        for (const existing of clues) if (existing.kind === 'photo-source') for (const key of existing.subject.evidenceKeys) alreadyCovered.add(key);
+        const evidenceRevision = (await db.getFirstAsync<{ canonical_evidence_revision: number | null }>('SELECT canonical_evidence_revision FROM private_history_record WHERE record_id = 1'))?.canonical_evidence_revision ?? 0;
+        const homeRevision = (await db.getFirstAsync<{ revision: number | null }>('SELECT revision FROM home_projection_context WHERE record_id = 1'))?.revision ?? 0;
+        const correctionRevision = (await db.getFirstAsync<{ revision: number | null }>('SELECT MAX(revision) AS revision FROM correction_overlays'))?.revision ?? 0;
+        const inputsRevision = { evidenceRevision, homeRevision, correctionRevision };
+
+        // --- CAP-5 photo-source: the only producer whose clues can lower
+        // an Atlas trip, so only this one's output goes through the gate. ---
+        const photoSourceCovered = new Set<string>();
+        for (const existing of clues) if (existing.kind === 'photo-source') for (const key of existing.subject.evidenceKeys) photoSourceCovered.add(key);
         const pendingReviewRows = await db.getAllAsync<{ clue_json: string }>(`SELECT clue_json FROM clue_review_card WHERE state = 'pending'`);
         for (const row of pendingReviewRows) {
-          try { const pendingClue = JSON.parse(row.clue_json) as ClueRecord; if (pendingClue.kind === 'photo-source') for (const key of pendingClue.subject.evidenceKeys) alreadyCovered.add(key); }
+          try { const pendingClue = JSON.parse(row.clue_json) as ClueRecord; if (pendingClue.kind === 'photo-source') for (const key of pendingClue.subject.evidenceKeys) photoSourceCovered.add(key); }
           catch {
             // A malformed stored card is never a reason to reprocess or
             // crash the pass, but it is still a real, diagnosable boundary
@@ -3550,42 +3752,75 @@ export function createNativeReconstructionRepository(options?: { databaseName: s
             recordAppDiagnostic({ operation: 'AI_CLUE_PASS', stage: 'CLUE_VALIDATE', reasonCode: 'CLUE_INVALID', durableOutcome: 'unchanged', retryable: false, correlationId });
           }
         }
-        const subjects: { evidenceId: string; duplicateFamilyId: string | null; sourceOrigin: string | null }[] = [];
-        const seenKeys = new Set<string>();
-        for (const row of rows) {
-          if (subjects.length >= budget) break;
-          if (!evidenceById.has(row.evidence_id)) continue;
-          const key = row.platform_duplicate_family_id ? `F:${row.platform_duplicate_family_id}` : `E:${row.evidence_id}`;
-          if (alreadyCovered.has(key) || seenKeys.has(key)) continue;
-          seenKeys.add(key);
-          subjects.push({ evidenceId: row.evidence_id, duplicateFamilyId: row.platform_duplicate_family_id ?? null, sourceOrigin: row.source_origin ?? null });
+        const orderedEvidenceRows = [...rows].sort((a, b) => (a.evidence_id < b.evidence_id ? -1 : a.evidence_id > b.evidence_id ? 1 : 0));
+        const photoSourceScan = await scanCluePassEvidence(
+          db, PHOTO_SOURCE_PRODUCER_ID, orderedEvidenceRows, evidenceById, budget, maxDurationMillis, nowMillis,
+          (key) => photoSourceCovered.has(key),
+          (row) => (row.platform_duplicate_family_id ? `F:${row.platform_duplicate_family_id}` : `E:${row.evidence_id}`),
+          (row) => ({ evidenceId: row.evidence_id, duplicateFamilyId: row.platform_duplicate_family_id ?? null, sourceOrigin: row.source_origin ?? null }),
+        );
+        const photoSourceCandidates = photoSourceClues(photoSourceScan.subjects, inputsRevision, nowMillis);
+
+        // --- CAP-4 capture-offset: never names a place or affects
+        // classification on its own, so it is always safe to activate
+        // directly — no gate, no review card. Reads the already-persisted
+        // travel-window scan (`travel_window_capture`), never a new native
+        // EXIF read at clue-pass time. ---
+        const captureOffsetCovered = new Set<string>();
+        for (const existing of clues) if (existing.kind === 'capture-offset') for (const key of existing.subject.evidenceKeys) captureOffsetCovered.add(key);
+        const offsetRows = await db.getAllAsync<{ evidence_id: string; platform_duplicate_family_id: string | null; offset_minutes: number }>(
+          `SELECT canonical_evidence.evidence_id AS evidence_id, canonical_evidence.platform_duplicate_family_id AS platform_duplicate_family_id, travel_window_capture.utc_offset_minutes AS offset_minutes
+           FROM travel_window_capture JOIN canonical_evidence ON canonical_evidence.source_ref = travel_window_capture.asset_id
+           WHERE travel_window_capture.utc_offset_minutes IS NOT NULL ORDER BY canonical_evidence.evidence_id`,
+        );
+        const captureOffsetScan = await scanCluePassEvidence(
+          db, CAPTURE_OFFSET_PRODUCER_ID, offsetRows, evidenceById, budget, maxDurationMillis, nowMillis,
+          (key) => captureOffsetCovered.has(key),
+          (row) => (row.platform_duplicate_family_id ? `F:${row.platform_duplicate_family_id}` : `E:${row.evidence_id}`),
+          (row) => ({ evidenceId: row.evidence_id, duplicateFamilyId: row.platform_duplicate_family_id ?? null, offsetMinutes: row.offset_minutes }),
+        );
+        const captureOffsetCandidates = captureOffsetClues(captureOffsetScan.subjects, inputsRevision, nowMillis);
+
+        // --- CAP-6 same-trip: recomputed fresh every pass from the whole
+        // current graph (no scan cursor of its own — it is cheap pairing
+        // over already-loaded journeys, not a per-evidence scan), using
+        // every evidence_id with a known offset regardless of whether its
+        // own capture-offset clue has been created yet. Never gated (it
+        // never affects classification); a pair no longer found this pass
+        // is retracted below rather than left stale. ---
+        const offsetByEvidenceId = new Map(offsetRows.map((row) => [row.evidence_id, row.offset_minutes]));
+        const sameTripJourneys = buildSameTripJourneys(graph, evidenceById, currentClassifications, offsetByEvidenceId);
+        const sameTripPairs = findSameTripCandidatePairs(sameTripJourneys, (earlier, later) => !hasCorroboratedHomeReturn(evidence, homeAreas, earlier.lastDay, later.firstDay));
+        // CAP-7's one built rule (personal-learning.md): "Keep or reject a
+        // merge suggestion" -> "same pair not suggested again." A clue's own
+        // `clueId` is already keyed by the pair's stable anchors, so the
+        // rule just names it directly — no second, separate pair identity.
+        const rejectedPairClueIds = new Set((await db.getAllAsync<{ scope_json: string }>(
+          `SELECT scope_json FROM personal_rule WHERE kind = 'pair-preference'`,
+        )).flatMap((row) => { try { return [(JSON.parse(row.scope_json) as { clueId: string }).clueId]; } catch { return []; } }));
+        const sameTripCandidates = sameTripClues(sameTripPairs, inputsRevision, nowMillis).filter((clue) => !rejectedPairClueIds.has(clue.clueId));
+        const freshSameTripIds = new Set(sameTripCandidates.map((clue) => clue.clueId));
+        const staleSameTrip = clues.filter((clue) => clue.kind === 'same-trip' && clue.state === 'active' && !freshSameTripIds.has(clue.clueId));
+
+        const budgetExhausted = photoSourceScan.budgetExhausted || captureOffsetScan.budgetExhausted;
+        producedCount = photoSourceCandidates.length + captureOffsetCandidates.length + sameTripCandidates.length;
+        report(budgetExhausted ? 'BUDGET_EXHAUSTED' : 'COMPLETE', 'complete');
+
+        if (!photoSourceCandidates.length && !captureOffsetCandidates.length && !sameTripCandidates.length && !staleSameTrip.length) {
+          await db.execAsync('COMMIT'); report('SKIPPED', 'skipped'); return { status: 'complete', produced: 0, activated: 0, reviewCards: 0, rebuildTriggered: false };
         }
-        const evidenceRevision = (await db.getFirstAsync<{ canonical_evidence_revision: number | null }>('SELECT canonical_evidence_revision FROM private_history_record WHERE record_id = 1'))?.canonical_evidence_revision ?? 0;
-        const homeRevision = (await db.getFirstAsync<{ revision: number | null }>('SELECT revision FROM home_projection_context WHERE record_id = 1'))?.revision ?? 0;
-        const correctionRevision = (await db.getFirstAsync<{ revision: number | null }>('SELECT MAX(revision) AS revision FROM correction_overlays'))?.revision ?? 0;
-        const candidateClues = photoSourceClues(subjects, { evidenceRevision, homeRevision, correctionRevision }, nowMillis);
-        producedCount = candidateClues.length;
-        report('COMPLETE', 'complete');
 
-        if (!candidateClues.length) { await db.execAsync('COMMIT'); report('SKIPPED', 'skipped'); return { status: 'complete', produced: 0, activated: 0, reviewCards: 0, rebuildTriggered: false }; }
-
-        const { toActivate, toReview } = gateCandidateClues({ graph, evidence, mediaByEvidence, homeAreas, existingClues: clues, correctedKeys, currentClassifications, protectedEvidenceIds, candidateClues, frequentPlaceContext, lookups });
+        const { toActivate, toReview } = gateCandidateClues({ graph, evidence, mediaByEvidence, homeAreas, existingClues: clues, correctedKeys, currentClassifications, protectedEvidenceIds, candidateClues: photoSourceCandidates, frequentPlaceContext, lookups });
         toActivateCount = toActivate.length;
         toReviewCount = toReview.length;
+        activatedTotal = toActivate.length + captureOffsetCandidates.length + sameTripCandidates.length;
 
         stage = 'CLUE_COMMIT';
         report('START', 'unchanged');
-        for (const clue of toActivate) await db.runAsync(
-          `INSERT INTO travel_clue (clue_id, kind, subject_json, value_json, strength, independence_key, producer_id, producer_version, evidence_revision, home_revision, correction_revision, state, created_at_millis)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(clue_id) DO UPDATE SET kind = excluded.kind, subject_json = excluded.subject_json, value_json = excluded.value_json,
-             strength = excluded.strength, independence_key = excluded.independence_key, producer_id = excluded.producer_id,
-             producer_version = excluded.producer_version, evidence_revision = excluded.evidence_revision, home_revision = excluded.home_revision,
-             correction_revision = excluded.correction_revision, state = excluded.state`,
-          clue.clueId, clue.kind, JSON.stringify(clue.subject), JSON.stringify(clue.value), clue.strength, clue.independenceKey,
-          clue.producerId, clue.producerVersion, clue.inputsRevision.evidenceRevision, clue.inputsRevision.homeRevision,
-          clue.inputsRevision.correctionRevision, clue.state, clue.createdAtMillis,
-        );
+        for (const clue of toActivate) await writeActiveClue(db, clue);
+        for (const clue of captureOffsetCandidates) await writeActiveClue(db, clue);
+        for (const clue of sameTripCandidates) await writeActiveClue(db, clue);
+        for (const clue of staleSameTrip) await db.runAsync("UPDATE travel_clue SET state = 'superseded' WHERE clue_id = ?", clue.clueId);
         for (const item of toReview) await db.runAsync(
           `INSERT INTO clue_review_card (card_id, journey_id, reason, clue_json, state, created_at_millis) VALUES (?, ?, ?, ?, 'pending', ?)
            ON CONFLICT(card_id) DO UPDATE SET journey_id = excluded.journey_id, reason = excluded.reason, clue_json = excluded.clue_json`,
@@ -3604,10 +3839,161 @@ export function createNativeReconstructionRepository(options?: { databaseName: s
       if (toActivateCount > 0) {
         stage = 'CLUE_REBUILD';
         report('START', 'unchanged');
-        try { await this.rebuild(nowMillis); rebuildTriggered = true; report('ATLAS_UPDATED', 'complete'); }
+        try {
+          await this.rebuild(nowMillis);
+          rebuildTriggered = true;
+          report('ATLAS_UPDATED', 'complete');
+          // background-and-surfacing.md: "show one note only when
+          // something visible changed... No note for silent clue churn."
+          // Keyed by journey id (CAP-8's own noted limitation: an id can
+          // churn across a rebuild for reasons unrelated to this pass,
+          // which could misclassify an unrelated id swap as gained+lost —
+          // accepted here the same way it is for CAP-8's own dry-run diff).
+          if (beforeClassifications) {
+            stage = 'CLUE_NOTICE';
+            report('START', 'unchanged');
+            try {
+              const freshDb = await open();
+              const completedAfter = await loadPublishedRun(freshDb);
+              let wrote = false;
+              if (completedAfter?.run_id) {
+                const afterRows = await freshDb.getAllAsync<{ journey_id: string; classification: TripOutcomeClassification }>('SELECT journey_id, classification FROM reconstruction_trip_qualification WHERE run_id = ?', completedAfter.run_id);
+                const delta = summarizeOutcomeDelta(beforeClassifications, new Map(afterRows.map((row) => [row.journey_id, row.classification])));
+                const changedCount = delta.gainedCount + delta.lostCount + delta.changedCount;
+                if (changedCount > 0) {
+                  const message = changedCount === 1 ? 'Travel Life updated 1 trip.' : `Travel Life updated ${changedCount} trips.`;
+                  await freshDb.execAsync('BEGIN IMMEDIATE TRANSACTION');
+                  try {
+                    await freshDb.runAsync(
+                      `INSERT INTO clue_pass_notice (record_id, message, created_at_millis, seen) VALUES (1, ?, ?, 0)
+                       ON CONFLICT(record_id) DO UPDATE SET message = excluded.message, created_at_millis = excluded.created_at_millis, seen = 0`,
+                      message, nowMillis,
+                    );
+                    await freshDb.execAsync('COMMIT');
+                    wrote = true;
+                  } catch (error) { await freshDb.execAsync('ROLLBACK'); throw error; }
+                }
+              }
+              report(wrote ? 'COMPLETE' : 'SKIPPED', wrote ? 'complete' : 'skipped');
+            } catch (error) {
+              // Best-effort surface: a failure here never fails an
+              // already-committed rebuild, but AGENTS.md's diagnostic policy
+              // still requires every fallible boundary to report its own
+              // fixed, actionable category rather than failing silently.
+              const reason = classifyAppDiagnosticError(error);
+              report(reason, 'unchanged', reason === 'DATABASE_BUSY' || reason === 'NATIVE_HANDLE');
+            }
+          }
+        }
         catch (error) { report(classifyAppDiagnosticError(error), 'failed', true); throw error; }
       }
-      return { status: 'complete', produced: producedCount, activated: toActivateCount, reviewCards: toReviewCount, rebuildTriggered };
+      return { status: 'complete', produced: producedCount, activated: activatedTotal, reviewCards: toReviewCount, rebuildTriggered };
+    },
+    /** CAP-3's owner-facing surface: every clue the pass held back instead
+     * of silently lowering an Atlas trip, or that touches a confirmed trip
+     * family the gate cannot verify. Read-only; `reviewClueCard` resolves
+     * one. */
+    async loadPendingClueReviewCards(): Promise<{ cardId: string; reason: string; periodLabel: string | null; createdAtMillis: number }[]> {
+      const db = await open();
+      const rows = await db.getAllAsync<{ card_id: string; journey_id: string; reason: string; created_at_millis: number }>(
+        `SELECT card_id, journey_id, reason, created_at_millis FROM clue_review_card WHERE state = 'pending' ORDER BY created_at_millis DESC, card_id`,
+      );
+      if (!rows.length) return [];
+      const completed = await loadPublishedRun(db);
+      const periods = completed?.run_id
+        ? new Map((await db.getAllAsync<{ journey_id: string; first_day: string | null; last_day: string | null }>(`
+            SELECT journey.journey_id,
+              MIN(CASE WHEN canonical.captured_day GLOB '????-??-??' THEN canonical.captured_day END) AS first_day,
+              MAX(CASE WHEN canonical.captured_day GLOB '????-??-??' THEN canonical.captured_day END) AS last_day
+            FROM reconstruction_journey journey
+            LEFT JOIN reconstruction_link journey_visit ON journey_visit.run_id = journey.run_id AND journey_visit.link_kind = 'journey-visit' AND journey_visit.parent_id = journey.journey_id
+            LEFT JOIN reconstruction_link visit_support ON visit_support.run_id = journey.run_id AND visit_support.link_kind = 'visit-support' AND visit_support.parent_id = journey_visit.child_id
+            LEFT JOIN canonical_evidence canonical ON canonical.evidence_id = visit_support.child_id
+            WHERE journey.run_id = ?
+            GROUP BY journey.journey_id
+          `, completed.run_id)).map((row) => [row.journey_id, row]))
+        : new Map<string, { first_day: string | null; last_day: string | null }>();
+      return rows.map((row) => {
+        const period = periods.get(row.journey_id);
+        return { cardId: row.card_id, reason: row.reason, periodLabel: period ? monthRangeLabel(period.first_day, period.last_day, null, null) : null, createdAtMillis: row.created_at_millis };
+      });
+    },
+    /** Approving re-validates the held clue against the *current* graph and
+     * classifications before committing — a journey id can churn, and the
+     * Atlas can change, between the pass that created this card and the
+     * owner reviewing it. Returns `'stale'` (never silently activates)
+     * when the clue would still not be safe, or no longer resolves to
+     * anything at all; the owner sees this as "no longer available,"
+     * never as an applied approval. */
+    async reviewClueCard(cardId: string, decision: 'approve' | 'dismiss', nowMillis = Date.now()): Promise<'approved' | 'dismissed' | 'stale'> {
+      const db = await openProjectionWriter();
+      await ensureNativeImportSchema(db);
+      await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
+      try {
+        const card = await db.getFirstAsync<{ clue_json: string }>(`SELECT clue_json FROM clue_review_card WHERE card_id = ? AND state = 'pending'`, cardId);
+        if (!card) { await db.execAsync('ROLLBACK'); return 'stale'; }
+        if (decision === 'dismiss') {
+          await db.runAsync("UPDATE clue_review_card SET state = 'dismissed' WHERE card_id = ? AND state = 'pending'", cardId);
+          await db.execAsync('COMMIT');
+          return 'dismissed';
+        }
+        const clue = JSON.parse(card.clue_json) as ClueRecord;
+        const completed = await loadPublishedRun(db);
+        if (!completed?.run_id) { await db.execAsync('ROLLBACK'); return 'stale'; }
+        const { evidence, mediaByEvidence, homeAreas, clues, correctedKeys } = await loadRebuildBaseline(db, false);
+        const evidenceById = new Map(evidence.map((item) => [item.id, item]));
+        const { graph, currentClassifications, protectedEvidenceIds, frequentPlaceContext, lookups } = await loadCluePassGateContext(db, completed.run_id, evidence, evidenceById);
+        const { toActivate, toReview } = gateCandidateClues({ graph, evidence, mediaByEvidence, homeAreas, existingClues: clues, correctedKeys, currentClassifications, protectedEvidenceIds, candidateClues: [clue], frequentPlaceContext, lookups });
+        if (toReview.length || !toActivate.length) {
+          // Still unsafe (or still protected): leave the card pending, an
+          // owner-visible "not yet" rather than a silent no-op.
+          await db.execAsync('ROLLBACK');
+          return 'stale';
+        }
+        await writeActiveClue(db, clue);
+        await db.runAsync("UPDATE clue_review_card SET state = 'approved' WHERE card_id = ? AND state = 'pending'", cardId);
+        await db.execAsync('COMMIT');
+      } catch (error) { await db.execAsync('ROLLBACK'); throw error; }
+      // Only reachable once the clue was committed active above — a
+      // rebuild failure here never rolls back that commit (same tradeoff
+      // runCluePass itself accepts: a later pass/rebuild still picks it up).
+      await this.rebuild(nowMillis);
+      return 'approved';
+    },
+    /** CAP-7's trigger for its one built rule (personal-learning.md):
+     * the owner declining a CAP-6 merge suggestion from `journey-
+     * correction.tsx`. Never a silent `'merge'`/`'reject'` correction —
+     * this never touches `journey_correction_revision` at all, only the
+     * clue layer's own `same-trip` producer, which never emits this exact
+     * pair again. */
+    async rejectSameTripSuggestion(leftDisplayId: string, rightDisplayId: string): Promise<'rejected' | 'stale'> {
+      const correlationId = createDiagnosticCorrelationId();
+      let stage: 'RULE_DERIVE' | 'RULE_COMMIT' = 'RULE_DERIVE';
+      const report = (reasonCode: AppDiagnosticEvent['reasonCode'], durableOutcome: AppDiagnosticEvent['durableOutcome'], retryable = false) =>
+        recordAppDiagnostic({ operation: 'PERSONAL_RULE_SAVE', stage, reasonCode, durableOutcome, retryable, correlationId });
+      report('START', 'unchanged');
+      const db = await openProjectionWriter();
+      await ensureNativeImportSchema(db);
+      await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
+      try {
+        const left = displayedJourneys.get(leftDisplayId);
+        const right = displayedJourneys.get(rightDisplayId);
+        const completed = await loadPublishedRun(db);
+        if (!left || !right || !completed?.run_id || left.runId !== completed.run_id || right.runId !== completed.run_id) {
+          await db.execAsync('ROLLBACK'); report('HISTORY_STALE', 'unchanged'); return 'stale';
+        }
+        const result = await supersedeSameTripClueBetween(left.journeyId, right.journeyId, completed.run_id, db);
+        if (result === 'stale') { await db.execAsync('ROLLBACK'); report('HISTORY_STALE', 'unchanged'); return 'stale'; }
+        stage = 'RULE_COMMIT';
+        await db.execAsync('COMMIT');
+        report('COMPLETE', 'complete');
+        return result;
+      } catch (error) {
+        await db.execAsync('ROLLBACK');
+        const reason = classifyAppDiagnosticError(error);
+        report(reason, 'failed', reason === 'DATABASE_BUSY' || reason === 'NATIVE_HANDLE');
+        throw error;
+      }
     },
     async reconcileQueued(nowMillis = Date.now(), canUseSource: () => Promise<boolean> = async () => true) {
       let token: number | null = null;

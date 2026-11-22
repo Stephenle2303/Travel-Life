@@ -1,5 +1,148 @@
 # Project state
 
+## CAP-7 personal learning built for its one real trigger (2026-11-21)
+
+Completed item 4, the last of the agreed 4 (CAP-3's review-card UI/notice,
+wall-clock budget, CAP-4/CAP-6 producers, now this). Of personal-learning.md's
+7 correction-to-rule mappings, only "Keep or reject a merge suggestion" has
+both a real trigger (CAP-6's merge-candidate card, built in item 3) and a
+real consumer (the same-trip producer) ready today — built end to end,
+including the generic `personal_rule` infrastructure every future rule
+will reuse. The other 6: "Reject a Possible trip" already existed as a
+plain correction before CAP-7; 2 depend on unbuilt CAP-4 sub-producers; 2
+depend on unbuilt macro-area destination grouping; 1 needs its own
+cross-trip counter not designed yet.
+
+- `migrationV54`'s `personal_rule` table; a new "Not the same trip" button
+  on the merge-candidate card (`journey-correction.tsx`) calling
+  `rejectSameTripSuggestion`; the same-trip producer filters its own fresh
+  candidates by the rejected clue id before committing; a new "Settings ->
+  What Travel Life learned" list with Remove.
+- New `PERSONAL_RULE_SAVE` diagnostic, wired up rather than left
+  documented-but-silent (the same recurring gap closed twice already this
+  session, caught once more — and fixed before any test could pass with it
+  broken — while building this one).
+
+Full detail:
+[delivery-and-diagnostics.md](../_bmad-output/specs/spec-ai-clue-layer/delivery-and-diagnostics.md).
+
+Verified: 10 new Jest tests across the copy/repository/UI layers, migration/
+round-trip/deletion coverage, 1 new real-SQLite end-to-end test (reject,
+re-reject is a no-op, survives a pass, remove-and-resurface). Full mobile
+`npm run check` (1687 Jest + 156 SQLite + typecheck + lint + doctor) and
+root `npm run check` (281/281 + eval smoke) clean.
+
+All 4 agreed items from this session are now complete; each has its own
+honestly-scoped-down remainder documented in delivery-and-diagnostics.md.
+
+## CAP-4 capture-offset + CAP-6 same-trip producers built (2026-11-21)
+
+Completed item 3 of the agreed 4, scoped down after discovering mid-flight
+that CAP-6's 4 spec'd corroborating signals all depend on either unbuilt
+CAP-4 producers or data never captured (device make/model) — built exactly
+the one real signal (matching capture offset) end to end, not a partial
+fake of the rest.
+
+- `clues/producers/capture-offset.ts` (CAP-4): wraps the already-persisted
+  `travel_window_capture.utc_offset_minutes`, no new native read. Joined to
+  `canonical_evidence` via `source_ref`. Never gated or reviewed — it
+  carries no place/classification information to protect.
+- `clues/producers/same-trip.ts` (CAP-6): pairs Possible/Atlas-adjacent
+  journeys within 10 days with no corroborated Home return between them,
+  emits a clue only when both sides' capture offsets agree. Recomputed
+  fresh every pass; a pair no longer found is retracted.
+- `reconstruction/repository.ts`'s `loadJourneyDetail` now resolves same-
+  trip clues into its merge-candidate list, replacing a pre-existing,
+  untested placeholder that showed "any 2 other journeys in the run"
+  unconditionally (recorded in the error playbook).
+
+**Important finding:** the main engine's own episode builder already merges
+any two "away" evidence clusters within 10 days into one journey *unless* a
+corroborated Home visit sits between them — the same condition CAP-6 checks
+for eligibility. Two genuinely separate Possible trips with no Home return
+between them mostly arise when evidence changed between the rebuild that
+split them and the pass evaluating them, not from two short trips a week
+apart on their own. Full detail:
+[delivery-and-diagnostics.md](../_bmad-output/specs/spec-ai-clue-layer/delivery-and-diagnostics.md).
+
+Verified: 21 new Jest tests across both producers, 1 new real-SQLite
+end-to-end test (Home-visit-split pair, matching offsets, clue created,
+merge candidates on both sides, idempotent, retracted once a return
+reappears). Full mobile `npm run check` (1674 Jest + 155 SQLite +
+typecheck + lint + doctor) and root `npm run check` (281/281 + eval smoke)
+clean.
+
+Last of the agreed 4: (4) personal learning (CAP-7).
+
+## CAP-3's real wall-clock budget and resumable checkpoint cursor built (2026-11-21)
+
+Completed item 2 of the agreed 4: `runCluePass` now takes a third parameter
+`maxDurationMillis` (default `cluePassMaxDurationMillis`, 8s), checked
+alongside the existing item `budget` — either cap ends the scan early,
+since a background task is wall-clock limited by the OS, not item-count
+limited. A new `clue_pass_checkpoint` table (`migrationV53`) persists the
+last evidence_id considered when a scan was cut short, so the next call
+resumes strictly after it instead of restarting from the table's start
+every time (rows ordered deterministically by evidence_id); reaching the
+end on its own resets the cursor to NULL for a fresh lap. Wired up
+`BUDGET_EXHAUSTED` — a reason code the diagnostic map had already named,
+for a cap that didn't exist yet — in place of `COMPLETE` whenever either
+cap ends the scan early.
+
+Verified: 1 new real-SQLite test (budget-1 across 12 calls on a 12-evidence
+journey, each activating exactly one new clue with no rescanning, cursor
+wrapping to NULL on the 12th), 2 new Jest tests with `Date.now` mocked
+deterministically (wall-clock cutoff independent of item budget; resuming
+after a persisted cursor), migration/deletion coverage for
+`clue_pass_checkpoint`. Full mobile `npm run check` (1653 Jest + 154 SQLite
++ typecheck + lint + doctor) and root `npm run check` (281/281 + eval
+smoke) clean. Full detail:
+[delivery-and-diagnostics.md](../_bmad-output/specs/spec-ai-clue-layer/delivery-and-diagnostics.md).
+
+Remaining agreed items, in order: (3) the next AI clue producer; (4)
+personal learning (CAP-7).
+
+## CAP-3's owner-facing review-card UI and "trips updated" note built (2026-11-21)
+
+Completed the first of 4 agreed next items for CAP-3: the owner-facing
+review-card screen and the "Travel Life updated N trips" note, both still
+missing after the maintenance-task wiring and code review above.
+
+- `reconstruction/repository.ts`: `loadPendingClueReviewCards()` (read) and
+  `reviewClueCard(cardId, decision)` (approve/dismiss). Approving
+  re-validates the held clue against the *live* graph and classifications
+  before committing — never trusts the card as it stood when the pass
+  created it — and returns `'stale'` rather than silently applying anything
+  when the clue is no longer safe, still protected, or the card no longer
+  resolves. Shares its gate inputs and its `travel_clue` write with
+  `runCluePass` through two new helpers (`loadCluePassGateContext`,
+  `writeActiveClue`) instead of a third/fourth divergent copy — the exact
+  bug class the prior code review had just fixed.
+- `clue_pass_notice` table (`migrationV52`) plus `runCluePass`'s own delta
+  computation (`summarizeOutcomeDelta`, CAP-8's dry-run tool, reused): writes
+  "Travel Life updated N trip(s)." only when a triggered rebuild actually
+  moved a journey on/off Atlas, never for silent clue churn. Added a new
+  `CLUE_NOTICE` diagnostic stage to report it — the diagnostic map already
+  named this stage, but no code reported it until now; the write is still
+  best-effort (never fails an already-committed rebuild) but is never
+  silent on failure either.
+- UI: `components/clue-review-cards.tsx` (`ClueReviewCardsSection`,
+  `CluePassNoticeBanner`), `clues/review-card-copy.ts`, wired into
+  `EmptyAtlasScreen` above the Possible-trips section.
+
+Verified: 10 new Jest tests for the repository surface (including a
+redacted-diagnostic test for the notice's own failure path), 1 new
+real-SQLite end-to-end test reusing the GPS-less fixture, 6 new Jest tests
+for the UI components, migration/round-trip/deletion coverage for
+`clue_pass_notice`. Full mobile `npm run check` (1650 Jest + 153 SQLite +
+typecheck + lint + doctor) and root `npm run check` (281/281 + eval smoke)
+clean. Full detail:
+[delivery-and-diagnostics.md](../_bmad-output/specs/spec-ai-clue-layer/delivery-and-diagnostics.md).
+
+Agreed next 3 items, in order: (2) real wall-clock budget + resumable
+checkpoint cursor for `runCluePass`; (3) the next AI clue producer; (4)
+personal learning (CAP-7).
+
 ## CAP-3 wired into the real maintenance task, then code-reviewed before trusting it (2026-11-21)
 
 Wired `runCluePass()` into the real `travel-life-library-maintenance-v1`

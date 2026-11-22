@@ -177,6 +177,19 @@ type PhotoAccessContextValue = {
   loadUncertainMemories(displayId: string, snapshotToken: number, query: string, page: number): Promise<{ memories: { id: string; capturedDay: string | null; availability: 'available' | 'unavailable' | 'unknown'; locationState: string; association: string; membershipState: 'suggested' | 'primary' | 'unassigned' | 'rejected' }[]; hasMore: boolean }>;
   /** CAP-3 (detector-v1-2.md): the real Possible-trips card list. */
   loadPossibleTrips(): Promise<import('@/reconstruction/types').PossibleTripSummary[]>;
+  /** CAP-3's owner-facing surface for clues the background pass held
+   * back instead of silently lowering an Atlas trip. */
+  loadPendingClueReviewCards(): Promise<{ cardId: string; reason: string; periodLabel: string | null; createdAtMillis: number }[]>;
+  reviewClueCard(cardId: string, decision: 'approve' | 'dismiss'): Promise<'approved' | 'dismissed' | 'stale'>;
+  /** CAP-3's "Travel Life updated N trips" note. */
+  loadCluePassNotice(): Promise<{ message: string; created_at_millis: number } | null>;
+  dismissCluePassNotice(): Promise<void>;
+  /** CAP-7 personal learning: the owner declining a CAP-6 merge suggestion
+   * never suggests that exact pair again. */
+  rejectSameTripSuggestion(leftDisplayId: string, rightDisplayId: string): Promise<'rejected' | 'stale'>;
+  /** CAP-7's "Settings -> What Travel Life learned" list and Remove. */
+  loadPersonalRules(): Promise<{ ruleId: string; kind: string; scope: Record<string, unknown>; createdAtMillis: number }[]>;
+  removePersonalRule(ruleId: string): Promise<void>;
   saveJourneyCorrection(displayId: string, action: 'confirm' | 'reject' | 'claim' | 'place' | 'split' | 'merge' | 'remove-visit', snapshotToken: number, snapshot: JourneyDetail, commandKey: string, payload?: NonNullable<JourneyDetail['ownerClaim']> | NonNullable<JourneyDetail['ownerPlace']> | { afterVisitId: string } | { withJourneyId: string } | { visitId: string }): Promise<'applied' | 'pending'>;
   saveJourneyMemoryCorrection(displayId: string, memoryId: string, action: 'assign' | 'move' | 'reject' | 'unassign', snapshotToken: number, commandKey: string): Promise<'applied' | 'pending'>;
   discardJourneyCorrectionPending(displayId: string, snapshotToken: number, commandKey: string): Promise<'applied' | 'pending'>;
@@ -194,7 +207,7 @@ type PhotoAccessContextValue = {
   travelWindowDiscovery?: AutomaticTravelWindowDiscovery;
 };
 
-type OptionalRepositoryMethods = 'loadCandidateShadowSnapshot' | 'verifyCandidateShadowSnapshot' | 'readCandidateShadowMedia' | 'saveCandidateShadowDecision' | 'loadJourneyMediaInspection' | 'hasPendingHomeProjection' | 'verifyJourneyMediaSnapshot' | 'hasReplayMapping' | 'reconcileReplayMutation' | 'findManualJourneyOverlaps' | 'createManualJourney' | 'removeManualJourney' | 'reviewJourneyPrivacy' | 'saveJourneyPrivacy' | 'loadJourneyPrivacyPolicies' | 'restoreJourneyPrivacy' | 'loadJourneyEligibility' | 'loadReplayManifestInput' | 'loadReplayEditorPreviewPage' | 'saveReplayDraft' | 'stageReplayWorkingDraft' | 'resetReplayDraft' | 'saveReplayPreparedArtifact' | 'applyJourneyPrivacyToRecord' | 'loadPossibleTrips' | 'runCluePass'
+type OptionalRepositoryMethods = 'loadCandidateShadowSnapshot' | 'verifyCandidateShadowSnapshot' | 'readCandidateShadowMedia' | 'saveCandidateShadowDecision' | 'loadJourneyMediaInspection' | 'hasPendingHomeProjection' | 'verifyJourneyMediaSnapshot' | 'hasReplayMapping' | 'reconcileReplayMutation' | 'findManualJourneyOverlaps' | 'createManualJourney' | 'removeManualJourney' | 'reviewJourneyPrivacy' | 'saveJourneyPrivacy' | 'loadJourneyPrivacyPolicies' | 'restoreJourneyPrivacy' | 'loadJourneyEligibility' | 'loadReplayManifestInput' | 'loadReplayEditorPreviewPage' | 'saveReplayDraft' | 'stageReplayWorkingDraft' | 'resetReplayDraft' | 'saveReplayPreparedArtifact' | 'applyJourneyPrivacyToRecord' | 'loadPossibleTrips' | 'runCluePass' | 'loadPendingClueReviewCards' | 'reviewClueCard' | 'rejectSameTripSuggestion'
   | 'loadVisualPlaceOffer' | 'verifyVisualPlaceOffer' | 'reviewVisualPlaceOffer'
   | 'loadVisualDiscoveryEnabled' | 'setVisualDiscoveryEnabled' | 'loadVisualDiscoveryPage' | 'loadVisualDiscoveryAlbum' | 'verifyVisualDiscovery' | 'checkpointVisualDiscovery' | 'reviewVisualDiscovery';
 type ReconstructionRepositoryProp = Omit<ReturnType<typeof createNativeReconstructionRepository>, OptionalRepositoryMethods | 'verifySuggestedMergeReceipt'>
@@ -1250,6 +1263,39 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     if (privacyRuntime.mutating || privateRecord.state !== 'connected' || !nativeReconstructionRepository.loadPossibleTrips) return [];
     return nativeReconstructionRepository.loadPossibleTrips();
   }, [nativeReconstructionRepository, privateRecord.state, privacyRuntime]);
+  // CAP-3's owner-facing surface: clues the background pass held back
+  // rather than silently lowering an Atlas trip.
+  const loadPendingClueReviewCards = useCallback(async () => {
+    if (privacyRuntime.mutating || privateRecord.state !== 'connected' || !nativeReconstructionRepository.loadPendingClueReviewCards) return [];
+    return nativeReconstructionRepository.loadPendingClueReviewCards();
+  }, [nativeReconstructionRepository, privateRecord.state, privacyRuntime]);
+  const reviewClueCard = useCallback(async (cardId: string, decision: 'approve' | 'dismiss') => {
+    if (privateRecord.state !== 'connected' || !nativeReconstructionRepository.reviewClueCard) throw new Error('Private record is unavailable.');
+    const result = await nativeReconstructionRepository.reviewClueCard(cardId, decision);
+    if (result === 'approved') await refreshDurableReveal();
+    return result;
+  }, [nativeReconstructionRepository, privateRecord.state, refreshDurableReveal]);
+  const loadCluePassNotice = useCallback(async () => {
+    if (privateRecord.state !== 'connected' || !sharedRepository.loadCluePassNotice) return null;
+    return sharedRepository.loadCluePassNotice();
+  }, [sharedRepository, privateRecord.state]);
+  const dismissCluePassNotice = useCallback(async () => {
+    if (privateRecord.state !== 'connected' || !sharedRepository.dismissCluePassNotice) return;
+    await sharedRepository.dismissCluePassNotice();
+  }, [sharedRepository, privateRecord.state]);
+  // CAP-7 personal learning: declining a CAP-6 merge suggestion.
+  const rejectSameTripSuggestion = useCallback(async (leftDisplayId: string, rightDisplayId: string) => {
+    if (privateRecord.state !== 'connected' || !nativeReconstructionRepository.rejectSameTripSuggestion) throw new Error('Private record is unavailable.');
+    return nativeReconstructionRepository.rejectSameTripSuggestion(leftDisplayId, rightDisplayId);
+  }, [nativeReconstructionRepository, privateRecord.state]);
+  const loadPersonalRules = useCallback(async () => {
+    if (privateRecord.state !== 'connected' || !sharedRepository.loadPersonalRules) return [];
+    return sharedRepository.loadPersonalRules();
+  }, [sharedRepository, privateRecord.state]);
+  const removePersonalRule = useCallback(async (ruleId: string) => {
+    if (privateRecord.state !== 'connected' || !sharedRepository.removePersonalRule) return;
+    await sharedRepository.removePersonalRule(ruleId);
+  }, [sharedRepository, privateRecord.state]);
   const saveJourneyMemoryCorrection = useCallback(async (displayId: string, memoryId: string, action: 'assign' | 'move' | 'reject' | 'unassign', snapshotToken: number, commandKey: string) => {
     if (privateRecord.state !== 'connected') throw new Error('Private record is unavailable.');
     const saved = await nativeReconstructionRepository.saveJourneyMemoryCorrection(displayId, memoryId, action, snapshotToken, commandKey);
@@ -1877,7 +1923,7 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     if (projection.status !== 'complete') throw new Error('Home base removed but local history rebuild did not complete.');
     await refreshDurableReveal();
   }, [durableRevealGate, privateRecord.state, sharedRepository, homeBases, refreshHomeBases, reconstructionController, refreshDurableReveal]);
-  return <PhotoAccessContext.Provider value={{ snapshot, controller, importCoverage, privateRecord, privateRecordController, maintenance, maintenanceController, reconciliation, catchUpHistory, reconstruction, durableReveal, reviewJourneyPrivacy, saveJourneyPrivacy, loadJourneyPrivacyPolicies, restoreJourneyPrivacy, loadJourneyEligibility, loadReplayManifestInput, loadReplayEditorPreviewPage, loadPreparedReplay, replayEditSession, saveReplayDraft, stageReplayWorkingDraft, resetReplayDraft, preparePrivateReplay, exportPrivateReplay, discardPrivateReplay, findManualJourneyOverlaps, createManualJourney, removeManualJourney, homeBases, loadJourneyDetail, loadJourneyMediaPage, inspectJourneyMedia, loadRecognizableShadowPreview, loadRecognizableReveal, readRecognizableTrip, playRecognizableTrip, discardRecognizableTripPreview, reviewRecognizableTrip, loadUncertainMemories, loadPossibleTrips, confirmTimelineMerge, saveJourneyCorrection, saveJourneyMemoryCorrection, discardJourneyCorrectionPending, retryJourneyCorrectionProjection, saveConfiguredHomeArea, saveDirectHome, renameConfiguredHomeArea, removeConfiguredHomeArea, reconstructionController, aiReview, aiProposalController, visualDiscovery, travelWindowDiscovery }}>{children}</PhotoAccessContext.Provider>;
+  return <PhotoAccessContext.Provider value={{ snapshot, controller, importCoverage, privateRecord, privateRecordController, maintenance, maintenanceController, reconciliation, catchUpHistory, reconstruction, durableReveal, reviewJourneyPrivacy, saveJourneyPrivacy, loadJourneyPrivacyPolicies, restoreJourneyPrivacy, loadJourneyEligibility, loadReplayManifestInput, loadReplayEditorPreviewPage, loadPreparedReplay, replayEditSession, saveReplayDraft, stageReplayWorkingDraft, resetReplayDraft, preparePrivateReplay, exportPrivateReplay, discardPrivateReplay, findManualJourneyOverlaps, createManualJourney, removeManualJourney, homeBases, loadJourneyDetail, loadJourneyMediaPage, inspectJourneyMedia, loadRecognizableShadowPreview, loadRecognizableReveal, readRecognizableTrip, playRecognizableTrip, discardRecognizableTripPreview, reviewRecognizableTrip, loadUncertainMemories, loadPossibleTrips, loadPendingClueReviewCards, reviewClueCard, loadCluePassNotice, dismissCluePassNotice, rejectSameTripSuggestion, loadPersonalRules, removePersonalRule, confirmTimelineMerge, saveJourneyCorrection, saveJourneyMemoryCorrection, discardJourneyCorrectionPending, retryJourneyCorrectionProjection, saveConfiguredHomeArea, saveDirectHome, renameConfiguredHomeArea, removeConfiguredHomeArea, reconstructionController, aiReview, aiProposalController, visualDiscovery, travelWindowDiscovery }}>{children}</PhotoAccessContext.Provider>;
 }
 
 export function usePhotoAccess() {

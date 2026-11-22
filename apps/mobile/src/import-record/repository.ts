@@ -67,7 +67,7 @@ function clueReviewCardFromRow(row: ClueReviewCardRow): ClueReviewCard | null {
   catch { return null; }
 }
 
-export const CURRENT_SCHEMA_VERSION = 51;
+export const CURRENT_SCHEMA_VERSION = 54;
 const validCivilDay = (day: string | null) => Boolean(day && /^\d{4}-(0[1-9]|1[0-2])-([0-2]\d|3[01])$/.test(day)
   && new Date(`${day}T00:00:00.000Z`).toISOString().slice(0, 10) === day);
 
@@ -1024,6 +1024,55 @@ const migrationV51 = `
   UPDATE private_history_record SET schema_version = MAX(schema_version, 51) WHERE record_id = 1;
 `;
 
+// CAP-3 (background-and-surfacing.md): "show one note only when something
+// visible changed... No note for silent clue churn." One row, replaced
+// each time the pass's own triggered rebuild changes a visible
+// classification; `seen` is the owner's own acknowledgement, not the
+// pass's.
+const migrationV52 = `
+  CREATE TABLE IF NOT EXISTS clue_pass_notice (
+    record_id INTEGER PRIMARY KEY CHECK (record_id = 1),
+    message TEXT NOT NULL,
+    created_at_millis INTEGER NOT NULL,
+    seen INTEGER NOT NULL DEFAULT 0 CHECK (seen IN (0, 1))
+  );
+  UPDATE private_history_record SET schema_version = MAX(schema_version, 52) WHERE record_id = 1;
+`;
+
+// CAP-3's resumable scan cursor (2026-11-21): one row per producer (each
+// scans its own evidence subset at its own pace, e.g. CAP-5's photo-source
+// producer scans all of canonical_evidence, CAP-4's capture-offset producer
+// scans only the smaller subset with a travel_window_capture row), the
+// evidence_id that producer's scan last considered when it stopped early
+// (item budget or wall-clock exhausted). NULL means "start a fresh lap from
+// the beginning" (either never run, or the last pass reached the end of
+// that producer's own row order without being cut short).
+const migrationV53 = `
+  CREATE TABLE IF NOT EXISTS clue_pass_checkpoint (
+    producer_id TEXT PRIMARY KEY NOT NULL,
+    cursor_evidence_id TEXT NULL,
+    updated_at_millis INTEGER NOT NULL
+  );
+  UPDATE private_history_record SET schema_version = MAX(schema_version, 53) WHERE record_id = 1;
+`;
+
+// CAP-7 personal learning (personal-learning.md, decision 0022): "Personal
+// rules are derived from [corrections], stored as owner decisions, applied
+// on the next rebuild, and listed in Settings -> What Travel Life learned,
+// each with Remove." `kind` is closed to the one mapping built so far
+// ('pair-preference': "Keep or reject a merge suggestion" -> "Same pair
+// not suggested again"); `scope_json` is closed per kind, never free text,
+// coordinates beyond an existing macro-area representation, or a file name.
+const migrationV54 = `
+  CREATE TABLE IF NOT EXISTS personal_rule (
+    rule_id TEXT PRIMARY KEY NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('pair-preference')),
+    scope_json TEXT NOT NULL,
+    created_at_millis INTEGER NOT NULL
+  );
+  UPDATE private_history_record SET schema_version = MAX(schema_version, 54) WHERE record_id = 1;
+`;
+
 const migrationV42 = `
   CREATE TABLE IF NOT EXISTS recognizable_candidate_rejection (
     command_key TEXT PRIMARY KEY NOT NULL,
@@ -1280,6 +1329,9 @@ export async function ensureNativeImportSchema(db: SqliteDatabase) {
     if (version < 49) await db.execAsync(migrationV49);
     if (version < 50) await db.execAsync(migrationV50);
     if (version < 51) await db.execAsync(migrationV51);
+    if (version < 52) await db.execAsync(migrationV52);
+    if (version < 53) await db.execAsync(migrationV53);
+    if (version < 54) await db.execAsync(migrationV54);
     if (version === 0) await db.runAsync('INSERT INTO import_schema_version (version) VALUES (?)', CURRENT_SCHEMA_VERSION);
     else if (version < CURRENT_SCHEMA_VERSION) await db.runAsync('UPDATE import_schema_version SET version = ?', CURRENT_SCHEMA_VERSION);
     await db.execAsync('COMMIT');
@@ -1408,6 +1460,9 @@ export function createNativeImportRepository(options?: { databaseName: string })
           if (version < 49) await db.execAsync(migrationV49);
           if (version < 50) await db.execAsync(migrationV50);
           if (version < 51) await db.execAsync(migrationV51);
+          if (version < 52) await db.execAsync(migrationV52);
+          if (version < 53) await db.execAsync(migrationV53);
+          if (version < 54) await db.execAsync(migrationV54);
           if (version === 0) await db.runAsync('INSERT INTO import_schema_version (version) VALUES (?)', CURRENT_SCHEMA_VERSION);
           else if (version < CURRENT_SCHEMA_VERSION) await db.runAsync('UPDATE import_schema_version SET version = ?', CURRENT_SCHEMA_VERSION);
           await db.execAsync('COMMIT');
@@ -1702,6 +1757,69 @@ export function createNativeImportRepository(options?: { databaseName: string })
         await db.execAsync('COMMIT');
       } catch (error) { await db.execAsync('ROLLBACK'); throw error; }
     },
+    // CAP-3 (background-and-surfacing.md): "show one note only when
+    // something visible changed... No note for silent clue churn." One
+    // row, replaced each time; `seen` is the owner's own acknowledgement.
+    async saveCluePassNotice(message: string, nowMillis: number) {
+      const db = await open();
+      await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
+      try {
+        await assertImportActive(db);
+        await db.runAsync(
+          `INSERT INTO clue_pass_notice (record_id, message, created_at_millis, seen) VALUES (1, ?, ?, 0)
+           ON CONFLICT(record_id) DO UPDATE SET message = excluded.message, created_at_millis = excluded.created_at_millis, seen = 0`,
+          message, nowMillis,
+        );
+        await db.execAsync('COMMIT');
+      } catch (error) { await db.execAsync('ROLLBACK'); throw error; }
+    },
+    async loadCluePassNotice() {
+      const db = await open();
+      return db.getFirstAsync<{ message: string; created_at_millis: number }>(
+        "SELECT message, created_at_millis FROM clue_pass_notice WHERE record_id = 1 AND seen = 0",
+      );
+    },
+    async dismissCluePassNotice() {
+      const db = await open();
+      await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
+      try {
+        await assertImportActive(db);
+        await db.runAsync('UPDATE clue_pass_notice SET seen = 1 WHERE record_id = 1');
+        await db.execAsync('COMMIT');
+      } catch (error) { await db.execAsync('ROLLBACK'); throw error; }
+    },
+    // CAP-7 personal learning (personal-learning.md): the owner-facing
+    // "Settings -> What Travel Life learned" list and its Remove action.
+    // The write side (`rejectSameTripSuggestion`) lives in
+    // reconstruction/repository.ts, next to the clue it supersedes — same
+    // split as `saveCluePassNotice`/`loadCluePassNotice`.
+    async loadPersonalRules() {
+      const db = await open();
+      const rows = await db.getAllAsync<{ rule_id: string; kind: string; scope_json: string; created_at_millis: number }>(
+        'SELECT rule_id, kind, scope_json, created_at_millis FROM personal_rule ORDER BY created_at_millis DESC, rule_id',
+      );
+      return rows.flatMap((row) => {
+        try { return [{ ruleId: row.rule_id, kind: row.kind, scope: JSON.parse(row.scope_json) as Record<string, unknown>, createdAtMillis: row.created_at_millis }]; }
+        catch { return []; } // malformed row: never surface an unreadable rule, never crash the list
+      });
+    },
+    async removePersonalRule(ruleId: string) {
+      const correlationId = createDiagnosticCorrelationId();
+      recordAppDiagnostic({ operation: 'PERSONAL_RULE_SAVE', stage: 'RULE_REMOVE', reasonCode: 'START', durableOutcome: 'unchanged', retryable: false, correlationId });
+      const db = await open();
+      await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
+      try {
+        await assertImportActive(db);
+        await db.runAsync('DELETE FROM personal_rule WHERE rule_id = ?', ruleId);
+        await db.execAsync('COMMIT');
+        recordAppDiagnostic({ operation: 'PERSONAL_RULE_SAVE', stage: 'RULE_REMOVE', reasonCode: 'COMPLETE', durableOutcome: 'complete', retryable: false, correlationId });
+      } catch (error) {
+        await db.execAsync('ROLLBACK');
+        const reason = classifyAppDiagnosticError(error);
+        recordAppDiagnostic({ operation: 'PERSONAL_RULE_SAVE', stage: 'RULE_REMOVE', reasonCode: reason, durableOutcome: 'failed', retryable: reason === 'DATABASE_BUSY' || reason === 'NATIVE_HANDLE', correlationId });
+        throw error;
+      }
+    },
     async connectPrivateRecord() {
       const db = await open();
       await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
@@ -1767,6 +1885,9 @@ export function createNativeImportRepository(options?: { databaseName: string })
           DELETE FROM reconstruction_trip_qualification;
           DELETE FROM travel_clue;
           DELETE FROM clue_review_card;
+          DELETE FROM clue_pass_notice;
+          DELETE FROM clue_pass_checkpoint;
+          DELETE FROM personal_rule;
           DELETE FROM configured_home_area;
           DELETE FROM home_setup_receipt;
           DELETE FROM first_reveal_receipt;

@@ -41,7 +41,7 @@ function ownerClaimPreview(claim: OwnerClaim | undefined, observedSpan: string) 
   return `Owner title: ${claim.title ?? 'not set'}. Owner date: ${date}. Observed evidence remains: ${observedSpan}.`;
 }
 
-export function JourneyCorrectionScreen({ id, task, load, save, saveMemory, loadUncertainMemories, discardPendingRemap, retryProjection, onBack, onRejected }: { id: string; task?: 'location' | 'name-dates' | 'destinations' | 'photos' | 'accuracy'; load(id: string): Promise<{ detail: JourneyDetail; previews: OwnerPreview[]; snapshotToken: number }>; save(id: string, action: JourneyCorrectionAction, snapshotToken: number, snapshot: JourneyDetail, commandKey: string, payload?: OwnerClaim | OwnerJourneyPlace | StructuralSplit | StructuralMerge | VisitRemoval): Promise<'applied' | 'pending'>; saveMemory?(id: string, memoryId: string, action: MemoryAction, snapshotToken: number, commandKey: string): Promise<'applied' | 'pending'>; loadUncertainMemories?(id: string, snapshotToken: number, query: string, page: number): Promise<{ memories: UncertainMemory[]; hasMore: boolean }>; discardPendingRemap?(id: string, snapshotToken: number, commandKey: string): Promise<'applied' | 'pending'>; retryProjection(): Promise<boolean>; onBack(): void; onRejected(): void }) {
+export function JourneyCorrectionScreen({ id, task, load, save, saveMemory, loadUncertainMemories, discardPendingRemap, retryProjection, rejectSameTrip, onBack, onRejected }: { id: string; task?: 'location' | 'name-dates' | 'destinations' | 'photos' | 'accuracy'; load(id: string): Promise<{ detail: JourneyDetail; previews: OwnerPreview[]; snapshotToken: number }>; save(id: string, action: JourneyCorrectionAction, snapshotToken: number, snapshot: JourneyDetail, commandKey: string, payload?: OwnerClaim | OwnerJourneyPlace | StructuralSplit | StructuralMerge | VisitRemoval): Promise<'applied' | 'pending'>; saveMemory?(id: string, memoryId: string, action: MemoryAction, snapshotToken: number, commandKey: string): Promise<'applied' | 'pending'>; loadUncertainMemories?(id: string, snapshotToken: number, query: string, page: number): Promise<{ memories: UncertainMemory[]; hasMore: boolean }>; discardPendingRemap?(id: string, snapshotToken: number, commandKey: string): Promise<'applied' | 'pending'>; retryProjection(): Promise<boolean>; rejectSameTrip?(id: string, withJourneyId: string): Promise<'rejected' | 'stale'>; onBack(): void; onRejected(): void }) {
   const [state, setState] = useState<{ id: string; result?: LoadedCorrection; error?: string } | null>(null);
   const [preview, setPreview] = useState<{ id: string; action: JourneyCorrectionAction; commandKey: string; payload?: OwnerClaim | OwnerJourneyPlace | StructuralSplit | StructuralMerge | VisitRemoval } | null>(null);
   const [placeQuery, setPlaceQuery] = useState('');
@@ -54,6 +54,9 @@ export function JourneyCorrectionScreen({ id, task, load, save, saveMemory, load
   const [discardPreview, setDiscardPreview] = useState<{ commandKey: string } | null>(null);
   const [pendingDiscarded, setPendingDiscarded] = useState(false);
   const [uncertain, setUncertain] = useState<{ query: string; page: number; memories: UncertainMemory[]; hasMore: boolean } | null>(null);
+  const [dismissedMergeCandidates, setDismissedMergeCandidates] = useState<Set<string>>(new Set());
+  const [rejectingMergeCandidate, setRejectingMergeCandidate] = useState<string | null>(null);
+  const [staleMergeCandidate, setStaleMergeCandidate] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -114,6 +117,16 @@ export function JourneyCorrectionScreen({ id, task, load, save, saveMemory, load
       setDiscardPreview(null);
     } catch { setSaveError('The pending correction could not be discarded. Reload this private journey before retrying.'); }
     finally { setSaving(false); }
+  };
+  const rejectMergeCandidate = async (candidateId: string) => {
+    if (!rejectSameTrip) return;
+    setRejectingMergeCandidate(candidateId); setStaleMergeCandidate(null);
+    try {
+      const result = await rejectSameTrip(id, candidateId);
+      if (result === 'rejected') setDismissedMergeCandidates((previous) => new Set(previous).add(candidateId));
+      else setStaleMergeCandidate(candidateId);
+    } catch { setStaleMergeCandidate(candidateId); }
+    finally { setRejectingMergeCandidate(null); }
   };
   const loadUncertain = async (query: string, page: number) => {
     if (!loadUncertainMemories) return;
@@ -186,10 +199,14 @@ export function JourneyCorrectionScreen({ id, task, load, save, saveMemory, load
         <Body>Choose a boundary only where both adjacent visits have a strict observed order. This creates two private successor journeys and does not change source evidence.</Body>
         {detail.visits.slice(0, -1).map((visit, index) => <ActionButton key={visit.id} accessibilityLabel={`Preview split after ${visit.label}`} onPress={() => { setPreview({ id, action: 'split', payload: { afterVisitId: visit.id }, commandKey: `journey:${id}:${snapshotToken}:split:${visit.id}:${Date.now()}` }); setSaveError(null); }} disabled={saving} variant="secondary">Separate after visit {index + 1}</ActionButton>)}
       </InsetPanel>}
-      {(!task || task === 'destinations') && !!detail.mergeCandidates?.length && <InsetPanel>
+      {(!task || task === 'destinations') && !!detail.mergeCandidates?.filter((candidate) => !dismissedMergeCandidates.has(candidate.id)).length && <InsetPanel>
         <Title>Merge adjacent journey</Title>
         <Body>Choose a nearby private journey to preview. Saving is allowed only when both journeys are adjacent and strictly ordered.</Body>
-        {detail.mergeCandidates.map((candidate) => <ActionButton key={candidate.id} accessibilityLabel={`Preview merge with ${candidate.label}`} onPress={() => { setPreview({ id, action: 'merge', payload: { withJourneyId: candidate.id }, commandKey: `journey:${id}:${snapshotToken}:merge:${candidate.id}:${Date.now()}` }); setSaveError(null); }} disabled={saving} variant="secondary">Preview merge with {candidate.label}</ActionButton>)}
+        {detail.mergeCandidates.filter((candidate) => !dismissedMergeCandidates.has(candidate.id)).map((candidate) => <View key={candidate.id} style={{ gap: 8 }}>
+          <ActionButton accessibilityLabel={`Preview merge with ${candidate.label}`} onPress={() => { setPreview({ id, action: 'merge', payload: { withJourneyId: candidate.id }, commandKey: `journey:${id}:${snapshotToken}:merge:${candidate.id}:${Date.now()}` }); setSaveError(null); }} disabled={saving} variant="secondary">Preview merge with {candidate.label}</ActionButton>
+          {!!rejectSameTrip && <ActionButton accessibilityLabel={`Not the same trip as ${candidate.label}`} onPress={() => void rejectMergeCandidate(candidate.id)} disabled={saving || rejectingMergeCandidate === candidate.id} variant="secondary">{rejectingMergeCandidate === candidate.id ? 'Saving…' : 'Not the same trip'}</ActionButton>}
+          {staleMergeCandidate === candidate.id && <Body>This suggestion is no longer available — your Atlas has changed since it was found.</Body>}
+        </View>)}
       </InsetPanel>}
       {preview?.id === id && preview.action !== 'place' && <InsetPanel>
         <Title>{preview.action === 'confirm' ? 'Preview confirmation' : preview.action === 'reject' ? 'Preview rejection' : preview.action === 'remove-visit' ? 'Preview destination removal' : preview.action === 'split' ? 'Preview journey split' : preview.action === 'merge' ? 'Preview journey merge' : 'Preview owner claim'}</Title>

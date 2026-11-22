@@ -1,5 +1,124 @@
 # Error and improvement playbook
 
+## A fallible read placed outside its own `try` reports no diagnostic at all (recurrence #3, 2026-11-21)
+
+**Symptom:** writing `rejectSameTripSuggestion` (CAP-7's trigger), the first
+draft called `loadPublishedRun(db)` — a real SQLite read that can fail —
+*before* `BEGIN IMMEDIATE TRANSACTION` and its surrounding `try`. A failure
+there would have thrown straight out of the method with zero
+`recordAppDiagnostic` call, only the initial `'START'` event ever logged.
+Caught while writing this feature's own diagnostic tests, not by a failing
+check — there was no test yet to catch it.
+
+**Cause:** same root lesson as the two `CLUE_NOTICE`/`BUDGET_EXHAUSTED`
+entries below, in a new shape: not a stage left undocumented-then-unwired,
+but a fallible call placed outside the boundary that reports failures at
+all. `reviewClueCard` (the method this one was modeled on) keeps its own
+`loadPublishedRun` call *inside* the try; this draft didn't copy that
+placement.
+
+**Fix:** moved the journey/run resolution inside the transaction, matching
+`reviewClueCard`'s own convention exactly — opened in the same turn as the
+diagnostic tests that would have caught it, so no released build ever ran
+with the gap.
+
+**Verification:** `clue-review-repository.test.ts`'s redacted-diagnostic
+test for `rejectSameTripSuggestion` injects a failure at the resolution
+step specifically and asserts the exact `PERSONAL_RULE_SAVE`/`RULE_DERIVE`
+event, never the raw error text.
+
+**Prevention (third occurrence — generalizing further):** before adding
+*any* new write method modeled on an existing one, diff the two for
+placement of reads relative to `BEGIN TRANSACTION`/`try`, not just which
+stages/reason codes get used — a correct reason-code map does not catch a
+read that never reaches the `catch` at all. This is now the standing check
+before calling any new diagnostic-instrumented method done, alongside the
+stage/reason-code grep the two entries below already require.
+
+## `loadJourneyDetail`'s merge candidates were an untested, always-on placeholder (2026-11-21)
+
+**Symptom:** while scoping CAP-6 (same-trip clues → merge suggestions), found
+that `reconstruction/repository.ts`'s `loadJourneyDetail` already had a
+`mergeCandidates` field feeding `journey-correction.tsx`'s "Preview merge
+with X" buttons — but its query picked "any 2 other journeys in the current
+run" unconditionally (`journey.journey_id <> ? ... LIMIT 2`, ordered only by
+captured day), with zero relevance check at all. No test in the repository
+ever exercised this field.
+
+**Cause:** pre-existing, from before CAP-6 existed — a placeholder
+presumably left to be replaced once a real "same trip" signal shipped,
+never flagged as incomplete in the meantime because nothing tested it.
+
+**Fix:** replaced it with `sameTripCandidateJourneyIds`, which resolves
+CAP-6's own active `same-trip` clues (keyed by evidence, never a journey id)
+back to the current journey on the other side of a real corroborating
+signal. A journey with no same-trip clue now correctly shows zero merge
+candidates, where it previously always showed two unrelated ones.
+
+**Verification:** the new real-SQLite integration test for CAP-4/CAP-6
+asserts `mergeCandidates` on each of two paired journeys names exactly the
+other one.
+
+**Prevention:** when scoping a new producer/consumer for the clue layer,
+grep the UI/repository layer for a field the new clue kind should feed
+before assuming one needs to be built from scratch — this placeholder was a
+pre-existing, if silent, integration point `git blame`/a direct field search
+would have surfaced immediately.
+
+## `CLUE_NOTICE` diagnostic stage documented but never implemented (2026-11-21)
+
+**Symptom:** `delivery-and-diagnostics.md`'s diagnostic map had already
+named a `CLUE_NOTICE` stage (reasons `COMPLETE`/`SKIPPED`) for the "trips
+updated" note, from before the note itself was built. When the note was
+actually implemented this session, its write path (a `clue_pass_notice`
+insert inside `runCluePass`, after the triggered rebuild) reported no
+diagnostic at all — success and failure were both silent, and the one
+`catch` around the write swallowed everything with no `recordAppDiagnostic`
+call. Found by re-reading the doc while writing this feature's
+documentation, not by a failing check.
+
+**Cause:** pre-existing — the doc's diagnostic map was written (or carried
+forward) as a plan for the note before the note's own code existed; nothing
+in this repository's history re-checked the map against the code once the
+note landed. Not attributable to this session's own edits, since the write
+path itself was added in the same pass that left it undiagnosed, but it
+is exactly the gap AGENTS.md's diagnostic-implementation-policy exists to
+catch ("a generic recovery message without the corresponding specific
+diagnostic is incomplete").
+
+**Fix:** `runCluePass` now reports `CLUE_NOTICE` with `START` on entry,
+`COMPLETE`/`SKIPPED` on success (written vs. nothing visible changed), and
+the same closed `DATABASE_BUSY`/`TRANSACTION`/`SCHEMA`/`UNKNOWN` reasons
+every other stage uses on failure — still best-effort (never rethrows, never
+fails the already-committed rebuild it follows), but never silent. Doc's
+diagnostic map row updated to list the failure reasons it was always
+missing.
+
+**Verification:** 3 new Jest tests in `clue-review-repository.test.ts`
+assert the exact diagnostic event for the written, skipped, and
+redacted-failure cases (the failure test injects a sentinel error and
+asserts it never reaches the logged event).
+
+**Prevention:** when a diagnostic map entry is written ahead of its
+implementation (as a plan), treat it as an open item until the code that
+reports it actually exists — check the map against `recordAppDiagnostic`
+call sites for the new stage before calling a diagnostic-instrumented
+feature done, not just before calling the feature itself done.
+
+**Recurrence (same session, 2026-11-21):** the same gap, same root cause,
+found while building item 2 (wall-clock budget): `CLUE_PRODUCE`'s
+diagnostic map already named `BUDGET_EXHAUSTED` as a valid reason code
+(`AppDiagnosticEvent`'s reason-code union already included it), from before
+either the item or wall-clock cap that would ever trigger it existed. No
+code reported it. Applied the same fix and the same prevention check before
+adding the new cap: `runCluePass` now reports `BUDGET_EXHAUSTED` in place
+of `COMPLETE` whenever the item budget or `maxDurationMillis` cuts the scan
+short. Two occurrences of the identical lesson in one session is reason
+enough to generalize the prevention check beyond this one spec: before
+adding a new fallible path or cap to an already-instrumented operation,
+grep the type union / diagnostic map for a reason code that already
+anticipates it, not just the stage.
+
 ## CAP-3 code review: 3 real holes in the "never silently lower Atlas" gate, 7 more issues fixed (2026-11-21)
 
 Before declaring CAP-3's clue pass done (it was about to start actually

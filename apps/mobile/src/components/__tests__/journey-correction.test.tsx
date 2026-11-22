@@ -187,4 +187,37 @@ describe('JourneyCorrectionScreen', () => {
     await fireEvent.press(view.getByRole('button', { name: 'Preview assign memory-review-1' }));
     await waitFor(() => expect(view.getByRole('button', { name: 'Save memory membership' })).toBeOnTheScreen());
   });
+
+  describe('CAP-6/CAP-7 merge candidates', () => {
+    const mergeLoad = async () => ({
+      detail: { id: 'atlas-safe', title: 'Private journey', observedSpan: 'Observed 2024-01-01', visits: [], memories: [], uncertainty: [],
+        mergeCandidates: [{ id: 'journey-b', label: 'Journey near 2026-03-08' }] }, previews: [], snapshotToken: 7,
+    });
+
+    it('removes a merge candidate from the list once rejected, without touching the merge/reject correction flow', async () => {
+      const rejectSameTrip = jest.fn(async () => 'rejected' as const);
+      const save = jest.fn();
+      const view = await render(<JourneyCorrectionScreen id="atlas-safe" load={mergeLoad} save={save} rejectSameTrip={rejectSameTrip} retryProjection={retryProjection} onBack={jest.fn()} onRejected={jest.fn()} />);
+      await waitFor(() => expect(view.getByRole('button', { name: 'Not the same trip as Journey near 2026-03-08' })).toBeOnTheScreen());
+      await fireEvent.press(view.getByRole('button', { name: 'Not the same trip as Journey near 2026-03-08' }));
+      await waitFor(() => expect(rejectSameTrip).toHaveBeenCalledWith('atlas-safe', 'journey-b'));
+      expect(save).not.toHaveBeenCalled();
+      await waitFor(() => expect(view.queryByRole('button', { name: 'Preview merge with Journey near 2026-03-08' })).toBeNull());
+    });
+
+    it('shows a stale message and keeps the candidate listed when the suggestion no longer exists', async () => {
+      const rejectSameTrip = jest.fn(async () => 'stale' as const);
+      const view = await render(<JourneyCorrectionScreen id="atlas-safe" load={mergeLoad} save={async () => 'applied'} rejectSameTrip={rejectSameTrip} retryProjection={retryProjection} onBack={jest.fn()} onRejected={jest.fn()} />);
+      await waitFor(() => expect(view.getByRole('button', { name: 'Not the same trip as Journey near 2026-03-08' })).toBeOnTheScreen());
+      await fireEvent.press(view.getByRole('button', { name: 'Not the same trip as Journey near 2026-03-08' }));
+      await waitFor(() => expect(view.getByText(/no longer available/i)).toBeOnTheScreen());
+      expect(view.getByRole('button', { name: 'Preview merge with Journey near 2026-03-08' })).toBeOnTheScreen();
+    });
+
+    it('never shows "Not the same trip" when the callback is not supplied', async () => {
+      const view = await render(<JourneyCorrectionScreen id="atlas-safe" load={mergeLoad} save={async () => 'applied'} retryProjection={retryProjection} onBack={jest.fn()} onRejected={jest.fn()} />);
+      await waitFor(() => expect(view.getByRole('button', { name: 'Preview merge with Journey near 2026-03-08' })).toBeOnTheScreen());
+      expect(view.queryByRole('button', { name: 'Not the same trip as Journey near 2026-03-08' })).toBeNull();
+    });
+  });
 });

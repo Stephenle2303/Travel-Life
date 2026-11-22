@@ -109,6 +109,17 @@ export interface ImportRepository extends HistoryRecordRepository {
   loadClueReviewCards?(state?: 'pending' | 'approved' | 'dismissed'): Promise<import('./repository').ClueReviewCard[]>;
   saveClueReviewCards?(cards: readonly import('./repository').ClueReviewCard[]): Promise<void>;
   resolveClueReviewCard?(cardId: string, state: 'approved' | 'dismissed'): Promise<void>;
+  /** CAP-3's "Travel Life updated N trips" note: one row, replaced each
+   * time something visible changes; `seen` is the owner's own
+   * acknowledgement. */
+  saveCluePassNotice?(message: string, nowMillis: number): Promise<void>;
+  loadCluePassNotice?(): Promise<{ message: string; created_at_millis: number } | null>;
+  dismissCluePassNotice?(): Promise<void>;
+  /** CAP-7 personal learning (personal-learning.md): "Settings -> What
+   * Travel Life learned", each rule with Remove. `scope` is closed per
+   * `kind`; today only `'pair-preference'` exists (`{ clueId: string }`). */
+  loadPersonalRules?(): Promise<{ ruleId: string; kind: string; scope: Record<string, unknown>; createdAtMillis: number }[]>;
+  removePersonalRule?(ruleId: string): Promise<void>;
   /** M10.8 (CAP-8) adoption: which detector rule a rebuild qualifies with.
    * Defaults to the current, sole active rule; v1.1 stays selectable only
    * for an owner-initiated rollback (byte-unchanged rule files, M10.8's
