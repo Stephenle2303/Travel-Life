@@ -12,130 +12,38 @@
  * per-unit and pairwise checks directly, which is sufficient for the outcome
  * decision. Macro-area destination grouping for display/membership remains
  * a smaller follow-up.
+ *
+ * Geometry/session primitives and the reason/diagnostic mapping now live in
+ * outcome-geometry.ts/outcome-reasons.ts, shared with outcome-v1-3.ts
+ * (decision 0023) so the two rule versions kept side by side for
+ * benchmarking/rollback cannot drift on what those mean; only the gates in
+ * this file are v1.2-specific.
  */
 import type { FrequentPlaceContext, FrequentPlaceEpisodeMarker, OwnerConfiguredHomeArea, ReconstructionEvidence, ReconstructionGraph, TripDetectorEvidence, TripOutcome, TripOutcomeReasonCode } from './types';
 import { TRIP_OUTCOME_RULE_VERSION } from './types';
 import { effectiveConfiguredHomeDistanceV11 } from './engine-v1-1';
-
-// C-13 (decision 0021): camera and imported (Google Takeout) supply support; screenshots
-// and downloads supply none; messaging and unknown are review-only, same as the others here.
-// Exported so any other reader needing the same own-capture test (e.g. the
-// Possible-trips card's informational located-photo count) uses this one
-// definition rather than a second, driftable copy.
-export const NON_CAPTURE_ORIGINS = new Set(['screenshot', 'download', 'unknown', 'messaging']);
+import {
+  NON_CAPTURE_ORIGINS, RELIABLE_ACCURACY_METERS, hasTwoSeparatedPlaces, homeCoversAllDays,
+  isWithinActiveHomeRadius, partitionSessions, photoUnitsOf, validLocation,
+} from './outcome-geometry';
+import { rebuildClassificationReasonCode as sharedRebuildClassificationReasonCode, summarizeOutcomeDelta as sharedSummarizeOutcomeDelta } from './outcome-reasons';
+import type { OutcomeDeltaBucket, RebuildClassificationReasonCode } from './outcome-reasons';
 
 export { TRIP_OUTCOME_RULE_VERSION };
+// Re-exported for existing callers/tests (`@/reconstruction/outcome-v1-2`,
+// `@/reconstruction/index`, `@/reconstruction/repository`); the geometry,
+// session and reason-mapping logic itself now lives in outcome-geometry.ts/
+// outcome-reasons.ts (see module doc above).
+export { homeCoversAllDays, partitionSessions, NON_CAPTURE_ORIGINS };
+export type { OutcomeDeltaBucket, RebuildClassificationReasonCode };
+export const summarizeOutcomeDelta = sharedSummarizeOutcomeDelta;
+export const rebuildClassificationReasonCode = sharedRebuildClassificationReasonCode;
 
-const EARTH_RADIUS_METERS = 6_371_000;
 const AWAY_METERS = 50_000;
-const RELIABLE_ACCURACY_METERS = 1_000;
 const MIN_PHOTOS_FOR_OUTCOME = 2;
 const MIN_PHOTOS_FOR_AUTO = 5;
-const SESSION_GAP_MILLIS = 60 * 60_000;
-const SESSION_SPAN_MILLIS = 4 * 60 * 60_000;
-const SESSION_DISPLACEMENT_METERS = 1_000;
-const PLACE_SEPARATION_METERS = 1_000;
-const DEFAULT_HOME_RADIUS_METERS = 20_000;
 const FREQUENT_PLACE_WINDOW_MILLIS = 90 * 24 * 60 * 60_000;
 const FREQUENT_PLACE_MINIMUM_EPISODES = 8;
-
-function haversineMeters(aLat: number, aLon: number, bLat: number, bLon: number) {
-  const radians = Math.PI / 180;
-  const latDelta = (bLat - aLat) * radians;
-  const lonDelta = ((((bLon - aLon) + 540) % 360) - 180) * radians;
-  const h = Math.sin(latDelta / 2) ** 2 + Math.cos(aLat * radians) * Math.cos(bLat * radians) * Math.sin(lonDelta / 2) ** 2;
-  return EARTH_RADIUS_METERS * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
-}
-
-function validDay(day: string | null | undefined): day is string {
-  if (!day || !/^\d{4}-(0[1-9]|1[0-2])-([0-2]\d|3[01])$/.test(day)) return false;
-  const parsed = new Date(`${day}T00:00:00.000Z`);
-  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === day;
-}
-
-function isHomeActiveOnDay(area: OwnerConfiguredHomeArea, day: string | null) {
-  return validDay(day) && (!area.effectiveStartDay || day >= area.effectiveStartDay) && (!area.effectiveEndDay || day <= area.effectiveEndDay);
-}
-
-function validLocation(item: { latitude: number | null; longitude: number | null }) {
-  return item.latitude !== null && Number.isFinite(item.latitude) && Math.abs(item.latitude) <= 90
-    && item.longitude !== null && Number.isFinite(item.longitude) && Math.abs(item.longitude) <= 180;
-}
-
-/** Every distinct original/civil day in `units` has at least one Home area
- * active on it. An owner with no Home at all never covers anything (H-4).
- * Units with no valid day at all are conservatively uncovered too: a day
- * that cannot be checked must never be treated as covered by omission
- * (`Array.prototype.every` on an empty set would otherwise vacuously say
- * yes with zero days actually verified). */
-export function homeCoversAllDays(units: readonly Pick<TripDetectorEvidence, 'capturedDay'>[], homeAreas: readonly OwnerConfiguredHomeArea[]) {
-  if (!homeAreas.length || !units.length) return false;
-  const days = new Set(units.map((item) => item.capturedDay).filter(validDay));
-  if (!days.size) return false;
-  return [...days].every((day) => homeAreas.some((area) => isHomeActiveOnDay(area, day)));
-}
-
-function isWithinActiveHomeRadius(item: TripDetectorEvidence, homeAreas: readonly OwnerConfiguredHomeArea[]) {
-  if (!validLocation(item)) return false;
-  return homeAreas.some((area) => isHomeActiveOnDay(area, item.capturedDay)
-    && haversineMeters(item.latitude!, item.longitude!, area.latitude, area.longitude) <= (area.radiusMeters ?? DEFAULT_HOME_RADIUS_METERS));
-}
-
-/** V1.1 §1 sessions, simplified to one pass: unordered day/place buckets for
- * evidence without a trusted instant, elapsed-gap/displacement/span splitting
- * for evidence that has one. Returns a session id per evidence id. */
-export function partitionSessions(units: readonly TripDetectorEvidence[]): ReadonlyMap<string, string> {
-  const sessionById = new Map<string, string>();
-  const dayOnly = units.filter((item) => !item.hasPreciseOffset || item.capturedAtMillis === null);
-  for (const item of dayOnly) {
-    const key = `day:${item.capturedDay ?? 'unknown'}:${item.supportPlaceId ?? item.id}`;
-    sessionById.set(item.id, key);
-  }
-  const trusted = [...units.filter((item) => item.hasPreciseOffset && item.capturedAtMillis !== null)]
-    .sort((a, b) => a.capturedAtMillis! - b.capturedAtMillis! || a.id.localeCompare(b.id));
-  let session: TripDetectorEvidence[] = [];
-  let sessionIndex = 0;
-  for (const item of trusted) {
-    const prior = session.at(-1);
-    const first = session[0];
-    const gap = prior ? item.capturedAtMillis! - prior.capturedAtMillis! : 0;
-    const span = first ? item.capturedAtMillis! - first.capturedAtMillis! : 0;
-    const displaced = prior && validLocation(prior) && validLocation(item)
-      ? haversineMeters(prior.latitude!, prior.longitude!, item.latitude!, item.longitude!) > SESSION_DISPLACEMENT_METERS : false;
-    if (prior && (gap > SESSION_GAP_MILLIS || span > SESSION_SPAN_MILLIS || displaced)) { sessionIndex += 1; session = []; }
-    session.push(item);
-    sessionById.set(item.id, `trusted:${sessionIndex}`);
-  }
-  return sessionById;
-}
-
-/** V1.1 §1's "two corroborated places" check needs >=1 km separation, finer
- * than reconstruction-v1's own 5 km place clustering (decision 0021 keeps
- * that clustering unchanged). Two points 3 km apart already share one
- * `supportPlaceId`, so this checks raw coordinates directly rather than
- * distinct place ids (found by the M10.1/M10.3 benchmark, 2026-11-19). */
-function hasTwoSeparatedPlaces(units: readonly TripDetectorEvidence[]) {
-  const located = units.filter(validLocation);
-  for (let left = 0; left < located.length; left += 1) for (let right = left + 1; right < located.length; right += 1) {
-    if (haversineMeters(located[left].latitude!, located[left].longitude!, located[right].latitude!, located[right].longitude!) >= PLACE_SEPARATION_METERS) return true;
-  }
-  return false;
-}
-
-/** One independent capture unit per verified duplicate family; deterministic,
- * never claims which member was the original (same rule as V1.1, and the
- * same tie-break: ascending sort then last-write-wins, so the highest id in
- * a family is the representative in both versions — V1.1's own `photoUnits`
- * builds a `Map` from an ascending-sorted array the same way, so the two
- * versions pick the same family representative for the same evidence). */
-function photoUnitsOf(evidence: readonly TripDetectorEvidence[]) {
-  const byUnit = new Map<string, TripDetectorEvidence>();
-  for (const item of [...evidence].sort((a, b) => a.id.localeCompare(b.id))) {
-    const key = item.duplicateFamilyId ? `family:${item.duplicateFamilyId}` : `unit:${item.id}`;
-    byUnit.set(key, item);
-  }
-  return [...byUnit.values()];
-}
 
 /** Built once per rebuild from every qualified episode's support places and
  * start time. A candidate excludes its own prior visits to the same place
@@ -286,7 +194,9 @@ export function buildV12CandidateLookups(graph: ReconstructionGraph, evidence: r
  * (from `buildV12CandidateLookups`, built once per rebuild) to avoid
  * rebuilding the whole library's maps on every journey; omitting it rebuilds
  * them locally for a single call (fine for tests, O(library) per call in a
- * loop). */
+ * loop). Shared as-is by outcome-v1-3.ts: this builds candidate evidence
+ * from the graph, not an outcome gate, so it has no version-specific
+ * behavior to fork. */
 export function buildV12CandidateEvidence(graph: ReconstructionGraph, journeyId: string, evidence: readonly ReconstructionEvidence[], mediaByEvidence: ReadonlyMap<string, 'image' | 'video'>, lookups?: V12CandidateLookups): TripDetectorEvidence[] {
   const journey = graph.journeys.find((candidate) => candidate.id === journeyId);
   if (!journey) throw new Error('Unknown reconstructed journey.');
@@ -308,62 +218,4 @@ export function buildV12CandidateEvidence(graph: ReconstructionGraph, journeyId:
 export function qualifyGraphJourneyV12(graph: ReconstructionGraph, journeyId: string, evidence: readonly ReconstructionEvidence[], mediaByEvidence: ReadonlyMap<string, 'image' | 'video'>, homeAreas: readonly OwnerConfiguredHomeArea[], frequentPlaceContext?: FrequentPlaceContext, lookups?: V12CandidateLookups): TripOutcome {
   const candidateEvidence = buildV12CandidateEvidence(graph, journeyId, evidence, mediaByEvidence, lookups);
   return qualifyTripOutcomeV12(candidateEvidence, { homeAreas, frequentPlaceContext, currentJourneyId: journeyId });
-}
-
-export type OutcomeDeltaBucket = 'gained' | 'lost' | 'changed' | 'unchanged';
-/** CAP-8's dry run: a pure, owner-readable aggregate of what a policy change
- * would do to every journey's visible classification, keyed by journey id
- * so it survives journey-id churn across a rebuild only if the caller keeps
- * a stable key; production should key by exact support signature instead. */
-export function summarizeOutcomeDelta(before: ReadonlyMap<string, string>, after: ReadonlyMap<string, string>) {
-  const shown = (classification: string | undefined) => classification === 'AUTO_CONFIRMED' || classification === 'USER_CONFIRMED';
-  const buckets: Record<OutcomeDeltaBucket, string[]> = { gained: [], lost: [], changed: [], unchanged: [] };
-  const keys = new Set([...before.keys(), ...after.keys()]);
-  for (const key of keys) {
-    const priorClass = before.get(key);
-    const nextClass = after.get(key);
-    const priorShown = shown(priorClass);
-    const nextShown = shown(nextClass);
-    if (!priorShown && nextShown) buckets.gained.push(key);
-    else if (priorShown && !nextShown) buckets.lost.push(key);
-    else if (priorClass !== undefined && nextClass !== undefined && priorClass !== nextClass) buckets.changed.push(key);
-    else buckets.unchanged.push(key);
-  }
-  return {
-    gainedCount: buckets.gained.length, lostCount: buckets.lost.length,
-    changedCount: buckets.changed.length, unchangedCount: buckets.unchanged.length,
-    gained: buckets.gained.sort(), lost: buckets.lost.sort(), changed: buckets.changed.sort(),
-  };
-}
-
-/** The diagnostic reason codes `rebuildClassificationReasonCode` can return.
- * Each name matches an `AppDiagnosticReasonCode` member one-to-one — kept
- * as a separate literal union (not an import) so `reconstruction/` never
- * depends on `diagnostics/` at runtime; `atlas-phase-profile.ts`'s own
- * `classification()` parameter type is the thing that actually enforces
- * the match. */
-export type RebuildClassificationReasonCode =
-  | 'HOME_NOT_SET' | 'TIME_CONFLICT' | 'NO_LOCATION' | 'WEAK_LOCATION' | 'NEAR_HOME'
-  | 'FREQUENT_PLACE' | 'FEW_PHOTOS' | 'SINGLE_MOMENT' | 'OWNER_VETO' | 'NO_AWAY_EVIDENCE' | 'NON_CAPTURE_SOURCE'
-  | 'COMPLETE';
-
-const REBUILD_REASON_DIAGNOSTIC_CODES: Record<TripOutcomeReasonCode | 'owner-confirmed', RebuildClassificationReasonCode> = {
-  'home-not-set': 'HOME_NOT_SET', 'time-conflict': 'TIME_CONFLICT', 'no-location': 'NO_LOCATION',
-  'weak-location': 'WEAK_LOCATION', 'near-home': 'NEAR_HOME', 'frequent-place': 'FREQUENT_PLACE',
-  'few-photos': 'FEW_PHOTOS', 'single-moment': 'SINGLE_MOMENT', 'owner-veto': 'OWNER_VETO',
-  'no-away-evidence': 'NO_AWAY_EVIDENCE', 'non-capture-source': 'NON_CAPTURE_SOURCE',
-  'owner-confirmed': 'COMPLETE',
-};
-
-/** M10.2's device-aggregate read (delivery-and-diagnostics.md): bucketed,
- * content-free classification counts for one rebuild. `reasons[0]` is
- * already the single sentence a Possible-trip card would show (detector-
- * v1-2.md's priority table), so mapping just that first entry gives one
- * bucket per journey; AUTO_CONFIRMED/USER_CONFIRMED/REJECTED carry no
- * reason and map to 'COMPLETE'. Never logs a journey id, place or date —
- * only this closed code, counted by the collection recipe across one
- * correlation id. */
-export function rebuildClassificationReasonCode(reasons: readonly (TripOutcomeReasonCode | 'owner-confirmed')[]): RebuildClassificationReasonCode {
-  const first = reasons[0];
-  return first ? REBUILD_REASON_DIAGNOSTIC_CODES[first] : 'COMPLETE';
 }

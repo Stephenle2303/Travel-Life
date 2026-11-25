@@ -8,6 +8,7 @@ import { Image } from 'expo-image';
 import { randomUUID } from 'expo-crypto';
 import type { ConfiguredHomeArea } from '@/import-record/types';
 import { HomePlaceIndexError, searchHomePlaces, type HomeSearchPlace } from '@/reconstruction/home-place-search';
+import { MAX_HOME_RADIUS_METERS } from '@/reconstruction/types';
 
 import { appRoutes, isRecognizableRevealEnabled, isReconstructionPreviewEnabled, openRoute } from '@/navigation/app-contract';
 import { ActionButton, Body, Eyebrow, InsetPanel, Screen, Title, useReducedMotion } from '@/components/ui';
@@ -15,6 +16,7 @@ import { AtlasActionButton, AtlasReveal } from '@/components/atlas-reveal';
 import { RecognizableAtlasExperience } from '@/components/recognizable-atlas-experience';
 import { VisualDiscoverySetting, VisualPlaceRecovery } from '@/components/visual-place-recovery';
 import { TravelWindowRecovery } from '@/components/travel-window-recovery';
+import { HiddenOutingsV13Section } from '@/components/hidden-outings-v13';
 import { PossibleTripsV12Section } from '@/components/possible-trips-v12';
 import { ClueReviewCardsSection, CluePassNoticeBanner } from '@/components/clue-review-cards';
 import { personalRuleSentence } from '@/clues/personal-rule-copy';
@@ -133,12 +135,35 @@ function MonthYearField({ label, clearLabel, resolvedDay, onPick, onClear }: {
   </ActionButton>;
 }
 
-function InitialHomeSetup({ save, settings, existing }: {
+function InitialHomeSetup({ save, settings, existing, previewHomeAreaRadius }: {
   save(command: string, areas: readonly ConfiguredHomeArea[]): Promise<void>;
   settings?: () => void;
   existing?: SavedHomeSetup;
+  /** M10.10: the dry-run preview, shown only when editing an existing Home
+   * (there is nothing yet to preview against when adding a brand-new one). */
+  previewHomeAreaRadius?(areaId: string, radiusMeters: number): Promise<import('@/reconstruction/types').HomeRadiusPreview | null>;
 }) {
-  const radiusMeters = existing?.radiusMeters ?? 20_000;
+  const [radiusKm, setRadiusKm] = useState(String(Math.round((existing?.radiusMeters ?? 20_000) / 1_000)));
+  const radiusMetersParsed = Math.round(Number(radiusKm) * 1_000);
+  const radiusValid = radiusKm.trim().length > 0 && Number.isFinite(radiusMetersParsed) && radiusMetersParsed > 0 && radiusMetersParsed <= MAX_HOME_RADIUS_METERS;
+  const radiusMeters = radiusValid ? radiusMetersParsed : (existing?.radiusMeters ?? 20_000);
+  // Debounced (300ms) so typing each digit of a radius doesn't each trigger
+  // previewHomeAreaRadius's own full canonical projection — only the last
+  // keystroke's timer survives to actually fire (code-review finding,
+  // 2026-11-23). The `active` flag (same convention as loadPossibleTrips/
+  // loadHiddenOutings above) discards a response that resolves after this
+  // effect's own inputs have already moved on, same job the earlier
+  // request-counter did, with no state set synchronously in the effect body.
+  const [preview, setPreview] = useState<import('@/reconstruction/types').HomeRadiusPreview | null>(null);
+  useEffect(() => {
+    if (!existing || !previewHomeAreaRadius || !radiusValid) return;
+    let active = true;
+    const timer = setTimeout(() => {
+      void previewHomeAreaRadius(existing.id, radiusMetersParsed).then((result) => { if (active) setPreview(result); })
+        .catch(() => { if (active) setPreview(null); });
+    }, 300);
+    return () => { active = false; clearTimeout(timer); };
+  }, [existing, previewHomeAreaRadius, radiusValid, radiusMetersParsed]);
   const [areas, setAreas] = useState<ConfiguredHomeArea[]>([]);
   const [editing, setEditing] = useState(true);
   const [query, setQuery] = useState(existing?.label ?? '');
@@ -198,7 +223,12 @@ function InitialHomeSetup({ save, settings, existing }: {
       </ActionButton>)}
       {place && <>
         <Body>{place.name} · {place.level} · {place.context}</Body>
-        <Body>Photos within {Math.round(radiusMeters / 1_000)} km of the selected place point will count as near Home during this period.</Body>
+        {settings ? <>
+          <TextInput accessibilityLabel="Home radius in kilometers" keyboardType="numeric" value={radiusKm} onChangeText={setRadiusKm}
+            placeholder="20" placeholderTextColor="#B4C6B5" style={{ color: '#F3EEDD', borderColor: '#B4C6B5', borderWidth: 1, borderRadius: 10, padding: 10, width: 120 }} />
+          <Body>Photos within this radius (in km) of the selected place point will count as near Home during this period.</Body>
+          {!radiusValid && <Body>Radius must be a number above 0 and at most 300 km.</Body>}
+        </> : <Body>Photos within {Math.round(radiusMeters / 1_000)} km of the selected place point will count as near Home during this period.</Body>}
         <ActionButton variant={period === 'all' ? 'primary' : 'secondary'} onPress={() => setPeriod('all')}>Forever</ActionButton>
         <ActionButton variant={period === 'dates' ? 'primary' : 'secondary'} onPress={() => setPeriod('dates')}>Choose dates</ActionButton>
         {period === 'dates' && <>
@@ -206,8 +236,12 @@ function InitialHomeSetup({ save, settings, existing }: {
           <MonthYearField label="Until" clearLabel="Now" resolvedDay={end} onPick={setUntil} onClear={() => setUntil('')} />
           {!validDates && <Body>Until must be on or after From.</Body>}
         </>}
-        <ActionButton disabled={!validDates} onPress={() => {
-          if (!validDates) return;
+        {/* Gated on radiusValid too (code-review finding, 2026-11-23): without it, a
+          * preview fetched for a previous, valid radius kept showing underneath the
+          * "Radius must be..." message once the owner typed an out-of-range value. */}
+        {existing && previewHomeAreaRadius && preview && radiusValid && <Body>{preview.atlasCount} trips on Atlas · {preview.reviewCount} to review · {preview.hiddenCount} hidden</Body>}
+        <ActionButton disabled={!validDates || !radiusValid} onPress={() => {
+          if (!validDates || !radiusValid) return;
           const area: ConfiguredHomeArea = { id: existing?.id ?? randomUUID(), label: place.name, origin: 'manual-pin',
             latitude: place.latitude, longitude: place.longitude, radiusMeters,
             effectiveStartDay: period === 'dates' ? start : null, effectiveEndDay: period === 'dates' ? end : null };
@@ -287,7 +321,7 @@ export function ImportScreen() {
 
 export function EmptyAtlasScreen() {
   const router = useRouter();
-  const { snapshot, controller, importCoverage, maintenance, maintenanceController, reconciliation, catchUpHistory, reconstruction, retryJourneyCorrectionProjection, visualDiscovery, travelWindowDiscovery, durableReveal, loadJourneyDetail, loadJourneyMediaPage, inspectJourneyMedia, confirmTimelineMerge, privateRecord, privateRecordController, loadPossibleTrips, loadPendingClueReviewCards, reviewClueCard, loadCluePassNotice, dismissCluePassNotice } = usePhotoAccess();
+  const { snapshot, controller, importCoverage, maintenance, maintenanceController, reconciliation, catchUpHistory, reconstruction, retryJourneyCorrectionProjection, visualDiscovery, travelWindowDiscovery, durableReveal, loadJourneyDetail, loadJourneyMediaPage, inspectJourneyMedia, confirmTimelineMerge, privateRecord, privateRecordController, loadPossibleTrips, loadHiddenOutings, loadPendingClueReviewCards, reviewClueCard, loadCluePassNotice, dismissCluePassNotice } = usePhotoAccess();
   const AtlasContent = isRecognizableRevealEnabled() ? RecognizableAtlasExperience : AtlasReveal;
   const [initialAtlasContext] = useState(() => consumeAtlasPreviewContext(controller));
   const exploration = useRef<AtlasExploration | null>(initialAtlasContext);
@@ -314,6 +348,15 @@ export function EmptyAtlasScreen() {
     void loadPossibleTrips().then((result) => { if (active) setPossibleTrips(result); }).catch(() => { if (active) setPossibleTrips([]); });
     return () => { active = false; };
   }, [durableReveal, loadPossibleTrips]);
+  // M10.11 (decision 0023/detector-v1-3.md): same reload lifecycle as
+  // possibleTrips above; empty today since v1.3 is not yet activated
+  // (M10.12) — see loadHiddenOutings' own doc comment.
+  const [hiddenOutings, setHiddenOutings] = useState<import('@/reconstruction/types').HiddenOutingSummary[]>([]);
+  useEffect(() => {
+    let active = true;
+    void loadHiddenOutings().then((result) => { if (active) setHiddenOutings(result); }).catch(() => { if (active) setHiddenOutings([]); });
+    return () => { active = false; };
+  }, [durableReveal, loadHiddenOutings]);
   // CAP-3's owner-facing surfaces: clues the background pass held back,
   // and the one-time "trips updated" note. Both reload whenever the
   // completed rebuild changes, same lifecycle as possibleTrips above.
@@ -345,6 +388,14 @@ export function EmptyAtlasScreen() {
     const result = await loadJourneyDetail(id);
     return { detail: result.detail, previews: result.previews, snapshotToken: result.snapshotToken };
   }, [loadJourneyDetail]);
+  // Shared by the Possible-trips and Hidden outings cards (code-review
+  // finding, 2026-11-22): "Review outing" always opens the same journey
+  // detail screen — see PossibleTripsV12Section's own comment for why it
+  // must not jump to the Edit hub.
+  const reviewOuting = (id: string) => {
+    if (exploration.current) saveExploration(exploration.current);
+    router.push({ pathname: appRoutes.journey as never, params: { id } });
+  };
   const sourceControls = accountSyncEnabled ? <View style={{ gap: 8 }}>
     <Body>{controller.isAccountRecord ? 'Showing account history' : 'Showing this device history'}</Body>
     {controller.isAccountRecord
@@ -427,8 +478,9 @@ export function EmptyAtlasScreen() {
             return result;
           }} />
           <PossibleTripsV12Section trips={possibleTrips}
-            onReviewOuting={(id) => { if (exploration.current) saveExploration(exploration.current); router.push({ pathname: '/journey/[id]/edit' as never, params: { id, fromAtlas: '1' } }); }}
+            onReviewOuting={reviewOuting}
             onSetHome={() => { if (exploration.current) saveExploration(exploration.current); openRoute(router, appRoutes.settings); }} />
+          <HiddenOutingsV13Section outings={hiddenOutings} onReviewOuting={reviewOuting} />
         </>}
       />
       <UpdatesInvitation eligible={controller.preparation === 'complete' && controller.preparationScope !== 'selected' && controller.preparationScope !== null && !maintenance.enabled} enable={() => maintenanceController.setEnabled(true)} />
@@ -473,8 +525,50 @@ export function ReplayAvailabilityScreen() {
 
 export function PrivacySettingsScreen() {
   const router = useRouter();
-  const { controller, privateRecord, privateRecordController, maintenance, maintenanceController, reconciliation, durableReveal, homeBases, loadJourneyPrivacyPolicies, restoreJourneyPrivacy, loadJourneyDetail, saveConfiguredHomeArea, saveDirectHome, renameConfiguredHomeArea, removeConfiguredHomeArea, visualDiscovery, loadPersonalRules, removePersonalRule } = usePhotoAccess();
-  const [task, setTask] = useState<'account' | 'homes' | 'updates' | 'privacy' | 'learned' | null>(null);
+  const { controller, privateRecord, privateRecordController, maintenance, maintenanceController, reconciliation, durableReveal, homeBases, loadJourneyPrivacyPolicies, restoreJourneyPrivacy, loadJourneyDetail, saveConfiguredHomeArea, saveDirectHome, renameConfiguredHomeArea, removeConfiguredHomeArea, previewHomeAreaRadius, compareDetectorPolicy, setDetectorPolicy, visualDiscovery, loadPersonalRules, removePersonalRule } = usePhotoAccess();
+  const [task, setTask] = useState<'account' | 'homes' | 'updates' | 'privacy' | 'learned' | 'detection' | null>(null);
+  // M10.12 (decision 0023): the owner-facing v1.2/v1.3 comparison and
+  // switch/rollback, loaded only while this task is open — same lifecycle
+  // as the "learned" task's personalRules load below.
+  const [detectorComparison, setDetectorComparison] = useState<import('@/reconstruction/types').DetectorPolicyComparison | null>(null);
+  const [switchingDetector, setSwitchingDetector] = useState(false);
+  const [detectorMessage, setDetectorMessage] = useState<string | null>(null);
+  useEffect(() => {
+    if (task !== 'detection') return;
+    let active = true;
+    void compareDetectorPolicy().then((result) => { if (active) setDetectorComparison(result); }).catch(() => { if (active) setDetectorComparison(null); });
+    return () => { active = false; };
+  }, [task, compareDetectorPolicy]);
+  const switchDetectorPolicy = async () => {
+    if (!detectorComparison || switchingDetector) return;
+    setSwitchingDetector(true);
+    setDetectorMessage('Switching trip rules and rebuilding your local history. This can take a moment.');
+    const priorComparison = detectorComparison;
+    try {
+      await setDetectorPolicy(priorComparison.candidatePolicy);
+      setDetectorMessage(null);
+      // Nothing else changed between the dry run and this successful
+      // switch, so the two sides just swap rather than paying for a
+      // second full comparison read right after the rebuild already did
+      // one (code-review finding, 2026-11-23).
+      setDetectorComparison({
+        activePolicy: priorComparison.candidatePolicy, candidatePolicy: priorComparison.activePolicy,
+        active: priorComparison.candidate, candidate: priorComparison.active,
+        gainedCount: priorComparison.lostCount, lostCount: priorComparison.gainedCount,
+        changedCount: priorComparison.changedCount, unchangedCount: priorComparison.unchangedCount,
+      });
+    } catch {
+      setDetectorMessage('Switching trip rules did not complete. Try again.');
+      // The switch may have partially applied (provider.tsx's own
+      // setDetectorPolicy reverts the stored policy on a failed rebuild,
+      // but never assume that from here) — re-read rather than leave a
+      // comparison on screen that might not match what is actually stored
+      // (code-review finding, 2026-11-23).
+      setDetectorComparison(await compareDetectorPolicy().catch(() => null));
+    } finally {
+      setSwitchingDetector(false);
+    }
+  };
   const [personalRules, setPersonalRules] = useState<{ ruleId: string; kind: string; scope: Record<string, unknown>; createdAtMillis: number }[]>([]);
   const [removingRuleId, setRemovingRuleId] = useState<string | null>(null);
   useEffect(() => {
@@ -560,7 +654,7 @@ export function PrivacySettingsScreen() {
   };
 
   if (directHome && saveDirectHome && !controller.isAccountRecord) return <InitialHomeSetup
-    existing={directHome.existing} settings={() => setDirectHome(null)}
+    existing={directHome.existing} settings={() => setDirectHome(null)} previewHomeAreaRadius={previewHomeAreaRadius}
     save={async (_command, areas) => {
       const area = areas[0];
       if (!area) return;
@@ -572,13 +666,14 @@ export function PrivacySettingsScreen() {
   return (
     <Screen>
       <Eyebrow>Private record</Eyebrow>
-      <Title>{task === 'homes' ? 'Home bases' : task === 'updates' ? 'Updates' : task === 'privacy' ? 'Privacy & data' : task === 'account' ? 'Account & sources' : task === 'learned' ? 'What Travel Life learned' : 'Settings'}</Title>
+      <Title>{task === 'homes' ? 'Home bases' : task === 'updates' ? 'Updates' : task === 'privacy' ? 'Privacy & data' : task === 'account' ? 'Account & sources' : task === 'learned' ? 'What Travel Life learned' : task === 'detection' ? 'Trip detection' : 'Settings'}</Title>
       {!task && <>
         <ActionButton onPress={() => setTask('account')} variant="secondary">Account & sources</ActionButton>
         <ActionButton onPress={() => setTask('homes')} variant="secondary">Home bases</ActionButton>
         <ActionButton onPress={() => setTask('updates')} variant="secondary">Updates</ActionButton>
         <ActionButton onPress={() => setTask('privacy')} variant="secondary">Privacy & data</ActionButton>
         <ActionButton onPress={() => setTask('learned')} variant="secondary">What Travel Life learned</ActionButton>
+        <ActionButton onPress={() => setTask('detection')} variant="secondary">Trip detection</ActionButton>
         {isReconstructionPreviewEnabled() && !controller.isAccountRecord && privateRecord.state === 'connected'
           && <ActionButton variant="secondary" onPress={() => openRoute(router, appRoutes.atlasPreview)}>Reconstruction preview</ActionButton>}
       </>}
@@ -671,9 +766,33 @@ export function PrivacySettingsScreen() {
           <ActionButton accessibilityLabel={`Remove this learned preference`} onPress={() => void removeRule(rule.ruleId)} disabled={removingRuleId === rule.ruleId} variant="secondary">{removingRuleId === rule.ruleId ? 'Removing…' : 'Remove'}</ActionButton>
         </InsetPanel>)}
       </>}
+      {task === 'detection' && <>
+        <Body>Try new rules for sorting trips onto Atlas, Possible trips and Hidden outings, and compare before switching.</Body>
+        {!detectorComparison ? <Body>Rebuild your local history in Atlas first to compare trip rules.</Body> : <>
+          <InsetPanel>
+            <Body>Right now, with {detectorRuleLabel(detectorComparison.activePolicy)}: {detectorComparison.active.atlasCount} on Atlas · {detectorComparison.active.reviewCount} to review · {detectorComparison.active.hiddenCount} hidden</Body>
+            <Body>With {detectorRuleLabel(detectorComparison.candidatePolicy)}: {detectorComparison.candidate.atlasCount} on Atlas · {detectorComparison.candidate.reviewCount} to review · {detectorComparison.candidate.hiddenCount} hidden</Body>
+            <Body>{detectorComparison.gainedCount} trips would move onto Atlas, {detectorComparison.lostCount} would move off, {detectorComparison.changedCount} would otherwise change.</Body>
+          </InsetPanel>
+          <ActionButton accessibilityLabel={detectorComparison.activePolicy === 'trip-detector-v1.3' ? 'Switch back to the previous trip rules' : 'Switch to the new trip rules'}
+            disabled={switchingDetector} onPress={() => void switchDetectorPolicy()}>
+            {switchingDetector ? 'Switching…' : detectorComparison.activePolicy === 'trip-detector-v1.3' ? 'Switch back to the previous trip rules' : 'Switch to the new trip rules'}
+          </ActionButton>
+        </>}
+        {detectorMessage && <Body>{detectorMessage}</Body>}
+      </>}
       <ActionButton accessibilityLabel={task ? 'Back to Settings' : 'Return to Atlas'} onPress={() => task ? setTask(null) : openRoute(router, appRoutes.atlas, 'dismissTo')} variant="secondary">Back</ActionButton>
     </Screen>
   );
+}
+
+/** M10.12 (decision 0023): plain-language labels for the two detector
+ * rules — the Settings UI never shows the internal `trip-detector-v1.x`
+ * version string to the owner. v1.1 has no label here since this screen
+ * only ever toggles between v1.2 and v1.3 (v1.1 rollback stays a
+ * code-level-only selection, decision 0023/M10.8). */
+function detectorRuleLabel(policy: string) {
+  return policy === 'trip-detector-v1.3' ? 'the new trip rules' : 'the current trip rules';
 }
 
 function scopeDescription(scope: ReturnType<typeof usePhotoAccess>['snapshot']['scope']) {

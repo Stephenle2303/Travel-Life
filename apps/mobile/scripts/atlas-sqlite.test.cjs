@@ -117,6 +117,159 @@ test('repairs a partial version 39 Home layout and retains its saved receipt', a
   assert.equal(database.sqlite.prepare('SELECT revision FROM home_projection_context').get().revision, 0);
 }));
 
+test('migration 55 raises the Home radius CHECK to 300 km, preserves existing rows, and keeps the home_projection triggers working', async () => withDatabase(async (database) => {
+  retainHistoricalSchema(database, 54);
+  database.sqlite.exec(`
+    INSERT INTO configured_home_area (area_id, latitude, longitude, radius_meters, owner_label, origin) VALUES ('retained-home', 10.776, 106.700, 20000, 'Retained Home', 'manual-pin');
+    INSERT INTO reconstruction_run (rule_version, evidence_revision, status, completed_at_millis, home_revision) VALUES ('synthetic', 0, 'complete', 1, 0);
+  `);
+  await ensureNativeImportSchema(database.adapter);
+  assert.equal(database.sqlite.prepare('SELECT version FROM import_schema_version').get().version, schemaVersion);
+  // The pre-existing row (saved under the old 50 km cap) survives the
+  // table rebuild unchanged.
+  const retained = database.sqlite.prepare('SELECT area_id, latitude, longitude, radius_meters, owner_label, origin FROM configured_home_area').get();
+  assert.equal(retained.area_id, 'retained-home');
+  assert.equal(retained.latitude, 10.776);
+  assert.equal(retained.longitude, 106.700);
+  assert.equal(retained.radius_meters, 20000);
+  assert.equal(retained.owner_label, 'Retained Home');
+  assert.equal(retained.origin, 'manual-pin');
+  // A radius between the old 50 km cap and the new 300 km one is now accepted.
+  assert.doesNotThrow(() => database.sqlite.exec("INSERT INTO configured_home_area (area_id, latitude, longitude, radius_meters) VALUES ('wide-home', 1, 1, 150000)"));
+  // Above the new 300 km cap is still refused by the CHECK constraint.
+  assert.throws(() => database.sqlite.exec("INSERT INTO configured_home_area (area_id, latitude, longitude, radius_meters) VALUES ('too-wide-home', 1, 1, 300001)"), /CHECK constraint failed/);
+  // The home_projection_* triggers (dropped and recreated by migration 55)
+  // still fire: inserting, editing and removing a Home area each bump the
+  // revision exactly as before the rebuild.
+  const revisionBefore = database.sqlite.prepare('SELECT revision FROM home_projection_context').get().revision;
+  database.sqlite.exec("UPDATE configured_home_area SET radius_meters = 200000 WHERE area_id = 'wide-home'");
+  const revisionAfterEdit = database.sqlite.prepare('SELECT revision FROM home_projection_context').get().revision;
+  assert.equal(revisionAfterEdit, revisionBefore + 1);
+  database.sqlite.exec("DELETE FROM configured_home_area WHERE area_id = 'wide-home'");
+  const revisionAfterRemove = database.sqlite.prepare('SELECT revision FROM home_projection_context').get().revision;
+  assert.equal(revisionAfterRemove, revisionAfterEdit + 1);
+}));
+
+test('migration 56 lets the detector_policy CHECK accept trip-detector-v1.3 and preserves an existing row (M10.12, decision 0023)', async () => withDatabase(async (database) => {
+  retainHistoricalSchema(database, 55);
+  database.sqlite.exec(`INSERT INTO detector_policy (record_id, rule_version, activated_at_millis) VALUES (1, 'trip-detector-v1.2', 1000)`);
+  await ensureNativeImportSchema(database.adapter);
+  assert.equal(database.sqlite.prepare('SELECT version FROM import_schema_version').get().version, schemaVersion);
+  const retained = database.sqlite.prepare('SELECT record_id, rule_version, activated_at_millis FROM detector_policy').get();
+  assert.equal(retained.record_id, 1);
+  assert.equal(retained.rule_version, 'trip-detector-v1.2');
+  assert.equal(retained.activated_at_millis, 1000);
+  assert.doesNotThrow(() => database.sqlite.exec("UPDATE detector_policy SET rule_version = 'trip-detector-v1.3' WHERE record_id = 1"));
+  assert.throws(() => database.sqlite.exec("UPDATE detector_policy SET rule_version = 'trip-detector-v1.4' WHERE record_id = 1"), /CHECK constraint failed/);
+}));
+
+test('setDetectorPolicy/loadDetectorPolicy round-trip, and rebuild honors the stored policy (M10.12, decision 0023)', async () => withDatabase(async (database) => {
+  const importer = createNativeImportRepository();
+  // Default (no row at all) is v1.2 — every device before this story.
+  assert.equal(await importer.loadDetectorPolicy(), 'trip-detector-v1.2');
+  await importer.saveConfiguredHomeArea({ id: 'policy-home', label: 'Home', origin: 'manual-pin', latitude: 10, longitude: 100,
+    radiusMeters: 5_000, effectiveStartDay: null, effectiveEndDay: null });
+  // Same fixture shape as the previewHomeAreaRadius test above: ~10 km
+  // away, 2 places >=1 km apart, same day — v1.2 calls this SUGGESTED
+  // (near-home, under its 50 km floor); v1.3 calls it AUTO_CONFIRMED.
+  const placeA = { latitude: 10.090, longitude: 100.000 };
+  const placeB = { latitude: 10.090, longitude: 100.010 };
+  const units = Array.from({ length: 12 }, (_, index) => {
+    const place = index % 2 === 0 ? placeA : placeB;
+    return { assetId: `policy-away-${index}`, mediaType: 'image', capturedAtMillis: Date.UTC(2025, 5, 1, 9 + index), capturedDay: '2025-06-01',
+      hasPreciseOffset: false, modifiedAtMillis: null, locationAvailable: true,
+      latitude: place.latitude, longitude: place.longitude, reportedAccuracyMeters: 10, availability: 'available' };
+  });
+  await importer.commitPage({ scope: 'full', nextOffset: units.length, scanned: units.length, geotagged: units.length, unavailable: 0, status: 'complete' }, units);
+  const reconstruction = createNativeReconstructionRepository();
+  const classification = () => database.sqlite.prepare(
+    "SELECT classification FROM reconstruction_trip_qualification WHERE run_id = (SELECT MAX(run_id) FROM reconstruction_run WHERE status = 'complete')",
+  ).get().classification;
+  await reconstruction.rebuild();
+  assert.equal(classification(), 'SUGGESTED');
+  await importer.setDetectorPolicy('trip-detector-v1.3', 2000);
+  assert.equal(await importer.loadDetectorPolicy(), 'trip-detector-v1.3');
+  await reconstruction.rebuild();
+  assert.equal(classification(), 'AUTO_CONFIRMED');
+  // Rollback: switching back to v1.2 reproduces its own original result.
+  await importer.setDetectorPolicy('trip-detector-v1.2', 3000);
+  await reconstruction.rebuild();
+  assert.equal(classification(), 'SUGGESTED');
+}));
+
+test('compareDetectorPolicy reports v1.2 (active) vs v1.3 (candidate) aggregates, then the reverse once v1.3 is active (M10.12, decision 0023)', async () => withDatabase(async (database) => {
+  const importer = createNativeImportRepository();
+  await importer.saveConfiguredHomeArea({ id: 'compare-home', label: 'Home', origin: 'manual-pin', latitude: 10, longitude: 100,
+    radiusMeters: 5_000, effectiveStartDay: null, effectiveEndDay: null });
+  const placeA = { latitude: 10.090, longitude: 100.000 };
+  const placeB = { latitude: 10.090, longitude: 100.010 };
+  const units = Array.from({ length: 12 }, (_, index) => {
+    const place = index % 2 === 0 ? placeA : placeB;
+    return { assetId: `compare-away-${index}`, mediaType: 'image', capturedAtMillis: Date.UTC(2025, 5, 1, 9 + index), capturedDay: '2025-06-01',
+      hasPreciseOffset: false, modifiedAtMillis: null, locationAvailable: true,
+      latitude: place.latitude, longitude: place.longitude, reportedAccuracyMeters: 10, availability: 'available' };
+  });
+  await importer.commitPage({ scope: 'full', nextOffset: units.length, scanned: units.length, geotagged: units.length, unavailable: 0, status: 'complete' }, units);
+  const reconstruction = createNativeReconstructionRepository();
+  await reconstruction.rebuild();
+  const beforeSwitch = await reconstruction.compareDetectorPolicy();
+  assert.equal(beforeSwitch.activePolicy, 'trip-detector-v1.2');
+  assert.equal(beforeSwitch.candidatePolicy, 'trip-detector-v1.3');
+  assert.deepEqual(beforeSwitch.active, { atlasCount: 0, reviewCount: 1, hiddenCount: 0 });
+  assert.deepEqual(beforeSwitch.candidate, { atlasCount: 1, reviewCount: 0, hiddenCount: 0 });
+  assert.equal(beforeSwitch.gainedCount, 1);
+  assert.equal(beforeSwitch.lostCount, 0);
+  await importer.setDetectorPolicy('trip-detector-v1.3', 2000);
+  await reconstruction.rebuild();
+  const afterSwitch = await reconstruction.compareDetectorPolicy();
+  assert.equal(afterSwitch.activePolicy, 'trip-detector-v1.3');
+  assert.equal(afterSwitch.candidatePolicy, 'trip-detector-v1.2');
+  assert.deepEqual(afterSwitch.active, { atlasCount: 1, reviewCount: 0, hiddenCount: 0 });
+  assert.deepEqual(afterSwitch.candidate, { atlasCount: 0, reviewCount: 1, hiddenCount: 0 });
+  assert.equal(afterSwitch.lostCount, 1);
+  assert.equal(afterSwitch.gainedCount, 0);
+}));
+
+test('previewHomeAreaRadius reclassifies the same journey under v1.3 as the candidate radius grows, without writing anything (M10.10, decision 0023)', async () => withDatabase(async (database) => {
+  const importer = createNativeImportRepository();
+  await importer.saveConfiguredHomeArea({ id: 'preview-home', label: 'Home', origin: 'manual-pin', latitude: 10, longitude: 100,
+    radiusMeters: 5_000, effectiveStartDay: null, effectiveEndDay: null });
+  // Two places ~10 km from Home and >=1 km apart from each other (so v1.3's
+  // `corroborated` gate is satisfied via hasTwoSeparatedPlaces, same day,
+  // no precise offsets needed).
+  const placeA = { latitude: 10.090, longitude: 100.000 };
+  const placeB = { latitude: 10.090, longitude: 100.010 };
+  const units = Array.from({ length: 12 }, (_, index) => {
+    const place = index % 2 === 0 ? placeA : placeB;
+    return { assetId: `preview-away-${index}`, mediaType: 'image', capturedAtMillis: Date.UTC(2025, 5, 1, 9 + index), capturedDay: '2025-06-01',
+      hasPreciseOffset: false, modifiedAtMillis: null, locationAvailable: true,
+      latitude: place.latitude, longitude: place.longitude, reportedAccuracyMeters: 10, availability: 'available' };
+  });
+  await importer.commitPage({ scope: 'full', nextOffset: units.length, scanned: units.length, geotagged: units.length, unavailable: 0, status: 'complete' }, units);
+  const repository = createNativeReconstructionRepository();
+  await repository.rebuild();
+
+  // At the Home's own 5 km radius, both places (~10 km away) are outside
+  // Home: enough reliable, corroborated support to reach v1.3's Atlas.
+  const atCurrentRadius = await repository.previewHomeAreaRadius('preview-home', 5_000);
+  assert.deepEqual(atCurrentRadius, { atlasCount: 1, reviewCount: 0, hiddenCount: 0 });
+
+  // At a wider 20 km candidate radius, those same ~10 km-away places fall
+  // inside the candidate Home, leaving no away evidence at all: hidden.
+  const atWiderRadius = await repository.previewHomeAreaRadius('preview-home', 20_000);
+  assert.deepEqual(atWiderRadius, { atlasCount: 0, reviewCount: 0, hiddenCount: 1 });
+
+  // Nothing was written: the Home area on disk still has its original
+  // radius, and the stored (v1.2) qualification is untouched — v1.2's own
+  // 50 km "away" floor still calls this SUGGESTED (near-home) rather than
+  // Atlas, exactly the noise decision 0023 exists to fix.
+  assert.equal(database.sqlite.prepare("SELECT radius_meters FROM configured_home_area WHERE area_id = 'preview-home'").get().radius_meters, 5_000);
+  const storedClassification = database.sqlite.prepare(
+    "SELECT classification FROM reconstruction_trip_qualification WHERE run_id = (SELECT MAX(run_id) FROM reconstruction_run WHERE status = 'complete')",
+  ).get().classification;
+  assert.equal(storedClassification, 'SUGGESTED');
+}));
+
 test('onboarding intent survives SQLite reopen, preserves exact selected handles, and deletion fences late intent writes', async () => {
   await withDatabase(async (database) => {
     retainHistoricalSchema(database, 37);
@@ -779,6 +932,28 @@ test('runCluePass activates safe photo-source clues and a rebuild reflects them 
   assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS count FROM clue_review_card').get().count, 0);
 }));
 
+test('runCluePass skips entirely once v1.3 is the active rule, rather than gating clues against v1.2 semantics (M10.12, code-review finding 2026-11-23)', async () => withDatabase(async (database) => {
+  const importer = createNativeImportRepository();
+  await importer.connectPrivateRecord();
+  await importer.saveConfiguredHomeArea({ id: 'pass-home-v13', label: 'Home', origin: 'manual-pin', latitude: 10.776, longitude: 106.700,
+    radiusMeters: 20000, effectiveStartDay: null, effectiveEndDay: null });
+  const units = cluePassAtlasUnits(1);
+  await importer.commitPage({ scope: 'full', nextOffset: units.length, scanned: units.length, geotagged: units.length, unavailable: 0, status: 'complete' }, units);
+  await importer.setDetectorPolicy('trip-detector-v1.3', Date.now());
+  const repository = createNativeReconstructionRepository();
+  await repository.rebuild();
+  const result = await repository.runCluePass(Date.now(), 100);
+  assert.equal(result.status, 'skipped');
+  assert.equal(result.produced, 0);
+  assert.equal(result.activated, 0);
+  assert.equal(result.reviewCards, 0);
+  assert.equal(result.rebuildTriggered, false);
+  // No clue was produced or activated, and no review card was created —
+  // the pass never even looked at this evidence while v1.3 was active.
+  assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS count FROM travel_clue').get().count, 0);
+  assert.equal(database.sqlite.prepare('SELECT COUNT(*) AS count FROM clue_review_card').get().count, 0);
+}));
+
 test('runCluePass resumes its scan from a persisted cursor instead of rescanning covered evidence (CAP-3, 2026-11-21)', async () => withDatabase(async (database) => {
   const importer = createNativeImportRepository();
   await importer.connectPrivateRecord();
@@ -1095,6 +1270,52 @@ test('runCluePass reports only its closed diagnostic shape on failure, never the
   } finally { console.info = originalInfo; }
 }));
 
+test('previewHomeAreaRadius reports only its closed diagnostic shape on failure, never the raw error content (M10.10, decision 0023)', async () => withDatabase(async (database) => {
+  const importer = createNativeImportRepository();
+  await importer.connectPrivateRecord();
+  await importer.saveConfiguredHomeArea({ id: 'preview-failure-home', label: 'Home', origin: 'manual-pin', latitude: 10, longitude: 100,
+    radiusMeters: 5_000, effectiveStartDay: null, effectiveEndDay: null });
+  const repository = createNativeReconstructionRepository();
+  await repository.rebuild();
+  const events = [];
+  const originalInfo = console.info;
+  console.info = (_, event) => events.push(event);
+  const sentinel = 'SYNTHETIC_PREVIEW_SENTINEL';
+  try {
+    database.failOnce(/FROM canonical_evidence/, new Error(`database is locked: ${sentinel}`));
+    await assert.rejects(repository.previewHomeAreaRadius('preview-failure-home', 20_000));
+    const terminal = events.filter(({ reasonCode }) => reasonCode !== 'START');
+    assert.equal(terminal.length, 1);
+    assert.equal(JSON.stringify(terminal[0]).includes(sentinel), false);
+    assert.equal(terminal[0].stage, 'HOME_RADIUS_PREVIEW');
+    assert.equal(terminal[0].reasonCode, 'DATABASE_BUSY');
+    assert.equal(terminal[0].durableOutcome, 'failed');
+    assert.equal(terminal[0].retryable, true);
+  } finally { console.info = originalInfo; }
+}));
+
+test('compareDetectorPolicy reports only its closed diagnostic shape on failure, never the raw error content (M10.12, decision 0023)', async () => withDatabase(async (database) => {
+  const importer = createNativeImportRepository();
+  await importer.connectPrivateRecord();
+  const repository = createNativeReconstructionRepository();
+  await repository.rebuild();
+  const events = [];
+  const originalInfo = console.info;
+  console.info = (_, event) => events.push(event);
+  const sentinel = 'SYNTHETIC_COMPARE_SENTINEL';
+  try {
+    database.failOnce(/SELECT rule_version FROM detector_policy/, new Error(`database is locked: ${sentinel}`));
+    await assert.rejects(repository.compareDetectorPolicy());
+    const terminal = events.filter(({ reasonCode }) => reasonCode !== 'START');
+    assert.equal(terminal.length, 1);
+    assert.equal(JSON.stringify(terminal[0]).includes(sentinel), false);
+    assert.equal(terminal[0].stage, 'DETECTOR_POLICY_COMPARE');
+    assert.equal(terminal[0].reasonCode, 'DATABASE_BUSY');
+    assert.equal(terminal[0].durableOutcome, 'failed');
+    assert.equal(terminal[0].retryable, true);
+  } finally { console.info = originalInfo; }
+}));
+
 test('loadPossibleTrips reports only its closed diagnostic shape on failure, never the raw error content (CAP-3)', async () => withDatabase(async (database) => {
   const importer = createNativeImportRepository();
   await importer.connectPrivateRecord();
@@ -1135,6 +1356,31 @@ test('loadPossibleTrips excludes a privacy-hidden Possible trip (CAP-3)', async 
   await repository.saveJourneyPrivacy(review.reviewId, 'hide', 'cap3-hide-command');
   const after = await repository.loadPossibleTrips();
   assert.equal(after.length, 0);
+}));
+
+test('previewHomeAreaRadius excludes a privacy-hidden journey from every bucket (M10.10, code-review finding 2026-11-23)', async () => withDatabase(async (database) => {
+  const importer = createNativeImportRepository();
+  await importer.connectPrivateRecord();
+  await importer.saveConfiguredHomeArea({ id: 'preview-privacy-home', label: 'Home', origin: 'manual-pin', latitude: 21.03, longitude: 105.85,
+    radiusMeters: 20000, effectiveStartDay: null, effectiveEndDay: null });
+  const units = [1, 2].map((day) => ({ assetId: `preview-privacy-${day}`, mediaType: 'image', capturedAtMillis: Date.UTC(2025, 0, day, 9),
+    capturedDay: `2025-01-0${day}`, hasPreciseOffset: false, modifiedAtMillis: null, locationAvailable: true,
+    latitude: 21.03, longitude: 106.85, reportedAccuracyMeters: 10, availability: 'available' }));
+  await importer.commitPage({ scope: 'full', nextOffset: units.length, scanned: units.length, geotagged: units.length, unavailable: 0, status: 'complete' }, units);
+  const repository = createNativeReconstructionRepository();
+  await repository.rebuild();
+  // Not privacy-blocked yet: counted in one of the three buckets.
+  const before = await repository.previewHomeAreaRadius('preview-privacy-home', 20_000);
+  assert.equal(before.atlasCount + before.reviewCount + before.hiddenCount, 1);
+  const trips = await repository.loadPossibleTrips();
+  assert.equal(trips.length, 1);
+  const detail = await repository.loadJourneyDetail(trips[0].displayId);
+  const review = await repository.reviewJourneyPrivacy(trips[0].displayId, detail.snapshotToken);
+  await repository.saveJourneyPrivacy(review.reviewId, 'hide', 'preview-privacy-hide-command');
+  // Privacy-hidden: never counted in any bucket, same as loadPossibleTrips/
+  // loadHiddenOutings already skip a blocked journey entirely.
+  const after = await repository.previewHomeAreaRadius('preview-privacy-home', 20_000);
+  assert.deepEqual(after, { atlasCount: 0, reviewCount: 0, hiddenCount: 0 });
 }));
 
 test('clue review cards round-trip, filter by state, and resolve exactly once (CAP-3)', async () => withDatabase(async (database) => {

@@ -119,6 +119,164 @@ describe('private record settings', () => {
     } finally { log.mockRestore(); }
   });
 
+  it('saves an owner-typed Home radius (M10.10, decision 0023) and shows the dry-run preview before saving', async () => {
+    let stored: ConfiguredHomeArea = {
+      id: 'legacy-home', label: null, origin: 'legacy', latitude: 10.2, longitude: 105.7,
+      effectiveStartDay: null, effectiveEndDay: null, radiusMeters: 50_000,
+    };
+    const saveConfiguredHomeArea = jest.fn(async (area: ConfiguredHomeArea) => { stored = area; });
+    const repository: ImportRepository = {
+      ...lifecycleRepository(),
+      saveConfiguredHomeArea,
+      loadConfiguredHomeAreas: async () => [stored],
+    };
+    const graph = { ruleVersion: 'reconstruction-v1' as const, places: [], visits: [], journeys: [], possibleMerges: [], dispositions: [], memberships: [] };
+    const previewHomeAreaRadius = jest.fn(async (_areaId: string, radiusMeters: number) =>
+      radiusMeters >= 200_000 ? { atlasCount: 24, reviewCount: 6, hiddenCount: 40 } : { atlasCount: 10, reviewCount: 20, hiddenCount: 40 });
+    const reconstructionRepository = {
+      loadDurableReveal: async () => ({ journeys: [] }),
+      loadJourneyDetail: async () => ({ detail: null as never, previewSourceRefs: [], snapshotToken: 1 }),
+      loadJourneyMediaPage: async () => ({ items: [], previewSourceRefs: [], hasMore: false }),
+      loadUncertainMemories: async () => ({ memories: [], hasMore: false }),
+      saveJourneyCorrection: async () => ({ revisionId: 'review', state: 'confirmed' as const, graph }),
+      saveJourneyMemoryCorrection: async () => ({ revisionId: 'memory', graph }),
+      discardJourneyCorrectionPending: async () => ({ graph }), markJourneyCorrectionPending: async () => {},
+      saveConfiguredHomeAreaFromJourney: async () => {}, rebuild: async () => graph, reconcileQueued: async () => ({ graph, newJourneyCount: 0, updatedJourneyCount: 0 }),
+      previewHomeAreaRadius,
+    };
+    const view = await render(<PhotoAccessProvider adapter={adapter} repository={repository} reconstructionRepository={reconstructionRepository}><PrivacySettingsScreen /></PhotoAccessProvider>);
+    await fireEvent.press(view.getByRole('button', { name: 'Home bases' }));
+    await fireEvent.press(await view.findByRole('button', { name: 'Edit area for unnamed Home base' }));
+    await fireEvent.changeText(view.getByLabelText('Search for a city, province, district, ward or commune'), 'Sa Dec Dong Thap');
+    await fireEvent.press(view.getByRole('button', { name: /^Sa Đéc · City/ }));
+    // Defaults to the area's own saved radius (50 km), not the 20 km onboarding default.
+    expect(view.getByLabelText('Home radius in kilometers').props.value).toBe('50');
+    await waitFor(() => expect(previewHomeAreaRadius).toHaveBeenCalledWith('legacy-home', 50_000));
+    expect(await view.findByText('10 trips on Atlas · 20 to review · 40 hidden')).toBeOnTheScreen();
+    await fireEvent.changeText(view.getByLabelText('Home radius in kilometers'), '250');
+    await waitFor(() => expect(previewHomeAreaRadius).toHaveBeenCalledWith('legacy-home', 250_000));
+    expect(await view.findByText('24 trips on Atlas · 6 to review · 40 hidden')).toBeOnTheScreen();
+    await fireEvent.press(view.getByRole('button', { name: 'Save Home base' }));
+    await waitFor(() => expect(saveConfiguredHomeArea).toHaveBeenCalledTimes(1));
+    expect(stored).toMatchObject({ id: 'legacy-home', radiusMeters: 250_000 });
+  });
+
+  it('refuses an out-of-range Home radius with a short message and disables Save', async () => {
+    const repository: ImportRepository = {
+      ...lifecycleRepository(),
+      loadConfiguredHomeAreas: async () => [{ id: 'legacy-home', label: null, origin: 'legacy', latitude: 10.2, longitude: 105.7, effectiveStartDay: null, effectiveEndDay: null, radiusMeters: 50_000 }],
+    };
+    const view = await render(<PhotoAccessProvider adapter={adapter} repository={repository}><PrivacySettingsScreen /></PhotoAccessProvider>);
+    await fireEvent.press(view.getByRole('button', { name: 'Home bases' }));
+    await fireEvent.press(await view.findByRole('button', { name: 'Edit area for unnamed Home base' }));
+    await fireEvent.changeText(view.getByLabelText('Search for a city, province, district, ward or commune'), 'Sa Dec Dong Thap');
+    await fireEvent.press(view.getByRole('button', { name: /^Sa Đéc · City/ }));
+    await fireEvent.changeText(view.getByLabelText('Home radius in kilometers'), '301');
+    expect(view.getByText('Radius must be a number above 0 and at most 300 km.')).toBeOnTheScreen();
+    expect(view.getByRole('button', { name: 'Save Home base' })).toBeDisabled();
+  });
+
+  it('hides a previously-fetched preview once the radius becomes out of range (code-review finding, 2026-11-23)', async () => {
+    const repository: ImportRepository = {
+      ...lifecycleRepository(),
+      loadConfiguredHomeAreas: async () => [{ id: 'legacy-home', label: null, origin: 'legacy', latitude: 10.2, longitude: 105.7, effectiveStartDay: null, effectiveEndDay: null, radiusMeters: 50_000 }],
+    };
+    const graph = { ruleVersion: 'reconstruction-v1' as const, places: [], visits: [], journeys: [], possibleMerges: [], dispositions: [], memberships: [] };
+    const reconstructionRepository = {
+      loadDurableReveal: async () => ({ journeys: [] }),
+      loadJourneyDetail: async () => ({ detail: null as never, previewSourceRefs: [], snapshotToken: 1 }),
+      loadJourneyMediaPage: async () => ({ items: [], previewSourceRefs: [], hasMore: false }),
+      loadUncertainMemories: async () => ({ memories: [], hasMore: false }),
+      saveJourneyCorrection: async () => ({ revisionId: 'review', state: 'confirmed' as const, graph }),
+      saveJourneyMemoryCorrection: async () => ({ revisionId: 'memory', graph }),
+      discardJourneyCorrectionPending: async () => ({ graph }), markJourneyCorrectionPending: async () => {},
+      saveConfiguredHomeAreaFromJourney: async () => {}, rebuild: async () => graph, reconcileQueued: async () => ({ graph, newJourneyCount: 0, updatedJourneyCount: 0 }),
+      previewHomeAreaRadius: async () => ({ atlasCount: 10, reviewCount: 20, hiddenCount: 40 }),
+    };
+    const view = await render(<PhotoAccessProvider adapter={adapter} repository={repository} reconstructionRepository={reconstructionRepository}><PrivacySettingsScreen /></PhotoAccessProvider>);
+    await fireEvent.press(view.getByRole('button', { name: 'Home bases' }));
+    await fireEvent.press(await view.findByRole('button', { name: 'Edit area for unnamed Home base' }));
+    await fireEvent.changeText(view.getByLabelText('Search for a city, province, district, ward or commune'), 'Sa Dec Dong Thap');
+    await fireEvent.press(view.getByRole('button', { name: /^Sa Đéc · City/ }));
+    expect(await view.findByText('10 trips on Atlas · 20 to review · 40 hidden')).toBeOnTheScreen();
+    await fireEvent.changeText(view.getByLabelText('Home radius in kilometers'), '301');
+    await waitFor(() => expect(view.queryByText('10 trips on Atlas · 20 to review · 40 hidden')).toBeNull());
+    expect(view.getByText('Radius must be a number above 0 and at most 300 km.')).toBeOnTheScreen();
+  });
+
+  it('shows the v1.2/v1.3 comparison and switches, then offers to roll back (M10.12, decision 0023)', async () => {
+    const graph = { ruleVersion: 'reconstruction-v1' as const, places: [], visits: [], journeys: [], possibleMerges: [], dispositions: [], memberships: [] };
+    let active: 'trip-detector-v1.2' | 'trip-detector-v1.3' = 'trip-detector-v1.2';
+    const setDetectorPolicy = jest.fn(async (ruleVersion: 'trip-detector-v1.2' | 'trip-detector-v1.3') => { active = ruleVersion; });
+    const compareDetectorPolicy = jest.fn(async () => active === 'trip-detector-v1.2'
+      ? { activePolicy: 'trip-detector-v1.2' as const, candidatePolicy: 'trip-detector-v1.3' as const,
+          active: { atlasCount: 24, reviewCount: 38, hiddenCount: 14 }, candidate: { atlasCount: 30, reviewCount: 6, hiddenCount: 40 },
+          gainedCount: 8, lostCount: 2, changedCount: 3, unchangedCount: 63 }
+      : { activePolicy: 'trip-detector-v1.3' as const, candidatePolicy: 'trip-detector-v1.2' as const,
+          active: { atlasCount: 30, reviewCount: 6, hiddenCount: 40 }, candidate: { atlasCount: 24, reviewCount: 38, hiddenCount: 14 },
+          gainedCount: 2, lostCount: 8, changedCount: 3, unchangedCount: 63 });
+    const reconstructionRepository = {
+      loadDurableReveal: async () => ({ journeys: [] }),
+      loadJourneyDetail: async () => ({ detail: null as never, previewSourceRefs: [], snapshotToken: 1 }),
+      loadJourneyMediaPage: async () => ({ items: [], previewSourceRefs: [], hasMore: false }),
+      loadUncertainMemories: async () => ({ memories: [], hasMore: false }),
+      saveJourneyCorrection: async () => ({ revisionId: 'review', state: 'confirmed' as const, graph }),
+      saveJourneyMemoryCorrection: async () => ({ revisionId: 'memory', graph }),
+      discardJourneyCorrectionPending: async () => ({ graph }), markJourneyCorrectionPending: async () => {},
+      saveConfiguredHomeAreaFromJourney: async () => {}, rebuild: async () => graph, reconcileQueued: async () => ({ graph, newJourneyCount: 0, updatedJourneyCount: 0 }),
+      compareDetectorPolicy,
+    };
+    const repository: ImportRepository = { ...lifecycleRepository(), setDetectorPolicy };
+    const view = await render(<PhotoAccessProvider adapter={adapter} repository={repository} reconstructionRepository={reconstructionRepository}><PrivacySettingsScreen /></PhotoAccessProvider>);
+    await fireEvent.press(view.getByRole('button', { name: 'Trip detection' }));
+    expect(await view.findByText('Right now, with the current trip rules: 24 on Atlas · 38 to review · 14 hidden')).toBeOnTheScreen();
+    expect(view.getByText('With the new trip rules: 30 on Atlas · 6 to review · 40 hidden')).toBeOnTheScreen();
+    expect(view.getByText('8 trips would move onto Atlas, 2 would move off, 3 would otherwise change.')).toBeOnTheScreen();
+    await fireEvent.press(view.getByRole('button', { name: 'Switch to the new trip rules' }));
+    expect(setDetectorPolicy).toHaveBeenCalledWith('trip-detector-v1.3');
+    expect(await view.findByText('Right now, with the new trip rules: 30 on Atlas · 6 to review · 40 hidden')).toBeOnTheScreen();
+    expect(view.getByText('With the current trip rules: 24 on Atlas · 38 to review · 14 hidden')).toBeOnTheScreen();
+    expect(view.getByRole('button', { name: 'Switch back to the previous trip rules' })).toBeOnTheScreen();
+  });
+
+  it('reverts the stored policy and refreshes the comparison when the post-switch rebuild fails (code-review finding, 2026-11-23)', async () => {
+    const graph = { ruleVersion: 'reconstruction-v1' as const, places: [], visits: [], journeys: [], possibleMerges: [], dispositions: [], memberships: [] };
+    let active: 'trip-detector-v1.2' | 'trip-detector-v1.3' = 'trip-detector-v1.2';
+    const loadDetectorPolicy = jest.fn(async () => active);
+    const setDetectorPolicy = jest.fn(async (ruleVersion: 'trip-detector-v1.2' | 'trip-detector-v1.3') => { active = ruleVersion; });
+    const compareDetectorPolicy = jest.fn(async () => ({
+      activePolicy: active, candidatePolicy: active === 'trip-detector-v1.2' ? ('trip-detector-v1.3' as const) : ('trip-detector-v1.2' as const),
+      active: { atlasCount: 24, reviewCount: 38, hiddenCount: 14 }, candidate: { atlasCount: 30, reviewCount: 6, hiddenCount: 40 },
+      gainedCount: 8, lostCount: 2, changedCount: 3, unchangedCount: 63,
+    }));
+    const reconstructionRepository = {
+      loadDurableReveal: async () => ({ journeys: [] }),
+      loadJourneyDetail: async () => ({ detail: null as never, previewSourceRefs: [], snapshotToken: 1 }),
+      loadJourneyMediaPage: async () => ({ items: [], previewSourceRefs: [], hasMore: false }),
+      loadUncertainMemories: async () => ({ memories: [], hasMore: false }),
+      saveJourneyCorrection: async () => ({ revisionId: 'review', state: 'confirmed' as const, graph }),
+      saveJourneyMemoryCorrection: async () => ({ revisionId: 'memory', graph }),
+      discardJourneyCorrectionPending: async () => ({ graph }), markJourneyCorrectionPending: async () => {},
+      saveConfiguredHomeAreaFromJourney: async () => {},
+      // The rebuild that follows a policy switch fails.
+      rebuild: async () => { throw new Error('database is locked: synthetic-detector-rebuild-failure'); },
+      reconcileQueued: async () => ({ graph, newJourneyCount: 0, updatedJourneyCount: 0 }),
+      compareDetectorPolicy,
+    };
+    const repository: ImportRepository = { ...lifecycleRepository(), loadDetectorPolicy, setDetectorPolicy };
+    const view = await render(<PhotoAccessProvider adapter={adapter} repository={repository} reconstructionRepository={reconstructionRepository}><PrivacySettingsScreen /></PhotoAccessProvider>);
+    await fireEvent.press(view.getByRole('button', { name: 'Trip detection' }));
+    await view.findByRole('button', { name: 'Switch to the new trip rules' });
+    await fireEvent.press(view.getByRole('button', { name: 'Switch to the new trip rules' }));
+    await waitFor(() => expect(view.getByText('Switching trip rules did not complete. Try again.')).toBeOnTheScreen());
+    // Reverted: setDetectorPolicy is called once to switch, once to revert
+    // back, in that order — and the stored policy ends up unchanged.
+    expect(setDetectorPolicy.mock.calls.map(([version]) => version)).toEqual(['trip-detector-v1.3', 'trip-detector-v1.2']);
+    expect(active).toBe('trip-detector-v1.2');
+    // The comparison is re-read rather than left showing a stale/assumed state.
+    expect(view.getByRole('button', { name: 'Switch to the new trip rules' })).toBeOnTheScreen();
+  });
+
   it('offers a private existing-place home-base setup without asking for coordinates', async () => {
     const view = await render(<PhotoAccessProvider adapter={adapter} repository={lifecycleRepository()}><PrivacySettingsScreen /></PhotoAccessProvider>);
     await fireEvent.press(view.getByRole('button', { name: 'Home bases' }));

@@ -37,3 +37,4 @@ The current product direction and provisional defaults are recorded below.
 - [0020 — Trusted Takeout provenance](0020-trusted-takeout-provenance.md): trusts Google Takeout photo imports the same as camera captures for GPS-less trip detection and membership.
 - [0021 — Trip recognition repair](0021-trip-recognition-repair.md): stop silent trip loss, measure on a synthetic lifetime benchmark, conform to V1.1 as `trip-detector-v1.2`, then keep one detector.
 - [0022 — AI clue layer and learning](0022-ai-clue-layer-and-learning.md): after M10, background on-device AI adds versioned clues and rules decide; corrections become visible personal rules; the eval engine gates every new version.
+- [0023 — trip-detector-v1.3 funnel](0023-trip-detector-v1-3-funnel.md): one owner-sized Home zone; Atlas, then evidence-based Possible trips, then Hidden by default; frequent places never block Atlas; a collapsed Hidden outings card on the Atlas.

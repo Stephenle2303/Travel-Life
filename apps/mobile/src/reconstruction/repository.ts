@@ -3,12 +3,13 @@ import { candidateTripPolicy, projectCandidateFromCanonical, projectCanonicalCan
 import { LOCAL_RECOVERY_PROJECTION_VERSION, projectLocalRecoveryGraph } from './local-recovery-projection';
 import { assertReplicaOpen, trackReplicaConnection } from '@/account/replica-connections';
 import { resolvePlaceCountryCode, JourneyCorrectionRemapRequiredError, resolveVerifiedDuplicateFamilies, correctionFamilySnapshots, resolveReviewedSupportKey, predecessorWideScopeRevisions, type FamilySnapshot } from './canonical-core';
-import type { JourneyMembership, PossibleTripSummary, ReconstructionEvidence, ReconstructionGraph, TripOutcomeClassification, TripOutcomeReasonCode } from './types';
-import { RECONSTRUCTION_RULE_VERSION, TRIP_DETECTOR_RULE_VERSION } from './types';
+import type { DetectorPolicy, DetectorPolicyComparison, HiddenOutingSummary, HomeRadiusPreview, JourneyMembership, OwnerConfiguredHomeArea, PossibleTripSummary, ReconstructionEvidence, ReconstructionGraph, TripOutcomeClassification, TripOutcomeReasonCode } from './types';
+import { RECONSTRUCTION_RULE_VERSION, TRIP_DETECTOR_RULE_VERSION, TRIP_OUTCOME_RULE_VERSION, TRIP_OUTCOME_RULE_VERSION_V13 } from './types';
 import { NATURAL_EARTH_ADMIN_0_DATASET_VERSION, countryDisplayName } from './country-resolver';
 import { destinationLabel, type DestinationSupport } from './destination-label';
 import { effectiveConfiguredHomeDistanceV11 } from './engine-v1-1';
-import { buildFrequentPlaceContext, buildV12CandidateLookups, graphJourneyEpisodeMarkers, rebuildClassificationReasonCode, summarizeOutcomeDelta } from './outcome-v1-2';
+import { buildFrequentPlaceContext, buildV12CandidateEvidence, buildV12CandidateLookups, graphJourneyEpisodeMarkers, rebuildClassificationReasonCode, summarizeOutcomeDelta } from './outcome-v1-2';
+import { qualifyTripOutcomeV13 } from './outcome-v1-3';
 import type { RecognizableShadowPair } from './recognizable-shadow-types';
 import type { DurableRevealRecord, JourneyDetail, RevealMapAnchor } from '@/reveal/types';
 import type { ManualJourneyInput } from '@/import-record/types';
@@ -684,6 +685,47 @@ export function createNativeReconstructionRepository(options?: { databaseName: s
     const current = (await db.getFirstAsync<{ revision: number | null }>('SELECT MAX(revision) AS revision FROM journey_privacy_revision'))?.revision ?? 0;
     const lifecycle = await db.getFirstAsync<{ state: string }>('SELECT state FROM private_record_lifecycle WHERE record_id = 1');
     if (current !== revision || lifecycle?.state !== 'connected') throw new Error('Private record changed during this read. Reopen it before continuing.');
+  }
+
+  /** Shared by `loadPossibleTrips` and `loadHiddenOutings` (code-review
+   * finding, 2026-11-22): both read the same `reconstruction_trip_
+   * qualification` rows for one run, differing only in which
+   * classification they want, whether the Possible-trips card's
+   * informational `located_count` aggregate is worth the extra scan, and
+   * (for Hidden outings) which single reason the card actually lists.
+   * `classification` and `reasonFilter` are always one of this file's own
+   * hardcoded literals, never owner input, so inlining them as SQL text —
+   * rather than a bound parameter — carries no injection risk and keeps
+   * each call's own intent readable at the query text itself.
+   * `reasonFilter` is pushed into the WHERE clause (not applied after the
+   * fact in JS) so a classification with many non-listed reasons, like
+   * v1.3's `NOT_TRIP`, never pays for the join/aggregate on rows the card
+   * was always going to discard. */
+  async function loadJourneyQualificationRows(db: Database, runId: number, classification: 'SUGGESTED' | 'NOT_TRIP', options: { locatedCount: boolean; reasonFilter?: TripOutcomeReasonCode }) {
+    return db.getAllAsync<{ journey_id: string; reasons_json: string; first_year: number | null; last_year: number | null; first_day: string | null; last_day: string | null; located_count: number }>(`
+      WITH journey_metadata AS (
+        SELECT journey.journey_id, qualification.reasons_json,
+          MIN(CASE WHEN canonical.captured_day GLOB '????-??-??' THEN CAST(SUBSTR(canonical.captured_day, 1, 4) AS INTEGER) END) AS first_year,
+          MAX(CASE WHEN canonical.captured_day GLOB '????-??-??' THEN CAST(SUBSTR(canonical.captured_day, 1, 4) AS INTEGER) END) AS last_year,
+          MIN(CASE WHEN canonical.captured_day GLOB '????-??-??' THEN canonical.captured_day END) AS first_day,
+          MAX(CASE WHEN canonical.captured_day GLOB '????-??-??' THEN canonical.captured_day END) AS last_day${options.locatedCount ? `,
+          SUM(CASE WHEN canonical.media_type <> 'video' AND canonical.availability = 'available'
+            AND canonical.latitude IS NOT NULL AND canonical.longitude IS NOT NULL
+            AND (canonical.reported_accuracy_meters IS NULL OR canonical.reported_accuracy_meters <= 1000)
+            AND (canonical.source_origin IS NULL OR canonical.source_origin NOT IN ('screenshot', 'download', 'unknown', 'messaging'))
+            THEN 1 ELSE 0 END) AS located_count` : ''}
+        FROM reconstruction_journey journey
+        JOIN reconstruction_trip_qualification qualification ON qualification.run_id = journey.run_id AND qualification.journey_id = journey.journey_id
+        LEFT JOIN reconstruction_link journey_visit ON journey_visit.run_id = journey.run_id AND journey_visit.link_kind = 'journey-visit' AND journey_visit.parent_id = journey.journey_id
+        LEFT JOIN reconstruction_link visit_support ON visit_support.run_id = journey.run_id AND visit_support.link_kind = 'visit-support' AND visit_support.parent_id = journey_visit.child_id
+        LEFT JOIN canonical_evidence canonical ON canonical.evidence_id = visit_support.child_id
+        WHERE journey.run_id = ? AND qualification.classification = '${classification}'${options.reasonFilter ? ` AND json_extract(qualification.reasons_json, '$[0]') = '${options.reasonFilter}'` : ''}
+        GROUP BY journey.journey_id
+      )
+      SELECT journey_id, reasons_json, first_year, last_year, first_day, last_day${options.locatedCount ? ', located_count' : ''}
+      FROM journey_metadata
+      ORDER BY first_day IS NULL, first_day DESC, journey_id DESC
+    `, runId);
   }
 
   async function assertPrivacyVisible(db: Database, displayId: string, selected?: { runId: number; journeyId: string }) {
@@ -3410,30 +3452,7 @@ export function createNativeReconstructionRepository(options?: { databaseName: s
         const completed = await loadPublishedRun(db);
         if (!completed?.run_id) { report('COMPLETE', 'complete'); return []; }
         const privateFilter = await privacyFilter(db, completed.run_id);
-        const rows = await db.getAllAsync<{ journey_id: string; reasons_json: string; first_year: number | null; last_year: number | null; first_day: string | null; last_day: string | null; located_count: number }>(`
-          WITH journey_metadata AS (
-            SELECT journey.journey_id, qualification.reasons_json,
-              MIN(CASE WHEN canonical.captured_day GLOB '????-??-??' THEN CAST(SUBSTR(canonical.captured_day, 1, 4) AS INTEGER) END) AS first_year,
-              MAX(CASE WHEN canonical.captured_day GLOB '????-??-??' THEN CAST(SUBSTR(canonical.captured_day, 1, 4) AS INTEGER) END) AS last_year,
-              MIN(CASE WHEN canonical.captured_day GLOB '????-??-??' THEN canonical.captured_day END) AS first_day,
-              MAX(CASE WHEN canonical.captured_day GLOB '????-??-??' THEN canonical.captured_day END) AS last_day,
-              SUM(CASE WHEN canonical.media_type <> 'video' AND canonical.availability = 'available'
-                AND canonical.latitude IS NOT NULL AND canonical.longitude IS NOT NULL
-                AND (canonical.reported_accuracy_meters IS NULL OR canonical.reported_accuracy_meters <= 1000)
-                AND (canonical.source_origin IS NULL OR canonical.source_origin NOT IN ('screenshot', 'download', 'unknown', 'messaging'))
-                THEN 1 ELSE 0 END) AS located_count
-            FROM reconstruction_journey journey
-            JOIN reconstruction_trip_qualification qualification ON qualification.run_id = journey.run_id AND qualification.journey_id = journey.journey_id
-            LEFT JOIN reconstruction_link journey_visit ON journey_visit.run_id = journey.run_id AND journey_visit.link_kind = 'journey-visit' AND journey_visit.parent_id = journey.journey_id
-            LEFT JOIN reconstruction_link visit_support ON visit_support.run_id = journey.run_id AND visit_support.link_kind = 'visit-support' AND visit_support.parent_id = journey_visit.child_id
-            LEFT JOIN canonical_evidence canonical ON canonical.evidence_id = visit_support.child_id
-            WHERE journey.run_id = ? AND qualification.classification = 'SUGGESTED'
-            GROUP BY journey.journey_id
-          )
-          SELECT journey_id, reasons_json, first_year, last_year, first_day, last_day, located_count
-          FROM journey_metadata
-          ORDER BY first_day IS NULL, first_day DESC, journey_id DESC
-        `, completed.run_id);
+        const rows = await loadJourneyQualificationRows(db, completed.run_id, 'SUGGESTED', { locatedCount: true });
         const summaries: PossibleTripSummary[] = [];
         for (const row of rows) {
           if (privateFilter.blocked.has(row.journey_id)) continue;
@@ -3453,6 +3472,192 @@ export function createNativeReconstructionRepository(options?: { databaseName: s
         if ((await loadPublishedRun(db))?.run_id !== completed.run_id) throw new Error('Journey changed. Reopen Atlas.');
         report('COMPLETE', 'complete');
         return summaries;
+      } catch (error) {
+        const reason = classifyAppDiagnosticError(error);
+        report(reason, reason === 'HISTORY_STALE' ? 'unchanged' : 'failed', reason === 'DATABASE_BUSY' || reason === 'NATIVE_HANDLE');
+        throw error;
+      }
+    },
+    /** M10.11 (decision 0023/detector-v1-3.md): the Hidden outings card's
+     * real list. Only lists NOT_TRIP journeys whose stored `reasons[0]` is
+     * `brief-outing` — v1.3's own "left Home, no strong trip signal"
+     * reason; every other hidden reason (no-away-evidence, non-capture-
+     * source, no-location) stays unlisted, same as the spec's table.
+     * Reads the same `reconstruction_trip_qualification` rows
+     * `loadPossibleTrips` does, just filtered to `NOT_TRIP` + that one
+     * reason, so this stays empty today: v1.3 is a benchmarked candidate
+     * (outcome-v1-3.ts) that `qualifyGraphJourneyWithClues` does not call
+     * yet (M10.12 activates it) — no stored qualification can carry
+     * `brief-outing` in production until then. The card ships ahead of
+     * that switch on purpose (decision 0023: "nothing is hidden without a
+     * way to see it"), not behind it. */
+    async loadHiddenOutings(): Promise<HiddenOutingSummary[]> {
+      const correlationId = createDiagnosticCorrelationId();
+      const report = (reasonCode: AppDiagnosticEvent['reasonCode'], durableOutcome: AppDiagnosticEvent['durableOutcome'], retryable = false) =>
+        recordAppDiagnostic({ operation: 'POSSIBLE_TRIP_REVIEW', stage: 'HIDDEN_OUTINGS_LIST_READ', reasonCode, durableOutcome, retryable, correlationId });
+      report('START', 'unchanged');
+      try {
+        const db = await open();
+        await ensureNativeImportSchema(db);
+        const completed = await loadPublishedRun(db);
+        if (!completed?.run_id) { report('COMPLETE', 'complete'); return []; }
+        const privateFilter = await privacyFilter(db, completed.run_id);
+        const rows = await loadJourneyQualificationRows(db, completed.run_id, 'NOT_TRIP', { locatedCount: false, reasonFilter: 'brief-outing' });
+        const summaries: HiddenOutingSummary[] = [];
+        for (const row of rows) {
+          if (privateFilter.blocked.has(row.journey_id)) continue;
+          let reasonCode: TripOutcomeReasonCode | null = null;
+          try {
+            const reasons = JSON.parse(row.reasons_json) as unknown;
+            if (Array.isArray(reasons) && typeof reasons[0] === 'string') reasonCode = reasons[0] as TripOutcomeReasonCode;
+          } catch {
+            // A malformed row is skipped, never shown with a fabricated reason.
+          }
+          // Defense in depth: the SQL WHERE clause above already filters to
+          // this one reason, but a stored row this old codebase's SQLite
+          // build cannot run `json_extract` against (or any other surprise)
+          // must never fall through to a wrong reason on the card.
+          if (reasonCode !== 'brief-outing') continue;
+          const displayId = opaqueJourneyDisplayId(row.journey_id);
+          displayedJourneys.set(displayId, { runId: completed.run_id, journeyId: row.journey_id });
+          summaries.push({ displayId, periodLabel: monthRangeLabel(row.first_day, row.last_day, row.first_year, row.last_year), reasonCode });
+        }
+        await assertPrivacyReadCurrent(db, privateFilter.revision);
+        if ((await loadPublishedRun(db))?.run_id !== completed.run_id) throw new Error('Journey changed. Reopen Atlas.');
+        report('COMPLETE', 'complete');
+        return summaries;
+      } catch (error) {
+        const reason = classifyAppDiagnosticError(error);
+        report(reason, reason === 'HISTORY_STALE' ? 'unchanged' : 'failed', reason === 'DATABASE_BUSY' || reason === 'NATIVE_HANDLE');
+        throw error;
+      }
+    },
+    /** M10.10 (decision 0023/detector-v1-3.md): "N trips on Atlas / to
+     * review / hidden" at a candidate radius for one Home area, shown
+     * before the owner saves it. Reads the same inputs `runCluePass`
+     * itself reads (`loadRebuildBaseline` for evidence/homeAreas,
+     * `loadCluePassGateContext` for the matching-run graph) rather than a
+     * cheaper, driftable copy — this is a Settings-screen action, not a
+     * hot path, so paying `loadRebuildBaseline`'s own projection cost here
+     * is the same trade-off `runCluePass` already makes. Never writes
+     * anything; the owner's Home areas and stored qualifications are
+     * read-only inputs to a pure classification, not touched by this call. */
+    async previewHomeAreaRadius(areaId: string, radiusMeters: number): Promise<HomeRadiusPreview | null> {
+      const correlationId = createDiagnosticCorrelationId();
+      const report = (reasonCode: AppDiagnosticEvent['reasonCode'], durableOutcome: AppDiagnosticEvent['durableOutcome'], retryable = false) =>
+        recordAppDiagnostic({ operation: 'POSSIBLE_TRIP_REVIEW', stage: 'HOME_RADIUS_PREVIEW', reasonCode, durableOutcome, retryable, correlationId });
+      report('START', 'unchanged');
+      try {
+        const db = await open();
+        await ensureNativeImportSchema(db);
+        const completed = await loadPublishedRun(db);
+        if (!completed?.run_id) { report('COMPLETE', 'complete'); return null; }
+        const privateFilter = await privacyFilter(db, completed.run_id);
+        const { evidence, homeAreas, mediaByEvidence } = await loadRebuildBaseline(db, false);
+        const evidenceById = new Map(evidence.map((item) => [item.id, item]));
+        const { graph, currentClassifications, lookups } = await loadCluePassGateContext(db, completed.run_id, evidence, evidenceById);
+        const candidateHomeAreas: OwnerConfiguredHomeArea[] = homeAreas.map((area) => area.id === areaId ? { ...area, radiusMeters } : area);
+        let atlasCount = 0; let reviewCount = 0; let hiddenCount = 0;
+        for (const journey of graph.journeys) {
+          // Same as loadPossibleTrips/loadHiddenOutings: a journey a privacy
+          // policy blocks is never counted in any bucket, since it never
+          // reaches Atlas, Possible trips or Hidden outings for the owner
+          // to actually see (code-review finding, 2026-11-23).
+          if (privateFilter.blocked.has(journey.id)) continue;
+          const stored = currentClassifications.get(journey.id);
+          if (stored === 'USER_CONFIRMED') { atlasCount += 1; continue; }
+          // A journey the owner already rejected sits outside the funnel
+          // entirely (decision 0023) — never re-classified, and never
+          // counted in any of the three buckets.
+          if (stored === 'REJECTED') continue;
+          const candidateEvidence = buildV12CandidateEvidence(graph, journey.id, evidence, mediaByEvidence, lookups);
+          const outcome = qualifyTripOutcomeV13(candidateEvidence, { homeAreas: candidateHomeAreas });
+          if (outcome.classification === 'AUTO_CONFIRMED') atlasCount += 1;
+          else if (outcome.classification === 'SUGGESTED') reviewCount += 1;
+          else hiddenCount += 1;
+        }
+        // Same staleness guard as loadPossibleTrips/loadHiddenOutings: a
+        // background rebuild or privacy edit completing mid-read must never
+        // be allowed to pair evidence/homeAreas from one projection with a
+        // graph/currentClassifications from another (code-review finding,
+        // 2026-11-23).
+        await assertPrivacyReadCurrent(db, privateFilter.revision);
+        if ((await loadPublishedRun(db))?.run_id !== completed.run_id) throw new Error('Journey changed. Reopen Atlas.');
+        report('COMPLETE', 'complete');
+        return { atlasCount, reviewCount, hiddenCount };
+      } catch (error) {
+        const reason = classifyAppDiagnosticError(error);
+        report(reason, reason === 'HISTORY_STALE' ? 'unchanged' : 'failed', reason === 'DATABASE_BUSY' || reason === 'NATIVE_HANDLE');
+        throw error;
+      }
+    },
+    /** M10.12 (decision 0023): the owner-facing dry-run comparison between
+     * whichever detector rule is currently active and the other one —
+     * symmetric, so the same method serves the initial v1.2→v1.3 adoption
+     * decision and a later v1.3→v1.2 rollback decision. Never writes
+     * anything; recomputing the non-active rule is read-only, same as
+     * `previewHomeAreaRadius`. `active` reads the already-stored
+     * classifications (no recomputation needed — that is what the active
+     * rule already produced); `candidate` recomputes the other rule fresh
+     * against the same graph/evidence. Aggregates only, by design (decision
+     * 0023: "a dry-run count on the owner's phone, aggregates only") — no
+     * journey id, place or date ever leaves this function. */
+    async compareDetectorPolicy(): Promise<DetectorPolicyComparison | null> {
+      const correlationId = createDiagnosticCorrelationId();
+      const report = (reasonCode: AppDiagnosticEvent['reasonCode'], durableOutcome: AppDiagnosticEvent['durableOutcome'], retryable = false) =>
+        recordAppDiagnostic({ operation: 'POSSIBLE_TRIP_REVIEW', stage: 'DETECTOR_POLICY_COMPARE', reasonCode, durableOutcome, retryable, correlationId });
+      report('START', 'unchanged');
+      try {
+        const db = await open();
+        await ensureNativeImportSchema(db);
+        const completed = await loadPublishedRun(db);
+        if (!completed?.run_id) { report('COMPLETE', 'complete'); return null; }
+        const policyRow = await db.getFirstAsync<{ rule_version: string }>('SELECT rule_version FROM detector_policy WHERE record_id = 1');
+        const activePolicy: DetectorPolicy = policyRow?.rule_version === TRIP_OUTCOME_RULE_VERSION_V13 ? TRIP_OUTCOME_RULE_VERSION_V13 : TRIP_OUTCOME_RULE_VERSION;
+        const candidatePolicy: DetectorPolicy = activePolicy === TRIP_OUTCOME_RULE_VERSION_V13 ? TRIP_OUTCOME_RULE_VERSION : TRIP_OUTCOME_RULE_VERSION_V13;
+        const privateFilter = await privacyFilter(db, completed.run_id);
+        const { evidence, homeAreas, mediaByEvidence, clues, correctedKeys } = await loadRebuildBaseline(db, false);
+        const evidenceById = new Map(evidence.map((item) => [item.id, item]));
+        const { graph, currentClassifications, lookups } = await loadCluePassGateContext(db, completed.run_id, evidence, evidenceById);
+        const frequentPlaceContext = candidatePolicy === TRIP_OUTCOME_RULE_VERSION ? buildFrequentPlaceContext(graphJourneyEpisodeMarkers(graph, evidenceById)) : undefined;
+        const bucketOf = (classification: string | undefined): 'atlasCount' | 'reviewCount' | 'hiddenCount' | null => {
+          if (classification === 'AUTO_CONFIRMED' || classification === 'USER_CONFIRMED') return 'atlasCount';
+          if (classification === 'SUGGESTED') return 'reviewCount';
+          if (classification === 'NOT_TRIP') return 'hiddenCount';
+          return null; // REJECTED, or no stored row at all: outside the funnel entirely.
+        };
+        const active: HomeRadiusPreview = { atlasCount: 0, reviewCount: 0, hiddenCount: 0 };
+        const candidate: HomeRadiusPreview = { atlasCount: 0, reviewCount: 0, hiddenCount: 0 };
+        const beforeMap = new Map<string, string>();
+        const afterMap = new Map<string, string>();
+        for (const journey of graph.journeys) {
+          // Same as loadPossibleTrips/loadHiddenOutings/previewHomeAreaRadius:
+          // a privacy-blocked journey is never counted in any bucket.
+          if (privateFilter.blocked.has(journey.id)) continue;
+          const stored = currentClassifications.get(journey.id);
+          const activeBucket = bucketOf(stored);
+          if (activeBucket) active[activeBucket] += 1;
+          if (stored !== undefined) beforeMap.set(journey.id, stored);
+          // An owner decision (confirm/reject) is sticky across a rule
+          // change — neither rule version re-derives it.
+          let candidateClassification: string;
+          if (stored === 'USER_CONFIRMED' || stored === 'REJECTED') candidateClassification = stored;
+          else if (candidatePolicy === TRIP_OUTCOME_RULE_VERSION_V13) {
+            const candidateEvidence = buildV12CandidateEvidence(graph, journey.id, evidence, mediaByEvidence, lookups);
+            candidateClassification = qualifyTripOutcomeV13(candidateEvidence, { homeAreas }).classification;
+          } else {
+            candidateClassification = qualifyGraphJourneyWithClues(graph, journey.id, evidence, mediaByEvidence, homeAreas, clues, correctedKeys, frequentPlaceContext, lookups).classification;
+          }
+          const candidateBucket = bucketOf(candidateClassification);
+          if (candidateBucket) candidate[candidateBucket] += 1;
+          afterMap.set(journey.id, candidateClassification);
+        }
+        const delta = summarizeOutcomeDelta(beforeMap, afterMap);
+        // Same staleness guard as previewHomeAreaRadius/loadPossibleTrips/loadHiddenOutings.
+        await assertPrivacyReadCurrent(db, privateFilter.revision);
+        if ((await loadPublishedRun(db))?.run_id !== completed.run_id) throw new Error('Journey changed. Reopen Atlas.');
+        report('COMPLETE', 'complete');
+        return { activePolicy, candidatePolicy, active, candidate, gainedCount: delta.gainedCount, lostCount: delta.lostCount, changedCount: delta.changedCount, unchangedCount: delta.unchangedCount };
       } catch (error) {
         const reason = classifyAppDiagnosticError(error);
         report(reason, reason === 'HISTORY_STALE' ? 'unchanged' : 'failed', reason === 'DATABASE_BUSY' || reason === 'NATIVE_HANDLE');
@@ -3611,11 +3816,28 @@ export function createNativeReconstructionRepository(options?: { databaseName: s
           }
           const confirmedJourneyIds = new Set(corrections.filter((correction) => correction.action === 'confirm').map((correction) => finalMatches.get(correction.revision_id)).filter((id): id is string => Boolean(id)));
           profile.next('REBUILD_QUALIFY');
+          // M10.12 (decision 0023): which outcome rule this rebuild uses,
+          // read from `detector_policy` (no row at all means the
+          // unconditional default, v1.2 — see loadDetectorPolicy's own
+          // comment). v1.3 is clue-free (CAP-2's clue layer has not been
+          // ported to it — a documented, known gap, not an oversight) and
+          // takes no `frequentPlaceContext` (decision 0023 retires that
+          // gate entirely), but still shares `buildV12CandidateEvidence`/
+          // `v12Lookups` with v1.2 (pure graph traversal, not an outcome
+          // gate — see outcome-v1-3.ts's own module doc).
+          const detectorPolicyRow = await db.getFirstAsync<{ rule_version: string }>('SELECT rule_version FROM detector_policy WHERE record_id = 1');
+          const activeOutcomeRule = detectorPolicyRow?.rule_version === TRIP_OUTCOME_RULE_VERSION_V13 ? TRIP_OUTCOME_RULE_VERSION_V13 : TRIP_OUTCOME_RULE_VERSION;
           // trip-detector-v1.2 (decision 0021): one outcome rule for every
           // journey, built once per rebuild so frequent-place (F-1) can see
           // every other journey's episode start/place without recomputing
-          // the whole graph per journey.
-          const frequentPlaceContext = buildFrequentPlaceContext(graphJourneyEpisodeMarkers(graph, evidenceById));
+          // the whole graph per journey. Skipped under v1.3 (which never
+          // reads it, decision 0023) rather than built unconditionally —
+          // `activeOutcomeRule` is resolved once above and does not change
+          // mid-loop, so there is nothing to build lazily for (code-review
+          // finding, 2026-11-23: this was real, recurring wasted work on
+          // every background rebuild once v1.3 is active).
+          const frequentPlaceContext = activeOutcomeRule === TRIP_OUTCOME_RULE_VERSION
+            ? buildFrequentPlaceContext(graphJourneyEpisodeMarkers(graph, evidenceById)) : undefined;
           // Shared once per rebuild so each journey's qualification is
           // O(its own evidence), not O(the whole library) (found by the
           // M10.3 code review, 2026-11-19).
@@ -3625,6 +3847,10 @@ export function createNativeReconstructionRepository(options?: { databaseName: s
             const ownerConfirmed = confirmedJourneyIds.has(journey.id);
             const qualification = ownerConfirmed
               ? { classification: 'USER_CONFIRMED' as const, score: 0, path: null, reasons: ['owner-confirmed'] }
+              : activeOutcomeRule === TRIP_OUTCOME_RULE_VERSION_V13
+              ? (() => { const candidateEvidence = buildV12CandidateEvidence(graph, journey.id, evidence, mediaByEvidence, v12Lookups);
+                  const outcome = qualifyTripOutcomeV13(candidateEvidence, { homeAreas });
+                  return { classification: outcome.classification, score: outcome.diagnosticScore, path: null, reasons: outcome.reasons }; })()
               : (() => { const outcome = qualifyGraphJourneyWithClues(graph, journey.id, evidence, mediaByEvidence, homeAreas, clues, correctedKeys, frequentPlaceContext, v12Lookups);
                   return { classification: outcome.classification, score: outcome.diagnosticScore, path: null, reasons: outcome.reasons }; })();
             await db.runAsync(
@@ -3725,6 +3951,25 @@ export function createNativeReconstructionRepository(options?: { databaseName: s
         if (lifecycle?.state !== 'connected') { await db.execAsync('ROLLBACK'); report('BLOCKED', 'blocked'); return { status: 'blocked', produced: 0, activated: 0, reviewCards: 0, rebuildTriggered: false }; }
         const completed = await loadPublishedRun(db);
         if (!completed?.run_id) { await db.execAsync('ROLLBACK'); report('SKIPPED', 'skipped'); return { status: 'skipped', produced: 0, activated: 0, reviewCards: 0, rebuildTriggered: false }; }
+        // M10.12 (decision 0023, code-review finding 2026-11-23): this
+        // whole pass exists to decide whether a candidate clue is safe to
+        // activate without dropping a journey off Atlas — a question that
+        // only means anything under v1.2, the one rule version this gate's
+        // simulation (`qualifyGraphJourneyWithClues`, below) understands.
+        // v1.3 never reads a clue at all (outcome-v1-3.ts), so while it is
+        // the active rule, no clue this pass could activate or hold for
+        // review would ever actually change a real classification — and
+        // simulating against v1.2 while v1.2 isn't the rule in control
+        // would silently answer a question nobody is asking. Skip the pass
+        // entirely rather than gate against the wrong rule's semantics.
+        // Previously-held review cards from before the switch are
+        // untouched (the owner can still clear that backlog) and this
+        // never blocks a rollback to v1.2.
+        const activeDetectorPolicyRow = await db.getFirstAsync<{ rule_version: string }>('SELECT rule_version FROM detector_policy WHERE record_id = 1');
+        if (activeDetectorPolicyRow?.rule_version === TRIP_OUTCOME_RULE_VERSION_V13) {
+          await db.execAsync('ROLLBACK'); report('CLUE_FREE_POLICY', 'skipped');
+          return { status: 'skipped', produced: 0, activated: 0, reviewCards: 0, rebuildTriggered: false };
+        }
 
         const { rows, evidence, mediaByEvidence, homeAreas, clues, correctedKeys } = await loadRebuildBaseline(db, false);
         const evidenceById = new Map(evidence.map((item) => [item.id, item]));

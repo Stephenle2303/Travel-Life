@@ -89,7 +89,8 @@ export function assertHistoryRow(input: unknown): asserts input is HistoryRow {
       if(!/^\d{4}-\d{2}-\d{2}$/.test(value)||!Number.isFinite(date.getTime())||date.toISOString().slice(0,10)!==value)throw new HistoryContractError();
     }
   }
-  if(row.kind==='home'&&(Number(row.value.radius_meters)<=0||Number(row.value.radius_meters)>50000))throw new HistoryContractError();
+  // 300000 mirrors reconstruction/types.ts's MAX_HOME_RADIUS_METERS (decision 0023/M10.10); update both if this ever changes.
+  if(row.kind==='home'&&(Number(row.value.radius_meters)<=0||Number(row.value.radius_meters)>300000))throw new HistoryContractError();
   if(row.kind==='privacy'){
     const value=row.value;
     if(value.target_kind==='manual'&&(value.manual_id===null||value.action==='exclude')||value.target_kind==='inferred'&&value.manual_id!==null)throw new HistoryContractError();

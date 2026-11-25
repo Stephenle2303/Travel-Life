@@ -1,4 +1,4 @@
-import { TRIP_DETECTOR_RULE_VERSION, type OwnerConfiguredHomeArea, type QualifiedTrip, type TripDetectionResult, type TripDetectorEvidence } from './types';
+import { MAX_HOME_RADIUS_METERS, TRIP_DETECTOR_RULE_VERSION, type OwnerConfiguredHomeArea, type QualifiedTrip, type TripDetectionResult, type TripDetectorEvidence } from './types';
 
 type QualificationOptions = {
   baseContext: boolean;
@@ -49,7 +49,12 @@ export function effectiveConfiguredHomeDistanceV11(item: Pick<TripDetectorEviden
 export function applyOwnerConfiguredHomeAreas(evidence: TripDetectorEvidence[], areas: OwnerConfiguredHomeArea[]): TripDetectorEvidence[] {
   const canonicalAreas = [...areas].filter((area) => Number.isFinite(area.latitude) && Number.isFinite(area.longitude)
     && area.latitude >= -90 && area.latitude <= 90 && area.longitude >= -180 && area.longitude <= 180
-    && Number.isFinite(area.radiusMeters ?? 50_000) && (area.radiusMeters ?? 50_000) > 0 && (area.radiusMeters ?? 50_000) <= 50_000
+    // Ceiling only (decision 0023/M10.10): raised to MAX_HOME_RADIUS_METERS
+    // so a Home saved under the new wider cap is never silently excluded
+    // here even under a v1.1 rollback (CAP-8). The `?? 50_000` default for
+    // a legacy row with no radius at all is untouched — that is v1.1's own
+    // historical default, not this cap.
+    && Number.isFinite(area.radiusMeters ?? 50_000) && (area.radiusMeters ?? 50_000) > 0 && (area.radiusMeters ?? 50_000) <= MAX_HOME_RADIUS_METERS
     && (!area.effectiveStartDay || validDay(area.effectiveStartDay)) && (!area.effectiveEndDay || validDay(area.effectiveEndDay))
     && (!area.effectiveStartDay || !area.effectiveEndDay || area.effectiveStartDay <= area.effectiveEndDay))
     .sort((left, right) => left.id.localeCompare(right.id));

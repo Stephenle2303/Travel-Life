@@ -1,5 +1,169 @@
 # Error and improvement playbook
 
+## CAP-3's clue pass kept gating against v1.2 after v1.3 became the active rule (M10.12, 2026-11-23)
+
+**Symptom:** a 3-angle code review on M10.12 (activating v1.3, with v1.2 kept
+as rollback) found that `runCluePass`'s gate — the mechanism that decides
+whether a candidate clue is safe to activate automatically or must be held
+for owner review because it "would lower an Atlas trip" — always simulated
+that question using v1.2's clue-aware `qualifyGraphJourneyWithClues`, with
+no check of which detector rule `detector_policy` actually names as active.
+
+**Cause:** the gate was built (CAP-3, M10.2–M10.6) back when v1.2 was the
+only rule that could ever be active, so "simulate with v1.2" and "simulate
+with the active rule" were the same statement. M10.12 made that assumption
+false without the gate itself changing: v1.3 is clue-free by design
+(decision 0023), so once it is active, no clue the gate could hold or
+activate would ever change any real classification — but the gate kept
+answering "would this drop the trip under v1.2" regardless, silently
+simulating a rule that was no longer the one in control.
+
+**Fix:** `runCluePass` now reads `detector_policy` first and returns
+`{ status: 'skipped' }` (new `CLUE_FREE_POLICY` reason) without touching
+anything — no clue scanned, activated, or held — whenever v1.3 is active.
+Previously-held review cards from before a switch are left alone (the
+owner can still clear that backlog); this does not block a rollback to
+v1.2, after which the gate's v1.2 simulation is accurate again.
+
+**Verification:** a new real-SQLite test switches to v1.3 before calling
+`runCluePass` and asserts `status: 'skipped'` with zero clues or review
+cards written.
+
+**Prevention:** when a background pass's whole purpose is "simulate what a
+specific rule would do," and a later story makes that rule swappable,
+explicitly check which rule is actually active before trusting the
+simulation — a correctness guarantee built for a single-rule world does
+not automatically generalize once a policy switch is introduced; the
+switch itself must audit every place that assumed "the rule" instead of
+naming it.
+
+## New read (previewHomeAreaRadius) copied loadPossibleTrips' shape but not its privacy/staleness guards (M10.10, 2026-11-23)
+
+**Symptom:** a 3-angle code review on M10.10's Home-radius dry-run preview
+found it never filtered by privacy policy and had no staleness re-check
+after its two reads — both present on its two closest siblings
+(`loadPossibleTrips`, `loadHiddenOutings`) in the same file.
+
+**Cause:** the new method was modeled on those two for its diagnostic
+pattern and overall shape, but the privacy-filter call (`privacyFilter` +
+`blocked.has(journey.id)`) and the end-of-read staleness recheck
+(`assertPrivacyReadCurrent` + re-`loadPublishedRun`) live in the *middle* and
+*end* of those functions respectively, not in anything a reader copying
+"the diagnostic wrapper and the read" would naturally also copy — a repeat
+of the general lesson below (reusing a template without re-deriving what
+every part of it guarantees), now specifically for "privacy filtering" and
+"read-consistency", not reason-code semantics.
+
+**Fix:** added both to `previewHomeAreaRadius` (`reconstruction/
+repository.ts`), matching its siblings exactly. Also fixed in the same
+pass: a stale UI preview stayed on screen next to the "out of range" error
+once the radius became invalid (the display was gated on having a cached
+value, not on current validity); the preview fired a full projection read
+on every keystroke with no debounce; and a prepared-not-deployed Supabase
+migration this story touched carried forward a pre-existing gap (missing
+`'manual-pin'` from the Home-origin allow-list) rather than fixing it while
+already restating the function.
+
+**Verification:** new real-SQLite tests (`atlas-sqlite.test.cjs`) hide a
+journey via the existing privacy-review flow and assert
+`previewHomeAreaRadius` drops it to zero in every bucket; a new
+`privacy-settings-screen.test.tsx` test asserts the stale preview text
+disappears once the radius input becomes invalid.
+
+**Prevention:** when a new method is "modeled on" an existing one, diff the
+*whole* existing function against the new one — not just the parts the
+new one's own purpose obviously needs — and name explicitly which of the
+existing function's guards (privacy filtering, staleness, validation) the
+new one does or doesn't need, rather than silently carrying over only the
+parts that were easy to spot by skimming.
+
+## v1.3's "corroborated" signal would have re-admitted the exact errand noise it targets (M10.9, 2026-11-22)
+
+**Symptom:** while writing `outcome-v1-3.ts`'s benchmark (decision 0023), a
+test meant to prove "two single-place errands a week apart, merged into one
+episode by the episode builder, stay Hidden" instead got `SUGGESTED`.
+
+**Cause:** the first draft reused v1.2's shared `partitionSessions` output
+directly for the `corroborated` gate (`sessionCount >= 2`). Its day-only
+bucket key is `day:${capturedDay}:${placeId}` — the civil day is baked into
+the key, so any 2+ *distinct calendar days* in an episode automatically
+produce 2+ "sessions" regardless of how far apart those days are or whether
+the place repeats. That is correct, intentional behavior for v1.2 (which
+never promised more than "Not sure → Possible trips"), but for v1.3 it
+silently corroborated the specific noise pattern — single-day errands
+merged across a multi-day gap — that decision 0023 exists to stop.
+
+**Fix:** `corroborated` for v1.3 now counts only: ≥2 support places ≥1 km
+apart (`hasTwoSeparatedPlaces`, unchanged), ≥2 independently timed trusted
+sessions (filtering `partitionSessions`' own output to its `trusted:`
+prefix only), or ≥2 distinct support places touched *within one calendar
+day* (new `hasSameDayMultiPlace`, in `outcome-v1-3.ts`). The dedicated
+`overnight` check (≥2 *consecutive* days) remains the only path by which
+multiple days alone count as a signal.
+
+**Verification:** `reconstruction-outcome-v1-3.test.ts` keeps both the
+positive case (a same-day, 2-place frequent destination reaches Atlas with
+frequent-place no longer blocking it) and the negative case (2 single-place
+errands a week apart stay `NOT_TRIP`/`brief-outing`) as separate assertions,
+so a future change that re-couples them fails immediately.
+
+**Prevention:** when reusing an existing helper for a *new*, stricter outcome
+rule, re-derive what its output actually guarantees (here: "2+ sessions"
+only ever meant "2+ distinct label values", not "2+ independent
+observations") rather than assuming its name still matches the new rule's
+intent — write the noise case you are specifically trying to kill as a
+benchmark test before trusting the gate that is supposed to kill it.
+
+**Recurrence (code review, same day, before this landed):** the fix's own
+`hasSameDayMultiPlace` repeated the identical mistake one level down —
+`places.add(item.supportPlaceId ?? item.id)` let 2 units with no
+`supportPlaceId` at the exact same spot register as 2 "places" purely from
+their own always-distinct ids, which would have let `corroborated` fire for
+a genuinely single-place outing. A 3-angle code review (not a test — none of
+the hand-written benchmark cases happened to omit `supportPlaceId` on a
+multi-unit day) caught it before any commit. Fixed by dropping the `?? item.id`
+fallback entirely: a unit with no `supportPlaceId` now contributes nothing
+to this check. Also found and fixed in the same pass: the outcome-geometry.ts
+extraction dropped `outcome-v1-2.ts`'s re-export of `NON_CAPTURE_ORIGINS`
+(stale comments elsewhere still pointed at it there), and the corroboration/
+overnight scan ran before the cheap non-capture/too-few-units/no-location
+early returns, wasting an O(n²) pairwise scan on every episode about to be
+discarded anyway. **Strengthened prevention:** an "only when present" field
+(`supportPlaceId`, `placeId`, any optional id) must never fall back to a
+value that is unique by construction (`item.id`, a random key, a loop
+index) inside a *counting* or *distinctness* check — that silently converts
+"unknown/absent" into "definitely distinct", the opposite of the intended
+meaning. Grep for `?? item.id` / `?? <loop var>.id` in any new counting
+logic as a specific check before calling such a function done.
+
+## Possible-trip "Review outing" opened a screen with no photos (owner device report, 2026-11-22)
+
+**Symptom:** on the owner's phone the Possible trips list showed, but there
+were no photos to review before confirming an outing.
+
+**Cause (verified in source):** the CAP-3 Possible-trips card's "Review
+outing" pushed `/journey/[id]/edit` — the Edit hub, a text-only list of
+tasks. Photos render only on the journey detail screen (`/journey/[id]`,
+"Memories" previews). Confirmed Atlas trips open the detail screen first
+and reach Edit through its button; the card skipped that step while its own
+comment claimed it used "the same path" as confirmed trips. Unit tests
+asserted only that the callback received the display id, never where it
+navigated. Introduced when the card was built (commit 1812aba), not by the
+M11 work; found only on a real device.
+
+**Fix:** "Review outing" now opens `/journey/[id]` (photos, then Edit →
+Accuracy → confirm/reject), matching confirmed trips; the card's comment
+now states why it must not jump to the Edit hub.
+
+**Not yet fixed / limit:** the detail screen shows at most 4 photo previews
+per journey (existing query limit), which may be thin for a trip with many
+photos. Not measured on device.
+
+**Prevention:** a UI entry point that claims to reuse another flow must be
+checked against that flow's actual destination, and a navigation test must
+assert the target route, not just the callback. Device review of any new
+owner-facing card is required before calling it done.
+
 ## A fallible read placed outside its own `try` reports no diagnostic at all (recurrence #3, 2026-11-21)
 
 **Symptom:** writing `rejectSameTripSuggestion` (CAP-7's trigger), the first

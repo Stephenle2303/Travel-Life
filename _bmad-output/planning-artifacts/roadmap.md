@@ -58,6 +58,18 @@ every detected episode. See
 [delivery-and-diagnostics.md](../specs/spec-trip-recognition-repair/delivery-and-diagnostics.md)
 for the full per-story accounting.
 
+**v1.3 funnel (decision 0023, accepted 2026-11-22; M10.9–M10.12 all built;
+v1.2 stays the live default until the owner reviews the on-device
+comparison in Settings → Trip detection and switches):** device
+review showed Possible trips filled with errands (32 of 38 were `near-home`).
+v1.3 keeps one owner-sized Home zone (free radius ≤300 km, edited in
+Settings), inverts the funnel to Atlas → evidence-based Possible trips →
+Hidden by default, stops frequent places blocking Atlas, and adds a collapsed
+Hidden outings card on the Atlas. Stories M10.9–M10.12 in
+[detector-v1-3.md](../specs/spec-trip-recognition-repair/detector-v1-3.md);
+not activated before the Hidden outings card ships and an owner-reviewed
+device dry run.
+
 ## Next: AI clue layer and learning (M11, accepted 2026-11-19)
 
 [Decision 0022](../../docs/decisions/0022-ai-clue-layer-and-learning.md):

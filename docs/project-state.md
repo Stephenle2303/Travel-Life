@@ -1,5 +1,195 @@
 # Project state
 
+## M10.12: v1.2/v1.3 switch built; the owner's own device review is the one thing left (2026-11-23)
+
+Built per decision 0023/detector-v1-3.md: `detector_policy` (scaffolded
+since M10.8 but never implemented) now actually selects the active
+detector rule, and Settings → Trip detection lets the owner compare and
+switch. **v1.2 is still the live default on every device** — nothing
+activates v1.3 until the owner opens this screen and taps Switch.
+
+- **New:** `migrationV56` widens `detector_policy`'s CHECK to accept
+  `trip-detector-v1.3`; `loadDetectorPolicy`/`setDetectorPolicy` (declared
+  since M10.8, never implemented) now actually read/write it;
+  `rebuild()`'s per-journey loop branches on the stored policy between
+  `qualifyGraphJourneyWithClues` (v1.2) and `qualifyTripOutcomeV13` (v1.3);
+  `compareDetectorPolicy` — symmetric, so it serves the v1.2→v1.3 adoption
+  decision and a later v1.3→v1.2 rollback decision with one function —
+  reports aggregate Atlas/review/hidden counts for both sides plus a
+  gained/lost/changed/unchanged delta, never a journey id, place or date.
+  Settings → Trip detection shows this and a Switch/Roll-back button.
+- **3-angle review, 7 findings, 6 fixed:** the most serious — CAP-3's
+  background clue pass kept simulating "would this clue drop an Atlas
+  trip" against v1.2's clue-aware rule with no check of which rule is
+  actually active, so once v1.3 is active (clue-free by design) the gate
+  was answering a question about a rule that wasn't running. Fixed: the
+  pass now skips entirely while v1.3 is active. Also fixed: `setDetectorPolicy`
+  now reverts the stored policy if the triggering rebuild fails (it
+  previously wrote the policy before the rebuild with no compensation);
+  the Settings screen now refreshes the comparison after a failed switch
+  instead of leaving a stale one on screen, and swaps its two sides
+  locally after a successful one instead of paying for a second full
+  comparison read; `frequentPlaceContext` is no longer built on every
+  rebuild once v1.3 (which never reads it) is active; added the missing
+  repository-level diagnostic-failure tests for `previewHomeAreaRadius`/
+  `compareDetectorPolicy` the policy requires. One finding left as a
+  known follow-up, not fixed: `previewHomeAreaRadius`, `compareDetectorPolicy`
+  and `rebuild()`'s own loop are now three independent "classify a journey
+  under a rule, respecting owner decisions" implementations that could
+  converge into one shared helper. All recorded in the error playbook.
+  Full mobile check (142 suites, 1724 tests, typecheck, lint) and the
+  real-SQLite suite (165 tests) are green.
+- **Known, documented gap (not this story's to close):** v1.3 is clue-free
+  — CAP-3's clue layer (decision 0022) has not been ported to it. While
+  v1.3 is active, no clue can affect any classification at all; this is
+  intentional, not silently broken, but is real scope for a future story
+  if the clue layer should extend to v1.3.
+- **Not done — the actual point of this story:** nobody has opened the
+  comparison on the owner's phone yet. The code is ready for that device
+  review; v1.2 remains the active rule until the owner does it and taps
+  Switch.
+
+## M10.10: Home radius raised to 300 km and made owner-editable, with a dry-run preview (2026-11-23)
+
+Built per decision 0023/detector-v1-3.md: the Home radius ceiling moved
+from a fixed 50 km to a free number up to 300 km, and became actually
+editable in Settings for the first time — the real reason it never was
+before turned out to be a hardcoded override in `saveDirectHome`
+(provider.tsx) that silently discarded any radius a caller passed when
+editing an existing Home, found while implementing this story.
+
+- **All 5 cap locations raised:** SQLite `configured_home_area` CHECK
+  (new `migrationV55`, rebuilding the table — triggers dropped and
+  recreated, not left to ride the rename — with a new real-SQLite test
+  proving data/trigger survival and the new ceiling), `homeAreaLabel`
+  validation, `engine-v1-1.ts`'s own re-validation (so a wider Home stays
+  recognized even under a v1.1 rollback), the account history contract,
+  and a **prepared, not deployed** Supabase migration
+  (`20261123120000_m10_home_radius_cap_raise.sql`) restating
+  `history_private.valid_record` with the raised cap.
+- **New:** `previewHomeAreaRadius` (repository.ts) — the dry-run preview,
+  built on `loadRebuildBaseline`/`loadCluePassGateContext` (the same inputs
+  `runCluePass` already reads) plus v1.3's pure `qualifyTripOutcomeV13`.
+  Settings → Home bases → "Edit area and dates" now shows a radius field
+  (km) and, once valid, "N trips on Atlas · N to review · N hidden" before
+  saving. Out-of-range values are refused with a short message and disable
+  Save.
+- **3-angle code review, 5 fixes applied:** the preview read was missing
+  the privacy filter and the post-read staleness guard both its siblings
+  (`loadPossibleTrips`/`loadHiddenOutings`) already have; a stale preview
+  stayed on screen next to the "out of range" error; the preview fired a
+  full projection read on every keystroke with no debounce; and the
+  prepared Supabase migration carried forward a pre-existing gap (missing
+  `'manual-pin'` from the Home-origin allow-list) rather than fixing it
+  while already restating the function. All recorded in the error
+  playbook. Full mobile check (142 suites, 1722 tests, typecheck, lint)
+  and the real-SQLite suite (159 tests) are green.
+- **Not done:** the Supabase migration is not deployed (needs owner
+  approval). v1.3 still isn't the active production rule (M10.12).
+
+## M10.11: Hidden outings card built, ahead of v1.3 activation (2026-11-22)
+
+Built per decision 0023/detector-v1-3.md: a collapsed "N hidden outings"
+card below Possible trips, listing only `NOT_TRIP` journeys whose stored
+reason is `brief-outing` (every other hidden reason stays unlisted).
+Returns empty today, by design — v1.3 isn't active in production yet
+(M10.12); this ships the surface first so decision 0023's "nothing is
+hidden without a way to see it" holds once it is.
+
+- **New:** `loadHiddenOutings` (repository.ts), `HiddenOutingSummary` type,
+  `HiddenOutingsV13Section` (collapsed by default, chevron toggle, muted
+  `sage` colour, no badge), `hiddenOutingReasonSentence` (thin wrapper
+  around the Possible-trips card's own sentence switch, not a second
+  copy), a new `HIDDEN_OUTINGS_LIST_READ` diagnostic stage on the existing
+  `POSSIBLE_TRIP_REVIEW` operation. "Review outing" opens the same journey
+  detail screen as Possible trips; Keep still goes through the existing
+  accuracy flow — no new write path. 11 new tests (repository + UI + copy)
+  plus the two new cards wired into `EmptyAtlasScreen`; full mobile check
+  (142 suites, 1719 tests, typecheck, lint) green.
+- **3-angle code review, 3 fixes applied:** the Possible-trips and Hidden-
+  outings queries' identical join CTE was duplicated across two methods —
+  extracted into one shared `loadJourneyQualificationRows` helper; the
+  Hidden-outings query fetched and joined every `NOT_TRIP` row before
+  discarding all but `brief-outing` in JS — moved that filter into the SQL
+  WHERE clause (`json_extract`), which matters once v1.3 goes live and
+  `NOT_TRIP` becomes the majority classification; the "Review outing"
+  navigation closure was duplicated verbatim across both cards — extracted
+  to one `reviewOuting` function both cards now share.
+- **Deliberately not done:** `loadPossibleTrips` and `loadHiddenOutings`
+  still run as two independent reads (two effects, two full open/schema/
+  privacy round trips) rather than one combined read. Flagged by review as
+  a real latent consistency gap (the two reads could observe different
+  completed runs if a rebuild publishes between them) and a real cost once
+  `NOT_TRIP` is the majority bucket — deferred rather than reshaping both
+  methods' public API for a card that returns empty in every build today;
+  worth revisiting at M10.12 when the card goes live for real.
+
+## M10.9: trip-detector-v1.3 pure outcome rule, benchmarked (2026-11-22)
+
+Built the v1.3 outcome rule from decision 0023/detector-v1-3.md, scoped to
+"pure rule + benchmark" only — not yet wired into production.
+
+- **New:** `outcome-v1-3.ts` (`qualifyTripOutcomeV13`): Atlas/Possible/Hidden
+  per the spec, frequent place no longer an input, Possible trip requires
+  positive evidence (owner-fixable gap, or an overnight/corroborated/
+  ≥5-reliable-photos signal). `reconstruction-outcome-v1-3.test.ts`: 20
+  cases, including the funnel's own target scenarios (repeat destination
+  reaches Atlas; a one-day errand and two errands-a-week-apart both stay
+  Hidden with `brief-outing`; an owner veto still leaves a Possible trip,
+  matching v1.2).
+- **Refactor (behavior-preserving):** extracted v1.2's geometry/session
+  helpers into shared `outcome-geometry.ts` and its reason/diagnostic
+  mapping into shared `outcome-reasons.ts`, both reused by v1.3, so the two
+  rule versions can't drift on what "away from Home" or "corroborated"
+  mean. `outcome-v1-2.ts` re-exports everything it used to (no call-site
+  changes); its own 32 tests plus the full mobile suite (141 suites, 1707
+  tests), typecheck and lint all stay green.
+- **Real finding, fixed before it shipped:** the first draft's
+  "corroborated" signal reused v1.2's session bucketing as-is, which keys
+  on calendar day — so any 2+ distinct days counted as "corroborated"
+  regardless of the gap between them, silently re-admitting the exact
+  errand-noise pattern v1.3 exists to remove. Tightened to 2 separated
+  places / 2 trusted sessions / 2 places on the *same* day; the dedicated
+  `overnight` check (consecutive days) is the only multi-day path now.
+  Recorded in the error playbook.
+- **3-angle code review before commit:** caught a recurrence of the same
+  mistake one level down — `hasSameDayMultiPlace` fell back to a unit's own
+  `id` when `supportPlaceId` was absent, which would have let 2 unclustered
+  units at one spot wrongly corroborate each other. Also fixed: a dropped
+  `NON_CAPTURE_ORIGINS` re-export from the geometry extraction, and the
+  corroboration/overnight scan running before the cheap early returns
+  (wasted O(n²) work on episodes about to be discarded). All three fixed;
+  full mobile `check` re-run green after (141 suites, 1708 tests).
+- **Not done yet:** `qualifyGraphJourneyWithClues` (the production entry
+  point) still calls v1.2. The detector_policy SQLite CHECK, radius-cap
+  migration (M10.10), Hidden outings card (M10.11) and device
+  adoption/rollback (M10.12) are unstarted.
+
+## Device test of M11 build; trip-detector-v1.3 funnel decided (2026-11-22)
+
+- **Device install:** the phone had a 2026-11-20 release build, which never
+  loads from Metro. Built an arm64 release APK from `3cbed95` and installed it
+  over the old one with the same signing key (data kept). First launch ran
+  migrations V52–V54 cleanly; Atlas, Possible trips and travel-window reads
+  completed with no errors.
+- **Owner-reported bug, fixed (not committed yet):** Possible-trip "Review
+  outing" opened the Edit hub, which has no photos. It now opens the journey
+  detail page (photos, then Edit), like confirmed trips. Reinstalled; owner
+  confirmation pending. Recorded in the error playbook.
+- **Clue pass not yet observed on device:** it runs only in the OS
+  background job. Forcing that job (`cmd jobscheduler run -f`) is a no-op
+  before WorkManager's own schedule, the foreground catch-up never runs it,
+  and this phone has historically run the job every few hours, not every
+  15 minutes. No `AI_CLUE_PASS` event seen yet.
+- **Decision 0023 (owner, BMAD party):** one owner-sized Home zone (free
+  radius ≤300 km in Settings, no separate 50 km away distance), funnel
+  inverted to Atlas → evidence-based Possible trips → Hidden by default,
+  frequent places never block Atlas, and a collapsed Hidden outings card on
+  the Atlas. Spec and stories M10.9–M10.12:
+  [detector-v1-3.md](../_bmad-output/specs/spec-trip-recognition-repair/detector-v1-3.md).
+  One open owner question: align the episode builder's 50 km grouping check
+  with the Home radius (recommended) or keep it internal.
+
 ## CAP-7 personal learning built for its one real trigger (2026-11-21)
 
 Completed item 4, the last of the agreed 4 (CAP-3's review-card UI/notice,

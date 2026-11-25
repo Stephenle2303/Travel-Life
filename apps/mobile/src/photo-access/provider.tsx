@@ -177,6 +177,24 @@ type PhotoAccessContextValue = {
   loadUncertainMemories(displayId: string, snapshotToken: number, query: string, page: number): Promise<{ memories: { id: string; capturedDay: string | null; availability: 'available' | 'unavailable' | 'unknown'; locationState: string; association: string; membershipState: 'suggested' | 'primary' | 'unassigned' | 'rejected' }[]; hasMore: boolean }>;
   /** CAP-3 (detector-v1-2.md): the real Possible-trips card list. */
   loadPossibleTrips(): Promise<import('@/reconstruction/types').PossibleTripSummary[]>;
+  /** M10.11 (decision 0023/detector-v1-3.md): the real Hidden outings card
+   * list. Empty until v1.3 is activated (M10.12) — see loadHiddenOutings'
+   * own doc comment in repository.ts. */
+  loadHiddenOutings(): Promise<import('@/reconstruction/types').HiddenOutingSummary[]>;
+  /** M10.10 (decision 0023/detector-v1-3.md): the Home radius dry-run
+   * preview shown before saving an edited radius. `null` when there is no
+   * completed run to preview against yet. */
+  previewHomeAreaRadius(areaId: string, radiusMeters: number): Promise<import('@/reconstruction/types').HomeRadiusPreview | null>;
+  /** M10.12 (decision 0023): the owner-facing v1.2/v1.3 comparison. `null`
+   * when there is no completed run to compare against yet. */
+  compareDetectorPolicy(): Promise<import('@/reconstruction/types').DetectorPolicyComparison | null>;
+  /** M10.12: which detector rule is currently active. Reads straight
+   * through to the repository rather than caching, since this is only
+   * read when the owner opens the comparison screen. */
+  loadDetectorPolicy(): Promise<import('@/reconstruction/types').DetectorPolicy>;
+  /** M10.12: the owner's explicit switch (to v1.3) or rollback (to v1.2),
+   * always followed by a rebuild so the new rule takes effect immediately. */
+  setDetectorPolicy(ruleVersion: import('@/reconstruction/types').DetectorPolicy): Promise<void>;
   /** CAP-3's owner-facing surface for clues the background pass held
    * back instead of silently lowering an Atlas trip. */
   loadPendingClueReviewCards(): Promise<{ cardId: string; reason: string; periodLabel: string | null; createdAtMillis: number }[]>;
@@ -207,7 +225,7 @@ type PhotoAccessContextValue = {
   travelWindowDiscovery?: AutomaticTravelWindowDiscovery;
 };
 
-type OptionalRepositoryMethods = 'loadCandidateShadowSnapshot' | 'verifyCandidateShadowSnapshot' | 'readCandidateShadowMedia' | 'saveCandidateShadowDecision' | 'loadJourneyMediaInspection' | 'hasPendingHomeProjection' | 'verifyJourneyMediaSnapshot' | 'hasReplayMapping' | 'reconcileReplayMutation' | 'findManualJourneyOverlaps' | 'createManualJourney' | 'removeManualJourney' | 'reviewJourneyPrivacy' | 'saveJourneyPrivacy' | 'loadJourneyPrivacyPolicies' | 'restoreJourneyPrivacy' | 'loadJourneyEligibility' | 'loadReplayManifestInput' | 'loadReplayEditorPreviewPage' | 'saveReplayDraft' | 'stageReplayWorkingDraft' | 'resetReplayDraft' | 'saveReplayPreparedArtifact' | 'applyJourneyPrivacyToRecord' | 'loadPossibleTrips' | 'runCluePass' | 'loadPendingClueReviewCards' | 'reviewClueCard' | 'rejectSameTripSuggestion'
+type OptionalRepositoryMethods = 'loadCandidateShadowSnapshot' | 'verifyCandidateShadowSnapshot' | 'readCandidateShadowMedia' | 'saveCandidateShadowDecision' | 'loadJourneyMediaInspection' | 'hasPendingHomeProjection' | 'verifyJourneyMediaSnapshot' | 'hasReplayMapping' | 'reconcileReplayMutation' | 'findManualJourneyOverlaps' | 'createManualJourney' | 'removeManualJourney' | 'reviewJourneyPrivacy' | 'saveJourneyPrivacy' | 'loadJourneyPrivacyPolicies' | 'restoreJourneyPrivacy' | 'loadJourneyEligibility' | 'loadReplayManifestInput' | 'loadReplayEditorPreviewPage' | 'saveReplayDraft' | 'stageReplayWorkingDraft' | 'resetReplayDraft' | 'saveReplayPreparedArtifact' | 'applyJourneyPrivacyToRecord' | 'loadPossibleTrips' | 'loadHiddenOutings' | 'previewHomeAreaRadius' | 'compareDetectorPolicy' | 'runCluePass' | 'loadPendingClueReviewCards' | 'reviewClueCard' | 'rejectSameTripSuggestion'
   | 'loadVisualPlaceOffer' | 'verifyVisualPlaceOffer' | 'reviewVisualPlaceOffer'
   | 'loadVisualDiscoveryEnabled' | 'setVisualDiscoveryEnabled' | 'loadVisualDiscoveryPage' | 'loadVisualDiscoveryAlbum' | 'verifyVisualDiscovery' | 'checkpointVisualDiscovery' | 'reviewVisualDiscovery';
 type ReconstructionRepositoryProp = Omit<ReturnType<typeof createNativeReconstructionRepository>, OptionalRepositoryMethods | 'verifySuggestedMergeReceipt'>
@@ -1263,6 +1281,57 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     if (privacyRuntime.mutating || privateRecord.state !== 'connected' || !nativeReconstructionRepository.loadPossibleTrips) return [];
     return nativeReconstructionRepository.loadPossibleTrips();
   }, [nativeReconstructionRepository, privateRecord.state, privacyRuntime]);
+  // M10.11 (decision 0023/detector-v1-3.md): the Hidden outings card's own
+  // passive list read, same lifecycle as loadPossibleTrips above.
+  const loadHiddenOutings = useCallback(async () => {
+    if (privacyRuntime.mutating || privateRecord.state !== 'connected' || !nativeReconstructionRepository.loadHiddenOutings) return [];
+    return nativeReconstructionRepository.loadHiddenOutings();
+  }, [nativeReconstructionRepository, privateRecord.state, privacyRuntime]);
+  // M10.10 (decision 0023/detector-v1-3.md): the Home radius dry-run
+  // preview, same guard pattern as loadPossibleTrips/loadHiddenOutings —
+  // a passive read, `null` rather than a throw when unavailable, since
+  // the Settings screen simply hides the preview in that case.
+  const previewHomeAreaRadius = useCallback(async (areaId: string, radiusMeters: number) => {
+    if (privacyRuntime.mutating || privateRecord.state !== 'connected' || !nativeReconstructionRepository.previewHomeAreaRadius) return null;
+    return nativeReconstructionRepository.previewHomeAreaRadius(areaId, radiusMeters);
+  }, [nativeReconstructionRepository, privateRecord.state, privacyRuntime]);
+  // M10.12 (decision 0023): the owner-facing v1.2/v1.3 comparison, same
+  // guard pattern as previewHomeAreaRadius.
+  const compareDetectorPolicy = useCallback(async () => {
+    if (privacyRuntime.mutating || privateRecord.state !== 'connected' || !nativeReconstructionRepository.compareDetectorPolicy) return null;
+    return nativeReconstructionRepository.compareDetectorPolicy();
+  }, [nativeReconstructionRepository, privateRecord.state, privacyRuntime]);
+  // M10.12: which detector rule is active. `loadDetectorPolicy` is
+  // optional on the repository shape (pre-M10.12 test doubles never
+  // implemented it); its own stored default (v1.2) is still correct for
+  // those, so this falls back to asking the repository for its own
+  // default rather than guessing a literal here.
+  const loadDetectorPolicy = useCallback(async (): Promise<import('@/reconstruction/types').DetectorPolicy> => {
+    if (!sharedRepository.loadDetectorPolicy) return 'trip-detector-v1.2';
+    return sharedRepository.loadDetectorPolicy();
+  }, [sharedRepository]);
+  const setDetectorPolicy = useCallback(async (ruleVersion: import('@/reconstruction/types').DetectorPolicy) => {
+    if (privateRecord.state !== 'connected' || !sharedRepository.setDetectorPolicy) throw new Error('Trip detection rule is unavailable.');
+    // The new policy must be written before rebuild() so this very rebuild
+    // uses it — but that leaves a real in-between state (policy written,
+    // classifications not yet recomputed under it) if the rebuild then
+    // fails. Revert the write on failure (code-review finding, 2026-11-23)
+    // so `detector_policy` never disagrees with what the stored
+    // classifications were actually computed under for longer than this
+    // one failed attempt.
+    const previous = sharedRepository.loadDetectorPolicy ? await sharedRepository.loadDetectorPolicy() : undefined;
+    await sharedRepository.setDetectorPolicy(ruleVersion);
+    durableRevealGate.invalidate();
+    setDurableReveal(null);
+    try {
+      const projection = await reconstructionController.rebuild();
+      if (projection.status !== 'complete') throw new Error('Trip rule switched, but local history rebuild did not complete.');
+      await refreshDurableReveal();
+    } catch (error) {
+      if (previous !== undefined) await sharedRepository.setDetectorPolicy(previous).catch(() => {});
+      throw error;
+    }
+  }, [privateRecord.state, sharedRepository, durableRevealGate, reconstructionController, refreshDurableReveal]);
   // CAP-3's owner-facing surface: clues the background pass held back
   // rather than silently lowering an Atlas trip.
   const loadPendingClueReviewCards = useCallback(async () => {
@@ -1869,7 +1938,14 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
         stale = true;
         throw new Error('Home editing is unavailable in this history.');
       }
-      const expected = prior ? { ...area, id: prior.id, radiusMeters: prior.radiusMeters } : area;
+      // M10.10 (decision 0023/detector-v1-3.md): the owner's chosen
+      // `area.radiusMeters` now takes effect on an edit, not just a new
+      // Home — this used to hardcode `prior.radiusMeters` here, silently
+      // discarding any radius the caller passed for an existing area (the
+      // UI never offered one, so this was a no-op until now). The area id
+      // itself still carries over from `prior` so editing never creates a
+      // second row under a new id.
+      const expected = prior ? { ...area, id: prior.id } : area;
       const matches = (home: typeof area | undefined) => home?.id === expected.id && home.label === expected.label
         && home.origin === expected.origin && home.latitude === expected.latitude && home.longitude === expected.longitude
         && home.radiusMeters === expected.radiusMeters && home.effectiveStartDay === expected.effectiveStartDay
@@ -1923,7 +1999,7 @@ export function PhotoAccessProvider({ children, adapter = nativePhotoAccess, rep
     if (projection.status !== 'complete') throw new Error('Home base removed but local history rebuild did not complete.');
     await refreshDurableReveal();
   }, [durableRevealGate, privateRecord.state, sharedRepository, homeBases, refreshHomeBases, reconstructionController, refreshDurableReveal]);
-  return <PhotoAccessContext.Provider value={{ snapshot, controller, importCoverage, privateRecord, privateRecordController, maintenance, maintenanceController, reconciliation, catchUpHistory, reconstruction, durableReveal, reviewJourneyPrivacy, saveJourneyPrivacy, loadJourneyPrivacyPolicies, restoreJourneyPrivacy, loadJourneyEligibility, loadReplayManifestInput, loadReplayEditorPreviewPage, loadPreparedReplay, replayEditSession, saveReplayDraft, stageReplayWorkingDraft, resetReplayDraft, preparePrivateReplay, exportPrivateReplay, discardPrivateReplay, findManualJourneyOverlaps, createManualJourney, removeManualJourney, homeBases, loadJourneyDetail, loadJourneyMediaPage, inspectJourneyMedia, loadRecognizableShadowPreview, loadRecognizableReveal, readRecognizableTrip, playRecognizableTrip, discardRecognizableTripPreview, reviewRecognizableTrip, loadUncertainMemories, loadPossibleTrips, loadPendingClueReviewCards, reviewClueCard, loadCluePassNotice, dismissCluePassNotice, rejectSameTripSuggestion, loadPersonalRules, removePersonalRule, confirmTimelineMerge, saveJourneyCorrection, saveJourneyMemoryCorrection, discardJourneyCorrectionPending, retryJourneyCorrectionProjection, saveConfiguredHomeArea, saveDirectHome, renameConfiguredHomeArea, removeConfiguredHomeArea, reconstructionController, aiReview, aiProposalController, visualDiscovery, travelWindowDiscovery }}>{children}</PhotoAccessContext.Provider>;
+  return <PhotoAccessContext.Provider value={{ snapshot, controller, importCoverage, privateRecord, privateRecordController, maintenance, maintenanceController, reconciliation, catchUpHistory, reconstruction, durableReveal, reviewJourneyPrivacy, saveJourneyPrivacy, loadJourneyPrivacyPolicies, restoreJourneyPrivacy, loadJourneyEligibility, loadReplayManifestInput, loadReplayEditorPreviewPage, loadPreparedReplay, replayEditSession, saveReplayDraft, stageReplayWorkingDraft, resetReplayDraft, preparePrivateReplay, exportPrivateReplay, discardPrivateReplay, findManualJourneyOverlaps, createManualJourney, removeManualJourney, homeBases, loadJourneyDetail, loadJourneyMediaPage, inspectJourneyMedia, loadRecognizableShadowPreview, loadRecognizableReveal, readRecognizableTrip, playRecognizableTrip, discardRecognizableTripPreview, reviewRecognizableTrip, loadUncertainMemories, loadPossibleTrips, loadHiddenOutings, previewHomeAreaRadius, compareDetectorPolicy, loadDetectorPolicy, setDetectorPolicy, loadPendingClueReviewCards, reviewClueCard, loadCluePassNotice, dismissCluePassNotice, rejectSameTripSuggestion, loadPersonalRules, removePersonalRule, confirmTimelineMerge, saveJourneyCorrection, saveJourneyMemoryCorrection, discardJourneyCorrectionPending, retryJourneyCorrectionProjection, saveConfiguredHomeArea, saveDirectHome, renameConfiguredHomeArea, removeConfiguredHomeArea, reconstructionController, aiReview, aiProposalController, visualDiscovery, travelWindowDiscovery }}>{children}</PhotoAccessContext.Provider>;
 }
 
 export function usePhotoAccess() {

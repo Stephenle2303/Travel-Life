@@ -12,8 +12,10 @@ function SectionHeading({ children }: { children: string }) {
  * CAP-3's real Possible-trips card (detector-v1-2.md): one closed reason
  * sentence per card, and a Set Home action for `home-not-set`. Keep/reject
  * is deliberately not reimplemented here — "Review outing" opens the
- * existing, already fully-instrumented journey correction screen, the same
- * path the main Atlas's confirmed trips already use.
+ * journey detail screen (photos first, then its Edit button), the same
+ * path the main Atlas's confirmed trips already use. It must not jump
+ * straight to the Edit hub: that screen has no photos, so the owner would
+ * be asked to confirm an outing they cannot see.
  */
 export function PossibleTripsV12Section({ trips, onReviewOuting, onSetHome }: {
   trips: readonly PossibleTripSummary[];

@@ -1,4 +1,4 @@
-import { possibleTripReasonSentence } from '@/reconstruction/possible-trip-copy';
+import { hiddenOutingReasonSentence, possibleTripReasonSentence } from '@/reconstruction/possible-trip-copy';
 import type { TripOutcomeReasonCode } from '@/reconstruction/types';
 
 describe('possibleTripReasonSentence (CAP-3, detector-v1-2.md)', () => {
@@ -24,5 +24,15 @@ describe('possibleTripReasonSentence (CAP-3, detector-v1-2.md)', () => {
     expect(sentence.length).toBeGreaterThan(0);
     expect(sentence.toLowerCase()).not.toContain("weren't");
     expect(sentence.toLowerCase()).not.toContain("wasn't");
+  });
+});
+
+describe('hiddenOutingReasonSentence (M10.11, decision 0023)', () => {
+  it('returns the exact closed sentence for the Hidden outings card\'s one reason', () => {
+    expect(hiddenOutingReasonSentence('brief-outing')).toBe('A short outing with only a few photos.');
+  });
+
+  it('stays in sync with possibleTripReasonSentence rather than a drifting second copy', () => {
+    expect(hiddenOutingReasonSentence('brief-outing')).toBe(possibleTripReasonSentence('brief-outing', 0));
   });
 });

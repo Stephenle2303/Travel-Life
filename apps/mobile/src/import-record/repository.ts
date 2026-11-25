@@ -1,6 +1,7 @@
 import type { CorrectionOverlay, PrivateRecordLifecycle } from '@/history-record';
 import { runOwnedTransaction, serializeNativeTransactions } from '@/database/native-transaction';
 import { nextFirstRevealReceipt, type FirstRevealReceipt } from '@/reconstruction/first-reveal-question';
+import { MAX_HOME_RADIUS_METERS, TRIP_OUTCOME_RULE_VERSION, type DetectorPolicy } from '@/reconstruction/types';
 import { classifyAppDiagnosticError, createDiagnosticCorrelationId, recordAppDiagnostic } from '@/diagnostics/app-diagnostics';
 import { assertReplicaOpen, trackReplicaConnection } from '@/account/replica-connections';
 
@@ -67,7 +68,7 @@ function clueReviewCardFromRow(row: ClueReviewCardRow): ClueReviewCard | null {
   catch { return null; }
 }
 
-export const CURRENT_SCHEMA_VERSION = 54;
+export const CURRENT_SCHEMA_VERSION = 56;
 const validCivilDay = (day: string | null) => Boolean(day && /^\d{4}-(0[1-9]|1[0-2])-([0-2]\d|3[01])$/.test(day)
   && new Date(`${day}T00:00:00.000Z`).toISOString().slice(0, 10) === day);
 
@@ -1073,6 +1074,65 @@ const migrationV54 = `
   UPDATE private_history_record SET schema_version = MAX(schema_version, 54) WHERE record_id = 1;
 `;
 
+// M10.10 (decision 0023/detector-v1-3.md): the owner's Home radius becomes
+// a free number up to 300 km (was a fixed 50 km ceiling). SQLite cannot
+// ALTER a CHECK constraint, so the table is rebuilt the same way
+// migrationV39 rebuilt it for `owner_label`/`origin` — rename, recreate,
+// copy, drop. Unlike migrationV39's rebuild, this table already carries
+// the three `home_projection_*` triggers added in that migration: they are
+// dropped first and recreated on the new table rather than left to ride
+// along through the rename/drop (SQLite's own rename-tracks-dependents
+// behavior is real but is not relied on here, so this migration's
+// correctness never depends on exactly which SQLite version runs it).
+// The `300000` literal below is the same ceiling as reconstruction/
+// types.ts's `MAX_HOME_RADIUS_METERS` — this raw SQL cannot import that
+// constant, so a future change to it must be made here too.
+const migrationV55 = `
+  DROP TRIGGER IF EXISTS home_projection_insert;
+  DROP TRIGGER IF EXISTS home_projection_edit;
+  DROP TRIGGER IF EXISTS home_projection_remove;
+  ALTER TABLE configured_home_area RENAME TO configured_home_area_v54;
+  CREATE TABLE configured_home_area (
+    area_id TEXT PRIMARY KEY,
+    latitude REAL NOT NULL CHECK (latitude BETWEEN -90 AND 90),
+    longitude REAL NOT NULL CHECK (longitude BETWEEN -180 AND 180),
+    effective_start_day TEXT NULL,
+    effective_end_day TEXT NULL,
+    radius_meters REAL NOT NULL CHECK (radius_meters > 0 AND radius_meters <= 300000),
+    owner_label TEXT NULL,
+    origin TEXT NOT NULL DEFAULT 'legacy' CHECK (origin IN ('observed-area','legacy','manual-pin')),
+    CHECK (effective_start_day IS NULL OR effective_end_day IS NULL OR effective_start_day <= effective_end_day)
+  );
+  INSERT INTO configured_home_area
+    SELECT area_id,latitude,longitude,effective_start_day,effective_end_day,radius_meters,owner_label,origin FROM configured_home_area_v54;
+  DROP TABLE configured_home_area_v54;
+  CREATE TRIGGER IF NOT EXISTS home_projection_insert AFTER INSERT ON configured_home_area
+  BEGIN UPDATE home_projection_context SET revision = revision + 1 WHERE record_id = 1; END;
+  CREATE TRIGGER IF NOT EXISTS home_projection_edit AFTER UPDATE OF latitude, longitude, radius_meters, effective_start_day, effective_end_day ON configured_home_area
+  WHEN OLD.latitude IS NOT NEW.latitude OR OLD.longitude IS NOT NEW.longitude OR OLD.radius_meters IS NOT NEW.radius_meters
+    OR OLD.effective_start_day IS NOT NEW.effective_start_day OR OLD.effective_end_day IS NOT NEW.effective_end_day
+  BEGIN UPDATE home_projection_context SET revision = revision + 1 WHERE record_id = 1; END;
+  CREATE TRIGGER IF NOT EXISTS home_projection_remove AFTER DELETE ON configured_home_area
+  BEGIN UPDATE home_projection_context SET revision = revision + 1 WHERE record_id = 1; END;
+  UPDATE private_history_record SET schema_version = MAX(schema_version, 55) WHERE record_id = 1;
+`;
+
+// M10.12 (decision 0023/detector-v1-3.md): the owner can now select
+// `trip-detector-v1.3` as the active rule. `detector_policy` has no
+// triggers and one row at most, so this rebuild is simpler than
+// migrationV55's — rename, recreate with the wider CHECK, copy, drop.
+const migrationV56 = `
+  ALTER TABLE detector_policy RENAME TO detector_policy_v50;
+  CREATE TABLE detector_policy (
+    record_id INTEGER PRIMARY KEY CHECK (record_id = 1),
+    rule_version TEXT NOT NULL CHECK (rule_version IN ('trip-detector-v1.1', 'trip-detector-v1.2', 'trip-detector-v1.3')),
+    activated_at_millis INTEGER NOT NULL
+  );
+  INSERT INTO detector_policy SELECT record_id, rule_version, activated_at_millis FROM detector_policy_v50;
+  DROP TABLE detector_policy_v50;
+  UPDATE private_history_record SET schema_version = MAX(schema_version, 56) WHERE record_id = 1;
+`;
+
 const migrationV42 = `
   CREATE TABLE IF NOT EXISTS recognizable_candidate_rejection (
     command_key TEXT PRIMARY KEY NOT NULL,
@@ -1332,6 +1392,8 @@ export async function ensureNativeImportSchema(db: SqliteDatabase) {
     if (version < 52) await db.execAsync(migrationV52);
     if (version < 53) await db.execAsync(migrationV53);
     if (version < 54) await db.execAsync(migrationV54);
+    if (version < 55) await db.execAsync(migrationV55);
+    if (version < 56) await db.execAsync(migrationV56);
     if (version === 0) await db.runAsync('INSERT INTO import_schema_version (version) VALUES (?)', CURRENT_SCHEMA_VERSION);
     else if (version < CURRENT_SCHEMA_VERSION) await db.runAsync('UPDATE import_schema_version SET version = ?', CURRENT_SCHEMA_VERSION);
     await db.execAsync('COMMIT');
@@ -1463,6 +1525,8 @@ export function createNativeImportRepository(options?: { databaseName: string })
           if (version < 52) await db.execAsync(migrationV52);
           if (version < 53) await db.execAsync(migrationV53);
           if (version < 54) await db.execAsync(migrationV54);
+          if (version < 55) await db.execAsync(migrationV55);
+          if (version < 56) await db.execAsync(migrationV56);
           if (version === 0) await db.runAsync('INSERT INTO import_schema_version (version) VALUES (?)', CURRENT_SCHEMA_VERSION);
           else if (version < CURRENT_SCHEMA_VERSION) await db.runAsync('UPDATE import_schema_version SET version = ?', CURRENT_SCHEMA_VERSION);
           await db.execAsync('COMMIT');
@@ -1506,7 +1570,7 @@ export function createNativeImportRepository(options?: { databaseName: string })
   function homeAreaLabel(area: ConfiguredHomeArea) {
     const label = area.label?.trim() || null;
     if (!area.id || (area.label !== null && !label) || !Number.isFinite(area.latitude) || !Number.isFinite(area.longitude) || !Number.isFinite(area.radiusMeters)
-      || area.latitude < -90 || area.latitude > 90 || area.longitude < -180 || area.longitude > 180 || area.radiusMeters <= 0 || area.radiusMeters > 50_000
+      || area.latitude < -90 || area.latitude > 90 || area.longitude < -180 || area.longitude > 180 || area.radiusMeters <= 0 || area.radiusMeters > MAX_HOME_RADIUS_METERS
       || (!validCivilDay(area.effectiveStartDay) && area.effectiveStartDay !== null) || (!validCivilDay(area.effectiveEndDay) && area.effectiveEndDay !== null)
       || (area.effectiveStartDay !== null && area.effectiveEndDay !== null && area.effectiveStartDay > area.effectiveEndDay)) throw new Error('Configured home area is invalid.');
     return label;
@@ -1676,6 +1740,29 @@ export function createNativeImportRepository(options?: { databaseName: string })
       await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
       try { await assertImportActive(db); await db.runAsync('DELETE FROM configured_home_area WHERE area_id = ?', id); await db.execAsync('COMMIT'); }
       catch (error) { await db.execAsync('ROLLBACK'); throw error; }
+    },
+    // M10.8 (CAP-8) / M10.12 (decision 0023): which detector rule the
+    // rebuild's qualification pass uses. No row at all means the sole,
+    // unconditionally-active default (`TRIP_OUTCOME_RULE_VERSION`, v1.2) —
+    // every device before this story ran with no row in this table, so a
+    // missing row must never be read as "undecided" or as v1.1/v1.3.
+    async loadDetectorPolicy() {
+      const db = await open();
+      const row = await db.getFirstAsync<{ rule_version: string }>('SELECT rule_version FROM detector_policy WHERE record_id = 1');
+      return (row?.rule_version as DetectorPolicy | undefined) ?? TRIP_OUTCOME_RULE_VERSION;
+    },
+    async setDetectorPolicy(ruleVersion, nowMillis = Date.now()) {
+      const db = await open();
+      await db.execAsync('BEGIN IMMEDIATE TRANSACTION');
+      try {
+        await assertImportActive(db);
+        await db.runAsync(
+          `INSERT INTO detector_policy (record_id, rule_version, activated_at_millis) VALUES (1, ?, ?)
+           ON CONFLICT(record_id) DO UPDATE SET rule_version = excluded.rule_version, activated_at_millis = excluded.activated_at_millis`,
+          ruleVersion, nowMillis,
+        );
+        await db.execAsync('COMMIT');
+      } catch (error) { await db.execAsync('ROLLBACK'); throw error; }
     },
     // AI clue layer (decision 0022, CAP-1/M11.1): pure persistence only. This
     // repository never interprets a clue's kind/value/strength — that is

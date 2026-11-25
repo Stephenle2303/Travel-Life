@@ -51,6 +51,11 @@ export type AppDiagnosticReasonCode =
   // "Set Home" action for `home-not-set`, once that card is built (CAP-7).
   | 'HOME_NOT_SET' | 'TIME_CONFLICT' | 'NO_LOCATION' | 'WEAK_LOCATION' | 'NEAR_HOME'
   | 'FREQUENT_PLACE' | 'FEW_PHOTOS' | 'SINGLE_MOMENT' | 'OWNER_VETO' | 'NO_AWAY_EVIDENCE' | 'NON_CAPTURE_SOURCE'
+  // trip-detector-v1.3's own addition (decision 0023, detector-v1-3.md):
+  // the Hidden outings card's reason for an episode that left Home with no
+  // strong trip signal. Benchmarked candidate only (outcome-v1-3.ts) —
+  // never emitted until M10.12 activates v1.3.
+  | 'BRIEF_OUTING'
   | 'START'
   | 'COMPLETE'
   | 'ATLAS_UPDATED'
@@ -96,6 +101,11 @@ export type AppDiagnosticReasonCode =
   | 'NANO_UNAVAILABLE' | 'NANO_BUSY' | 'NANO_BACKGROUND' | 'NANO_INPUT' | 'NANO_INFERENCE' | 'NANO_DOWNLOAD'
   // AI clue layer background pass (CAP-3, spec-ai-clue-layer/delivery-and-diagnostics.md).
   | 'MODEL_UNAVAILABLE' | 'BUDGET_EXHAUSTED' | 'CLUE_INVALID'
+  // M10.12 (decision 0023, code-review finding 2026-11-23): the active
+  // detector rule is clue-free (v1.3), so the pass has nothing safe to
+  // gate — simulating a clue's effect under v1.2 while v1.2 isn't the
+  // rule actually classifying journeys would answer the wrong question.
+  | 'CLUE_FREE_POLICY'
   | 'UNKNOWN';
 
 export type AppDiagnosticOutcome = 'complete' | 'unchanged' | 'paused' | 'blocked' | 'restricted' | 'skipped' | 'failed' | 'unknown';
@@ -110,6 +120,16 @@ export type AppDiagnosticEvent = Readonly<{
     // existing POSSIBLE_TRIP_REVIEW operation: the dev-preview shadow path's
     // CANDIDATE_* stages above are untouched.
     | 'POSSIBLE_TRIPS_LIST_READ' | 'POSSIBLE_TRIP_SET_HOME'
+    // M10.11's Hidden outings card (decision 0023/detector-v1-3.md), same
+    // POSSIBLE_TRIP_REVIEW operation as the card it sits below.
+    | 'HIDDEN_OUTINGS_LIST_READ'
+    // M10.10's Home radius dry-run preview (decision 0023/detector-v1-3.md):
+    // "N trips on Atlas / to review / hidden" at a candidate radius,
+    // before the owner saves it.
+    | 'HOME_RADIUS_PREVIEW'
+    // M10.12's owner-facing v1.2/v1.3 comparison (decision 0023), before
+    // the owner switches (or rolls back) the active detector rule.
+    | 'DETECTOR_POLICY_COMPARE'
     | 'HINT_ELIGIBILITY' | 'DATE_SEARCH' | 'MEDIA_SCOPE' | 'CONSENT_CHECK' | 'CONSENT_WRITE' | 'RECOGNITION' | 'LANDMARK_MODEL' | 'LANDMARK_MATCH' | 'RESULT_VALIDATE' | 'NANO_STATUS' | 'NANO_DOWNLOAD' | 'NANO_INFERENCE'
     | 'TRAVEL_WINDOW_CACHE_READ' | 'TRAVEL_WINDOW_CACHE_WRITE' | 'TRAVEL_WINDOW_REVIEW'
     | 'PACK_LOAD' | 'PACK_VALIDATE' | 'REGION_ROUTE' | 'CAPTURE_METADATA_READ'

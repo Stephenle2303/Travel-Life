@@ -60,6 +60,43 @@ describe('CAP-3 owner-facing review-card repository surface', () => {
     });
   });
 
+  describe('loadHiddenOutings (M10.11, decision 0023)', () => {
+    it('lists only NOT_TRIP journeys whose stored reason is brief-outing, skipping every other hidden reason', async () => {
+      mockGetAllAsync.mockImplementation(async (sql: string) => {
+        if (sql.includes("classification = 'NOT_TRIP'")) return [
+          { journey_id: 'brief-journey', reasons_json: '["brief-outing"]', first_year: 2026, last_year: 2026, first_day: '2026-03-01', last_day: '2026-03-01' },
+          { journey_id: 'in-home-journey', reasons_json: '["no-away-evidence"]', first_year: 2026, last_year: 2026, first_day: '2026-04-01', last_day: '2026-04-01' },
+          { journey_id: 'screenshot-journey', reasons_json: '["non-capture-source"]', first_year: 2026, last_year: 2026, first_day: '2026-05-01', last_day: '2026-05-01' },
+          { journey_id: 'gpsless-journey', reasons_json: '["no-location"]', first_year: 2026, last_year: 2026, first_day: '2026-06-01', last_day: '2026-06-01' },
+        ];
+        return [];
+      });
+      const outings = await createNativeReconstructionRepository().loadHiddenOutings();
+      expect(outings).toHaveLength(1);
+      expect(outings[0].reasonCode).toBe('brief-outing');
+      expect(outings[0].periodLabel).toBeTruthy();
+    });
+
+    it('returns an empty list, with no card, when there is no completed run', async () => {
+      mockGetFirstAsync.mockImplementation(async (sql: string) => {
+        if (sql.includes('SELECT version FROM import_schema_version')) return { version: 52 };
+        if (sql.includes('MAX(run_id)')) return null;
+        return null;
+      });
+      const outings = await createNativeReconstructionRepository().loadHiddenOutings();
+      expect(outings).toEqual([]);
+    });
+
+    it('records a START/COMPLETE diagnostic on the shared POSSIBLE_TRIP_REVIEW operation', async () => {
+      const diagnostic = jest.spyOn(console, 'info').mockImplementation(() => {});
+      try {
+        await createNativeReconstructionRepository().loadHiddenOutings();
+        expect(diagnostic).toHaveBeenCalledWith('[Travel Life diagnostic]', expect.objectContaining({ operation: 'POSSIBLE_TRIP_REVIEW', stage: 'HIDDEN_OUTINGS_LIST_READ', reasonCode: 'START' }));
+        expect(diagnostic).toHaveBeenCalledWith('[Travel Life diagnostic]', expect.objectContaining({ operation: 'POSSIBLE_TRIP_REVIEW', stage: 'HIDDEN_OUTINGS_LIST_READ', reasonCode: 'COMPLETE' }));
+      } finally { diagnostic.mockRestore(); }
+    });
+  });
+
   describe('reviewClueCard', () => {
     const pendingClue = {
       clueId: 'clue-e1', kind: 'photo-source', subject: { evidenceKeys: ['E:e1'] }, value: { source: 'camera' },
